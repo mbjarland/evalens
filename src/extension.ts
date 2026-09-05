@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 
 import { Evaluator } from './evaluate';
+import { fixKeybindingConflict, reportKeybindingConflicts } from './conflicts';
 import { resolveInterpreter } from './config';
 import { KernelClient } from './kernel/client';
 import { Annotations } from './render/annotations';
@@ -64,6 +65,11 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'evalens.fixKeybindingConflict', fixKeybindingConflict)
+  );
+
+  context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('evalens.pythonPath')) {
         // Drop the running kernel so the new interpreter is picked up without
@@ -75,6 +81,10 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push({ dispose: () => disposeClient() });
+
+  // Last, so the offer to fix a stolen keybinding cannot arrive before the
+  // command it is about is registered.
+  reportKeybindingConflicts(context, output);
 }
 
 export function deactivate(): void {

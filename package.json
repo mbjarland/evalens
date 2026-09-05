@@ -50,6 +50,10 @@
       {
         "command": "evalens.clearResults",
         "title": "Evalens: Clear Inline Results"
+      },
+      {
+        "command": "evalens.fixKeybindingConflict",
+        "title": "Evalens: Fix Keybinding Conflict"
       }
     ],
     "configuration": {

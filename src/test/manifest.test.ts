@@ -3,9 +3,20 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import { EVALUATE_AT_CURSOR, EVALUATE_WHEN, evaluateKey } from '../keybindings';
+
 const root = path.resolve(__dirname, '..', '..');
 const manifest = JSON.parse(
   fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+
+interface ManifestKeybinding {
+  readonly command: string;
+  readonly key: string;
+  readonly mac?: string;
+  readonly when?: string;
+}
+
+const keybindings: ManifestKeybinding[] = manifest.contributes?.keybindings ?? [];
 
 /**
  * The manifest and the code declare the same things in two places, and
@@ -33,6 +44,25 @@ test('every contributed command is registered in the source', () => {
 test('main points at a file the build produces', () => {
   assert.ok(fs.existsSync(path.join(root, manifest.main)),
     `${manifest.main} does not exist -- did the compile run?`);
+});
+
+test('the default stays on ctrl/cmd+enter', () => {
+  // AREPL owns this key too, and the fix for that is a user keybinding, not a
+  // different default: ctrl/cmd+enter is what Calva uses, what AREPL uses,
+  // and what this audience's fingers know. Ceding it would trade a solvable
+  // collision for a permanently worse default.
+  const binding = keybindings.find((b) => b.command === EVALUATE_AT_CURSOR);
+  assert.ok(binding, `${EVALUATE_AT_CURSOR} has no keybinding`);
+  assert.equal(binding.key, evaluateKey('other'));
+  assert.equal(binding.mac, evaluateKey('mac'));
+});
+
+test('the offered fix repeats the manifest context exactly', () => {
+  // The user keybinding Evalens hands out has to behave like the default it
+  // replaces. If the manifest's `when` is edited and this constant is not,
+  // the fix quietly starts binding a different context.
+  const binding = keybindings.find((b) => b.command === EVALUATE_AT_CURSOR);
+  assert.equal(binding?.when, EVALUATE_WHEN);
 });
 
 test('activation is scoped, not eager', () => {
