@@ -26,6 +26,26 @@
  * over, and `--listings` exists so a human can read the whole corpus end to end
  * and form the other half of the judgement.
  *
+ * None of the above can tell a right answer from a wrong one -- it counts
+ * silence, and a wrong value paints exactly as loudly as a right one. #96 (an
+ * annotation surviving on a line that had been commented out) and #92 (an
+ * import naming one of three bindings) were both found by the maintainer's
+ * eye, not by this file. So alongside the counts above, this harness also
+ * asserts five properties of a painted annotation against the AST or the
+ * buffer -- never against a recorded expected value, which would rot on the
+ * first legitimate rendering change and call it a regression:
+ *
+ *   - an annotation beside a line that holds no statement (#96's class);
+ *   - a line reporting fewer names than its statement bound (#92's class);
+ *   - a value anchored inside a statement's body rather than its header,
+ *     where the body opens with a comment (#93, unfixed as of this writing);
+ *   - an annotation for a statement a partial load never reached;
+ *   - a `0x` address in a painted annotation, already counted above and
+ *     repeated here because the project has decided it is always wrong.
+ *
+ * Structural because none of them ask "is this the right value" -- only "is
+ * this claim consistent with the file it is painted on."
+ *
  * Usage:
  *
  *     node bin/audit-corpus.js [--corpus DIR] [--include GLOB] [options]
@@ -37,6 +57,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 // Python must not leave `__pycache__` directories behind in a corpus it was
 // only asked to read. A course directory audited from here is somebody's
@@ -159,6 +180,89 @@ function plain(text) {
   return text.split(NBSP).join(' ');
 }
 
+// -- structural falsehood checks ---------------------------------------------
+//
+// Everything above counts silence: a statement that ran and painted nothing.
+// None of it can tell a wrong answer from a right one, because a wrong value
+// paints exactly as loudly as a right one -- #96 (an annotation surviving on
+// a commented-out line) and #92 (an import naming one of three bindings) were
+// both found by reading a screenshot, not by this file.
+//
+// What follows are five properties checked against the AST or the buffer
+// instead: not "is this the value we expect", which would rot the moment a
+// legitimate rendering change altered a string this file had recorded, but
+// "is this claim consistent with the file it is painted beside". A statement
+// either does or does not sit under the line an annotation claims for it,
+// regardless of what the renderer looks like next month.
+
+/** A buffer line that cannot open a statement: nothing on it, or a comment. */
+function isBlankOrComment(lineText) {
+  const stripped = lineText.trim();
+  return stripped === '' || stripped.startsWith('#');
+}
+
+/**
+ * How many names each module-level import binds, per Python's own `ast` --
+ * not `kernel/resolver.py`, which is exactly the module #92 found wrong.
+ * Cross-checking a claim against the code that produced it proves nothing;
+ * this asks the same question a second, independent way, so a check built on
+ * it cannot be fooled by the bug it exists to catch.
+ *
+ * Scoped to the module body, matching `forms_in`: a nested import has no
+ * outcome of its own to hold accountable, since nothing below the top level
+ * is annotated. `from x import *` is excluded -- its name count is decided at
+ * runtime by the exporting module, which is a different ticket with a
+ * different answer, not an instance of this one.
+ *
+ * A file that fails to parse at all yields no import records rather than
+ * throwing, so one broken lesson file costs this one check its answer for
+ * that one file rather than the whole corpus its reading.
+ */
+function importBindings(source, pythonBin) {
+  const script = [
+    'import ast, json, sys',
+    'try:',
+    '    tree = ast.parse(sys.stdin.read())',
+    'except SyntaxError:',
+    '    print("[]")',
+    '    sys.exit(0)',
+    'out = []',
+    'for node in tree.body:',
+    '    if not isinstance(node, (ast.Import, ast.ImportFrom)):',
+    '        continue',
+    '    names = []',
+    '    star = False',
+    '    for alias in node.names:',
+    '        if alias.name == "*":',
+    '            star = True',
+    '            continue',
+    '        names.append(alias.asname or alias.name.split(".")[0])',
+    '    out.append({',
+    '        "line": (node.end_lineno or node.lineno) - 1,',
+    '        "names": names,',
+    '        "star": star,',
+    '    })',
+    'print(json.dumps(out))',
+  ].join('\n');
+  try {
+    return JSON.parse(execFileSync(pythonBin, ['-c', script], {
+      input: source, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function emptyFalsehoods() {
+  return {
+    orphanAnchor: [],
+    bodyCommentAnchor: [],
+    importUndercount: [],
+    unreachedPainted: [],
+    address: [],
+  };
+}
+
 /**
  * How a painted annotation reports `None`, if it does.
  *
@@ -252,6 +356,14 @@ function emptyTally() {
     prompts: 0,
     /** Output written after the statement that started it returned -- #72. */
     lateOutput: 0,
+    /** Painted beside a line that holds no statement of its own -- #96's class. */
+    falsehoodOrphanAnchor: 0,
+    /** A multi-name import reporting fewer names than it bound -- #92's class. */
+    falsehoodImportUndercount: 0,
+    /** A header-anchored value landing on a comment that opens its body -- #93. */
+    falsehoodBodyCommentAnchor: 0,
+    /** Painted for a statement a partial load never reached. */
+    falsehoodUnreachedPainted: 0,
   };
 }
 
@@ -262,12 +374,21 @@ function emptyTally() {
  * counts annotations that survived the repeat rule, and the repeat rule runs
  * in file order because that is the direction a reader's eye travels looking
  * for the value it is a repeat of.
+ *
+ * `partialAt` is `response.partial.truncated_at` when the file's parse broke
+ * partway through, or `null` for an ordinary whole-file load; `imports` is
+ * `importBindings`'s independent count of what each import statement bound.
+ * Both are computed by the caller because both need information `measure`
+ * does not otherwise touch -- the raw response's `partial` field, and a
+ * second parse of the source text.
  */
-function measure(response, lines) {
+function measure(response, lines, partialAt, imports) {
   const tally = emptyTally();
   const records = [];
   const bareNones = [];
   const silentKinds = new Map();
+  const falsehoods = emptyFalsehoods();
+  const importsByLine = new Map((imports || []).map((entry) => [entry.line, entry]));
   const painted = new PaintedAbove();
   let annotated = 0;
 
@@ -370,13 +491,68 @@ function measure(response, lines) {
     }
     if (/\b0x[0-9a-f]{4,}\b/.test(said)) {
       tally.withAddress += 1;
+      falsehoods.address.push({ line: record.line, text: said });
     }
     if (/…\+[\d,]+ more/.test(said)) {
       tally.withMoreNames += 1;
     }
+
+    // -- the five structural falsehood checks --------------------------------
+    // See the module docstring. Every one of these looks at what is actually
+    // on screen (`record.line`, `host`, `said`) rather than at anything the
+    // resolver claims about itself, because the resolver is exactly what #92
+    // and #93 show can be wrong.
+
+    if (isBlankOrComment(host)) {
+      // #96's class: the line this annotation sits on holds no statement --
+      // a comment, or nothing at all. `fresh.anchor` is present only for a
+      // header-anchored compound statement (`_anchor_of` omits it otherwise),
+      // so a plain assignment or call can only land here through a genuinely
+      // orphaned line; a header-anchored one lands here through #93, and is
+      // also reported below with that more specific diagnosis.
+      tally.falsehoodOrphanAnchor += 1;
+      falsehoods.orphanAnchor.push({ line: record.line, host });
+      if (fresh.anchor !== undefined) {
+        tally.falsehoodBodyCommentAnchor += 1;
+        falsehoods.bodyCommentAnchor.push({ line: record.line, host });
+      }
+    }
+
+    if (partialAt !== null && partialAt !== undefined
+        && record.line !== null && record.line >= partialAt) {
+      // A partial load's own `results` cannot include a statement past the
+      // line parsing stopped at -- `parse_prefix` re-parses only the source
+      // text kept, so no form beyond it exists to run. This asserts that
+      // invariant rather than assuming it, so a change to the cut logic that
+      // broke it would be caught here rather than by a reader noticing a
+      // value beside code the load visibly never reached.
+      tally.falsehoodUnreachedPainted += 1;
+      falsehoods.unreachedPainted.push({ line: record.line, text: said, partialAt });
+    }
+
+    const importEntry = importsByLine.get(record.line);
+    // A line carrying the `…+N more` footnote is not under-reporting, it is
+    // disclosing. The per-line name cap elides on purpose and says so, which
+    // is design rule 1 satisfied rather than broken -- whether the cap picks
+    // the *right* names to keep is #85 and is a different question from
+    // whether the line tells the truth. Counting it here would make this
+    // check cry wolf on the one case that already behaves correctly, and a
+    // detector that reports honest disclosure as falsehood stops being read.
+    const discloses = /…\+\d+ more/.test(said);
+    if (importEntry && !importEntry.star && importEntry.names.length > 1
+        && !discloses) {
+      const missing = importEntry.names.filter(
+        (name) => !new RegExp(`\\b${name}\\b`).test(said));
+      if (missing.length > 0) {
+        tally.falsehoodImportUndercount += 1;
+        falsehoods.importUndercount.push({
+          line: record.line, bound: importEntry.names, missing, text: said,
+        });
+      }
+    }
   }
 
-  return { tally, records, bareNones, silentKinds };
+  return { tally, records, bareNones, silentKinds, falsehoods };
 }
 
 /**
@@ -439,6 +615,7 @@ async function auditFile(file, options) {
       records: [],
       bareNones: [],
       silentKinds: new Map(),
+      falsehoods: emptyFalsehoods(),
       stderr,
       ms: Date.now() - started,
     };
@@ -457,21 +634,25 @@ async function auditFile(file, options) {
       records: [],
       bareNones: [],
       silentKinds: new Map(),
+      falsehoods: emptyFalsehoods(),
       stderr,
       ms: Date.now() - started,
     };
   }
 
-  const measured = measure(response, lines);
+  const partialAt = response.partial ? response.partial.truncated_at : null;
+  // A second, independent parse of the same source text, so the import check
+  // is never answered by the code it exists to distrust -- see
+  // `importBindings`.
+  const imports = importBindings(source, options.python);
+  const measured = measure(response, lines, partialAt, imports);
   measured.tally.prompts = prompts;
   measured.tally.lateOutput = lateOutput;
   return {
     file,
     failed: null,
     ...measured,
-    partial: response.partial
-      ? response.partial.truncated_at
-      : null,
+    partial: partialAt,
     stderr,
     lines,
     ms: Date.now() - started,
@@ -698,6 +879,48 @@ async function main(argv) {
   console.log(`input() prompts, EOF-ed:      ${total.prompts}`);
   console.log(`unattributed late output:     ${total.lateOutput}`);
 
+  console.log('');
+  console.log('structural falsehoods -- properties of a painted annotation');
+  console.log('against the AST or the buffer, never against a recorded value:');
+  console.log(`  on a line with no statement of its own (#96's class): `
+    + `${total.falsehoodOrphanAnchor}`);
+  console.log(`  anchored on the comment that opens its body (#93):    `
+    + `${total.falsehoodBodyCommentAnchor}`);
+  console.log(`  a multi-name import reporting too few names (#92):    `
+    + `${total.falsehoodImportUndercount}`);
+  console.log(`  painted for a statement a partial load never reached: `
+    + `${total.falsehoodUnreachedPainted}`);
+  console.log(`  a 0x address in a painted annotation:                 `
+    + `${total.withAddress}`);
+
+  const falsehoodSections = [
+    ['orphanAnchor', "on a line with no statement of its own (#96's class)",
+      (item) => (item.host.trim() === ''
+        ? 'the line is blank'
+        : `the line reads: ${item.host.trim()}`)],
+    ['bodyCommentAnchor', 'anchored on the comment/blank line opening its body (#93)',
+      (item) => `the line reads: ${item.host.trim() === '' ? '(blank)' : item.host.trim()}`],
+    ['importUndercount', 'a multi-name import reporting too few names (#92)',
+      (item) => `bound ${item.bound.join(', ')} -- painted "${item.text}", `
+        + `missing ${item.missing.join(', ')}`],
+    ['unreachedPainted', 'painted for a statement a partial load never reached',
+      (item) => `painted "${item.text}", but the load stopped parsing at line `
+        + `${item.partialAt + 1}`],
+    ['address', 'a 0x address in a painted annotation',
+      (item) => `painted "${item.text}"`],
+  ];
+  for (const [key, label, describe] of falsehoodSections) {
+    const instances = measured.flatMap((result) => result.falsehoods[key].map(
+      (item) => ({ file: path.basename(result.file), ...item })));
+    if (instances.length > 0) {
+      console.log('');
+      console.log(`${label}:`);
+      for (const item of instances) {
+        console.log(`  ${item.file}:${item.line + 1}  ${describe(item)}`);
+      }
+    }
+  }
+
   const bare = measured.flatMap((result) => result.bareNones.map(
     (each) => ({ ...each, file: path.basename(result.file) })));
   if (bare.length > 0) {
@@ -762,6 +985,7 @@ async function main(argv) {
         ...result.tally,
         bareNones: result.bareNones,
         silentKinds: Object.fromEntries(result.silentKinds),
+        falsehoods: result.falsehoods,
       })),
     }, null, 2)}\n`);
   }
@@ -770,8 +994,9 @@ async function main(argv) {
 }
 
 module.exports = {
-  MAX_LOAD_ANNOTATIONS, annotationFor, auditFile, emptyTally, globToRegExp,
-  listing, measure, noneKind, noneSource, paintedText, plain, report, sum,
+  MAX_LOAD_ANNOTATIONS, annotationFor, auditFile, emptyFalsehoods, emptyTally,
+  globToRegExp, importBindings, isBlankOrComment, listing, measure, noneKind,
+  noneSource, paintedText, plain, report, sum,
 };
 
 if (require.main === module) {
