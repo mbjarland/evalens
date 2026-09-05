@@ -525,14 +525,18 @@ without the extension offering a setting of its own:
   "evalens.pendingForeground": "#8c8c8c",
   "evalens.pendingRegionBackground": "#8c8c8c26",
   "evalens.flashRegionBackground": "#4a9c8c66",
-  "evalens.annotationBorder": "#8d7a5a"
+  "evalens.annotationBorder": "#e0a3ff",
+  "evalens.annotationTint": "#ffffff0d"
 }
 ```
 
 Those are the dark-theme defaults, so the block above changes nothing until
-you edit it. If you dislike the gold, the first line is the whole fix. The
-two background colours are transparent by default; give either one a colour to
-render results as a chip instead of as bare text.
+you edit it. If you dislike the gold, the first line is the whole fix.
+`resultBackground` and `errorBackground` are contributed but not currently
+painted anywhere: #95 moved every state's background onto the shared
+`annotationTint` below, so setting either of the first two no longer changes
+anything. They stay contributed rather than removed, so a customization
+already made against them does not silently start failing.
 
 An annotation is painted in three colours rather than one, because it carries
 two kinds of thing. Values -- what the program produced, including the text
@@ -546,12 +550,21 @@ luminance and differ only in hue, warm against cool: that is the axis both
 common forms of colour blindness leave intact, so the two remain
 distinguishable where a red-green split would collapse.
 
-A 2px `annotationBorder` bar on the annotation's leading edge marks the whole
-of it as a surface distinct from the source line it sits beside, rather than
-a second comment; it defaults to `labelForeground` because it is chrome, not
-content. It takes on the colour of whatever state the annotation is actually
-in: `pendingForeground` while stale or still running, `errorForeground` on a
-raised statement. A bare line with no annotation never gets a bar.
+Two more things mark an annotation as a distinct surface, rather than a
+second comment sitting next to one you typed. A faint `annotationTint` washes
+behind the whole annotation, gaps between segments included, so it reads as
+one continuous panel — a tint is what a glyph cannot have, which is what
+makes it read as structure rather than as a stray character. On its leading
+edge, a 3px `annotationBorder` bar, corners squared rather than rounded so it
+cannot be mistaken for a parenthesis, with roughly ten pixels of breathing
+room on both sides so the tint does not hug the text it introduces. The bar
+is a saturated violet of its own rather than the dim `labelForeground`, which
+exists to recede and would make it the quietest thing on the row; the tint is
+one faint colour for every state, computed to stay clear of the contrast
+floors above. The bar takes on the colour of whatever state the annotation is
+actually in: `pendingForeground` while stale or still running,
+`errorForeground` on a raised statement. A bare line with no annotation never
+gets either.
 
 ## License
 

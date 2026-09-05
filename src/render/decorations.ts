@@ -40,8 +40,35 @@ export const COLOR_FLASH_REGION = 'evalens.flashRegionBackground';
  * and an error reddens it through `COLOR_ERROR` -- both already contributed
  * and already what that state's own text is painted in -- so the bar never
  * claims more confidence than the state it marks.
+ *
+ * Deliberately not `COLOR_LABEL`, though the ticket's first draft asked for
+ * "the label colour": that colour is dimmed on purpose, to recede behind the
+ * value it introduces, which makes it the quietest possible choice for a mark
+ * whose whole job is to be seen. The annotation sits beside the user's own
+ * trailing comment on real lines, often in near-identical text, and the bar
+ * is the one element that can say where one stops and the other starts -- so
+ * its default is its own saturated colour, distinct from the value's amber,
+ * the error's red, the output label's blue and the pending grey.
  */
 export const COLOR_ANNOTATION_BORDER = 'evalens.annotationBorder';
+
+/**
+ * The wash behind an annotation, the whole of it including the gaps between
+ * segments (#95, third revision).
+ *
+ * The bar alone still read as a stray character rather than as structure:
+ * characters do not have backgrounds, so nothing about a lone stroke told the
+ * reader it was looking at a surface rather than punctuation. A continuous
+ * tint under the annotation is what a glyph cannot have, which is what makes
+ * it read as a panel instead. It is deliberately one colour for every state
+ * rather than one per `Marker` -- the bar already carries that distinction,
+ * and a tint that also changed hue per state would be two signals for one
+ * fact. Computed faint, the way #83's palette was: low enough alpha that it
+ * cannot drop any foreground colour below the contrast floor `colors.test.ts`
+ * already asserts, so it can sit behind every role's text without needing a
+ * role of its own.
+ */
+export const COLOR_ANNOTATION_TINT = 'evalens.annotationTint';
 
 /**
  * The command the hover's link runs -- the one click from the annotation to
@@ -70,23 +97,48 @@ const MINIMUM_GAP = 2;
  * longer end where it used to. Only the outer edges carry it, and only the
  * outer corners are rounded, so however many pieces the line is painted in the
  * chip is one chip.
+ *
+ * The leading corners are square rather than rounded (#95, second revision).
+ * `border-radius` rounds whatever border is drawn on the box, and the #95 bar
+ * is a border on this same element -- a rounded corner made a short, curved,
+ * text-height stroke immediately before italic text, which the maintainer
+ * correctly read as an opening parenthesis rather than as structure. `CHIP`
+ * and `CHIP_FIRST` are the two edges the bar is ever drawn on (`chipAt` only
+ * returns them at slot 0, and both direct uses below always carry the bar
+ * too), so squaring their left corners unconditionally is safe: there is no
+ * bar-less caller left to regress. The trailing corner (`CHIP` and
+ * `CHIP_LAST`'s right side) carries no border, so it is free to stay rounded.
+ *
+ * Ten pixels rather than five on the outer edges (#95, third revision): the
+ * maintainer asked for it twice, once for each end of the run -- "the tint
+ * ... stops right at the leftmost pixel" of a value and again at the last
+ * character, both the same property, a tint that hugs its own text. Six
+ * pixels still read as a printing error and fourteen started to detach the
+ * bar from the text it introduces; ten is the middle of what was rendered and
+ * judged. All horizontal, so nothing here grows the inline-block vertically.
  */
-const CHIP = 'none; padding: 0 5px; border-radius: 3px;';
-const CHIP_FIRST = 'none; padding: 0 0 0 5px; border-radius: 3px 0 0 3px;';
+const CHIP = 'none; padding: 0 10px; border-radius: 0 3px 3px 0;';
+const CHIP_FIRST = 'none; padding: 0 0 0 10px; border-radius: 0;';
 const CHIP_MIDDLE = 'none; padding: 0;';
-const CHIP_LAST = 'none; padding: 0 5px 0 0; border-radius: 0 3px 3px 0;';
+const CHIP_LAST = 'none; padding: 0 10px 0 0; border-radius: 0 3px 3px 0;';
 
 /**
  * The `border` value that makes only the leading edge visible: every side
- * reset to `none`, then the left overridden to a solid 2px rule. `border` and
+ * reset to `none`, then the left overridden to a solid rule. `border` and
  * `borderColor` are the one place this file needs no CSS smuggled through
  * `textDecoration` -- the decoration API exposes both directly, and
  * `borderColor` takes a genuine `ThemeColor` the same way `color` does -- but
  * a single side is still not a shorthand CSS has a name for, so the override
  * is written the same way the padding above is: as a second declaration
  * inside the one string the field accepts.
+ *
+ * 3px rather than a 2px hairline, on the maintainer's revision to #95 after
+ * seeing the annotation in his own editor: a bar competing with a busy
+ * syntax-highlighted line, and sitting next to the user's own trailing
+ * comment on many real lines, has to be unmissable rather than tasteful. See
+ * `COLOR_ANNOTATION_BORDER` for the colour half of the same revision.
  */
-const BORDER_LEFT = 'none; border-left: 2px solid;';
+const BORDER_LEFT = 'none; border-left: 3px solid;';
 
 /** Which chip edge a segment carries, given where it sits in the line. */
 function chipAt(index: number, count: number): string {
@@ -233,7 +285,10 @@ export class Decorator implements vscode.Disposable {
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
     after: {
       color: new vscode.ThemeColor(COLOR_ERROR),
-      backgroundColor: new vscode.ThemeColor(COLOR_ERROR_BG),
+      // The #95 surface tint, not `COLOR_ERROR_BG`: the wash is one colour
+      // for every state (see `COLOR_ANNOTATION_TINT`), and an error's own
+      // loudness is the bar and the text, not a second background.
+      backgroundColor: new vscode.ThemeColor(COLOR_ANNOTATION_TINT),
       textDecoration: CHIP,
       fontStyle: 'italic',
       // The #95 bar takes the error colour here, never the annotation-border
@@ -251,6 +306,11 @@ export class Decorator implements vscode.Disposable {
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
     after: {
       color: new vscode.ThemeColor(COLOR_PENDING),
+      // The same surface tint as every other state, so a still-running
+      // statement is marked as a distinct surface exactly like a finished
+      // one -- the point the tint exists for does not stop applying just
+      // because there is nothing to read yet.
+      backgroundColor: new vscode.ThemeColor(COLOR_ANNOTATION_TINT),
       textDecoration: CHIP,
       fontStyle: 'italic',
       // Greyed with the rest of this state, for the same reason: a bright
@@ -291,7 +351,12 @@ export class Decorator implements vscode.Disposable {
           // user keeps editing.
           rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
           after: {
-            backgroundColor: new vscode.ThemeColor(COLOR_RESULT_BG),
+            // The #95 surface tint. Every one of these types shares this same
+            // static config, which is what makes the wash continuous across
+            // however many segments one annotation paints in: `CHIP_MIDDLE`
+            // carries no padding of its own, so two tinted segments meet with
+            // nothing untinted between them.
+            backgroundColor: new vscode.ThemeColor(COLOR_ANNOTATION_TINT),
             // Italic is what makes an annotation legible as not-code at a
             // glance, before colour is even processed. Rider leans on this and
             // it carries most of the separation.
