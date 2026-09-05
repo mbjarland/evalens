@@ -110,6 +110,7 @@ without a way to run these.
 | Evalens: Evaluate and Advance | The same, then moves to the next top-level statement — hold the key to walk a file |
 | Evalens: Evaluate File | Runs the file top to bottom, annotating each statement — or the selected statements, when there is a selection |
 | Evalens: Run File as Script | Runs the whole file the way `python3 file.py` would, so an `if __name__ == "__main__":` block runs |
+| Evalens: Evaluate Above Cursor | Resets the namespace and runs everything above the statement the cursor is in, stopping at the first failure |
 | Evalens: Clear Inline Results | Removes the annotations from the active editor |
 | Evalens: Announce Result at Cursor | Puts what is painted on the cursor's line into a notification, where a screen reader reads it |
 | Evalens: Interrupt Evaluation | Stops a running evaluation and keeps the namespace it built |
@@ -172,6 +173,25 @@ the call fails with `PicklingError: ... not found as __main__.<name>`, exactly
 as it would if the same function were defined in a Jupyter cell or a live
 REPL. Threads, `asyncio`, and everything else the guard is written to protect
 run exactly as `python3 file.py` would; only the process-pool case cannot.
+
+**Evalens: Evaluate Above Cursor gets a specific line ready to evaluate,
+without evaluating it.** Put the cursor on line 40 and press it: everything
+strictly above the statement the cursor is in runs, in order, annotated as
+it goes — and the statement the cursor is actually in never runs here, on
+purpose, because that is what Evaluate at Cursor is for. A cursor inside a
+multi-line statement is not a special case: whichever line of it the cursor
+is on, the whole statement is the boundary and stays unrun, since a
+statement never runs partway.
+
+It resets the namespace first, unconditionally, with no setting to turn
+that off. A partial run's only honest promise is that the namespace
+afterward matches what running the file from the top through the cursor
+would have produced, and a binding left over from an earlier keypress would
+quietly break that promise. Unlike Evaluate File, which keeps going after a
+broken line because a file being explored in is expected to have one,
+Evaluate Above Cursor stops at the first failure and reports which
+statement it was — a namespace built on top of a failure it did not stop
+for is one nobody can reason about.
 
 ## Keybindings
 

@@ -304,3 +304,40 @@ export function describeRun(
     ? `Evalens: ${counted}, widened to whole statements${caveat}`
     : `Evalens: ${counted}${caveat}`;
 }
+
+/**
+ * What `evaluateAbove` did (#13), for the status bar.
+ *
+ * Modeled on `describeLoad` and `describeRun` above, but neither's wording
+ * fits. `describeRun` talks about "the selection" and about `widened` --
+ * a user-drawn range snapping outward to whole statements -- and neither
+ * concept exists here: `evaluateAbove`'s range is derived from the cursor,
+ * never highlighted and never widened. `describeLoad`'s "ran X of Y
+ * statements, Z failed" phrasing assumes every one of Y was at least
+ * attempted, which is exactly what a run-above cannot promise: it stops at
+ * the first failure rather than running through the rest of the file the
+ * way a load does, so anything after that failure was never attempted at
+ * all, not merely uncounted. Saying "Z failed" there would read as a full
+ * sweep that happened to find one problem, when what actually happened is
+ * that the run stopped and the rest of the file above the cursor is
+ * unexamined. This says so plainly instead.
+ */
+export function describeAbove(
+  ran: number, total: number, failed: number, partialFrom?: number
+): string {
+  const caveat = partialFrom === undefined
+    ? ''
+    : `; line ${partialFrom + 1} onwards did not parse`;
+  if (total === 0) {
+    // Not an error: the cursor sits on or before the first statement in the
+    // file, so there is nothing above it to run -- the same non-error the
+    // other two report for an empty selection or an empty file.
+    return `Evalens: nothing above the cursor${caveat}`;
+  }
+  const counted = failed === 0
+    ? `ran ${total} statement${total === 1 ? '' : 's'} above the cursor`
+    : `ran ${ran} of ${total} statements above the cursor, stopped at a `
+      + 'failure';
+  return `Evalens: ${counted}${caveat}`;
+}
+

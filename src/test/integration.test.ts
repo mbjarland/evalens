@@ -671,6 +671,49 @@ test('loading a file makes a line near the bottom evaluate straight away', async
     'the namespace should be populated without evaluating line by line');
 });
 
+test('run above the cursor gets a line ready without running it', async (t) => {
+  // #13, end to end: the command exists so that evaluating one line does not
+  // require evaluating every line above it by hand first.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = ['a = 1', 'b = 2', 'c = a + b', 'c'].join('\n') + '\n';
+
+  const above = await client.request({
+    op: 'eval_above', allow_stdin: false, source, line: 3,
+    filename: '/tmp/evalens-above.py',
+  }) as FileLoaded;
+  assert.equal(above.ok, true);
+  assert.equal(above.statements, 3, 'a, b and c = a + b are above line 3');
+  assert.equal(above.ran, 3);
+
+  const value = await evaluate(client, source, 3) as Evaluated;
+  assert.equal(value.value, '3',
+    'line 3 should evaluate cleanly once everything above it has run');
+});
+
+test('run above the cursor resets the namespace first', async (t) => {
+  // A partial run's only honest premise is a namespace matching the file --
+  // a binding left over from an earlier keypress would quietly break it.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  await client.request({
+    op: 'eval', source: "stale = 'leftover'\n", line: 0, character: 0,
+    filename: '/tmp/evalens-above-reset.py', allow_stdin: false,
+  });
+  const before = await evaluate(client, 'stale\n', 0) as Evaluated;
+  assert.equal(before.value, "'leftover'");
+
+  await client.request({
+    op: 'eval_above', allow_stdin: false, source: 'fresh = 1\n\n', line: 1,
+    filename: '/tmp/evalens-above-reset.py',
+  });
+  const after = await evaluate(client, 'stale\n', 0) as Failed;
+  assert.equal(after.error.type, 'NameError',
+    'a leftover binding must not survive a run-above');
+});
+
 test('the __main__ guard does not run on load', async (t) => {
   // Load File means "import the module", and an imported module does not run
   // its main guard. False here because __name__ is the file's own name --

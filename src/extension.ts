@@ -124,6 +124,21 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    // #13: everything strictly above the statement the cursor is in, so that
+    // statement's own state matches a run from the top of the file. Resets
+    // the namespace first, on the kernel side, and stops at the first
+    // failure rather than running through the rest of the file the way
+    // Evaluate File does -- see `Evaluator.evaluateAbove`'s doc comment.
+    vscode.commands.registerCommand('evalens.evaluateAbove', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        return;
+      }
+      await evaluator?.evaluateAbove(editor);
+    })
+  );
+
+  context.subscriptions.push(
     // The separate, deliberate act #78 exists for: `__name__` is `"__main__"`
     // for this one run, so an `if __name__ == "__main__":` guard fires and
     // its body runs -- which Evaluate File must never do on its own, on every
