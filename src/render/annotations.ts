@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
-import { Annotation, Decorator } from './decorations';
-import { AnnotationRegistry, merge, reanchor } from './registry';
+import { Annotation, Decorator, sourceAt } from './decorations';
+import { AnnotationRegistry, afterEdit, merge, reanchor } from './registry';
 
 /**
  * Move an annotation `lines` further down the file, keeping its columns.
@@ -35,39 +35,50 @@ export const HAS_ANNOTATIONS = 'evalens.hasAnnotations';
 /**
  * Owns what is painted, and when it stops being painted.
  *
- * A stale value is worse than no value: an annotation left beside a line the
- * user has since edited is the extension asserting something untrue, and once
- * one annotation on screen can be wrong the user cannot trust any of them.
- * Everything here follows from that -- but only for the lines an edit actually
- * touched. An annotation ten lines above an edit was not made untrue by it,
- * and taking it away costs the user the thing they were reading.
+ * A value out of sync with the code beside it is the notebook's original sin,
+ * and this class is where Evalens either commits it or does not. An edit is
+ * not allowed to leave a value looking current when the kernel has not been
+ * told about the edit -- but the answer to that is to *say so*, not to take
+ * the value away. Wiping the document was the first reading of it and took
+ * every true value down with the one in doubt; dropping just the edited line
+ * was the second, and it hid the divergence by hiding the evidence of it.
+ * What is left on screen now is the value, the code that no longer matches it,
+ * and an amber marker in the gutter saying exactly that.
  */
 export class Annotations implements vscode.Disposable {
   private readonly registry = new AnnotationRegistry<Annotation>();
-  private readonly decorator = new Decorator();
+  private readonly decorator: Decorator;
   private readonly subscriptions: vscode.Disposable[] = [];
 
-  constructor() {
+  constructor(extensionUri: vscode.Uri) {
+    this.decorator = new Decorator(extensionUri);
     this.subscriptions.push(
       vscode.workspace.onDidChangeTextDocument((event) => {
-        // An edit invalidates what it touched, and nothing else. Wiping the
-        // document was the earlier reading of "a stale value is worse than no
-        // value", and it took the true values down with the stale one: change
-        // one number and the whole column you were reading goes.
+        // An edit invalidates what it touched, and nothing else. An
+        // annotation ten lines above it was not made untrue by it, and taking
+        // it away costs the user the thing they were reading.
         const uri = event.document.uri.toString();
         const before = this.registry.get(uri);
         if (before.length === 0) {
           return;
         }
 
-        const after = reanchor(before, event.contentChanges, shifted);
+        const after = reanchor(
+          before, event.contentChanges, shifted,
+          // The document has already been updated by the time this fires, so
+          // this reads what the statement says *after* the edit -- which is
+          // the only thing that can be compared with what it said when it
+          // ran. Nothing is asked of the kernel.
+          (annotation) => afterEdit(
+            annotation, sourceAt(event.document, annotation.range))
+        );
         if (after === before) {
           return;
         }
 
         // Nothing is re-evaluated here. A surviving annotation is still the
         // value its statement produced when it last ran, which is all it ever
-        // claimed to be.
+        // claimed to be -- and the marker is the extension saying so out loud.
         this.registry.set(uri, after);
         this.repaint(event.document);
         this.updateContext();
@@ -97,7 +108,16 @@ export class Annotations implements vscode.Disposable {
     this.updateContext();
   }
 
-  /** Add one annotation, displacing any it overlaps. */
+  /**
+   * Add one annotation, displacing any it overlaps.
+   *
+   * This is also the only thing that clears a stale marker, and it does so by
+   * construction rather than by rule: the annotation that arrives here came
+   * from an evaluation that just happened, so it starts life current, and
+   * `merge` puts it where the marked one was. Nothing anywhere unsets the
+   * flag, which is what keeps "the kernel agrees" from ever being asserted by
+   * something other than asking the kernel.
+   */
   add(document: vscode.TextDocument, annotation: Annotation): void {
     const uri = document.uri.toString();
     this.show(document, merge(this.registry.get(uri), annotation));

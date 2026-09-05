@@ -4,6 +4,7 @@ import {
   BindingTrace, LoopTrace, NamedValue, Range as KernelRange,
 } from '../kernel/protocol';
 import { alignmentGap, columnWidth, errorText, resultText } from './format';
+import { Marker, Traced, markerFor, normalizeSource } from './registry';
 
 /**
  * Theme colour ids contributed in package.json. Colours come from the theme
@@ -32,7 +33,21 @@ const MINIMUM_GAP = 2;
  */
 const CHIP = 'none; padding: 0 5px; border-radius: 3px;';
 
-export interface Annotation {
+/**
+ * Where the three state markers live, relative to the extension root.
+ *
+ * Files rather than theme colours, because `gutterIconPath` takes an image and
+ * there is no `ThemeColor` equivalent for the gutter -- so the light and dark
+ * variants are two files rather than two defaults. A test checks that every
+ * one of them exists, since a missing icon paints nothing at all and reports
+ * nothing at all.
+ */
+const GUTTER_DIR = ['media', 'gutter'];
+
+/** The three states, in the order they are painted. */
+const MARKERS: readonly Marker[] = ['evaluated', 'stale', 'error'];
+
+export interface Annotation extends Traced {
   readonly range: vscode.Range;
   /**
    * The line to write the value on, when that is not the end of `range`.
@@ -62,11 +77,21 @@ export interface Annotation {
 /**
  * Paints evaluation results into an editor.
  *
- * Two decoration layers rather than one, following Calva: the result text
- * hangs off the end of the line as an `after` decoration, and the region that
- * was evaluated gets its own background. Keeping them separate is what makes
- * the display legible -- one says what the answer is, the other says what
- * question was asked.
+ * Three decoration layers rather than one, following Calva for two of them:
+ * the result text hangs off the end of the line as an `after` decoration, and
+ * the region that was evaluated gets its own background. Keeping them separate
+ * is what makes the display legible -- one says what the answer is, the other
+ * says what question was asked.
+ *
+ * The third is the state marker in the gutter, and where it goes is the whole
+ * of the decision. Marking the annotation itself -- dimming it, greying it,
+ * striking it through -- makes the value compete with a claim about the value,
+ * in the one place on screen the reader is trying to read. A mark in the
+ * gutter sits outside the reading path and answers a question that is only
+ * ever asked deliberately. CIDER puts it in the fringe, Mathematica has put it
+ * in the cell bracket since 1996, and JupyterLab's review of the same feature
+ * turned down a request to mark the output. Three independent arrivals at the
+ * margin is not a coincidence.
  */
 export class Decorator implements vscode.Disposable {
   private readonly resultType = vscode.window.createTextEditorDecorationType({
@@ -104,11 +129,30 @@ export class Decorator implements vscode.Disposable {
     overviewRulerLane: vscode.OverviewRulerLane.Right,
   });
 
+  /** One decoration type per state, because each carries a different icon. */
+  private readonly markerTypes: ReadonlyMap<
+    Marker, vscode.TextEditorDecorationType>;
+
+  constructor(extensionUri: vscode.Uri) {
+    this.markerTypes = new Map(MARKERS.map((marker) => [
+      marker,
+      vscode.window.createTextEditorDecorationType({
+        gutterIconSize: 'contain',
+        // Light and dark are separate images rather than separate colours:
+        // the gutter takes an icon, and an icon carries its own palette.
+        dark: { gutterIconPath: iconFor(extensionUri, marker, 'dark') },
+        light: { gutterIconPath: iconFor(extensionUri, marker, 'light') },
+      }),
+    ]));
+  }
+
   /** Replace this editor's annotations with `annotations`. */
   show(editor: vscode.TextEditor, annotations: readonly Annotation[]): void {
     const results: vscode.DecorationOptions[] = [];
     const errors: vscode.DecorationOptions[] = [];
     const regions: vscode.DecorationOptions[] = [];
+    const markers = new Map<Marker, vscode.DecorationOptions[]>(
+      MARKERS.map((marker) => [marker, []]));
 
     const targetColumn = vscode.workspace
       .getConfiguration('evalens')
@@ -126,6 +170,13 @@ export class Decorator implements vscode.Disposable {
       const host = editor.document.lineAt(
         annotation.anchor ?? annotation.range.end.line);
       const at = new vscode.Range(host.range.end, host.range.end);
+
+      // On the line the value is written on, not on every line the statement
+      // covers: the marker is a claim about that value, and a twenty-line
+      // `def` with twenty markers down its side would read as twenty claims.
+      markers.get(markerFor(annotation))?.push({
+        range: new vscode.Range(host.range.start, host.range.start),
+      });
 
       // The gap goes in the margin rather than in the content, so it stays
       // outside the annotation's background. Padding the content instead
@@ -177,6 +228,12 @@ export class Decorator implements vscode.Disposable {
     editor.setDecorations(this.resultType, results);
     editor.setDecorations(this.errorType, errors);
     editor.setDecorations(this.regionType, regions);
+    for (const [marker, type] of this.markerTypes) {
+      // Every state is set on every paint, empty included: leaving one out
+      // leaves its previous icons in the gutter, so a marker that has gone
+      // amber would keep a green twin underneath it.
+      editor.setDecorations(type, markers.get(marker) ?? []);
+    }
   }
 
   clear(editor: vscode.TextEditor): void {
@@ -187,6 +244,9 @@ export class Decorator implements vscode.Disposable {
     this.resultType.dispose();
     this.errorType.dispose();
     this.regionType.dispose();
+    for (const type of this.markerTypes.values()) {
+      type.dispose();
+    }
   }
 }
 
@@ -196,4 +256,32 @@ export function toVsCodeRange(range: KernelRange): vscode.Range {
     range.start.line, range.start.character,
     range.end.line, range.end.character
   );
+}
+
+/** Where one state's icon lives, for one theme kind. */
+export function iconFor(
+  extensionUri: vscode.Uri, marker: Marker, theme: 'dark' | 'light'
+): vscode.Uri {
+  return vscode.Uri.joinPath(
+    extensionUri, ...GUTTER_DIR, `${marker}-${theme}.svg`);
+}
+
+/**
+ * What the lines an annotation covers say right now, folded for comparison.
+ *
+ * Whole lines rather than the statement's exact range, and that is the point
+ * rather than a shortcut: an edit that changes a line's indentation moves
+ * every column on it, so a range-precise read would start mid-token and
+ * report a change that is not one. A top-level statement owns its lines.
+ *
+ * Clamped, because an edit can shorten the document under an annotation that
+ * is on its way out.
+ */
+export function sourceAt(
+  document: vscode.TextDocument, range: vscode.Range
+): string {
+  const last = Math.min(range.end.line, document.lineCount - 1);
+  const first = Math.min(Math.max(range.start.line, 0), last);
+  return normalizeSource(document.getText(
+    new vscode.Range(first, 0, last, document.lineAt(last).text.length)));
 }

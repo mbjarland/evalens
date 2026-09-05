@@ -173,8 +173,18 @@ if __name__ != "__main__":
 
 # 10. A blank line resolves to nothing at all, and says so in the status bar
 #     rather than running the nearest statement instead.  The line below this
-#     comment is that blank line.  Then: type a character on any annotated
-#     line and its annotation should go; press Escape and all of them should.
+#     comment is that blank line.
+#
+#     Then the staleness demo, which takes four keystrokes.  Type a character
+#     on any annotated line: the value STAYS, and the marker in the gutter
+#     beside it breaks in two -- the kernel still holds what it holds, and now
+#     the file says so.  Undo it: still broken, because undo told the kernel
+#     nothing and only an evaluation may claim the two agree again.  Evaluate
+#     the line: whole bar.  Press Escape and every annotation goes.
+#
+#     Reindent the line instead of editing it, or leave a trailing space, and
+#     nothing changes -- a marker that goes amber for a formatter is a marker
+#     nobody reads.
 
 
 # ----------------------------------------------------------------- bindings --

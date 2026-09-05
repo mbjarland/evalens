@@ -134,6 +134,27 @@ default. Adding `Alt+Enter` is not ceding it — it is binding the key the
 top-level semantics always implied, and both keys run the same command until
 the inner-form command exists to take `Ctrl+Enter` back.
 
+## The marker in the gutter
+
+An annotation is a record of what a statement produced *when it ran*. Nothing
+re-reads it, and nothing re-runs your code to keep it current — so editing a
+line leaves a value that was true a moment ago sitting beside code that no
+longer produces it. That is the notebook's oldest failure, and the marker in
+the gutter is what keeps it visible here.
+
+| Marker | Means |
+|---|---|
+| Unbroken bar | Evaluated. The kernel holds what this line says |
+| Broken bar | Stale. The line has been edited since it ran; the value is out of sync with what the kernel has, not necessarily wrong |
+| Bar and dot | The evaluation raised, and the message is the annotation |
+
+**Only evaluating the statement again clears a stale marker.** Undo does not,
+and that is deliberate: putting the text back does not put the value back,
+because the kernel was never told anything. Whitespace-only edits — a
+reindent, a formatter on save, a trailing space — do not mark anything, and an
+edit that adds or removes lines inside a statement removes its annotation
+outright, because there is then no statement for the value to sit beside.
+
 ## Settings
 
 | Setting | Default | What it does |

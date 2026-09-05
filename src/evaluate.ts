@@ -7,7 +7,7 @@ import {
   EvalResponse, FileResponse, LatestWins, StatementOutcome,
 } from './kernel/protocol';
 import { Annotations } from './render/annotations';
-import { Annotation, toVsCodeRange } from './render/decorations';
+import { Annotation, sourceAt, toVsCodeRange } from './render/decorations';
 import { Flash } from './render/flash';
 import { describeLoad, describeRun, hoverFor, present } from './render/present';
 import { selectedLines, widenedBeyond } from './selection';
@@ -30,13 +30,23 @@ import { selectedLines, widenedBeyond } from './selection';
  */
 const MAX_LOAD_ANNOTATIONS = 200;
 
-/** The annotation for one loaded statement, or none if it has nothing to say. */
-function annotationFor(outcome: StatementOutcome): Annotation | undefined {
+/**
+ * The annotation for one loaded statement, or none if it has nothing to say.
+ *
+ * `document` is here for one field: the statement's own text, taken at the
+ * moment its value was, so that a later edit can be compared against what
+ * actually ran rather than guessed at. It is a snapshot and stays one --
+ * nothing re-reads the buffer to decide whether a value is still true.
+ */
+function annotationFor(
+  document: vscode.TextDocument, outcome: StatementOutcome
+): Annotation | undefined {
   if (!outcome.ok) {
     return outcome.range
       ? {
           range: toVsCodeRange(outcome.range),
           ...(outcome.anchor === undefined ? {} : { anchor: outcome.anchor }),
+          source: sourceAt(document, toVsCodeRange(outcome.range)),
           error: { type: outcome.error.type, message: outcome.error.message },
           hover: outcome.error.traceback || outcome.error.message,
         }
@@ -52,6 +62,7 @@ function annotationFor(outcome: StatementOutcome): Annotation | undefined {
   return {
     range: toVsCodeRange(outcome.range),
     ...(outcome.anchor === undefined ? {} : { anchor: outcome.anchor }),
+    source: sourceAt(document, toVsCodeRange(outcome.range)),
     ...(outcome.value === null ? {} : { value: outcome.value }),
     display: outcome.display,
     ...(outcome.loop === undefined ? {} : { loop: outcome.loop }),
@@ -192,6 +203,7 @@ export class Evaluator {
       if (response.range) {
         this.annotations.add(document, {
           range: toVsCodeRange(response.range),
+          source: sourceAt(document, toVsCodeRange(response.range)),
           error: { type: response.error.type, message: response.error.message },
           hover: response.error.traceback || response.error.message,
         });
@@ -224,7 +236,7 @@ export class Evaluator {
       if (annotated >= MAX_LOAD_ANNOTATIONS) {
         continue;
       }
-      const annotation = annotationFor(outcome);
+      const annotation = annotationFor(document, outcome);
       if (annotation) {
         this.annotations.add(document, annotation);
         annotated += 1;
@@ -302,6 +314,9 @@ export class Evaluator {
             ...(presentation.anchor === undefined
               ? {}
               : { anchor: presentation.anchor }),
+            // Taken now, beside the value, so an edit can be judged against
+            // the code that actually ran rather than against the buffer.
+            source: sourceAt(document, toVsCodeRange(presentation.range)),
             error: { type: presentation.type, message: presentation.message },
             hover: presentation.hover,
           }
@@ -310,6 +325,7 @@ export class Evaluator {
             ...(presentation.anchor === undefined
               ? {}
               : { anchor: presentation.anchor }),
+            source: sourceAt(document, toVsCodeRange(presentation.range)),
             display: presentation.display,
             // A loop that ran zero times has a trace and no value, which is
             // still an answer -- and the only thing that keeps the previous

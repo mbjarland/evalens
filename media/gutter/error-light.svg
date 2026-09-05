@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- Error: bar and dot, which reads as an exclamation mark rather than as
+       a green bar in another colour. -->
+  <rect x="6" y="2.5" width="4" height="7.5" rx="2" fill="#c62828"/>
+  <circle cx="8" cy="12.4" r="1.6" fill="#c62828"/>
+</svg>

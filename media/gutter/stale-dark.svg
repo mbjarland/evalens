@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- Stale: the same bar, broken. Out of sync with what the kernel has.
+       The gap carries the meaning as well as the colour does, so the two
+       states are still one glance apart for a red-green colour-blind reader. -->
+  <rect x="6" y="2.5" width="4" height="4.25" rx="2" fill="#d9a441"/>
+  <rect x="6" y="9.25" width="4" height="4.25" rx="2" fill="#d9a441"/>
+</svg>

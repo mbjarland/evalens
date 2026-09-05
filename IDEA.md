@@ -210,9 +210,24 @@ Well-documented, well-trodden.
   the better version of that.
 - **Value formatting.** Truncation limits, nesting depth, hover-for-full,
   and sensible `repr()` handling of large or cyclic structures.
-- **Decoration lifecycle.** Clear what an edit touched, dismiss on Escape,
-  reposition the rest as the document changes. Fiddly rather than
-  difficult.
+- **Decoration lifecycle.** Reposition annotations as the document
+  changes, dismiss on Escape, and *mark* what an edit touched rather than
+  clearing it. Fiddly rather than difficult.
+- **Staleness, which is the price of the trace.** An annotation shows
+  what a statement produced when it ran and is never re-read, so an edit
+  puts the value and the code out of step — the notebook's oldest
+  failure, reproduced in a text file with two statements. The answer
+  every tool that met this converged on is *mark stale, never re-run*:
+  CIDER turns its green fringe marker amber when a form is edited,
+  meaning "out of sync with what the REPL has" rather than "wrong", and
+  Mathematica has carried per-unit state in the cell bracket since 1996.
+  So Evalens paints a three-state marker — evaluated, stale, error — in
+  the **gutter**, and not on the annotation: dimming the value would put
+  a claim about the value in competition with the value, in the one place
+  on screen the reader is reading. JupyterLab was asked for exactly that
+  and declined. Re-evaluating clears the mark and nothing else does, undo
+  included — the buffer can be put back, the kernel cannot, and only an
+  evaluation is entitled to say the two agree again.
 
 ## Prior art: take the display approach from Calva
 

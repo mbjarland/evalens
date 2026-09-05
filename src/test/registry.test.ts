@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  AnnotationRegistry, lineDelta, merge, overlaps, reanchor,
+  AnnotationRegistry, afterEdit, lineDelta, markerFor, merge, normalizeSource,
+  overlaps, reanchor,
 } from '../render/registry';
 
 test('annotations belong to a document, not to the window', () => {
@@ -126,11 +127,19 @@ function edit(from: number, to: number, text: string) {
 /**
  * Stands in for the shell's `vscode.Range` rebuild. Keeping the move in a
  * callback is what lets the arithmetic be tested outside the extension host.
+ *
+ * Generic so it can move an annotation carrying a value and a mark as well as
+ * a bare one -- and the spread is the point: everything but the range comes
+ * across, which is what keeps a stale marker attached to a line that moved.
  */
-function shift(annotation: Marked, lines: number): Marked {
-  return at(
-    annotation.range.start.line + lines, annotation.id,
-    annotation.range.end.line + lines);
+function shift<T extends Marked>(annotation: T, lines: number): T {
+  return {
+    ...annotation,
+    range: {
+      start: { line: annotation.range.start.line + lines },
+      end: { line: annotation.range.end.line + lines },
+    },
+  };
 }
 
 function placed(annotations: readonly Marked[]): string[] {
@@ -149,9 +158,10 @@ test('a line delta counts what an edit added against what it replaced', () => {
     'CRLF still contains exactly one line break');
 });
 
-test('editing a line drops that annotation and no other', () => {
-  // The complaint that opened the ticket: change range(8) to range(7) and the
-  // whole column of values you were reading goes with it.
+test('editing a line drops that annotation when nothing can judge it', () => {
+  // The three-argument form is for callers with no document to compare
+  // against, and it keeps the older, blunter answer. The fourth argument is
+  // what turns a drop into a mark, and it is what the extension passes.
   const before = [at(0, 'a'), at(2, 'b'), at(4, 'c')];
   const after = reanchor(before, [edit(2, 2, '7')], shift);
 
@@ -230,4 +240,180 @@ test('an edit reaching into the next line takes its annotation too', () => {
   const after = reanchor(before, [edit(2, 3, '')], shift);
 
   assert.deepEqual(placed(after), []);
+});
+
+// -- staleness ---------------------------------------------------------------
+
+/** An annotation carrying the two things staleness is decided from. */
+interface Valued extends Marked {
+  readonly value: string;
+  readonly source?: string;
+  readonly stale?: boolean;
+}
+
+/** One annotation per line, as evaluating each line in turn would leave. */
+function evaluatedLines(lines: readonly string[]): Valued[] {
+  return lines.map((text, line) => ({
+    range: { start: { line }, end: { line } },
+    id: `line${line}`,
+    value: `v${line}`,
+    source: normalizeSource(text),
+  }));
+}
+
+/**
+ * The callback the editor shell passes: read the lines the annotation now
+ * covers out of the document, and decide from those.
+ */
+function against(lines: readonly string[]) {
+  return (annotation: Valued): Valued => afterEdit(annotation, normalizeSource(
+    lines.slice(annotation.range.start.line, annotation.range.end.line + 1)
+      .join('\n')));
+}
+
+function markers(annotations: readonly Valued[]): boolean[] {
+  return annotations.map((a) => a.stale === true);
+}
+
+test('normalising a statement ignores the whitespace around it', () => {
+  // JupyterLab's rule, from the review of the same feature: an edit that could
+  // not change what the statement produces must not turn the marker amber, or
+  // a formatter on save repaints the file and the marker stops being believed.
+  assert.equal(normalizeSource('x = 1  '), 'x = 1', 'a trailing space');
+  assert.equal(normalizeSource('    x = 1'), 'x = 1', 'reindentation');
+  assert.equal(normalizeSource('x = 1\r'), 'x = 1', 'a CRLF document');
+  assert.equal(normalizeSource('if x:\n\n    pass'), 'if x:\npass',
+    'a blank line added inside a statement');
+  assert.notEqual(normalizeSource('x = 1'), normalizeSource('x = 2'),
+    'a real change has to survive normalisation');
+  assert.notEqual(normalizeSource('x=1'), normalizeSource('x = 1'),
+    'folding these together would need a tokeniser, and would hide real edits');
+});
+
+test('editing a line marks it stale and leaves every value alone', () => {
+  // The ticket's acceptance case. Three lines evaluated, the first edited: its
+  // marker goes amber, the other two stay green, and nothing on screen moves.
+  const before = evaluatedLines(['x = 1', 'y = 2', 'z = 3']);
+  const after = reanchor(
+    before, [edit(0, 0, '5')], shift, against(['x = 5', 'y = 2', 'z = 3']));
+
+  assert.deepEqual(markers(after), [true, false, false]);
+  assert.deepEqual(after.map((a) => a.value), ['v0', 'v1', 'v2'],
+    'the marker is the whole of what changes; the values are a trace and stay');
+  assert.equal(after[1], before[1],
+    'an annotation the edit did not touch must not even be rebuilt');
+});
+
+test('re-evaluating is what clears stale, and nothing else is', () => {
+  // Not a rule enforced anywhere: the annotation an evaluation produces simply
+  // has no mark on it, and merge puts it where the marked one was. There is no
+  // code path that unsets the flag, which is the point.
+  const [marked] = reanchor(
+    evaluatedLines(['x = 1']), [edit(0, 0, '5')], shift, against(['x = 5']));
+  assert.equal(marked?.stale, true);
+
+  const rerun: Valued = {
+    range: { start: { line: 0 }, end: { line: 0 } },
+    id: 'line0', value: '5', source: 'x = 5',
+  };
+  assert.deepEqual(merge([marked!], rerun).map((a) => a.stale), [undefined]);
+});
+
+test('undoing the edit does not clear stale', () => {
+  // The case that decides whether this feature is honest. The buffer can be
+  // put back; the kernel cannot, because nobody told it anything. Clearing the
+  // marker here would assert that the two agree again, which is a claim
+  // nothing has checked -- and the same undo after a re-evaluation would be
+  // asserting something flatly untrue.
+  const before = evaluatedLines(['x = 1']);
+  const edited = reanchor(
+    before, [edit(0, 0, '5')], shift, against(['x = 5']));
+  const undone = reanchor(
+    edited, [edit(0, 0, '1')], shift, against(['x = 1']));
+
+  assert.deepEqual(markers(undone), [true],
+    'the text matches again; the value the kernel holds does not');
+});
+
+test('a whitespace-only edit marks nothing and costs no repaint', () => {
+  const before = evaluatedLines(['x = 1', 'y = 2']);
+  const after = reanchor(
+    before, [edit(0, 0, ' ')], shift, against(['x = 1  ', 'y = 2']));
+
+  assert.equal(after, before,
+    'identity is the signal to skip setDecorations, and this must keep it');
+});
+
+test('reindenting a block does not mark the statement inside it', () => {
+  const before: Valued[] = [{
+    range: { start: { line: 0 }, end: { line: 1 } },
+    id: 'def', value: '<function f>',
+    source: normalizeSource('def f():\n    return 1'),
+  }];
+  const after = reanchor(
+    before, [edit(1, 1, '        ')], shift,
+    against(['def f():', '        return 1']));
+
+  assert.equal(after, before);
+});
+
+test('an annotation with no recorded source is marked, not trusted', () => {
+  const before: Valued[] = [{
+    range: { start: { line: 0 }, end: { line: 0 } }, id: 'a', value: 'v',
+  }];
+  const after = reanchor(before, [edit(0, 0, 'x')], shift, against(['x = 1']));
+
+  assert.deepEqual(markers(after), [true],
+    'unknown has to count as changed, or the marker means nothing');
+});
+
+test('an edit that changes the line count still drops what it covered', () => {
+  // Splitting a statement in two leaves no statement for the value to sit
+  // beside. A marked annotation pinned to half of one, or to whatever the
+  // paste put there, is the failure the marker exists to prevent.
+  const before = evaluatedLines(['x = 1', 'y = 2']);
+  const after = reanchor(
+    before, [edit(0, 0, '\n')], shift, against(['x = ', '1', 'y = 2']));
+
+  assert.deepEqual(placed(after), ['line1@2-2']);
+  assert.deepEqual(markers(after), [false],
+    'the surviving annotation moved; nothing about it changed');
+});
+
+test('a mark is decided after every change, not while they are applied', () => {
+  // One event, two cursors: a space appended to the annotated line at the
+  // bottom, and a line inserted above it. The annotation ends up one line
+  // lower than it started, and the whitespace rule only holds if the
+  // comparison reads it there. Reading it where it used to be finds a blank
+  // line, decides the statement changed beyond recognition, and paints amber
+  // for an edit that was a space.
+  const before: Valued[] = [
+    {
+      range: { start: { line: 0 }, end: { line: 0 } },
+      id: 'top', value: 'v0', source: 'x = 1',
+    },
+    {
+      range: { start: { line: 2 }, end: { line: 2 } },
+      id: 'bottom', value: 'v2', source: 'y = 2',
+    },
+  ];
+  const after = reanchor(
+    before, [edit(2, 2, ' '), edit(1, 1, '\n')], shift,
+    against(['x = 1', '', '', 'y = 2 ']));
+
+  assert.deepEqual(placed(after), ['top@0-0', 'bottom@3-3']);
+  assert.deepEqual(markers(after), [false, false]);
+});
+
+test('the three states are told apart, and stale outranks error', () => {
+  assert.equal(markerFor({}), 'evaluated');
+  assert.equal(markerFor({ error: { type: 'NameError', message: 'x' } }),
+    'error');
+  assert.equal(markerFor({ stale: true }), 'stale');
+  // A failure whose statement has since been edited is not the current code's
+  // failure. Leaving it red asserts that the line in front of the reader
+  // raises, and nobody has run the line in front of the reader.
+  assert.equal(
+    markerFor({ stale: true, error: { type: 'NameError', message: 'x' } }),
+    'stale');
 });

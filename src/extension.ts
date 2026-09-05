@@ -23,7 +23,7 @@ export function activate(context: vscode.ExtensionContext): void {
   output = vscode.window.createOutputChannel('Evalens');
   context.subscriptions.push(output);
 
-  annotations = new Annotations();
+  annotations = new Annotations(context.extensionUri);
   context.subscriptions.push(annotations);
 
   context.subscriptions.push(
