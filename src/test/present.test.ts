@@ -102,3 +102,28 @@ test('an error with an empty traceback still has something to hover', () => {
   assert.equal((present(response, 0) as { hover: string }).hover,
     "unknown op 'nonsense'");
 });
+
+test("a loop's sequence reaches the presentation intact", () => {
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: '4', display: 'p',
+    kind: 'For', range, stdout: '', stderr: '',
+    loop: { values: ['1', '2', '3', '4'], last: null, count: 4 },
+  };
+  const result = present(response, 3) as { loop: { count: number }; hover: string };
+  assert.equal(result.loop.count, 4);
+  assert.equal(result.hover, 'p = 1, 2, 3, 4\n4 iterations');
+});
+
+test('a loop that ran zero times is still something to paint', () => {
+  // value is null, as it is for an `if` -- but unlike an `if`, this has an
+  // answer, and skipping it leaves the previous run's value on screen.
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: null, display: 'p',
+    kind: 'For', range, stdout: '', stderr: '',
+    loop: { values: [], last: null, count: 0 },
+  };
+  const result = present(response, 3);
+  assert.equal(result.kind, 'value');
+  assert.equal((result as { hover?: string }).hover,
+    'p = (no iterations)\n0 iterations');
+});

@@ -1,10 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { LoopTrace } from '../kernel/protocol';
 import {
-  SEPARATOR, alignmentGap, collapseLines, columnWidth, errorText,
-  preserveSpacing, resultText,
+  SEPARATOR, alignmentGap, collapseLines, columnWidth, errorText, hoverText,
+  preserveSpacing, resultText, sequenceText,
 } from '../render/format';
+
+function trace(
+  values: string[], last: string | null, count = values.length
+): LoopTrace {
+  return { values, last, count };
+}
 
 const NBSP = ' ';
 
@@ -92,4 +99,61 @@ test('an expression keeps the arrow instead of being echoed', () => {
 test('no display at all falls back to the arrow', () => {
   assert.equal(resultText('42'), preserveSpacing('=> 42'));
   assert.equal(resultText('42', null), preserveSpacing('=> 42'));
+});
+
+test('a loop shows the sequence, not the value it stopped on', () => {
+  // The point of the whole feature: `p: 4` is true and nearly useless.
+  assert.equal(resultText('4', 'p', trace(['1', '2', '3', '4'], null)),
+    preserveSpacing('p: 1, 2, 3, 4'));
+});
+
+test('a long loop is elided with a count of what is not shown', () => {
+  // Ten thousand values would not fit and would not be read. The count is
+  // what stops the summary from pretending to be the whole run.
+  assert.equal(
+    sequenceText(trace(['1', '2', '3', '4', '5'], '10000', 10000)),
+    '1, 2, 3, 4, 5, … (+9,994 more) … 10000');
+});
+
+test('the elided count is grouped the same way wherever it runs', () => {
+  // toLocaleString() renders 9.994 on a German machine, which is ambiguous
+  // next to a Python repr() and makes this test depend on where it runs.
+  assert.equal(sequenceText(trace(['0'], '999999', 1000000)),
+    '0, … (+999,998 more) … 999999');
+  assert.equal(sequenceText(trace(['0'], '999', 1000)),
+    '0, … (+998 more) … 999');
+});
+
+test('nothing is elided when the last value is the next one along', () => {
+  assert.equal(sequenceText(trace(['1', '2', '3', '4', '5'], '6', 6)),
+    '1, 2, 3, 4, 5, 6');
+});
+
+test('a loop that ran zero times says so', () => {
+  // The target keeps whatever an earlier run left in it, so "the sequence was
+  // empty" and "the sequence ended at 4" look identical without this.
+  assert.equal(sequenceText(trace([], null, 0)), '(no iterations)');
+  assert.equal(resultText('', 'p', trace([], null, 0)),
+    preserveSpacing('p: (no iterations)'));
+});
+
+test('a multi-line value in a sequence still collapses to one line', () => {
+  // A decoration is one line whether it holds one value or six.
+  assert.equal(sequenceText(trace(['Point(\n  x=1\n)', '2'], null)),
+    'Point( x=1 ), 2');
+  assert.equal(sequenceText(trace(['1'], 'Point(\n  x=9\n)', 40)),
+    '1, … (+38 more) … Point( x=9 )');
+});
+
+test('a hover names the binding and says how many iterations there were', () => {
+  // The line is elided; the hover is where the count belongs.
+  assert.equal(hoverText('p', '10000', trace(['1'], '10000', 10000)),
+    'p = 1, … (+9,998 more) … 10000\n10000 iterations');
+  assert.equal(hoverText('p', '1', trace(['1'], null, 1)),
+    'p = 1\n1 iteration');
+});
+
+test('a hover without a loop is unchanged', () => {
+  assert.equal(hoverText('lst', '[1, 2, 3]'), 'lst = [1, 2, 3]');
+  assert.equal(hoverText(null, '[1, 2, 3]'), '[1, 2, 3]');
 });

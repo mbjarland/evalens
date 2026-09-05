@@ -436,6 +436,119 @@ class Descriptions(KernelTest):
                 self.k.evaluate(source, 2)["value"], "<Config instance>")
 
 
+class Loops(KernelTest):
+    """A `for` reports the sequence it ran through, not where it stopped.
+
+    `p: 4` is true and nearly useless: the reason to run a loop in an
+    exploration file is to watch what it does, and every iteration but the
+    last is thrown away.
+    """
+
+    def test_a_loop_reports_every_value_its_target_held(self):
+        result = self.k.evaluate("for p in [1, 2, 3, 4]:\n    pass\n", 0)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["display"], "p")
+        self.assertEqual(
+            result["loop"],
+            {"values": ["1", "2", "3", "4"], "last": None, "count": 4})
+
+    def test_the_value_is_still_the_last_iteration(self):
+        # A reader of the wire that knows nothing about `loop` shows something
+        # true rather than nothing.
+        result = self.k.evaluate("for p in [1, 2, 3, 4]:\n    pass\n", 0)
+        self.assertEqual(result["value"], "4")
+
+    def test_an_ordinary_statement_carries_no_loop_at_all(self):
+        self.assertNotIn("loop", self.k.evaluate("x = 1 + 1\n", 0))
+
+    def test_a_long_loop_is_bounded_rather_than_sent_whole(self):
+        result = self.k.evaluate("for p in range(10000):\n    pass\n", 0)
+        self.assertEqual(result["loop"]["values"], ["0", "1", "2", "3", "4"])
+        self.assertEqual(result["loop"]["last"], "9999")
+        self.assertEqual(result["loop"]["count"], 10000)
+
+    def test_break_shows_the_values_up_to_the_break(self):
+        result = self.k.evaluate(
+            "for p in [1, 2, 3, 4]:\n    if p == 3:\n        break\n", 0)
+        self.assertEqual(result["loop"]["values"], ["1", "2", "3"])
+
+    def test_continue_still_records_the_iteration_it_skipped(self):
+        result = self.k.evaluate(
+            "for p in [1, 2, 3]:\n    if p == 2:\n        continue\n", 0)
+        self.assertEqual(result["loop"]["values"], ["1", "2", "3"])
+
+    def test_a_loop_over_mutable_objects_shows_what_each_iteration_held(self):
+        # The same list every time, mutated by the body. Taking the repr() at
+        # the end would report [0, 1, 2] three times, which reads as three
+        # observations of nothing changing.
+        result = self.k.evaluate_lines(
+            "row = []\n"
+            "for r in [row, row, row]:\n    r.append(len(r))\n", 0, 1)
+        self.assertEqual(result["loop"]["values"], ["[]", "[0]", "[0, 1]"])
+
+    def test_a_tuple_target_records_the_tuple(self):
+        result = self.k.evaluate(
+            "for k, v in {'a': 1, 'b': 2}.items():\n    pass\n", 0)
+        self.assertEqual(result["display"], "(k, v)")
+        self.assertEqual(result["loop"]["values"], ["('a', 1)", "('b', 2)"])
+
+    def test_a_loop_that_never_runs_says_so_rather_than_lying(self):
+        # The target is never bound, so reading it afterwards either raises
+        # NameError or -- worse -- returns what an earlier loop left in it and
+        # reports a value this one never produced.
+        result = self.k.evaluate_lines(
+            "p = 99\nfor p in []:\n    pass\n", 0, 1)
+        self.assertTrue(result["ok"], result)
+        self.assertIsNone(result["value"])
+        self.assertEqual(result["loop"]["count"], 0)
+
+    def test_each_recorded_value_is_capped_before_the_wire(self):
+        result = self.k.evaluate(
+            "for s in ['x' * 5000, 'y' * 5000]:\n    pass\n", 0)
+        for value in result["loop"]["values"]:
+            self.assertLess(len(value), 400)
+            self.assertIn("truncated from", value)
+
+    def test_a_traceback_from_inside_a_loop_points_at_the_real_line(self):
+        # The injected statement carries the `for` line, so the body keeps its
+        # own. Without that, a traceback quotes a line the user never wrote.
+        result = self.k.evaluate(
+            "for p in [1, 2, 3]:\n    if p == 2:\n"
+            "        raise ValueError('two')\n", 0, filename="/tmp/user.py")
+        self.assertFalse(result["ok"])
+        self.assertIn("line 3", result["error"]["traceback"])
+        self.assertIn("raise ValueError", result["error"]["traceback"])
+        self.assertNotIn("loops.py", result["error"]["traceback"])
+        self.assertNotIn("evalens_kernel.py", result["error"]["traceback"])
+
+    def test_the_loop_leaves_no_machinery_in_the_namespace(self):
+        self.k.evaluate("for p in [1, 2]:\n    pass\n", 0)
+        listed = self.k.evaluate("sorted(dir())\n", 0)["value"]
+        self.assertNotIn("evalens_loops", listed)
+
+    def test_a_function_defined_in_a_loop_still_works_afterwards(self):
+        # Its own loops run when it is called, long after this evaluation
+        # finished; instrumenting them would plant a NameError inside it.
+        src = ("fns = []\n"
+               "for i in [1, 2]:\n"
+               "    def make(n=i):\n"
+               "        out = []\n"
+               "        for j in range(n):\n"
+               "            out.append(j)\n"
+               "        return out\n"
+               "    fns.append(make)\n"
+               "[f() for f in fns]\n")
+        self.assertEqual(
+            self.k.evaluate_lines(src, 0, 1, 8)["value"], "[[0], [0, 1]]")
+
+    def test_loading_a_file_reports_a_loops_sequence_too(self):
+        result = self.k.send(op="eval_file",
+                             source="for p in [1, 2, 3]:\n    pass\n",
+                             filename="/tmp/module.py")
+        self.assertEqual(result["results"][0]["loop"]["values"],
+                         ["1", "2", "3"])
+
+
 class Protocol(KernelTest):
     def test_responses_carry_the_request_id(self):
         self.assertEqual(self.k.send(op="ping", id=77)["id"], 77)

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-import { Range as KernelRange } from '../kernel/protocol';
+import { LoopTrace, Range as KernelRange } from '../kernel/protocol';
 import { alignmentGap, columnWidth, errorText, resultText } from './format';
 
 /**
@@ -36,6 +36,8 @@ export interface Annotation {
   readonly value?: string;
   /** The expression whose value this is, when it names a binding. */
   readonly display?: string | null;
+  /** Every value a loop's target held; displaces `value` when present. */
+  readonly loop?: LoopTrace;
   readonly error?: { readonly type: string; readonly message: string };
   readonly hover?: string;
 }
@@ -131,14 +133,17 @@ export class Decorator implements vscode.Disposable {
             },
           },
         });
-      } else if (annotation.value !== undefined) {
+      } else if (annotation.value !== undefined || annotation.loop !== undefined) {
         results.push({
           range: at,
           hoverMessage,
           renderOptions: {
             after: {
               margin,
-              contentText: resultText(annotation.value, annotation.display),
+              // A loop that ran zero times has a trace and no value, and
+              // still has something to report.
+              contentText: resultText(
+                annotation.value ?? '', annotation.display, annotation.loop),
             },
           },
         });

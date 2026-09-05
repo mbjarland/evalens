@@ -51,6 +51,27 @@ export interface Unresolved {
   readonly resolved: false;
 }
 
+/**
+ * What a `for` loop's target held, iteration by iteration.
+ *
+ * A loop's final value is true and nearly useless: the reason to run one in an
+ * exploration file is to watch what it does, and every iteration but the last
+ * is thrown away. The kernel rewrites the loop to record each iteration as it
+ * begins, and sends the result bounded rather than whole -- `values` are the
+ * leading iterations, `last` is the final one when it is not already among
+ * them, and `count` is how many there were. A loop over a million rows costs
+ * six strings, not a million.
+ *
+ * Every entry is a `repr()` taken *at that iteration*, never afterwards. A
+ * loop over mutable objects would otherwise report the same final state N
+ * times, which is worse than one value because it reads as N observations.
+ */
+export interface LoopTrace {
+  readonly values: readonly string[];
+  readonly last: string | null;
+  readonly count: number;
+}
+
 export interface Evaluated {
   readonly id: number;
   readonly ok: true;
@@ -72,6 +93,8 @@ export interface Evaluated {
   readonly range: Range;
   readonly stdout: string;
   readonly stderr: string;
+  /** Present only for a `for` / `async for`. */
+  readonly loop?: LoopTrace;
 }
 
 export interface Failed {
@@ -98,6 +121,7 @@ export type StatementOutcome =
       readonly range: Range;
       readonly stdout: string;
       readonly stderr: string;
+      readonly loop?: LoopTrace;
     }
   | {
       readonly ok: false;

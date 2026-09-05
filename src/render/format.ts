@@ -5,6 +5,8 @@
  * without an editor, and the part with the one non-obvious rule.
  */
 
+import { LoopTrace } from '../kernel/protocol';
+
 /** Reads as annotation rather than as code the user wrote. */
 export const SEPARATOR = '=>';
 
@@ -42,6 +44,46 @@ export function collapseLines(text: string): string {
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/;
 
 /**
+ * Thousands separators, without asking the host what locale it is in.
+ *
+ * `toLocaleString()` would render `9,994` here and `9.994` on a German
+ * machine, which makes the count ambiguous next to a Python `repr()` and
+ * makes the test for it depend on where it runs.
+ */
+function grouped(count: number): string {
+  return String(count).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+/**
+ * A loop's iterations on one line: `1, 2, 3, … (+9,994 more) … 10000`.
+ *
+ * The elision is what makes this safe to paint at all. Ten thousand values
+ * would not fit and would not be read; the first few say what the loop starts
+ * with, the last says where it ended up -- which for a loop stopped by
+ * `break` is the value it broke on, the thing you were looking for -- and the
+ * count in between says how much is not being shown, so the summary never
+ * pretends to be the whole run.
+ *
+ * A loop that ran zero times says so. It is a real and easily missed answer:
+ * the target is left holding whatever a previous run put there, so "the
+ * sequence was empty" and "the sequence ended at 4" look identical otherwise.
+ */
+export function sequenceText(loop: LoopTrace): string {
+  if (loop.count === 0) {
+    return '(no iterations)';
+  }
+  const shown = loop.values.map(collapseLines);
+  if (loop.last === null) {
+    return shown.join(', ');
+  }
+  const elided = loop.count - loop.values.length - 1;
+  const tail = collapseLines(loop.last);
+  return elided > 0
+    ? `${shown.join(', ')}, … (+${grouped(elided)} more) … ${tail}`
+    : [...shown, tail].join(', ');
+}
+
+/**
  * The painted annotation for a successful evaluation.
  *
  * Names the binding when there is one, following Rider's inline values:
@@ -52,12 +94,37 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/;
  * An expression is not a binding, so `sum([10, 20])` keeps the arrow.
  * Labelling it `sum([10, 20]): 30` would repeat the line back at the reader
  * and crowd out the only new information on it.
+ *
+ * A loop displaces `value` with its whole sequence: `p: 1, 2, 3, 4` rather
+ * than `p: 4`. `value` is still the last iteration, so a caller that ignores
+ * the trace shows something true rather than nothing.
  */
-export function resultText(value: string, display?: string | null): string {
+export function resultText(
+  value: string, display?: string | null, loop?: LoopTrace | null
+): string {
   const label = display && IDENTIFIER.test(display)
     ? `${display}:`
     : SEPARATOR;
-  return preserveSpacing(`${label} ${collapseLines(value)}`);
+  const shown = loop ? sequenceText(loop) : collapseLines(value);
+  return preserveSpacing(`${label} ${shown}`);
+}
+
+/**
+ * The full text for the hover, where there is room for what the line elides.
+ *
+ * One place rather than two: the cursor path and the file-load path both need
+ * it, and a hover that says something different depending on which command
+ * produced it is a bug nobody would think to look for.
+ */
+export function hoverText(
+  display: string | null | undefined, value: string, loop?: LoopTrace | null
+): string {
+  if (!loop) {
+    return display ? `${display} = ${value}` : value;
+  }
+  const sequence = sequenceText(loop);
+  const bound = display ? `${display} = ${sequence}` : sequence;
+  return `${bound}\n${loop.count} iteration${loop.count === 1 ? '' : 's'}`;
 }
 
 /**

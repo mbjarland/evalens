@@ -4,7 +4,7 @@ import * as path from 'node:path';
 
 import { KernelClient } from '../kernel/client';
 import {
-  Evaluated, EvalResponse, Failed, FileLoaded,
+  Evaluated, EvalResponse, Failed, FileLoaded, LoopTrace,
 } from '../kernel/protocol';
 import { errorText, resultText } from '../render/format';
 import { present } from '../render/present';
@@ -266,4 +266,62 @@ test('an instance keeps whichever repr its class actually has', async (t) => {
   const described = await evaluate(client, plain, 2) as Evaluated;
   assert.equal(described.value, '<Temp2 instance>');
   assert.match(described.repr ?? '', /0x[0-9a-f]+/);
+});
+
+test('a loop annotates its whole sequence, through the real kernel', async (t) => {
+  // The ticket's acceptance case, end to end: kernel -> resolver -> loop
+  // rewrite -> client -> present -> format. `p: 4` is what this replaces.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'for p in [1, 2, 3, 4]:\n    pass\n';
+  const shown = present(await evaluate(client, source, 0), 0) as {
+    kind: string; value: string | null; display: string | null; loop?: LoopTrace;
+  };
+
+  assert.equal(shown.kind, 'value');
+  assert.equal(
+    resultText(shown.value ?? '', shown.display, shown.loop).replace(/ /g, ' '),
+    'p: 1, 2, 3, 4');
+});
+
+test('a ten thousand row loop arrives bounded, not whole', async (t) => {
+  // The wire must not carry ten thousand strings, and the line must not try
+  // to render them.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const result = await evaluate(
+    client, 'for p in range(10000):\n    pass\n', 0) as Evaluated;
+  assert.equal(result.loop?.count, 10000);
+  assert.equal(result.loop?.values.length, 5);
+  assert.equal(
+    resultText(result.value ?? '', result.display, result.loop)
+      .replace(/ /g, ' '),
+    'p: 0, 1, 2, 3, 4, … (+9,994 more) … 9999');
+});
+
+test('a mutable loop reports each iteration, not the end state', async (t) => {
+  // The same list three times, mutated by the body. A repr() taken at the end
+  // would say [0, 1, 2] three times -- which looks like three observations.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'row = []\nfor r in [row, row, row]:\n    r.append(len(r))\n';
+  await evaluate(client, source, 0);
+  const result = await evaluate(client, source, 1) as Evaluated;
+  assert.deepEqual(result.loop?.values, ['[]', '[0]', '[0, 1]']);
+});
+
+test('a loop stopped by break annotates the value it broke on', async (t) => {
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const result = await evaluate(
+    client,
+    'for p in [1, 2, 3, 4]:\n    if p == 3:\n        break\n', 0) as Evaluated;
+  assert.equal(
+    resultText(result.value ?? '', result.display, result.loop)
+      .replace(/ /g, ' '),
+    'p: 1, 2, 3');
 });

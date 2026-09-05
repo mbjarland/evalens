@@ -101,6 +101,16 @@ returns nothing. The resolution: exec the statement, then separately
 evaluate the assignment *target* and display that. For a bare expression
 statement, just display its value.
 
+A `for` loop is the exception, and the interesting one. Its target holds
+only the last element once the loop is over, so reading it afterwards
+throws away every iteration but one — which is the thing you ran the loop
+to watch. The body is instrumented instead: a recorder injected as its
+first statement takes `repr()` of the target as each iteration begins, and
+the annotation shows the sequence, bounded — `p: 1, 2, 3, 4`, or
+`p: 0, 1, 2, 3, 4, … (+9,994 more) … 9999` for a long one. It is the one
+place a value is shown without the target being re-read afterwards;
+`kernel/loops.py` carries the reasoning.
+
 ### 3. Rendering the overlay
 
 `vscode.window.createTextEditorDecorationType({ after: { contentText: ' => [1, 2, 3]' } })`

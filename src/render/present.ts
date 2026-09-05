@@ -1,4 +1,5 @@
-import { EvalResponse, Range } from '../kernel/protocol';
+import { EvalResponse, LoopTrace, Range } from '../kernel/protocol';
+import { hoverText } from './format';
 
 /**
  * What to show for a kernel response.
@@ -18,6 +19,8 @@ export type Presentation =
       readonly value: string | null;
       /** The expression the value came from, for labelling. */
       readonly display: string | null;
+      /** Every value a loop's target held, when the statement was a loop. */
+      readonly loop?: LoopTrace;
       readonly hover?: string;
     }
   | {
@@ -51,14 +54,24 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
     return { kind: 'nothing', message: 'Evalens: nothing to evaluate here' };
   }
 
+  // A loop that ran zero times has no value and still has something to say --
+  // that it ran zero times. Treating "no value" as "nothing to paint" would
+  // leave the previous run's binding on screen as the answer.
+  const speaks = response.value !== null || response.loop !== undefined;
+
   return {
     kind: 'value',
     range: response.range,
     value: response.value,
     display: response.display,
-    ...(response.value === null
-      ? {}
-      : { hover: hoverFor(response.display, response.value, response.repr) }),
+    ...(response.loop === undefined ? {} : { loop: response.loop }),
+    ...(speaks
+      ? {
+          hover: hoverFor(
+            response.display, response.value ?? '', response.repr, response.loop
+          ),
+        }
+      : {}),
   };
 }
 
@@ -69,13 +82,17 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
  * one-line summary of it. `repr` is where that stays true for the values the
  * kernel describes rather than reprs: the line reads `area(w, h)`, and the
  * `<function area at 0x…>` it replaced is one hover away rather than gone.
+ *
+ * The substitution is the only decision made here; `hoverText` still does the
+ * rendering, including a loop's sequence, so the cursor path and the file-load
+ * path cannot drift into saying different things about the same response.
  */
 export function hoverFor(
-  display: string | null, value: string, repr?: string
+  display: string | null, value: string, repr?: string, loop?: LoopTrace | null
 ): string {
-  const full = repr ?? value;
-  return display ? `${display} = ${full}` : full;
+  return hoverText(display, repr ?? value, loop);
 }
+
 
 /**
  * What a file load did, said as an outcome rather than as an abort.

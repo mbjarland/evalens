@@ -27,6 +27,16 @@ JSON escapes newlines, so line framing is safe for arbitrary source text.
 Python reprs by memory address it is a description instead, and an extra
 ``repr`` field then carries the untouched original -- see ``describe``.
 
+A ``for`` loop answers with one extra field, ``loop``, holding the sequence
+its target ran through rather than only the value it stopped on::
+
+    <- {..., "display":"p", "value":"4",
+        "loop":{"values":["1","2","3","4"],"last":null,"count":4}}
+
+``values`` are leading iterations, ``last`` is the final one when it is not
+already among them, and ``count`` is how many there were. The extension turns
+the three into one line; see ``loops`` for why the shape is bounded.
+
 Coordinates are VS Code's: 0-based line, 0-based character.
 
 Ops: ``ping``, ``reset``, ``eval``, ``eval_file``. ``eval_above`` is reserved
@@ -47,6 +57,7 @@ import sys
 import traceback
 from typing import Any, Dict, Iterator, Optional
 
+import loops
 from resolver import Form, form_at, form_of
 
 #: Hard cap on a repr() put on the wire. This is a transport guard, not a
@@ -247,6 +258,24 @@ def wire_value(
     return _capped(description, limit), text
 
 
+def _instrumented(node: ast.stmt) -> tuple[ast.stmt, list]:
+    """`node` rewritten to announce each iteration, plus its recorders.
+
+    Only a loop is touched, and only the loop the user pointed at -- the
+    rewrite descends into loops nested directly inside it, but never into a
+    `def` or `class` in the body, whose loops run at a time this evaluation
+    knows nothing about.
+
+    Anything else comes back unchanged with no recorders, which is what makes
+    the loop support cost the other statement kinds nothing at all.
+    """
+    if not isinstance(node, (ast.For, ast.AsyncFor)):
+        return node, []
+    rewritten, count = loops.instrument(node)
+    return rewritten, loops.traces(
+        count, lambda value: safe_repr(value, loops.ITEM_LIMIT))
+
+
 def _position(line: int, character: int) -> Dict[str, int]:
     return {"line": line, "character": character}
 
@@ -404,9 +433,11 @@ class Kernel:
     # -- internals ----------------------------------------------------------
 
     def _run(self, form: Form, filename: str) -> Dict[str, Any]:
-        statement = ast.Module(body=[form.node], type_ignores=[])
+        node, recorders = _instrumented(form.node)
+        statement = ast.Module(body=[node], type_ignores=[])
         shown: Optional[str] = None
         raw_repr: Optional[str] = None
+        loop: Optional[Dict[str, Any]] = None
 
         with _user_io() as (out, err):
             try:
@@ -435,9 +466,23 @@ class Kernel:
                                 dont_inherit=True), self.namespace)
                     shown, raw_repr = wire_value(value)
                 else:
-                    exec(compile(statement, filename, "exec",
-                                 dont_inherit=True), self.namespace)
-                    if form.display is not None:
+                    with loops.installed(self.namespace, recorders):
+                        exec(compile(statement, filename, "exec",
+                                     dont_inherit=True), self.namespace)
+                    if recorders:
+                        # A loop reports what it saw, not what its target
+                        # happens to hold once it is over. Those differ
+                        # whenever the body mutates what it was handed, and
+                        # the sequence is only coherent if its last entry was
+                        # taken the same way as the rest of it -- as that
+                        # iteration began.
+                        #
+                        # Already text, recorded through `safe_repr` as each
+                        # iteration began, so there is nothing left to
+                        # describe and no untouched repr to send beside it.
+                        loop = recorders[0].wire()
+                        shown = recorders[0].latest
+                    elif form.display is not None:
                         # Safe for the remaining statement kinds because every
                         # display expression they produce is a name, or a
                         # subscript/attribute read of one -- not the work the
@@ -479,6 +524,10 @@ class Kernel:
             # would double the width of every large value on the wire to say
             # the same thing twice.
             outcome["repr"] = raw_repr
+        if loop is not None:
+            # Present only for a loop, so a reader of the wire can tell "this
+            # ran once" from "this ran and the sequence is elsewhere".
+            outcome["loop"] = loop
         return outcome
 
     @staticmethod

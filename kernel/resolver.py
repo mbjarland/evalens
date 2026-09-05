@@ -80,8 +80,11 @@ def display_expr(node: ast.stmt) -> Optional[str]:
     if isinstance(node, (ast.Import, ast.ImportFrom)):
         return _first_bound_name(node.names[0])
     if isinstance(node, (ast.For, ast.AsyncFor)):
-        # After the loop the target holds its last value, which is the most
-        # informative thing a `for` leaves behind.
+        # The target labels a sequence rather than a value: the kernel records
+        # what it held on each iteration and reports all of them. `p` is still
+        # the right thing to write beside the answer -- it is what the reader
+        # is watching -- but nothing evaluates it afterwards, because by then
+        # it holds only the last of the values already recorded. See `loops`.
         return ast.unparse(node.target)
     if isinstance(node, (ast.With, ast.AsyncWith)):
         for item in node.items:
