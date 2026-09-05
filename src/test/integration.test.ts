@@ -1339,15 +1339,27 @@ test('an interrupt reaches a kernel parked in a blocking call', async (t) => {
   t.after(() => client.dispose());
 
   const marker = markerPath('sleeping');
+  // The marker write and the sleep are ONE statement, on `spinner`'s own
+  // reasoning above: the interrupt travels over a control channel serviced
+  // by a thread that knows nothing about which eval request the main thread
+  // has reached. A marker written by an earlier, already-answered statement
+  // proves nothing about the *next* request -- the kernel could still be
+  // blocked reading it off the pipe when the interrupt's signal arrives, in
+  // which case it is swallowed as "an interrupt with nothing running" (see
+  // `main`'s read loop) and the sleep runs to completion, unwatched, for the
+  // full 60 seconds. Folding both lines into the one statement being
+  // interrupted means the marker cannot exist until this exact request is
+  // already executing on the main thread -- past the read that can eat the
+  // signal -- which is what makes waiting for it a proof rather than a bet.
   const source = 'import time\n'
-    + `open(${JSON.stringify(marker)}, 'w').close()\n`
-    + 'time.sleep(60)\n';
+    + 'if True:\n'
+    + `    open(${JSON.stringify(marker)}, 'w').close()\n`
+    + '    time.sleep(60)\n';
 
   await evaluate(client, source, 0);
-  await evaluate(client, source, 1);
 
   const started = Date.now();
-  const sleeping = evaluate(client, source, 2);
+  const sleeping = evaluate(client, source, 1);
   await waitFor(marker);
   assert.equal(await client.interrupt(), 'interrupted');
 
