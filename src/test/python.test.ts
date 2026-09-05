@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  Attempt, Candidate, ProbeResult, chooseInterpreter, describeFailure,
-  isSupported,
+  Attempt, Candidate, NO_INTERPRETER, ProbeResult, chooseInterpreter,
+  describeFailure, isSupported,
 } from '../python';
 
 const works = (major: number, minor: number): ProbeResult =>
@@ -87,4 +87,30 @@ test('the failure names every attempt and why it failed', async () => {
 
 test('nothing to try at all still produces a message', () => {
   assert.match(describeFailure([]), /no Python interpreter/);
+});
+
+test('the message that propagates is not the message with the buttons', async () => {
+  // One failure used to read as two: resolveInterpreter showed the detail
+  // with Select Interpreter and Open Setting on it, then threw the same text,
+  // which Evaluator's catch showed again with no buttons and in no
+  // guaranteed order. The detail belongs to the notification that can fix it;
+  // what travels out of the spawn is a summary.
+  const { probe } = prober({ python: works(2, 7) });
+  const choice = await chooseInterpreter([PYTHON_EXT, PATH3], probe);
+  const detail = describeFailure(
+    (choice as { attempts: readonly Attempt[] }).attempts);
+
+  assert.notEqual(NO_INTERPRETER, detail);
+  assert.ok(
+    !detail.includes(NO_INTERPRETER),
+    'the detail must not contain the summary either -- a substring match ' +
+    'still reads as the same sentence said twice');
+});
+
+test('the propagating message is one prefix-free line', () => {
+  // Evaluator prefixes `Evalens: ` and a notification is one line wide, so a
+  // second `Evalens` or a newline here shows up in the toast.
+  assert.equal(NO_INTERPRETER.includes('\n'), false);
+  assert.equal(/evalens/i.test(NO_INTERPRETER), false);
+  assert.ok(NO_INTERPRETER.length <= 60, 'a toast, not a paragraph');
 });

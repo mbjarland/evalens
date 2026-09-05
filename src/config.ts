@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import * as vscode from 'vscode';
 
 import {
-  Candidate, ProbeResult, chooseInterpreter, describeFailure,
+  Candidate, NO_INTERPRETER, ProbeResult, chooseInterpreter, describeFailure,
 } from './python';
 
 /**
@@ -107,9 +107,19 @@ export async function resolveInterpreter(
   const detail = describeFailure(choice.attempts);
   output.appendLine(detail);
   void offerToFix(detail);
-  throw new Error(detail);
+  // Short on purpose. The detail is already on screen with buttons under it;
+  // this rejection travels out through the spawn to the catch in Evaluator,
+  // which shows whatever it is given prefixed `Evalens: `. Throwing the
+  // detail here put the same paragraph up twice, the second time without the
+  // buttons and in no guaranteed order -- one failure reading as two, with
+  // the worse copy possibly on top.
+  throw new Error(NO_INTERPRETER);
 }
 
+/**
+ * The one place the interpreter failure is spelled out, and the only one that
+ * can do anything about it.
+ */
 async function offerToFix(detail: string): Promise<void> {
   const SELECT = 'Select Interpreter';
   const SETTINGS = 'Open Setting';
