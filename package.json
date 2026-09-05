@@ -131,6 +131,26 @@
         }
       },
       {
+        "id": "evalens.labelForeground",
+        "description": "Colour of a label an inline result introduces a value with: `x:`, the `=>` separator, the `\u2026+N more` footnote and the reduced-context caveat. Deliberately dimmer than the value it introduces \u2014 contrast against the editor background is 3.97:1 dark, 3.55:1 light, 10.85:1 high contrast, 6.64:1 high contrast light, against the value's 7.15 / 5.03 / 13.03 / 8.04.",
+        "defaults": {
+          "dark": "#8d7a5a",
+          "light": "#96866a",
+          "highContrast": "#cfb885",
+          "highContrastLight": "#6e5a2e"
+        }
+      },
+      {
+        "id": "evalens.outputLabelForeground",
+        "description": "Colour of the `printed:` and `stderr:` labels, and of nothing else. The same luminance as the name label \u2014 identical to two decimal places on dark \u2014 and a different hue, so the two labels separate on the blue-yellow axis, which is the one both protanopia and deuteranopia leave intact. Contrast against the editor background is 3.96:1 dark, 3.46:1 light, 11.54:1 high contrast, 7.80:1 high contrast light. Never the error colour: a library warning painted red teaches a student to fear a line that worked.",
+        "defaults": {
+          "dark": "#5c7fa6",
+          "light": "#728da6",
+          "highContrast": "#9fc4e8",
+          "highContrastLight": "#2f5578"
+        }
+      },
+      {
         "id": "evalens.resultBackground",
         "description": "Background behind an inline evaluation result. Transparent by default; set a colour here to give results a chip.",
         "defaults": {

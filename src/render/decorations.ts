@@ -19,6 +19,8 @@ import { Pending, pendingText } from './status';
  * paints invisibly, which is why a test checks these against the manifest.
  */
 export const COLOR_RESULT = 'evalens.resultForeground';
+export const COLOR_LABEL = 'evalens.labelForeground';
+export const COLOR_OUTPUT_LABEL = 'evalens.outputLabelForeground';
 export const COLOR_RESULT_BG = 'evalens.resultBackground';
 export const COLOR_ERROR = 'evalens.errorForeground';
 export const COLOR_ERROR_BG = 'evalens.errorBackground';
