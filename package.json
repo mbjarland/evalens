@@ -53,7 +53,39 @@
           "markdownDescription": "Interpreter used to run the evaluation kernel. Empty means use the interpreter selected by the Python extension, falling back to `python3`."
         }
       }
-    }
+    },
+    "colors": [
+      {
+        "id": "evalens.resultForeground",
+        "description": "Colour of an inline evaluation result.",
+        "defaults": {
+          "dark": "editorCodeLens.foreground",
+          "light": "editorCodeLens.foreground",
+          "highContrast": "editorCodeLens.foreground",
+          "highContrastLight": "editorCodeLens.foreground"
+        }
+      },
+      {
+        "id": "evalens.errorForeground",
+        "description": "Colour of an inline evaluation error.",
+        "defaults": {
+          "dark": "errorForeground",
+          "light": "errorForeground",
+          "highContrast": "errorForeground",
+          "highContrastLight": "errorForeground"
+        }
+      },
+      {
+        "id": "evalens.evaluatedRegionBackground",
+        "description": "Background of the region an evaluation covered.",
+        "defaults": {
+          "dark": "#4a9c8c22",
+          "light": "#2a7d6d1a",
+          "highContrast": "#4a9c8c44",
+          "highContrastLight": "#2a7d6d33"
+        }
+      }
+    ]
   },
   "scripts": {
     "compile": "tsc -p .",
