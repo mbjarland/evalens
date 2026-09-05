@@ -96,7 +96,14 @@ export async function chooseInterpreter(
   return { ok: false, attempts };
 }
 
-/** The failure, written so it names what to fix. */
+/**
+ * The failure, written so it names what to fix.
+ *
+ * This is the version a human is meant to act on, and it belongs in exactly
+ * one place: the notification carrying *Select Interpreter* and *Open
+ * Setting*. Everything downstream of that notification says
+ * `NO_INTERPRETER` instead.
+ */
 export function describeFailure(attempts: readonly Attempt[]): string {
   if (attempts.length === 0) {
     return 'Evalens found no Python interpreter to try.';
@@ -105,3 +112,17 @@ export function describeFailure(attempts: readonly Attempt[]): string {
     (a) => `  ${a.candidate.path} (${a.candidate.source}) - ${a.reason}`);
   return ['Evalens could not start a Python kernel. Tried:', ...lines].join('\n');
 }
+
+/**
+ * The same failure for a caller that is not the one offering the fix.
+ *
+ * Deliberately says less than `describeFailure`, and deliberately takes no
+ * attempts: a second telling of the full list is not a second chance to read
+ * it, it is one failure claiming to be two. Spawning the kernel already
+ * showed the detail with buttons on it, so what propagates out of the spawn
+ * is a summary -- enough to explain a request that went nowhere, short
+ * enough that nobody mistakes it for the message to act on.
+ *
+ * Carries no `Evalens` prefix because the transport-level catch adds one.
+ */
+export const NO_INTERPRETER = 'no usable Python interpreter';
