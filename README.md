@@ -571,9 +571,15 @@ without the extension offering a setting of its own:
   "evalens.evaluatedRegionBackground": "#4a9c8c22",
   "evalens.pendingForeground": "#8c8c8c",
   "evalens.pendingRegionBackground": "#8c8c8c26",
+<<<<<<< HEAD
   "evalens.flashRegionBackground": "#4a9c8c66",
   "evalens.annotationBorder": "#e0a3ff",
   "evalens.annotationTint": "#d1a35c1a"
+=======
+  "evalens.askingForeground": "#e8963c",
+  "evalens.askingRegionBackground": "#e8963c66",
+  "evalens.flashRegionBackground": "#4a9c8c66"
+>>>>>>> f71414c (Paint a blocked prompt as the opposite of a slow statement)
 }
 ```
 
@@ -584,6 +590,11 @@ painted anywhere: #95 moved every state's background onto the shared
 `annotationTint` below, so setting either of the first two no longer changes
 anything. They stay contributed rather than removed, so a customization
 already made against them does not silently start failing.
+
+`askingForeground` and `askingRegionBackground` are the one line on screen
+that is blocked on `input()` rather than merely slow — orange rather than
+grey because nothing moves until the reader answers, and never red, because a
+prompt is not a failure.
 
 An annotation is painted in three colours rather than one, because it carries
 two kinds of thing. Values -- what the program produced, including the text

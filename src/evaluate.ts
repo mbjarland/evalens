@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 
-import { nextStop } from './advance';
+import { OutlineCache, nextStop, outlinePlan } from './advance';
 import {
   advanceSkipsComments, displayLimits, nameDisplayCap, progressDelay,
 } from './config';
-import { LoadPrompts, waitingLabel } from './input';
+import { LoadPrompts, locatedTitle, waitingLabel } from './input';
 import { describeInterrupt, settlesWithin } from './interrupt';
 import { KernelClient } from './kernel/client';
 import {
@@ -21,7 +21,9 @@ import {
   describeLoad, describeRun, hoverFor, partialCause, partialOf, present,
 } from './render/present';
 import { capNames, PaintedAbove } from './render/repeats';
-import { BlockedMark, Waiting, whileRunning } from './render/status';
+import {
+  BlockedMark, Waiting, askingMessage, whileRunning,
+} from './render/status';
 import { selectedLines, widenedBeyond } from './selection';
 
 /**
@@ -316,12 +318,10 @@ export class Evaluator {
    * rhythm: holding the key down while a slow statement runs must still move
    * the cursor, and a fresh outline request would queue behind that statement
    * on the request pipe and stall exactly the keypress it was meant to serve.
+   * `outlinePlan` is what decides when this is trusted even though it is
+   * stale, for that reason.
    */
-  private outline?: {
-    readonly key: string;
-    readonly version: number;
-    readonly statements: readonly StatementSpan[];
-  };
+  private outline?: OutlineCache;
 
   constructor(
     private readonly kernel: () => Promise<KernelClient>,
@@ -367,10 +367,15 @@ export class Evaluator {
     // what it said, a made one has to be taken away again.
     const borrowed = asking.waiting;
     const marker = borrowed ?? this.markWhereItAsked(asking.document, request);
-    marker?.say(waitingLabel(request.prompt));
+    // Tagged rather than plain: this is the one call site that puts a
+    // statement in the "your turn" state rather than the "merely slow" one,
+    // and `askingMessage` is how that survives down to the paint layer.
+    marker?.say(askingMessage(waitingLabel(request.prompt)));
 
     try {
-      const answer = await askForInput(request, asking.load?.offerSkip === true);
+      const answer = await askForInput(
+        request, asking.load?.offerSkip === true,
+        this.titleFor(asking.document, request));
       asking.load?.record(answer.kind);
       return answer.kind === 'value' ? answer.value : null;
     } finally {
@@ -387,6 +392,28 @@ export class Evaluator {
         marker?.withdraw();
       }
     }
+  }
+
+  /**
+   * The box's title, when the kernel said where the asking statement is.
+   *
+   * `undefined` for the same reason `markWhereItAsked` declines to guess: a
+   * kernel too old to send `range` has given nothing honest to point at, and
+   * `askForInput` falls back to the bare extension name on its own.
+   *
+   * The line quoted is the anchor when the statement has one -- a compound
+   * statement's `input()` sits inside its body, and the header is what the
+   * reader recognises -- and otherwise the end of `range`, the same choice
+   * `Decorator` makes for where a value is written.
+   */
+  private titleFor(
+    document: vscode.TextDocument, request: InputRequest
+  ): string | undefined {
+    if (request.range === undefined) {
+      return undefined;
+    }
+    const line = request.anchor ?? request.range.end.line;
+    return locatedTitle(line, document.lineAt(line).text.trim());
   }
 
   /**
@@ -924,16 +951,26 @@ export class Evaluator {
   /**
    * Every top-level statement in `document`, as the kernel's parser sees them.
    *
-   * `undefined` when the file does not parse or the kernel cannot be reached;
-   * both are the evaluation's business to report, and neither is a reason for
+   * `undefined` when the file does not parse, the kernel cannot be reached, or
+   * nothing safe can be asked right now -- see `outlinePlan`. All three are
+   * the evaluation's business to report, and none of them is a reason for
    * this to raise on a keypress.
    */
   private async statementsOf(
     document: vscode.TextDocument
   ): Promise<readonly StatementSpan[] | undefined> {
     const key = document.uri.toString();
-    if (this.outline?.key === key && this.outline.version === document.version) {
-      return this.outline.statements;
+    const plan = outlinePlan(this.outline, key, document.version, this.busy());
+    if (plan.kind === 'cached') {
+      return plan.statements;
+    }
+    if (plan.kind === 'unknown') {
+      // The kernel is busy with a statement dispatched earlier and nothing
+      // has ever been outlined for this document, so there is nothing to ask
+      // for and nothing to fall back to. Asking anyway would queue behind
+      // whatever the kernel is doing -- #90's hang -- for a request whose
+      // answer would not even be trustworthy once it arrived.
+      return undefined;
     }
 
     let response: OutlineResponse;

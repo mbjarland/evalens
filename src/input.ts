@@ -56,6 +56,27 @@ export function waitingLabel(prompt: string): string {
 }
 
 /**
+ * The box's title, tying it to the statement that opened it.
+ *
+ * `showInputBox` puts the box at the top of the window; the statement that
+ * asked may be anywhere in the file, and during a load it may not even be on
+ * screen. `line 13 · x = input("give me a value: ")` identifies itself,
+ * which is what closes the gap between a question and the code asking it --
+ * the caller already has the line number and the line's own text, both from
+ * the same coordinates the blocked-line marker uses.
+ *
+ * `line` is 0-based, matching every other coordinate on the wire; this is the
+ * one place it is shown to a human, so it is shifted here rather than asking
+ * every caller to remember to.
+ */
+export function locatedTitle(line: number, code: string): string {
+  const trimmed = code.length > LABEL_LIMIT
+    ? `${code.slice(0, LABEL_LIMIT)}…`
+    : code;
+  return `line ${line + 1} · ${trimmed}`;
+}
+
+/**
  * Whether this prompt is the one offered a way out of the rest.
  *
  * `asked` is how many prompts this load has already put up. Not the first: a

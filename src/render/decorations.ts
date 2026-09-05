@@ -13,7 +13,7 @@ import {
   ChipEdge, SEGMENT_SLOTS, chipSlots, coalesce, paintOrder,
 } from './layers';
 import { Marker, Traced, markerFor, normalizeSource } from './registry';
-import { Pending, pendingText } from './status';
+import { Pending, isAsking, pendingText } from './status';
 
 /**
  * Theme colour ids contributed in package.json. Colours come from the theme
@@ -80,6 +80,16 @@ export const COLOR_ANNOTATION_BORDER = 'evalens.annotationBorder';
  * the text already uses rather than as a fourth, unrelated colour.
  */
 export const COLOR_ANNOTATION_TINT = 'evalens.annotationTint';
+
+/**
+ * The blocked half of "pending" -- see `isAsking`. Its own colour rather than
+ * a louder pending: a slow statement asks the reader to wait, a blocked one
+ * asks the reader to act, and grey says the first of those regardless of
+ * which is true. Not the error colour either -- a prompt is not a failure,
+ * and painting it red would teach a student to fear a line that is working.
+ */
+export const COLOR_ASKING = 'evalens.askingForeground';
+export const COLOR_ASKING_REGION = 'evalens.askingRegionBackground';
 
 /**
  * The command the hover's link runs -- the one click from the annotation to
@@ -342,6 +352,21 @@ export class Decorator implements vscode.Disposable {
     },
   });
 
+  /**
+   * The blocked state: the opposite of muted, because nothing moves until the
+   * reader answers and grey would tell them to wait when they are the one
+   * being waited on. See `isAsking` for how a pending statement lands here
+   * rather than in `pendingType`.
+   */
+  private readonly askingType = vscode.window.createTextEditorDecorationType({
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
+    after: {
+      color: new vscode.ThemeColor(COLOR_ASKING),
+      textDecoration: chipShape('single', true),
+      fontStyle: 'italic',
+    },
+  });
+
   private readonly regionType = vscode.window.createTextEditorDecorationType({
     backgroundColor: new vscode.ThemeColor(COLOR_REGION),
     isWholeLine: false,
@@ -358,6 +383,24 @@ export class Decorator implements vscode.Disposable {
       isWholeLine: false,
       overviewRulerColor: new vscode.ThemeColor(COLOR_PENDING_REGION),
       overviewRulerLane: vscode.OverviewRulerLane.Right,
+    });
+
+  /**
+   * The same region again, loud, while the statement is blocked on the
+   * reader rather than merely running.
+   *
+   * `pendingRegionType` sits at low alpha on purpose -- "there is nothing to
+   * read here yet". This is the opposite claim, so it is not that region
+   * turned up; it is the one line on screen the reader has to act on, and the
+   * ruler mark is `Full` rather than `Right` so it is the one mark that finds
+   * the reader even when every other decoration is scrolled out of view.
+   */
+  private readonly askingRegionType =
+    vscode.window.createTextEditorDecorationType({
+      backgroundColor: new vscode.ThemeColor(COLOR_ASKING_REGION),
+      isWholeLine: false,
+      overviewRulerColor: new vscode.ThemeColor(COLOR_ASKING_REGION),
+      overviewRulerLane: vscode.OverviewRulerLane.Full,
     });
 
   /** One decoration type per state, because each carries a different icon. */
@@ -407,8 +450,10 @@ export class Decorator implements vscode.Disposable {
       this.segmentTypes.map(() => []);
     const errors: vscode.DecorationOptions[] = [];
     const waiting: vscode.DecorationOptions[] = [];
+    const asking: vscode.DecorationOptions[] = [];
     const regions: vscode.DecorationOptions[] = [];
     const pendingRegions: vscode.DecorationOptions[] = [];
+    const askingRegions: vscode.DecorationOptions[] = [];
     const markers = new Map<Marker, vscode.DecorationOptions[]>(
       MARKERS.map((marker) => [marker, []]));
 
@@ -421,10 +466,16 @@ export class Decorator implements vscode.Disposable {
       : 4;
 
     for (const annotation of annotations) {
-      // Greyed rather than evaluated, and the two lists are separate so that
-      // a statement cannot be painted as both at once.
-      (annotation.pending ? pendingRegions : regions)
-        .push({ range: annotation.range });
+      // Greyed, loud, or evaluated -- three lists rather than one, so a
+      // statement is painted as exactly one of them and never two at once.
+      // Which of the first two it is is `isAsking`'s question: a statement
+      // merely taking a while is greyed, one blocked on the reader is not.
+      if (annotation.pending) {
+        (isAsking(annotation.pending) ? askingRegions : pendingRegions)
+          .push({ range: annotation.range });
+      } else {
+        regions.push({ range: annotation.range });
+      }
 
       // End of the LINE, not end of the statement. Anchoring mid-line would
       // insert the annotation before any trailing comment and shove it
@@ -471,7 +522,7 @@ export class Decorator implements vscode.Disposable {
         // the old value away is half the transition: an evaluation that
         // produces the same string again has still visibly happened, because
         // the string left and came back.
-        waiting.push({
+        (isAsking(annotation.pending) ? asking : waiting).push({
           range: at,
           renderOptions: {
             after: { margin, contentText: pendingText(annotation.pending) },
@@ -629,8 +680,10 @@ export class Decorator implements vscode.Disposable {
     });
     editor.setDecorations(this.errorType, errors);
     editor.setDecorations(this.pendingType, waiting);
+    editor.setDecorations(this.askingType, asking);
     editor.setDecorations(this.regionType, regions);
     editor.setDecorations(this.pendingRegionType, pendingRegions);
+    editor.setDecorations(this.askingRegionType, askingRegions);
     for (const [marker, type] of this.markerTypes) {
       // Every state is set on every paint, empty included: leaving one out
       // leaves its previous icons in the gutter, so a marker that has gone
@@ -649,8 +702,10 @@ export class Decorator implements vscode.Disposable {
     }
     this.errorType.dispose();
     this.pendingType.dispose();
+    this.askingType.dispose();
     this.regionType.dispose();
     this.pendingRegionType.dispose();
+    this.askingRegionType.dispose();
     for (const type of this.markerTypes.values()) {
       type.dispose();
     }

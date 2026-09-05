@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  BUSY_DELAY, BlockedMark, FLASH, MARK, MINIMUM_BUSY, Waiting, holdFor,
-  pendingText, runningMessage, whileRunning,
+  ASK_MARK, BUSY_DELAY, BlockedMark, FLASH, MARK, MINIMUM_BUSY, Waiting,
+  askingMessage, holdFor, isAsking, pendingText, runningMessage, whileRunning,
 } from '../render/status';
 
 /** A marker that writes down everything it was told, in order. */
@@ -27,6 +27,30 @@ const QUICK = { busyDelay: 10, minimumBusy: 40 };
 test('a pending statement with nothing to say is just the mark', () => {
   assert.equal(pendingText({}), MARK);
   assert.equal(pendingText({ message: '   ' }), MARK);
+});
+
+test('a bare pending statement is never mistaken for a question', () => {
+  assert.equal(isAsking({}), false);
+  assert.equal(isAsking(undefined), false);
+  assert.equal(isAsking({ message: 'running…' }), false);
+});
+
+test('an asking message is told apart from a running one', () => {
+  // The whole mechanism #97 needs: `Pending` has one field, `message`, and
+  // the two states it can mean travel inside that one string.
+  assert.equal(isAsking({ message: askingMessage('Enter a value:') }), true);
+  assert.equal(isAsking({ message: 'Enter a value:' }), false);
+});
+
+test('asking paints the question glyph, never the hourglass', () => {
+  const text = pendingText({ message: askingMessage('Enter a value:') })
+    .replace(/\u00a0/g, ' ');
+  assert.equal(text, `${ASK_MARK} Enter a value:`);
+  assert.ok(!text.includes(MARK), 'the hourglass must not leak through');
+});
+
+test('a bare asking mark is the question glyph alone', () => {
+  assert.equal(pendingText({ message: askingMessage('') }), ASK_MARK);
 });
 
 test('a pending statement carries what it is waiting for', () => {

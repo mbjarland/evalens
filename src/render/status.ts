@@ -41,6 +41,13 @@ import { collapseLines, preserveSpacing } from './format';
 /**
  * Why a statement is not finished, when there is something worth saying about
  * it. An absent `message` is the plain case: it is running, and that is all.
+ *
+ * `message` alone cannot say whether the statement is merely slow or is
+ * blocked waiting for the reader to type something -- see `askingMessage`
+ * and `isAsking`, which are what tell those two apart. There is nowhere else
+ * on this shape for that to live: past this point a pending statement is
+ * `message` and nothing more, so the two are carried inside the one field
+ * rather than beside it.
  */
 export interface Pending {
   readonly message?: string;
@@ -80,8 +87,48 @@ export const MINIMUM_BUSY = 500;
  */
 export const FLASH = 200;
 
-/** The glyph that says "not finished". */
+/** The glyph that says "not finished, and merely taking a while". */
 export const MARK = '⌛';
+
+/**
+ * The glyph that says "not finished, and waiting on you".
+ *
+ * Plain ASCII, chosen for exactly that reason: `format.ts` records that `▸`
+ * `▶` `⏎` are missing from Monaco and Courier New and substitute at a
+ * different advance width, misaligning the very line the marker exists to
+ * clarify. `?` cannot fail that test in any font that ships a Latin-1
+ * repertoire, which every monospace font this extension has been checked
+ * against does -- and it reads as "answer me" where `⌛` reads as "wait",
+ * which is the wrong verb for a question being asked of the reader.
+ */
+export const ASK_MARK = '?';
+
+/**
+ * Marks a pending message as a live question rather than a slow statement.
+ *
+ * `Pending` has exactly one field past a keypress -- `message` -- and no
+ * second one travels beside it down to the paint layer. So the two states
+ * `message` can mean are told apart by what is already in it: a Private Use
+ * Area code point, prefixed here and read back by `isAsking`. No real prompt
+ * is ever going to contain one, which is what makes it safe to use as a
+ * marker rather than as data -- unlike `running…` or `waiting for the
+ * kernel…`, a prompt is arbitrary text the user's own code supplied, and
+ * nothing about its wording can be relied on to say what it is.
+ */
+const ASKING_MARK = '\uE000';
+
+/** Prefix a message so it paints as "your turn", not "still running". */
+export function askingMessage(message: string): string {
+  return `${ASKING_MARK}${message}`;
+}
+
+/**
+ * Whether this pending state is a question the reader has to answer, as
+ * opposed to a statement that is merely taking a while.
+ */
+export function isAsking(pending?: Pending): boolean {
+  return pending?.message?.startsWith(ASKING_MARK) === true;
+}
 
 /**
  * Longest message painted beside the mark.
@@ -93,14 +140,19 @@ const MESSAGE_LIMIT = 60;
 
 /** What the annotation says while the statement is unfinished. */
 export function pendingText(pending: Pending): string {
-  const message = collapseLines(pending.message ?? '');
+  const questioning = isAsking(pending);
+  const raw = questioning
+    ? pending.message!.slice(ASKING_MARK.length)
+    : (pending.message ?? '');
+  const message = collapseLines(raw);
+  const glyph = questioning ? ASK_MARK : MARK;
   if (message === '') {
-    return MARK;
+    return glyph;
   }
   const trimmed = message.length > MESSAGE_LIMIT
     ? `${message.slice(0, MESSAGE_LIMIT)}…`
     : message;
-  return preserveSpacing(`${MARK} ${trimmed}`);
+  return preserveSpacing(`${glyph} ${trimmed}`);
 }
 
 /**

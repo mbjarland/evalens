@@ -108,3 +108,56 @@ export function nextStop(
   // about to run.
   return { kind: 'move', position: next.range.start };
 }
+
+/** What is already known about a document's shape, and from which version. */
+export interface OutlineCache {
+  readonly key: string;
+  readonly version: number;
+  readonly statements: readonly StatementSpan[];
+}
+
+/** What `statementsOf` should do about asking for a fresh outline. */
+export type OutlinePlan =
+  /** Use these -- current, or the best that is known while the kernel cannot
+   * be asked. */
+  | { readonly kind: 'cached'; readonly statements: readonly StatementSpan[] }
+  /** Nothing costs asking: send a fresh `outline` request. */
+  | { readonly kind: 'fetch' }
+  /** Nothing is known, and nothing can safely be asked right now. */
+  | { readonly kind: 'unknown' };
+
+/**
+ * Whether to ask the kernel for a fresh outline before computing the next
+ * stop, or to make do with whatever is already known.
+ *
+ * Asking is free when the kernel is idle -- nothing runs, so `outline`
+ * answers at once. It is not free when the kernel is busy with a statement
+ * dispatched earlier, because `outline` travels on the same request channel
+ * as `eval` and that channel is read by one thread that services one request
+ * at a time (`evalens_kernel.py`'s `main`). If the earlier statement is
+ * itself blocked on `input()`, that channel does not free up until someone
+ * answers a prompt for a line the cursor may have already left -- #90 found
+ * Evaluate and Advance hanging exactly there, with nothing on screen to say
+ * why.
+ *
+ * So a busy kernel is never asked. What is already cached is used even when
+ * it is stale for this document version, because a file's statement
+ * boundaries rarely move between one keypress and the next, and a next-stop
+ * guess landing one line off costs far less than a keypress that silently
+ * does nothing. Only a document this session has never outlined, asked about
+ * while the kernel is busy, comes back `unknown` -- there is nothing to fall
+ * back to, and nothing safe to ask for.
+ */
+export function outlinePlan(
+  cache: OutlineCache | undefined, key: string, version: number, busy: boolean
+): OutlinePlan {
+  if (cache?.key === key && cache.version === version) {
+    return { kind: 'cached', statements: cache.statements };
+  }
+  if (busy) {
+    return cache?.key === key
+      ? { kind: 'cached', statements: cache.statements }
+      : { kind: 'unknown' };
+  }
+  return { kind: 'fetch' };
+}
