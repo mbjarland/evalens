@@ -531,6 +531,20 @@ widget pushes every line below it down and reflows the column of values the
 reader is in the middle of, and `WebviewEditorInset` is the right shape and is
 not in the stable API.
 
+**A file load reports each statement on that channel as it finishes**, for
+the same reason and one more. Collecting every outcome and answering once
+made a load atomic on screen although it is sequential in the kernel, and the
+case where that stops being a nicety is the prompt: a file blocking on
+`input()` at line 47 has run lines 1–46, holds their values, and used to have
+shown none of them — so the reader is asked to type a value into a program
+whose behaviour so far is invisible. Marking the waiting line harder does not
+answer that, because prominence is contrast and an empty screen offers none.
+The frames carry the statement's index in file order and the response still
+carries every outcome: the index is what lets a consumer paint whichever
+reaches it first without ever painting one twice or out of order, which
+matters because repeat suppression decides whether to paint a value by
+reading what stands above it.
+
 **A file that does not parse.** `ast` is all-or-nothing, so one half-typed
 line makes every line in the file unevaluable — and a half-typed line is what
 a file being explored in *has*, because that is why anyone is evaluating

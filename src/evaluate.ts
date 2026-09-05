@@ -9,6 +9,7 @@ import {
   EvalResponse, FileResponse, InputRequest, LatestWins, OutlineResponse,
   PartialParse, StatementOutcome, StatementSpan,
 } from './kernel/protocol';
+import { InOrder } from './load';
 import { askForInput } from './prompt';
 import { Annotations } from './render/annotations';
 import { Annotation, sourceAt, toVsCodeRange } from './render/decorations';
@@ -18,7 +19,7 @@ import {
   describeLoad, describeRun, hoverFor, partialCause, partialOf, present,
 } from './render/present';
 import { PaintedAbove } from './render/repeats';
-import { Waiting, whileRunning } from './render/status';
+import { BlockedMark, Waiting, whileRunning } from './render/status';
 import { selectedLines, widenedBeyond } from './selection';
 
 /**
@@ -113,6 +114,86 @@ interface Asking {
   readonly waiting?: Waiting;
   /** Prompt bookkeeping for a load; absent for a single evaluation. */
   readonly load?: LoadPrompts;
+  /** Where a load's mark lives between the answer and the outcome. */
+  readonly blocked?: BlockedMark;
+}
+
+/**
+ * One load's painting: the suppressor, the cap, and the counts.
+ *
+ * It is an object because a load is no longer one pass over one array.
+ * Statements arrive as they finish and the response's `results` arrives at the
+ * end, and both go through here -- so what used to be three locals inside a
+ * `for` loop now has to survive between two callers and several turns of the
+ * event loop.
+ *
+ * What order they arrive in is `InOrder`'s problem rather than this class's,
+ * and the separation is the point: everything below assumes it is handed
+ * statements top to bottom, which is exactly what `InOrder` guarantees and
+ * exactly what repeat suppression needs.
+ */
+class LoadPainting {
+  readonly order: InOrder<StatementOutcome>;
+  /**
+   * What each name last had painted beside it, walking the file downward.
+   *
+   * Annotating every statement is what makes repetition a file's dominant
+   * visual problem -- four consecutive lines calling methods on one dictionary
+   * each restate it -- so a `name: value` pair already painted above,
+   * unchanged, is dropped. A load starts knowing nothing, so the first mention
+   * inside a selection is always painted; what stands above a selection was
+   * painted by some other run, and hiding a value on the strength of an
+   * annotation that may since have gone is the wrong way to be wrong.
+   *
+   * This is the one path that suppresses anything. `evaluateAtCursor` never
+   * does, because there somebody pressed a key and is owed a visible answer.
+   */
+  private readonly painted = new PaintedAbove();
+  private annotated = 0;
+  private failures = 0;
+
+  constructor(
+    private readonly document: vscode.TextDocument,
+    private readonly annotations: Annotations
+  ) {
+    this.order = new InOrder((outcome) => this.paint(outcome));
+  }
+
+  /** How many of the statements reported so far failed. */
+  get failed(): number {
+    return this.failures;
+  }
+
+  /**
+   * Show what one statement produced.
+   *
+   * Loading paints values: Load File exists to remove the tedium of walking
+   * down a file pressing a key, and one that runs fifteen statements and shows
+   * nothing has removed nothing -- the user still has to walk down the file
+   * pressing a key to find out what it did.
+   *
+   * Printed output is not echoed to the channel here. It reached it as each
+   * statement wrote it, and appending the captured copy afterwards would print
+   * the whole load a second time.
+   */
+  private paint(outcome: StatementOutcome): void {
+    if (!outcome.ok) {
+      this.failures += 1;
+    }
+    if (this.annotated >= MAX_LOAD_ANNOTATIONS) {
+      // Counted above regardless: the count is about what the file did, not
+      // about how much of it fitted on screen.
+      return;
+    }
+    const annotation = annotationFor(this.document, outcome);
+    const fresh = annotation === undefined
+      ? undefined
+      : this.painted.keep(annotation);
+    if (fresh) {
+      this.annotations.add(this.document, fresh);
+      this.annotated += 1;
+    }
+  }
 }
 
 /**
@@ -215,6 +296,12 @@ export class Evaluator {
       if (borrowed !== undefined) {
         // The statement is still running; only the question is over.
         borrowed.say();
+      } else if (marker !== undefined && asking.blocked !== undefined) {
+        // A load, and the same reasoning as the borrowed case: answering a
+        // question does not finish the statement that asked it. The mark stays
+        // until that statement reports, which is now a thing it does on its
+        // own account rather than at the end of the file.
+        asking.blocked.hold(marker);
       } else {
         marker?.withdraw();
       }
@@ -324,19 +411,30 @@ export class Evaluator {
    * `Ctrl/Cmd+Enter`'s question -- "what is this worth" -- and this key asks
    * "run this part of my file"; blurring them would make the answer depend on
    * which key the user happened to reach for.
+   *
+   * **The file paints as it runs.** Each statement's value appears when that
+   * statement finishes rather than when the file does, which matters most in
+   * the case that used to be worst: a load that stops on `input()` at line 47
+   * had run lines 1-46, had their values, and showed none of them -- so the
+   * reader was asked to type something into a program whose behaviour so far
+   * was invisible. Painting as it goes also removes the "did the key work?"
+   * silence from a slow load, at file scale.
    */
   async evaluateFile(editor: vscode.TextEditor): Promise<void> {
     const document = editor.document;
     const selection = editor.selection;
     const lines = selectedLines(selection);
     let response: FileResponse;
-    // Set before the request, because the first prompt can arrive before the
-    // await has even yielded once.
-    this.asking = { document, load: new LoadPrompts() };
+    // The load's paint state, built before the request because the first
+    // statement can report before the await has yielded once.
+    const load = new LoadPainting(document, this.annotations);
+    const blocked = new BlockedMark();
+    // Set before the request, for the same reason.
+    this.asking = { document, load: new LoadPrompts(), blocked };
     try {
       const client = await this.client();
-      response = (await this.watch(
-        client.request({
+      const running = client.request(
+        {
           op: 'eval_file',
           source: document.getText(),
           filename: document.uri.fsPath,
@@ -354,16 +452,36 @@ export class Evaluator {
           // around the selection to snap outward to whole statements, and to
           // keep every line number it reports pointing at the real file.
           ...(lines ?? {}),
-        }),
+        },
+        // Each statement, the moment it finishes. It goes to the same painter
+        // the response's `results` reaches, through the gate that keeps the
+        // two paths from painting anything twice or out of turn.
+        (frame) => {
+          // Whatever was waiting has finished waiting: the kernel runs one
+          // statement at a time, so this outcome is the marked statement's.
+          blocked.release();
+          load.order.offer(frame.index, frame.outcome);
+        }
+      );
+      response = (await this.watch(
+        running,
         lines ? 'Evalens: running the selection' : 'Evalens: loading the file'
       )) as FileResponse;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.output.appendLine(message);
       void vscode.window.showErrorMessage(`Evalens: ${message}`);
+      // The statements that did report keep their values: they ran, and the
+      // transport failing afterwards does not make them untrue.
       return;
     } finally {
       this.asking = undefined;
+      // However the load ended, nothing is running any more, so nothing on
+      // screen may go on saying that something is. Here rather than beside
+      // each exit because the last statement may have prompted and then
+      // produced nothing to paint over its own mark, which is the case a
+      // release on the success path alone would miss.
+      blocked.release();
     }
 
     if (!response.ok) {
@@ -407,45 +525,11 @@ export class Evaluator {
       return;
     }
 
-    // Loading paints values. Load File exists to remove the tedium of
-    // walking down a file pressing a key; if it runs fifteen statements and
-    // shows nothing, the user has to walk down the file pressing a key to
-    // find out what it did, and the command has removed nothing.
-    // Printed output is not echoed here any more: it already reached the
-    // output channel as each statement wrote it, and appending the captured
-    // copy afterwards would print the whole load a second time.
-    //
-    // Annotating every statement is also what makes repetition the file's
-    // dominant visual problem: four consecutive lines calling methods on one
-    // dictionary each restate it. So a pair already painted above, unchanged,
-    // is dropped here -- in file order, which is the direction the reader's
-    // eye travels to find it. A run starts knowing nothing, so the first
-    // mention inside a selection is always painted; what stands above a
-    // selection was painted by some other run, and hiding a value on the
-    // strength of an annotation that may since have gone is the wrong way to
-    // be wrong.
-    //
-    // This is the one path that suppresses anything. `evaluateAtCursor` never
-    // does, because there somebody pressed a key and is owed a visible answer.
-    let failed = 0;
-    let annotated = 0;
-    const painted = new PaintedAbove();
-    for (const outcome of response.results) {
-      if (!outcome.ok) {
-        failed += 1;
-      }
-      if (annotated >= MAX_LOAD_ANNOTATIONS) {
-        continue;
-      }
-      const annotation = annotationFor(document, outcome);
-      const fresh = annotation === undefined
-        ? undefined
-        : painted.keep(annotation);
-      if (fresh) {
-        this.annotations.add(document, fresh);
-        annotated += 1;
-      }
-    }
+    // Everything the frames did not deliver, which on a kernel with no control
+    // channel is the whole file and on a healthy one is usually nothing. The
+    // gate is what makes calling this unconditionally safe: it starts where the
+    // frames stopped, so no statement is painted twice and none is skipped.
+    load.order.settle(response.results);
 
     if (lines) {
       // A statement runs whole or not at all, so the run may have reached
@@ -462,13 +546,13 @@ export class Evaluator {
         this.flash.show([editor], [toVsCodeRange(executed)], SNAP);
       }
       vscode.window.setStatusBarMessage(
-        describeRun(response.ran, response.statements, failed, widened,
+        describeRun(response.ran, response.statements, load.failed, widened,
           response.partial?.truncated_at), 4000);
       return;
     }
 
     vscode.window.setStatusBarMessage(
-      describeLoad(response.ran, response.statements, failed,
+      describeLoad(response.ran, response.statements, load.failed,
         response.partial?.truncated_at), 4000);
   }
 

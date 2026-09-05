@@ -2143,10 +2143,43 @@ class Kernel:
         because there is something runnable sitting right there. ``partial``
         still travels, so the answer is "the selection is below the line the
         file stops parsing at" rather than a bare count of zero.
+
+        **Every outcome is announced as it happens**, on the control channel,
+        and only then collected. A load is sequential in here and used to be
+        atomic on screen: a file that blocks on ``input()`` at line 47 had run
+        lines 1-46, had their values in hand, and had said nothing about any of
+        them -- so the reader was asked to type a value into a program whose
+        behaviour so far was invisible.
+
+        The frames go on the control channel rather than the request channel
+        for the reason that channel exists. A response settles a request and
+        nothing else is ever written where a response is written; putting a
+        not-yet-a-response there would mean telling the two apart by inspecting
+        them, which is precisely the rule the split removed. The control
+        channel is also the one already proven under the condition that matters
+        -- a ``stream`` frame reaches the extension *while* a statement runs,
+        through a thread the running statement cannot block.
+
+        Each frame carries the request's ``id`` and the statement's ``index``
+        in file order, and its ``outcome`` is the same dict that goes into
+        ``results`` rather than a summary of it. The index is what makes the
+        reader able to refuse: a consumer that painted on arrival order alone
+        would silently shift every annotation by one if a frame were ever lost,
+        and shifted annotations are the failure this project treats as worse
+        than showing nothing.
+
+        ``results`` stays complete and stays authoritative. The frames are the
+        same outcomes arriving earlier, so a caller with no control channel --
+        or one that does not care to paint progressively -- reads the response
+        and gets everything, exactly as before.
         """
         source: str = request.get("source", "")
         filename: str = request.get("filename") or "<evalens>"
         allow_stdin = bool(request.get("allow_stdin"))
+        # The id the response will carry, so a frame can say which load it
+        # belongs to. Without it, a frame that lost the race between two pipes
+        # could be read as belonging to the load that started next.
+        request_id = request.get("id")
 
         linecache.cache[filename] = (
             len(source), None, source.splitlines(keepends=True), filename,
@@ -2173,13 +2206,25 @@ class Kernel:
         # at the top of a file and the function bodies further down that import
         # lazily are the same file, and get the same name and the same path.
         with self._as_module(filename):
-            for form in forms:
+            for index, form in enumerate(forms):
                 # Prompts if the caller allowed it, exactly as a single
                 # evaluation does. The flag is the caller's decision either
                 # way; nothing about running many statements makes the person
                 # watching them go away.
                 outcome = self._run(form, filename, allow_stdin=allow_stdin)
                 results.append(outcome)
+                # Announced immediately after it is collected, so the two can
+                # never disagree about what happened, and in the loop rather
+                # than after it, so the reader sees line 46 settle before line
+                # 47 stops to ask them something. Written by this thread while
+                # it holds the lock `control` takes, so the frames leave in
+                # file order and reach one reader on one pipe in that order.
+                control({
+                    "op": "statement",
+                    "id": request_id,
+                    "index": index,
+                    "outcome": outcome,
+                })
                 if outcome["ok"]:
                     ran += 1
                 elif _was_interrupted(outcome):
@@ -2195,6 +2240,10 @@ class Kernel:
             "ok": True,
             "statements": len(forms),
             "ran": ran,
+            # The whole of it, still, and not a summary of what was already
+            # announced. A frame and its entry here are the same object, so a
+            # consumer that saw every frame learns nothing new from this and a
+            # consumer that saw none is not missing anything.
             "results": results,
             **partial,
         }

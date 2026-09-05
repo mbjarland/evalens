@@ -520,3 +520,104 @@ test('a request goes out as one JSON line carrying its id', async () => {
   assert.equal(raw.indexOf('\n'), raw.length - 1, 'no embedded newlines');
   assert.deepEqual(JSON.parse(raw), { op: 'ping', id: 1 });
 });
+
+/** A `statement` frame as the kernel writes it, for the load with this id. */
+function statement(id: number, index: number, value: string) {
+  return {
+    op: 'statement',
+    id,
+    index,
+    outcome: {
+      ok: true, resolved: true, value, display: 'x', kind: 'Assign',
+      range: {
+        start: { line: index, character: 0 },
+        end: { line: index, character: 5 },
+      },
+      stdout: '', stderr: '',
+    },
+  };
+}
+
+test('a load\'s statements arrive as they finish, in the order they ran', async () => {
+  // The whole of the ticket at the transport layer. Before this the outcomes
+  // came back inside the response, so a load that blocked on `input()` had
+  // said nothing about any statement before it.
+  const seen: string[] = [];
+  const { client, started } = clientWith();
+  const load = client.request(
+    { op: 'eval_file', source: '', filename: '/tmp/f.py', allow_stdin: true },
+    (frame) => seen.push(`${frame.index}:${(frame.outcome as { value: string }).value}`)
+  );
+  const proc = await started();
+
+  proc.says(statement(1, 0, '1'));
+  proc.says(statement(1, 1, '2'));
+  assert.deepEqual(seen, ['0:1', '1:2'],
+    'both before the response, which has not been written yet');
+
+  proc.reply({ id: 1, ok: true, statements: 2, ran: 2, results: [] });
+  await load;
+});
+
+test('a frame for another load is not delivered to this one', async () => {
+  // Not a theoretical id check. Frames travel on the control channel and
+  // responses on the request channel, and nothing orders two pipes against
+  // each other -- so the tail of one load can be delivered after the next load
+  // has started. Painted without the id, it would land on the new load's
+  // statement of the same index: a value beside code it did not come from.
+  const seen: number[] = [];
+  const { client, started } = clientWith();
+  void client.request({ op: 'ping' });
+  const proc = await started();
+  const load = client.request(
+    { op: 'eval_file', source: '', filename: '/tmp/f.py', allow_stdin: true },
+    (frame) => seen.push(frame.index)
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+
+  proc.says(statement(1, 7, 'stale'));
+  proc.says(statement(2, 0, 'mine'));
+
+  assert.deepEqual(seen, [0]);
+  proc.reply({ id: 2, ok: true, statements: 1, ran: 1, results: [] });
+  await load;
+});
+
+test('frames stop being delivered once the response has settled', async () => {
+  // After the response the caller has `results` and has reconciled against it,
+  // so a frame that lost the race between the two pipes has nothing left to
+  // say. Delivering it would ask the caller to guard against its own answer.
+  const seen: number[] = [];
+  const { client, started } = clientWith();
+  const load = client.request(
+    { op: 'eval_file', source: '', filename: '/tmp/f.py', allow_stdin: true },
+    (frame) => seen.push(frame.index)
+  );
+  const proc = await started();
+
+  proc.says(statement(1, 0, '1'));
+  proc.reply({ id: 1, ok: true, statements: 2, ran: 2, results: [] });
+  await load;
+  proc.says(statement(1, 1, '2'));
+
+  assert.deepEqual(seen, [0]);
+});
+
+test('a restart takes the load\'s watcher with it', async () => {
+  // A watcher outliving its kernel would take the next kernel's frames, and
+  // the next kernel is a fresh namespace: every value it reports belongs to a
+  // load nobody asked for from the buffer this one was painting.
+  const seen: number[] = [];
+  const { client, started } = clientWith();
+  const load = client.request(
+    { op: 'eval_file', source: '', filename: '/tmp/f.py', allow_stdin: true },
+    (frame) => seen.push(frame.index)
+  ).catch(() => undefined);
+  const proc = await started();
+
+  client.restart();
+  await load;
+  proc.says(statement(1, 0, '1'));
+
+  assert.deepEqual(seen, []);
+});
