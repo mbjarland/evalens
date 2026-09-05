@@ -264,7 +264,10 @@ Three obligations follow, and they are commitments rather than opinions:
   sync. Shipped as #51 and #59.
 - **Load-versus-re-evaluate semantics have to be decided rather than
   defaulted.** "Restart and run all" is the discipline notebook users are
-  supposed to remember and mostly do not. Open as #56.
+  supposed to remember and mostly do not. Decided in #56: loading resets by
+  default and takes the load keybinding; keeping the namespace across a load
+  is the deliberate, palette-only choice. See design rule 12 and
+  `docs/development/namespace-reset.md`. Not yet built.
 - **Out-of-order execution is inherent to a REPL and cannot be prevented, so
   it must be legible.** A standing obligation on every feature, not a ticket.
 
@@ -763,16 +766,19 @@ reported pains).
 
 ## What is not decided
 
-Two spikes are open and either could move architecture:
+One spike is open and could move architecture:
 
 - **#33 and #52** — whether rendering should go through VS Code's debug inline
   values, and whether a debug session can be made genuinely invisible. Design
   rule 6 already constrains the answer: if it needs a `launch.json` or an
   interpreter selection before a value appears, it fails regardless of what
   the spike finds about UI leakage.
-- **#56** — whether loading a file resets the namespace. This is the "restart
-  and run all" discipline question, and letting it default silently is the
-  notebook mistake in miniature.
+
+**#56** — whether loading a file resets the namespace — is decided rather
+than open: see design rule 12 and `docs/development/namespace-reset.md`.
+Loading resets by default; keeping the namespace across a load is a
+deliberate, palette-only command. The kernel side already exists
+(`Kernel.reset`); the command split and keybinding swap are not yet built.
 
 And one thing is settled but unevidenced, restated because it is the easiest
 claim in this document to start believing: **no part of the rendering has been
