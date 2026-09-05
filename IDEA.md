@@ -204,10 +204,28 @@ Well-documented, well-trodden.
   avoid was never "too many functions to hook", it was hooking something
   that needs a terminal and half-succeeding.
 
-  Evaluating a line prompts, because someone is sitting there. Loading a
-  file does not, and raises instead: twenty prompts in a teaching file
-  would stop the load on the first one, and twenty modal boxes are not
-  the better version of that.
+  Both commands prompt, because in both cases someone is sitting there.
+  Loading a file refused to for a while, citing Jupyter — where the flag
+  is false for `nbconvert` and `papermill`. That was a misreading:
+  those are *unattended*, and the flag exists so that a batch conversion
+  nobody is watching fails loudly instead of deadlocking. `Cmd+Alt+Enter`
+  is a person pressing a key. Refusing produced a red `EOFError` on the
+  prompt line and a cascade of `NameError` under it, because nothing
+  downstream had the value — the command that exists to set up a session
+  refusing to, on exactly the teaching files it was built for.
+
+  Twenty prompts in a file is still a real worry, and it is answered
+  where the person is: the blocked line is marked and revealed so the box
+  is never disembodied, and from the second prompt of a load the box
+  carries a way to skip the rest. Cancelling one prompt still sends
+  end-of-file and raises `EOFError` for that statement alone; the load
+  continues, because a broken line is not a broken load.
+
+  The box stays at the top of the window. A genuinely inline editable
+  field needs the Comments API, whose zone widget pushes every line below
+  it down — reflowing the column of values the reader is in the middle
+  of. `WebviewEditorInset` is the right shape and is not in the stable
+  API.
 - **Value formatting.** Truncation limits, nesting depth, hover-for-full,
   and sensible `repr()` handling of large or cyclic structures.
 - **Decoration lifecycle.** Reposition annotations as the document

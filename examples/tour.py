@@ -65,18 +65,19 @@ y = lst
 y.append(4)
 lst
 
-# 2a. `input()` asks -- and, one case down, deliberately does not.  Put the
-#     cursor on the `if` below and press Ctrl+Enter: a box opens carrying the
-#     prompt text, and what you type comes back as the value of `answer`.
-#     Press Escape at that box instead and you get EOFError, which is the way
-#     out rather than a dead end.
+# 2a. `input()` asks, whichever way you run it.  Put the cursor on the `if`
+#     below and press Ctrl+Enter: the line greys and says it is waiting, a box
+#     opens carrying the prompt text, and what you type comes back as the
+#     value of `answer`.  Press Escape at that box instead and you get
+#     EOFError, which is the way out rather than a dead end.
 #
-#     Now try Evaluate File over the whole tour.  This case does NOT prompt:
-#     it raises EOFError and paints red, because loading a file asks the
-#     kernel not to prompt at all.  A teaching file with twenty `input()`
-#     calls would otherwise stop dead on the first one waiting for a human --
-#     the opposite of what a command called "load this file" is for -- and
-#     twenty modal boxes in a row is not the better version of that.
+#     Now try Evaluate File over the whole tour.  This case asks there too:
+#     the load stops on this line, marks and scrolls to it, and continues once
+#     you answer.  It used to refuse and paint red -- and refusing meant a red
+#     EOFError here plus a NameError on every line below that wanted `answer`,
+#     on exactly the kind of file the command exists to set up.  A file with
+#     twenty prompts is a real worry, and it is answered by the box offering
+#     to skip the rest from the second prompt on, not by refusing the first.
 #
 #     The guard is `__name__` rather than `sys.stdin.isatty()`, which is worth
 #     a sentence because the obvious choice is the wrong one here.  Evalens

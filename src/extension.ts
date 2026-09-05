@@ -4,7 +4,6 @@ import { Evaluator } from './evaluate';
 import { fixKeybindingConflict, reportKeybindingConflicts } from './conflicts';
 import { resolveInterpreter } from './config';
 import { KernelClient } from './kernel/client';
-import { askForInput } from './prompt';
 import { Annotations } from './render/annotations';
 import { Flash } from './render/flash';
 
@@ -128,7 +127,11 @@ async function ensureClient(
     // take effect on the next evaluation.
     resolvePython: () => resolveInterpreter(output!),
     kernelPath,
-    onInput: askForInput,
+    // Through the evaluator rather than straight to the box, because asking
+    // is no longer only a box: the blocked line has to be marked and revealed,
+    // and a load has to count its prompts so the second one can offer a way
+    // out of the rest. Only the command that is running knows any of that.
+    onInput: (request) => evaluator!.askUser(request),
     // Live, rather than at the end of the statement. A loop that prints its
     // progress only reads as progress if the output arrives while it runs.
     onStream: (_name, text) => output?.append(text),

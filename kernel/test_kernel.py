@@ -509,27 +509,91 @@ class Prompts(KernelTest):
                          "the request that arrived mid-prompt got no response")
         self.assertTrue(pinged["ok"])
 
-    def test_a_file_load_never_prompts_however_it_is_asked(self):
-        # A load exists to avoid waiting. Twenty prompts in a teaching file
-        # would otherwise stop it dead on the first one until a human noticed,
-        # which is the opposite of what the command is for.
-        result = self.k.send(op="eval_file", allow_stdin=True,
-                             source="name = input('who? ')\nprint(name)\n",
-                             filename="/tmp/course.py")
+    def test_a_file_load_prompts_and_carries_on(self):
+        # The decision this reverses: a load used to refuse to prompt, citing
+        # Jupyter, where the flag is false for `nbconvert` and `papermill`.
+        # Those are unattended. A load here is a person pressing a key and
+        # waiting, so the reason does not apply -- and refusing produced a red
+        # EOFError on the prompt line and a NameError cascade below it, on
+        # exactly the teaching files the command exists to set up.
+        self.k.send_async(op="eval_file", allow_stdin=True,
+                          source=("before = 1\n"
+                                  "name = input('who? ')\n"
+                                  "greeting = 'hi ' + name\n"),
+                          filename="/tmp/course.py")
+
+        request = self.k.read_control_until("input_request")
+        self.assertEqual(request["prompt"], "who? ")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="Ada")
+
+        result = self.k.read()
         self.assertTrue(result["ok"], result)
+        self.assertEqual(result["ran"], 3, "the whole file loaded")
+        self.assertEqual(result["results"][1]["value"], "'Ada'")
+        self.assertEqual(result["results"][2]["value"], "'hi Ada'",
+                         "the statement below the prompt got the answer")
 
-        first = result["results"][0]
-        self.assertFalse(first["ok"])
-        self.assertEqual(first["error"]["type"], "EOFError")
-        self.assertIn("evaluate the line on its own", first["error"]["message"])
+    def test_a_load_that_is_told_not_to_prompt_still_does_not(self):
+        # The flag is still the caller's decision, and a caller with nobody
+        # attached -- a headless harness, a script -- must get an error rather
+        # than a kernel stopped and waiting for a human nobody told to look.
+        result = self.k.send(op="eval_file", allow_stdin=False,
+                             source="name = input('who? ')\nafter = 3\n",
+                             filename="/tmp/unattended.py")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["results"][0]["error"]["type"], "EOFError")
+        self.assertEqual(result["ran"], 1, "the rest of the file still ran")
 
-        during = []
-        while True:
-            message = self.k.read_control()
-            during.append(message)
-            if message.get("op") == "status" and message.get("state") == "idle":
-                break
-        self.assertNotIn("input_request", [m.get("op") for m in during])
+    def test_cancelling_one_prompt_costs_only_that_statement(self):
+        # Cancelling sends EOF and raises EOFError there, and the load goes on
+        # -- a broken line is not a broken load. The way out of a prompt has to
+        # stay cheap, or a student who cannot answer one is stuck in it.
+        self.k.send_async(op="eval_file", allow_stdin=True,
+                          source=("first = input('a? ')\n"
+                                  "second = input('b? ')\n"
+                                  "third = 3\n"),
+                          filename="/tmp/two.py")
+
+        one = self.k.read_control_until("input_request")
+        self.k.send_control(op="input_reply", seq=one["seq"], value=None)
+        two = self.k.read_control_until("input_request")
+        self.k.send_control(op="input_reply", seq=two["seq"], value="B")
+
+        result = self.k.read()
+        self.assertEqual(result["results"][0]["error"]["type"], "EOFError")
+        self.assertEqual(result["results"][1]["value"], "'B'",
+                         "the next prompt was still asked")
+        self.assertEqual(result["results"][2]["value"], "3")
+
+    def test_a_prompt_says_which_statement_is_asking(self):
+        # Without this the extension cannot mark the blocked line during a
+        # load: it sent a whole file and has no idea which statement stopped.
+        self.k.send_async(op="eval_file", allow_stdin=True,
+                          source="a = 1\nb = 2\nname = input('who? ')\n",
+                          filename="/tmp/where.py")
+
+        request = self.k.read_control_until("input_request")
+        self.assertEqual(request["range"]["start"]["line"], 2)
+        self.assertEqual(request["range"]["end"]["line"], 2)
+
+        self.k.send_control(op="input_reply", seq=request["seq"], value="Ada")
+        self.k.read()
+
+    def test_a_prompt_from_a_compound_statement_anchors_on_its_header(self):
+        # The same rule the value follows: the annotation belongs beside the
+        # line that introduces the statement, not beside whichever of its body
+        # lines happened to reach the read.
+        self.k.send_async(op="eval", line=0, allow_stdin=True,
+                          source=("for who in ['a']:\n"
+                                  "    reply = input('who? ')\n"),
+                          filename="/tmp/loop.py")
+
+        request = self.k.read_control_until("input_request")
+        self.assertEqual(request["range"]["end"]["line"], 1)
+        self.assertEqual(request["anchor"], 0)
+
+        self.k.send_control(op="input_reply", seq=request["seq"], value="Ada")
+        self.k.read()
 
     def test_an_interrupt_is_the_way_out_of_a_prompt_nobody_answers(self):
         # Why these two features had to land together. While this waits, the

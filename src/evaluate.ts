@@ -1,16 +1,18 @@
 import * as vscode from 'vscode';
 
 import { progressDelay } from './config';
+import { LoadPrompts, waitingLabel } from './input';
 import { describeInterrupt, settlesWithin } from './interrupt';
 import { KernelClient } from './kernel/client';
 import {
-  EvalResponse, FileResponse, LatestWins, StatementOutcome,
+  EvalResponse, FileResponse, InputRequest, LatestWins, StatementOutcome,
 } from './kernel/protocol';
+import { askForInput } from './prompt';
 import { Annotations } from './render/annotations';
 import { Annotation, sourceAt, toVsCodeRange } from './render/decorations';
 import { Flash, SNAP } from './render/flash';
 import { describeLoad, describeRun, hoverFor, present } from './render/present';
-import { whileRunning } from './render/status';
+import { Waiting, whileRunning } from './render/status';
 import { selectedLines, widenedBeyond } from './selection';
 
 /**
@@ -80,8 +82,31 @@ function annotationFor(
   };
 }
 
+/**
+ * Who is in front of the kernel, so a prompt can be attributed to a document.
+ *
+ * One slot, because the kernel runs one thing at a time and a prompt always
+ * belongs to whatever it is running. A request that outlives its command --
+ * interrupted, restarted -- finds this empty and is answered with end-of-file,
+ * which is the only answer that does not leave the kernel waiting.
+ */
+interface Asking {
+  readonly document: vscode.TextDocument;
+  /**
+   * The mark the keypress already put up, when there is one.
+   *
+   * A single evaluation has one and the prompt borrows it, so the line does
+   * not briefly carry two marks. A load has none: which of its statements is
+   * asking is not known until the request arrives and says.
+   */
+  readonly waiting?: Waiting;
+  /** Prompt bookkeeping for a load; absent for a single evaluation. */
+  readonly load?: LoadPrompts;
+}
+
 export class Evaluator {
   private readonly gate = new LatestWins<string>();
+  private asking?: Asking;
   /**
    * The client, once one has been resolved.
    *
@@ -107,6 +132,76 @@ export class Evaluator {
   private async client(): Promise<KernelClient> {
     this.connected = await this.kernel();
     return this.connected;
+  }
+
+  /**
+   * Answer a prompt from the running code.
+   *
+   * The box is only half of it. The other half is the blocked line saying that
+   * it is waiting and what for -- without that, a box appears at the top of
+   * the window with no account of which of a hundred lines wants something,
+   * and during a load the statement that asked may not even be on screen.
+   *
+   * Skipping is offered from the second prompt of a load onward. A file with
+   * twenty prompts must not mean twenty boxes with no way out; a file with one
+   * must not be asked about a problem it does not have.
+   */
+  async askUser(request: InputRequest): Promise<string | null> {
+    const asking = this.asking;
+    if (asking === undefined || asking.load?.quiet === true) {
+      // Nobody attached, or the user already said not to ask again. Null is
+      // end-of-file, which raises `EOFError` in the code that asked -- the
+      // behaviour the kernel had before it could ask at all, kept as the way
+      // out precisely so that it is always available.
+      return null;
+    }
+
+    // Borrowed for a single evaluation, made fresh for a load -- and that is
+    // the whole difference afterwards: a borrowed mark goes back to saying
+    // what it said, a made one has to be taken away again.
+    const borrowed = asking.waiting;
+    const marker = borrowed ?? this.markWhereItAsked(asking.document, request);
+    marker?.say(waitingLabel(request.prompt));
+
+    try {
+      const answer = await askForInput(request, asking.load?.offerSkip === true);
+      asking.load?.record(answer.kind);
+      return answer.kind === 'value' ? answer.value : null;
+    } finally {
+      if (borrowed !== undefined) {
+        // The statement is still running; only the question is over.
+        borrowed.say();
+      } else {
+        marker?.withdraw();
+      }
+    }
+  }
+
+  /**
+   * Mark the statement that asked, and bring the reader to it.
+   *
+   * Revealing is not a nicety. During a load the prompt can come from a
+   * statement fifty lines below the viewport, and a box asking for a value
+   * with no visible line behind it is a question about code the reader cannot
+   * see.
+   */
+  private markWhereItAsked(
+    document: vscode.TextDocument, request: InputRequest
+  ): Waiting | undefined {
+    if (request.range === undefined) {
+      // A kernel too old to say where it is. Guessing a line would put a mark
+      // beside code that is not blocked, which is worse than the box alone.
+      return undefined;
+    }
+    const range = toVsCodeRange(request.range);
+    const marker = this.annotations.pending(document, range, request.anchor);
+    for (const editor of vscode.window.visibleTextEditors) {
+      if (editor.document === document) {
+        editor.revealRange(
+          range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+      }
+    }
+    return marker;
   }
 
   /**
@@ -191,6 +286,9 @@ export class Evaluator {
     const selection = editor.selection;
     const lines = selectedLines(selection);
     let response: FileResponse;
+    // Set before the request, because the first prompt can arrive before the
+    // await has even yielded once.
+    this.asking = { document, load: new LoadPrompts() };
     try {
       const client = await this.client();
       response = (await this.watch(
@@ -198,12 +296,15 @@ export class Evaluator {
           op: 'eval_file',
           source: document.getText(),
           filename: document.uri.fsPath,
-          // A load never prompts. Twenty prompts in a teaching file would
-          // stop it dead on the first one, and twenty modal boxes are not the
-          // better version of that -- `input()` raises here, with a message
-          // saying to evaluate the line on its own to be asked. A selection
-          // is the same command over less code and does not change that.
-          allow_stdin: false,
+          // A load asks. It used to refuse, citing the flag Jupyter sets false
+          // for `nbconvert` -- but that runs unattended, and this is somebody
+          // pressing a key and waiting. Refusing painted a red `EOFError` on
+          // the prompt line and a cascade of `NameError` under it, on exactly
+          // the teaching files this command exists to set up. Twenty prompts
+          // is still too many, which is what "skip the rest" is for. A
+          // selection is the same command over less code and does not change
+          // that either.
+          allow_stdin: true,
           // The whole buffer either way, with the selection sent as a line
           // range rather than as the selected text: the kernel needs the file
           // around the selection to snap outward to whole statements, and to
@@ -217,6 +318,8 @@ export class Evaluator {
       this.output.appendLine(message);
       void vscode.window.showErrorMessage(`Evalens: ${message}`);
       return;
+    } finally {
+      this.asking = undefined;
     }
 
     if (!response.ok) {
@@ -319,21 +422,29 @@ export class Evaluator {
         // handle was obtained would miss the evaluation that needs it most.
         () => this.annotations.pending(
           document, new vscode.Range(cursor.line, 0, cursor.line, 0)),
-        async () => {
-          const client = await this.client();
-          return (await this.watch(
-            client.request({
-              op: 'eval',
-              source: document.getText(),
-              line: cursor.line,
-              character: cursor.character,
-              filename: document.uri.fsPath,
-              // Somebody pressed a key and is sitting there waiting for this
-              // line to answer, so `input()` is a conversation, not a hang.
-              allow_stdin: true,
-            }),
-            'Evalens: evaluating'
-          )) as EvalResponse;
+        async (waiting) => {
+          // The mark goes to the prompt handler rather than a second one being
+          // made: the line the cursor is on is inside the statement that is
+          // blocked, so it is already the right line to say so on.
+          this.asking = { document, waiting };
+          try {
+            const client = await this.client();
+            return (await this.watch(
+              client.request({
+                op: 'eval',
+                source: document.getText(),
+                line: cursor.line,
+                character: cursor.character,
+                filename: document.uri.fsPath,
+                // Somebody pressed a key and is sitting there waiting for this
+                // line to answer, so `input()` is a conversation, not a hang.
+                allow_stdin: true,
+              }),
+              'Evalens: evaluating'
+            )) as EvalResponse;
+          } finally {
+            this.asking = undefined;
+          }
         },
         { busy: () => this.busy() }
       );

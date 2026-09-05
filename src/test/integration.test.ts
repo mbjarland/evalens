@@ -4,9 +4,10 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { LoadPrompts } from '../input';
 import { KernelClient } from '../kernel/client';
 import {
-  Evaluated, EvalResponse, Failed, FileLoaded, LoopTrace,
+  Evaluated, EvalResponse, Failed, FileLoaded, LoopTrace, StatementOutcome,
 } from '../kernel/protocol';
 import { errorText, resultText } from '../render/format';
 import { describeRun, present } from '../render/present';
@@ -857,30 +858,134 @@ test('cancelling a prompt raises EOFError, which is the way out', async (t) => {
   assert.equal(after.value, '1');
 });
 
-test('loading a file does not prompt, it raises and says why', async (t) => {
-  // A load exists to avoid waiting. Twenty prompts in a teaching file would
-  // stop it dead on the first one until a human noticed, and twenty modal
-  // boxes are not the better version of that.
+/** The error type one loaded statement failed with, or its value. */
+function outcome(result: StatementOutcome): string {
+  return result.ok ? String(result.value) : result.error.type;
+}
+
+test('loading a file asks, and carries on with the answer', async (t) => {
+  // The reversal. A load refused to prompt, citing the flag Jupyter sets false
+  // for nbconvert and papermill -- but those run unattended, and this is
+  // somebody pressing a key and waiting. Refusing painted a red EOFError on
+  // the prompt line and a cascade of NameError beneath it, because nothing
+  // downstream had the value, on exactly the teaching files the command exists
+  // to set up.
+  const { client, prompts } = connectAnswering(() => 'Ada');
+  t.after(() => client.dispose());
+
+  const loaded = await client.request({
+    op: 'eval_file',
+    allow_stdin: true,
+    source: "before = 1\nname = input('Your name? ')\ngreeting = 'hi ' + name\n",
+    filename: '/tmp/evalens-course.py',
+  }) as FileLoaded;
+
+  assert.deepEqual(prompts, ['Your name? ']);
+  assert.equal(loaded.ok, true);
+  assert.equal(loaded.ran, 3, 'the whole file loaded');
+  assert.equal(outcome(loaded.results[2]!), "'hi Ada'",
+    'the line below the prompt had the answer to work with');
+});
+
+test('a prompt during a load says which line is asking', async (t) => {
+  // The half of the design that stops the box feeling disembodied. The
+  // extension sent a whole file, so without this it cannot tell which of its
+  // statements stopped -- and cannot mark that line or scroll to it.
+  const asked: (number | undefined)[] = [];
+  const client = new KernelClient({
+    resolvePython: async () => 'python3',
+    kernelPath: KERNEL,
+    onInput: async (request) => {
+      asked.push(request.range?.start.line);
+      return 'Ada';
+    },
+  });
+  t.after(() => client.dispose());
+
+  await client.request({
+    op: 'eval_file',
+    allow_stdin: true,
+    source: "a = 1\nb = 2\nname = input('Your name? ')\n",
+    filename: '/tmp/evalens-where.py',
+  });
+
+  assert.deepEqual(asked, [2]);
+});
+
+test('cancelling one prompt costs that statement and nothing else', async (t) => {
+  // The way out has to stay cheap, or a student who cannot answer a prompt is
+  // stuck in it. Cancelling sends end-of-file, that statement raises EOFError,
+  // and the load carries on -- a broken line is not a broken load.
+  const answers: (string | null)[] = [null, 'B'];
+  const { client, prompts } = connectAnswering(() => answers.shift() ?? null);
+  t.after(() => client.dispose());
+
+  const loaded = await client.request({
+    op: 'eval_file',
+    allow_stdin: true,
+    source: "first = input('a? ')\nsecond = input('b? ')\nthird = 3\n",
+    filename: '/tmp/evalens-cancel.py',
+  }) as FileLoaded;
+
+  assert.deepEqual(prompts, ['a? ', 'b? '], 'the next prompt was still asked');
+  assert.deepEqual(loaded.results.map(outcome), ['EOFError', "'B'", '3']);
+});
+
+test('skipping the rest stops the asking without stopping the load', async (t) => {
+  // A file with twenty prompts must not mean twenty boxes with no way out.
+  // Driven by the same LoadPrompts the extension uses, because the decision is
+  // its own -- the kernel keeps asking, and what changes is that every prompt
+  // after the choice is answered with end-of-file without a box.
+  const load = new LoadPrompts();
+  const boxes: string[] = [];
+  const client = new KernelClient({
+    resolvePython: async () => 'python3',
+    kernelPath: KERNEL,
+    onInput: async (request) => {
+      if (load.quiet) {
+        return null;
+      }
+      boxes.push(request.prompt);
+      // The offer appears on the second prompt, and is taken there.
+      const chosen = load.offerSkip ? 'skip' : 'value';
+      load.record(chosen);
+      return chosen === 'skip' ? null : 'answer';
+    },
+  });
+  t.after(() => client.dispose());
+
+  const loaded = await client.request({
+    op: 'eval_file',
+    allow_stdin: true,
+    // Four prompts: one answered, one skipped at, two that must not be asked.
+    source: "one = input('1? ')\ntwo = input('2? ')\n"
+      + "three = input('3? ')\nfour = input('4? ')\nfive = 5\n",
+    filename: '/tmp/evalens-skip.py',
+  }) as FileLoaded;
+
+  assert.deepEqual(boxes, ['1? ', '2? '],
+    'a box opened for a prompt after the user asked to skip the rest');
+  assert.deepEqual(loaded.results.map(outcome),
+    ["'answer'", 'EOFError', 'EOFError', 'EOFError', '5'],
+    'skipping is cancelling the rest, and the lines that do not ask still run');
+});
+
+test('a load told not to prompt still does not, and says so plainly', async (t) => {
+  // The flag is still the caller's, and a caller with nobody attached has to
+  // get an error rather than a kernel stopped and waiting for a human nobody
+  // told to look.
   const { client, prompts } = connectAnswering(() => 'Ada');
   t.after(() => client.dispose());
 
   const loaded = await client.request({
     op: 'eval_file',
     allow_stdin: false,
-    source: "before = 1\nname = input('Your name? ')\nafter = 3\n",
-    filename: '/tmp/evalens-course.py',
+    source: "name = input('Your name? ')\nafter = 3\n",
+    filename: '/tmp/evalens-unattended.py',
   }) as FileLoaded;
 
-  assert.deepEqual(prompts, [], 'a load must never open a box');
-  assert.equal(loaded.ok, true);
-  assert.equal(loaded.ran, 2, 'the statements around it still ran');
-
-  const failure = loaded.results[1]!;
-  assert.equal(failure.ok, false);
-  assert.equal((failure as { error: { type: string } }).error.type, 'EOFError');
-  assert.match((failure as { error: { message: string } }).error.message,
-    /evaluate the line on its own/,
-    'the message has to say how to be asked instead');
+  assert.deepEqual(prompts, [], 'nothing was told not to ask, and it asked');
+  assert.deepEqual(loaded.results.map(outcome), ['EOFError', '3']);
 });
 
 test('a password read is marked so the box does not echo it', async (t) => {

@@ -117,7 +117,7 @@ Coordinates are VS Code's: 0-based line, 0-based character.
 those lines touch, which is how a selection is run::
 
     -> {"id":3,"op":"eval_file","source":"...","start_line":9,"end_line":12,
-        "filename":"/abs/path.py","allow_stdin":false}
+        "filename":"/abs/path.py","allow_stdin":true}
     <- {"id":3,"ok":true,"statements":2,"ran":2,"results":[...],
         "range":{"start":{"line":8,...},"end":{"line":13,...}}}
 
@@ -161,11 +161,19 @@ than one that is empty. **The interception point is stdin and nothing else**:
 through the one object, and nothing that needs a real terminal is wrapped or
 pretended at. ``_AskingStdin`` says where that boundary is and why.
 
-An ``eval`` request may set ``allow_stdin`` to be asked; ``eval_file`` never
-prompts, whatever it says. A file being loaded is a command that exists to
-avoid waiting, and a teaching file with twenty prompts would otherwise stop
-on the first one until a human noticed. Jupyter carries the same flag for the
-same reason.
+Both ``eval`` and ``eval_file`` may set ``allow_stdin`` to be asked. A load
+refused to for a while, on the grounds that Jupyter's ``nbconvert`` and
+``papermill`` set the same flag false -- but those are *unattended*, a batch
+conversion with nobody watching, and the key that loads a file is a person
+pressing it and waiting for the result. The reason for the flag does not
+apply to them. Refusing produced a red ``EOFError`` on the prompt line and a
+cascade of ``NameError`` beneath it, on exactly the teaching files the command
+exists to set up. Whether twenty prompts is too many is a question for the
+extension, which is where the person is.
+
+An ``input_request`` carries the range of the statement that reached the read,
+because only the kernel knows it: the extension sent a cursor position or a
+whole file, and neither of those is the statement now blocked.
 
 Cancelling a prompt sends a null answer, which reads as end-of-file and
 raises ``EOFError`` -- today's behaviour, kept deliberately, because a student
@@ -253,6 +261,12 @@ _INPUT_SEQ = 0
 #: that forgot the flag gets today's EOFError, not a kernel that stops and
 #: waits for a human nobody told to look.
 _ALLOW_STDIN = False
+
+#: Where the statement currently running is, so a prompt can say which line is
+#: asking. Set per evaluation by `_user_io`. Only the kernel can supply it: the
+#: extension sent a cursor position or a whole file, and during a load neither
+#: of those is the statement that reached `input()`.
+_RUNNING_AT: Optional[Dict[str, Any]] = None
 
 
 def _open_control(argv: list) -> Tuple[Optional[TextIO], Optional[TextIO]]:
@@ -472,6 +486,10 @@ class _AskingStdin(io.TextIOBase):
             "seq": wanted,
             "prompt": _capped(prompt, PROMPT_LIMIT),
             "password": _reading_a_password(),
+            # Which line is asking. The extension marks and reveals it, so a
+            # prompt from a statement scrolled off screen brings the reader to
+            # it rather than opening a box about code they cannot see.
+            **(_RUNNING_AT or {}),
         })
         while True:
             try:
@@ -512,9 +530,7 @@ def _no_input_message() -> str:
     if _CONTROL_OUT is None:
         return ("EOF when reading a line (this kernel has no channel to ask "
                 "for input on)")
-    return ("EOF when reading a line (this evaluation was asked not to "
-            "prompt, which a file load never does; evaluate the line on its "
-            "own to be asked)")
+    return "EOF when reading a line (this evaluation was asked not to prompt)"
 
 
 def _reading_a_password() -> bool:
@@ -537,7 +553,9 @@ def _reading_a_password() -> bool:
 
 
 @contextlib.contextmanager
-def _user_io(allow_stdin: bool = False) -> Iterator[tuple[_Tee, _Tee]]:
+def _user_io(allow_stdin: bool = False,
+             at: Optional[Dict[str, Any]] = None
+             ) -> Iterator[tuple[_Tee, _Tee]]:
     """Isolate evaluated code from the protocol channel.
 
     Two hazards, both silent if unhandled:
@@ -554,27 +572,31 @@ def _user_io(allow_stdin: bool = False) -> Iterator[tuple[_Tee, _Tee]]:
     never touches the request channel; what it gets instead is a stream that
     asks the extension, on the control channel, and blocks for the reply.
 
-    ``allow_stdin`` is the caller's decision and defaults to no. A single
-    evaluation says yes, because someone pressed a key and is sitting there. A
-    file load says no, because a teaching file with twenty prompts would
-    otherwise stop dead on the first one, waiting for a human, which is the
-    opposite of what "load this file" is for. Jupyter carries the same flag for
-    the same reason, and it is why nbconvert fails loudly instead of hanging.
+    ``allow_stdin`` is the caller's decision and defaults to no, so that a
+    caller which forgot the flag gets an ``EOFError`` rather than a kernel
+    stopped and waiting for a human nobody told to look. Both commands say yes:
+    a single evaluation because someone pressed a key and is sitting there, and
+    a file load for the same reason. Jupyter's flag is false in ``nbconvert``
+    and ``papermill`` because those run *unattended*, which a keypress is not.
+
+    ``at`` is where the statement being run is, carried on any prompt it
+    raises. Only this side knows: during a load the extension sent a whole
+    file and has no idea which statement stopped.
 
     Known limitation: this rebinds Python-level streams. A native extension
     writing straight to file descriptor 1 still escapes it, and so does
     anything reading ``sys.__stdin__``.
     """
-    global _ALLOW_STDIN
+    global _ALLOW_STDIN, _RUNNING_AT
     out, err = _Tee("stdout"), _Tee("stderr")
-    stdin, allowed = sys.stdin, _ALLOW_STDIN
-    _ALLOW_STDIN = allow_stdin
+    stdin, allowed, was_at = sys.stdin, _ALLOW_STDIN, _RUNNING_AT
+    _ALLOW_STDIN, _RUNNING_AT = allow_stdin, at
     sys.stdin = _AskingStdin(out, err)
     try:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             yield out, err
     finally:
-        sys.stdin, _ALLOW_STDIN = stdin, allowed
+        sys.stdin, _ALLOW_STDIN, _RUNNING_AT = stdin, allowed, was_at
 
 
 def _capped(text: str, limit: int) -> str:
@@ -877,6 +899,16 @@ def _anchor_of(form: Form) -> Dict[str, Any]:
     return {"anchor": form.anchor_line}
 
 
+def _located(form: Form) -> Dict[str, Any]:
+    """Where a statement is, in the shape a prompt puts on the wire.
+
+    The same two fields an outcome carries, so a prompt and the value that
+    eventually replaces it land on the same line rather than one on the header
+    and one on the last line of the body.
+    """
+    return {"range": _range_of(form), **_anchor_of(form)}
+
+
 def _dependencies_of(form: Form) -> Dict[str, Any]:
     """The `binds` and `reads` fields, each present only when it has content.
 
@@ -1056,9 +1088,19 @@ class Kernel:
         statement boundaries around the selection -- and what docstring
         suppression needs, which is whether a string opens the module or
         merely opens the selection.
+
+        A load prompts, if the caller allows it. It used to refuse on
+        Jupyter's precedent, and the precedent was misread: ``nbconvert`` sets
+        that flag false because nobody is watching it, and somebody is
+        watching this. Refusing turned a teaching file into a red ``EOFError``
+        and a cascade of ``NameError`` under it -- the command that exists to
+        set up a session refusing to, on the files it was built for. How many
+        prompts is too many is a question for whoever is looking at the
+        screen, and this is not that layer.
         """
         source: str = request.get("source", "")
         filename: str = request.get("filename") or "<evalens>"
+        allow_stdin = bool(request.get("allow_stdin"))
 
         linecache.cache[filename] = (
             len(source), None, source.splitlines(keepends=True), filename,
@@ -1075,11 +1117,10 @@ class Kernel:
         results = []
         ran = 0
         for form in forms:
-            # Never prompts, whatever the request says. See `_user_io`:
-            # twenty prompts in a teaching file would stop the load dead
-            # on the first one, and this command exists to avoid exactly
-            # that kind of waiting.
-            outcome = self._run(form, filename)
+            # Prompts if the caller allowed it, exactly as a single evaluation
+            # does. The flag is the caller's decision either way; nothing about
+            # running many statements makes the person watching them go away.
+            outcome = self._run(form, filename, allow_stdin=allow_stdin)
             results.append(outcome)
             if outcome["ok"]:
                 ran += 1
@@ -1119,7 +1160,7 @@ class Kernel:
         bindings: list = []
         names: list = []
 
-        with _user_io(allow_stdin) as (out, err):
+        with _user_io(allow_stdin, _located(form)) as (out, err):
             try:
                 # One dict for globals AND locals. Passing two makes
                 # comprehensions and nested scopes fail to see module-level

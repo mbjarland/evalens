@@ -64,17 +64,26 @@ export interface EvalFileRequest {
   readonly source: string;
   readonly filename: string;
   /**
-   * Always false, and typed as false so it cannot become anything else.
+   * Whether the load may stop and ask. It may.
    *
-   * Loading a file is the command that exists to avoid waiting. A teaching
-   * file with twenty prompts would otherwise stop dead on the first one until
-   * a human noticed -- and the twenty modal boxes that would replace it are
-   * not better. `input()` in a loaded file raises instead, with a message
-   * saying to evaluate the line on its own to be asked. Jupyter carries the
-   * same flag for the same reason, which is why nbconvert fails loudly rather
-   * than deadlocking.
+   * This was `false`, and typed as `false` so it could not become anything
+   * else, on the grounds that Jupyter sets the same flag false for `nbconvert`
+   * and `papermill`. That reading was wrong. Those are *unattended* -- a batch
+   * conversion with nobody watching -- and the flag exists there because a
+   * deadlock no one can see is worse than a loud failure. Loading a file here
+   * is a person pressing a key and waiting for the result, so the reason
+   * simply does not apply to it.
+   *
+   * What refusing produced was a red `EOFError` on the prompt line and a
+   * cascade of `NameError` beneath it, because nothing downstream had the
+   * value -- on precisely the teaching files this command was built for.
+   * Twenty prompts is still too many, and that is answered by offering to skip
+   * the rest rather than by refusing the first.
+   *
+   * A selection is the same command over less code and does not change this:
+   * one key, one set of semantics, whatever it is pointed at.
    */
-  readonly allow_stdin: false;
+  readonly allow_stdin: boolean;
   /**
    * First line to run, 0-based and inclusive. Absent means the whole file.
    *
@@ -145,6 +154,18 @@ export interface InputRequest {
   readonly prompt: string;
   /** The read came from inside `getpass`, so the answer must not be echoed. */
   readonly password: boolean;
+  /**
+   * Where the statement that asked is.
+   *
+   * Only the kernel knows. The extension sent a cursor position or a whole
+   * file, and during a load neither of those is the statement that reached the
+   * read -- so without this the box asking for a value could not say which
+   * line wanted one, which is the half of the design that stops it feeling
+   * disembodied.
+   */
+  readonly range?: Range;
+  /** Where the marker belongs, when that is not the end of `range`. */
+  readonly anchor?: number;
 }
 
 /**
