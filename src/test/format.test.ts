@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 
 import { BindingTrace, LoopTrace, NamedValue } from '../kernel/protocol';
 import {
-  GAP, Rendered, SEPARATOR, alignmentGap, bindingText, collapseLines,
-  columnWidth, errorText, hasOutput, hoverText, joinSegments, opensDefinition,
-  outputPieces, partialNote, preserveSpacing, printedFrom, restatesLine,
-  resultSegments, resultText, sequenceText,
+  DEFAULT_MAX_VALUE_LENGTH, GAP, Rendered, SEPARATOR, alignmentGap,
+  bindingText, collapseLines, columnWidth, errorText, hasOutput, hoverText,
+  joinSegments, opensDefinition, outputPieces, partialNote, preserveSpacing,
+  printedFrom, restatesLine, resultSegments, resultText, sequenceText,
+  truncateValue,
 } from '../render/format';
 
 function trace(
@@ -780,6 +781,101 @@ test('the hover explains what the line only hints at', () => {
       partial: { truncated_at: 18, message: 'unterminated string literal' } }),
     'answer = 42\nevaluated without line 19 onwards'
     + '\nSyntaxError: unterminated string literal');
+});
+
+test('a value under the limit is left exactly as it is', () => {
+  assert.equal(truncateValue('[1, 2, 3]', 80), '[1, 2, 3]');
+  assert.equal(truncateValue('x'.repeat(80), 80), 'x'.repeat(80),
+    'exactly at the limit is not over it');
+});
+
+test('a long value is cut and says so, never left looking complete', () => {
+  // #12. A truncated list must not look like a short list, so the marker is
+  // never optional once the limit is crossed.
+  assert.equal(truncateValue('x'.repeat(90), 80),
+    `${'x'.repeat(80)}… (+10 more characters)`);
+});
+
+test('one character over says "character", not "characters"', () => {
+  assert.equal(truncateValue('x'.repeat(81), 80),
+    `${'x'.repeat(80)}… (+1 more character)`);
+});
+
+test('the removed count is grouped the same way every other count here is', () => {
+  assert.equal(truncateValue('x'.repeat(1200), 80),
+    `${'x'.repeat(80)}… (+1,120 more characters)`);
+});
+
+test('a cut lands on a grapheme boundary, not a code unit', () => {
+  // A flag is two UTF-16 surrogate pairs acting as one character; slicing by
+  // code unit would cut it in half and paint half a flag.
+  const flags = '🇸🇪'.repeat(50);
+  const cut = truncateValue(flags, 10);
+  assert.ok(cut.startsWith('🇸🇪'.repeat(10)), cut);
+  assert.equal([...new Intl.Segmenter().segment(cut.split('…')[0]!)].length, 10);
+});
+
+test('a value already cut by the kernel is not cut through its own notice', () => {
+  // `_capped` in evalens_kernel.py produces exactly this shape. A generous
+  // limit that comfortably covers the kernel's notice leaves it untouched.
+  const capped = `${'x'.repeat(8192)}… <truncated from 50000 chars>`;
+  assert.equal(truncateValue(capped, 8192 + 40), capped,
+    'the kernel already said enough; nothing here needed to say more');
+});
+
+test("a narrower limit replaces the kernel's notice rather than cutting into it", () => {
+  // Chopping "… <truncated from 50000 chars>" in half would print a broken
+  // sentence with a count belonging to neither cut -- the defect #12 flagged
+  // by name. This must never happen: the kernel's notice is either kept
+  // whole or dropped whole, never partially there.
+  const capped = `${'x'.repeat(8192)}… <truncated from 50000 chars>`;
+  const cut = truncateValue(capped, 80);
+  assert.equal(cut, `${'x'.repeat(80)}… (+8,112 more characters)`);
+  assert.doesNotMatch(cut, /truncated from/,
+    'no fragment of the kernel notice survives half-said');
+});
+
+/** Painted text with its non-breaking spaces read back as ordinary ones. */
+function plain(text: string): string {
+  return text.split(NBSP).join(' ');
+}
+
+test('the display limit is overridable, and defaults to a measured width', () => {
+  assert.equal(DEFAULT_MAX_VALUE_LENGTH, 120);
+  const long = '[' + Array.from({ length: 60 }, (_, i) => i).join(', ') + ']';
+  assert.ok(long.length > DEFAULT_MAX_VALUE_LENGTH, 'the fixture must be long enough to bite');
+  const shown = plain(resultText({ value: long, display: 'nums' }));
+  assert.ok(shown.includes('more character'), shown);
+
+  const untouched = resultText({ value: long, display: 'nums', maxValueLength: 500 });
+  assert.ok(!plain(untouched).includes('more character'), untouched);
+  assert.equal(untouched, preserveSpacing(`nums: ${long}`));
+});
+
+test('the full value is still on the hover once the line truncates it', () => {
+  // #12's other half. The line is bounded; the hover is where the whole of a
+  // long value still lives, up to the kernel's own wire cap.
+  const long = '[' + Array.from({ length: 60 }, (_, i) => i).join(', ') + ']';
+  assert.ok(
+    plain(resultText({ value: long, display: 'nums' })).includes('more character'));
+  assert.equal(hoverText({ value: long, display: 'nums' }), `nums = ${long}`,
+    'the hover is never cut, whatever the line had to do');
+});
+
+test('a loop sequence long enough to be a screenful is truncated the same way', () => {
+  // The line-width problem is the same whether the long value came from a
+  // single binding or from several short iterations added together.
+  const shown = plain(resultText({ value: '9', display: 'p',
+    loop: trace(Array.from({ length: 40 }, (_, i) => String(i)), null) }));
+  assert.ok(shown.includes('more character'), shown);
+});
+
+test('a truncated value never carries the label past its own count', () => {
+  // Truncation only ever shortens a `value` segment; the `×N` and the name
+  // it is attached to are chrome, and chrome is never cut.
+  const shown = resultText({ value: '9', display: 'p',
+    loop: trace(Array.from({ length: 40 }, (_, i) => String(i)), null) });
+  assert.ok(shown.startsWith(preserveSpacing('p ×40: ')), shown);
 });
 
 /** Segments as `role "text"`, with the non-breaking spaces read back. */

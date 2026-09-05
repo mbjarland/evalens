@@ -33,6 +33,17 @@ test('a binding is spoken with its name and its value', () => {
   assert.equal(spokenText(value()), 'lst is [1, 2, 3]');
 });
 
+test('a value the painted line would truncate is still spoken in full', () => {
+  // #12 cuts a painted value at DEFAULT_MAX_VALUE_LENGTH (120 characters) --
+  // format.ts's own concern, applied only in the painter's private pipeline.
+  // Speech goes through the shared `paintedSlots` and has its own, more
+  // generous limit (SPOKEN_LIMIT, 300); it must not inherit the shorter one
+  // just because the two channels start from the same slots.
+  const long = `[${Array.from({ length: 50 }, (_, i) => i).join(', ')}]`;
+  assert.ok(long.length > 120 && long.length < SPOKEN_LIMIT, `${long.length}`);
+  assert.equal(spokenText({ value: long, display: 'nums' }), `nums is ${long}`);
+});
+
 test('a bare expression is spoken as its value, without the arrow', () => {
   // `=>` is punctuation: skipped at the default verbosity, spelled out as
   // "equals greater than" above it, and never the word "result".

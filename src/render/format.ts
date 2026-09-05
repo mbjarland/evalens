@@ -706,6 +706,82 @@ export interface Rendered {
    * split `printed`'s `label` already makes for `evalens.printedLabel`.
    */
   readonly loopGlyph?: string;
+  /**
+   * How many graphemes a single value is shown in before `truncateValue`
+   * cuts it -- `DEFAULT_MAX_VALUE_LENGTH` when absent. Exists so
+   * `evalens.maxValueLength` (#12) has somewhere to land, on the same terms
+   * as `loopGlyph` above: this module reads the width, a caller that knows
+   * the editor's is free to pass a narrower one down.
+   */
+  readonly maxValueLength?: number;
+}
+
+/**
+ * The kernel's own notice that a `repr()` was already cut to fit the wire --
+ * `_capped` in `evalens_kernel.py`, reached once a value's `repr()` outgrows
+ * `WIRE_REPR_LIMIT`. Detected so `truncateValue`'s own, shorter cut never
+ * lands inside it: chopping "… <truncated from 50000 chars>" in half would
+ * print a broken sentence carrying a count that belongs to neither cut,
+ * which is exactly the defect #12 was filed to avoid, not merely to survive.
+ */
+const WIRE_TRUNCATION = /… <truncated from \d+ chars>$/;
+
+/**
+ * How many characters a value is shown in on the line before it is cut,
+ * absent a narrower width from `Rendered.maxValueLength` or, eventually,
+ * `evalens.maxValueLength` (#12).
+ *
+ * Chosen by running `bin/audit-corpus.js --listings` over a real first-year
+ * course (`python-walkthrough`) and looking at what actually reaches this
+ * width, rather than picking a round number: every value a reader would
+ * want in full -- a six-tuple `deck` (102 characters), a grouped
+ * `defaultdict` (103), a `namedtuple` signature (82) -- tops out under 105.
+ * What crosses 120 in that corpus is a different kind of thing entirely: a
+ * `dataclass` signature nobody asked for (171), and every bare `import`'s
+ * absolute interpreter path (137-158). 120 sits in the gap between those two
+ * clusters, so it catches the second without touching the first.
+ */
+export const DEFAULT_MAX_VALUE_LENGTH = 120;
+
+/**
+ * `text`, cut to `limit` graphemes with an explicit marker, or `text`
+ * itself when it already fits.
+ *
+ * Grapheme clusters, not UTF-16 code units or code points (#12): a `repr()`
+ * can legitimately contain an emoji, a flag, or a letter with a combining
+ * accent, and a cut through the middle of one would produce a different,
+ * broken character rather than a shorter version of the same string.
+ *
+ * A value the kernel already truncated at the wire is cut before its own
+ * notice, never through it -- see `WIRE_TRUNCATION`. If what remains still
+ * fits `limit`, the kernel's notice rides along exactly as it arrived; if it
+ * does not, this function's own marker replaces it rather than standing
+ * beside it, because two counts describing two different cuts on one value
+ * would read as one count, and a wrong one.
+ *
+ * The marker never claims the number the value's own author would recognise
+ * -- only how many graphemes this cut removed from what it was given, which
+ * stays true whatever else already happened to the string before it arrived.
+ */
+export function truncateValue(text: string, limit: number): string {
+  const body = text.replace(WIRE_TRUNCATION, '');
+  const graphemes = [...new Intl.Segmenter().segment(body)]
+    .map((each) => each.segment);
+  if (graphemes.length <= limit) {
+    return text;
+  }
+  const shown = graphemes.slice(0, limit).join('');
+  const removed = graphemes.length - limit;
+  return `${shown}… (+${grouped(removed)} more character${removed === 1 ? '' : 's'})`;
+}
+
+/** One piece with every `value` segment cut to `limit`; chrome untouched. */
+function truncatedPiece(
+  piece: readonly Segment[], limit: number
+): readonly Segment[] {
+  return piece.map((segment) => segment.role === 'value'
+    ? { ...segment, text: truncateValue(segment.text, limit) }
+    : segment);
 }
 
 /**
@@ -740,11 +816,21 @@ function paintedPieces(rendered: Rendered): readonly (readonly Segment[])[] {
   const more = rendered.more ?? 0;
   const partialFrom = rendered.partialFrom;
   const glyph = rendered.loopGlyph ?? LOOP_GLYPH;
+  const limit = rendered.maxValueLength ?? DEFAULT_MAX_VALUE_LENGTH;
   const slots = paintedSlots(value, display, loop, names, bindings, printed);
-  const painted: (readonly Segment[])[] =
-    slots.map((slot) => slotSegments(slot, glyph));
-  painted.push(
-    ...streamsOf(printed).map(([label, text]) => streamPiece(label, text)));
+  // Cut here, once every piece has its final shape, rather than inside
+  // `slotSegments` or `streamPiece`: those are shared with `announce.ts` (via
+  // `paintedSlots` and `outputPieces`), which already caps what it says on
+  // its own, more generous terms (`SPOKEN_LIMIT`) -- baking a column width
+  // into a shared function would quietly tighten speech to match the line,
+  // which is exactly the drift the split between the two channels exists to
+  // prevent. Nothing here reaches `namesItself` either: that check ran
+  // inside `slotSegments` against the whole value, before this shortens it,
+  // so a dropped label stays dropped on the same evidence it always was.
+  const painted: (readonly Segment[])[] = [
+    ...slots.map((slot) => slotSegments(slot, glyph)),
+    ...streamsOf(printed).map(([label, text]) => streamPiece(label, text)),
+  ].map((piece) => truncatedPiece(piece, limit));
   // `more` is only ever positive because a cap left something off this exact
   // line -- see `Rendered.more` and `capNames` in `repeats.ts` -- so it never
   // needs a surviving name slot to justify it the way an earlier version of
