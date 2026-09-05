@@ -573,20 +573,23 @@ test('loading a file makes a line near the bottom evaluate straight away', async
 
 test('the __main__ guard does not run on load', async (t) => {
   // Load File means "import the module", and an imported module does not run
-  // its main guard. True here because __name__ is "__evalens__" -- pinned on
-  // both sides because it is a consequence of the namespace setup rather
-  // than an explicit rule.
+  // its main guard. False here because __name__ is the file's own name --
+  // which is what an import gives it, and is what the annotations and reprs
+  // the user reads are printed with. Pinned on both sides because a load that
+  // ran the guarded block would run code nobody pointed at and still report a
+  // successful load.
   const client = connect();
   t.after(() => client.dispose());
 
-  const source = "import sys\nif __name__ == '__main__':\n    sys.exit(9)\n";
+  const source = "import sys\nif __name__ == '__main__':\n    sys.exit(9)\n"
+    + '__name__\n';
   const loaded = await client.request({
     op: 'eval_file', allow_stdin: false, source, filename: '/tmp/evalens-main.py',
   }) as FileLoaded;
   assert.equal(loaded.ok, true, 'sys.exit would have made this a failure');
 
-  const name = await evaluate(client, '__name__\n', 0) as Evaluated;
-  assert.equal(name.value, "'__evalens__'");
+  const name = loaded.results[loaded.results.length - 1] as Evaluated;
+  assert.equal(name.value, "'evalens-main'");
 });
 
 test('loading a file paints what walking down it would have', async (t) => {

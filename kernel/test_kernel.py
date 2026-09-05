@@ -862,13 +862,13 @@ class LoadFile(KernelTest):
         self.assertEqual(called["value"], "'HELLO'")
 
     def test_the_main_guard_does_not_run(self):
-        # True because __name__ is "__evalens__", which is what importing a
-        # module means. Pinned because it is a consequence of the namespace
-        # setup rather than an explicit rule, and would be easy to break by
-        # making __name__ look more realistic.
-        self.assertTrue(self.load()["ok"])
-        self.assertEqual(
-            self.k.evaluate("__name__\n", 0)["value"], "'__evalens__'")
+        # False because __name__ is the file's own name, which is what
+        # importing a module gives it. Pinned because a load that ran the
+        # guarded block would be this command running code the user did not
+        # point at, on every press, while reporting a successful load.
+        result = self.load(self.SOURCE + "__name__\n")
+        self.assertTrue(result["ok"], "sys.exit would have failed the load")
+        self.assertEqual(result["results"][-1]["value"], "'module'")
 
     def test_loading_continues_past_a_failure(self):
         # A file being explored in is expected to contain broken lines; that
@@ -1053,6 +1053,87 @@ class ImportPath(KernelTest):
         self.k.send(op="eval_file", source="x = 1\n", filename="Untitled-1")
         answer = self.k.evaluate("import sys\nbefore == sys.path\n", 1)
         self.assertEqual(answer["value"], "True")
+
+
+class ModuleName(KernelTest):
+    """What ``__name__`` is, and everywhere the answer shows up.
+
+    Python has two answers -- ``__main__`` for a file you run, the file's own
+    name for one you import -- and the kernel used to give a third. Being
+    neither is what made it visible: an invented name cannot be true of
+    anything the user wrote, so every place Python prints a module name printed
+    one that appears nowhere in their program.
+    """
+
+    def load(self, source, filename="/tmp/course/01_basics.py"):
+        return self.k.send(op="eval_file", source=source, filename=filename)
+
+    def value(self, source, filename="/tmp/course/01_basics.py"):
+        return self.load(source, filename)["results"][-1]["value"]
+
+    def test_the_module_is_named_after_its_file(self):
+        self.assertEqual(self.value("__name__\n"), "'01_basics'")
+
+    def test_a_single_evaluation_is_named_the_same_way(self):
+        answer = self.k.evaluate("__name__\n", 0,
+                                 filename="/tmp/course/01_basics.py")
+        self.assertEqual(answer["value"], "'01_basics'")
+
+    def test_a_package_init_is_named_after_its_directory(self):
+        # What Python calls a package: the file is only how it opens.
+        self.assertEqual(
+            self.value("__name__\n", "/tmp/course/demo_pkg/__init__.py"),
+            "'demo_pkg'")
+
+    def test_a_source_with_no_file_keeps_the_placeholder(self):
+        # An unsaved buffer has no module and therefore no name for one, and
+        # saying so is better than inventing a plausible-looking name.
+        self.assertEqual(self.k.evaluate("__name__\n", 0)["value"],
+                         "'__evalens__'")
+
+    def test_the_main_guard_still_does_not_fire(self):
+        # The point of naming the module after the file rather than
+        # __main__: the leaks close and a load still does not run code the
+        # author marked as "only when run directly". Running it deliberately
+        # is issue #78 run-file-as-script.
+        loaded = self.load("if __name__ == '__main__':\n    ran = True\n")
+        self.assertTrue(loaded["ok"])
+        missing = self.k.evaluate("ran\n", 0)
+        self.assertFalse(missing["ok"], missing)
+        self.assertEqual(missing["error"]["type"], "NameError")
+
+    def test_an_annotation_names_the_module_the_source_is_in(self):
+        # The 09_type_hints.py symptom, and the file where the annotation text
+        # IS the lesson. The student wrote `x: Named`; they were shown
+        # `x: __evalens__.Named`.
+        shown = self.value("class Named:\n    pass\n"
+                           "def welcome(x: Named) -> str:\n"
+                           "    return 'hi'\n")
+        # The name, not the whole signature: how a signature is spelled is
+        # somebody else's decision and this test should not break with it.
+        self.assertIn("x: 01_basics.Named", shown)
+        self.assertNotIn("__evalens__", shown)
+
+    def test_an_instances_repr_names_the_module_its_class_is_in(self):
+        # A plain instance is described rather than shown by address, and the
+        # untouched repr rides along beside it -- which is where the name
+        # leaked from, and what the hover puts on screen.
+        loaded = self.load("class Version:\n    pass\nv = Version()\n")
+        self.assertEqual(loaded["results"][-1]["value"], "<Version instance>")
+        self.assertIn("01_basics.Version", loaded["results"][-1]["repr"])
+
+    def test_a_container_of_instances_shows_the_same_name(self):
+        # The ticket's screenshot: a tuple has a repr of its own, so nothing
+        # is described and the members' reprs reach the screen whole.
+        shown = self.value("class Version:\n    pass\n(Version(),)\n")
+        self.assertIn("01_basics.Version object at", shown)
+
+    def test_a_class_knows_which_module_defined_it(self):
+        # The attribute every one of the above reads. `__module__` is captured
+        # when the class is created, so it is the name that was current then.
+        self.assertEqual(
+            self.value("class Version:\n    pass\nVersion.__module__\n"),
+            "'01_basics'")
 
 
 class LoadSelection(KernelTest):

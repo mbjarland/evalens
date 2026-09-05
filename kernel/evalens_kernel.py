@@ -270,6 +270,13 @@ _KERNEL_DIR = os.path.realpath(os.path.dirname(os.path.abspath(__file__)))
 #: resolving for anybody else.
 _SEALED_MODULES: list = []
 
+#: `__name__` for a source that names no file at all -- an unsaved buffer, or
+#: a request that sent none. Every file gets its own name instead; see
+#: `_module_name`. Kept as a dunder because it is a module name and reads like
+#: one wherever it does surface, and kept as this one because it is what
+#: Evalens has always called the namespace it has no better name for.
+NO_MODULE_NAME = "__evalens__"
+
 #: Hard cap on a repr() put on the wire. This is a transport guard, not a
 #: display policy -- the extension knows the editor width and truncates for
 #: reading. Without it, one `repr()` of a large frame is a multi-megabyte JSON
@@ -1244,6 +1251,43 @@ def _seal_kernel_directory() -> None:
                    if not _resolves_to_kernel_dir(entry)]
 
 
+def _module_name(filename: str) -> str:
+    """What Python would call this file's module.
+
+    Python has two answers and the kernel used to give a third. A file you run
+    is ``__main__``; a file you import is named after itself, so
+    ``01_basics.py`` is ``01_basics``. ``__evalens__`` was neither, and being
+    neither is what made it visible: it reached annotations as
+    ``welcome(x: __evalens__.Named)`` where the source says ``Named``, and
+    reprs as ``<__evalens__.Version object at 0x…>`` -- on the file whose
+    lesson is what module names are. A student comparing the inline value
+    against what ``python3 file.py`` prints found a module that exists nowhere
+    in their program.
+
+    The file's own name is the right one of the two, because Load File means
+    *import this module* -- it is what the command has always claimed, and it
+    is why an ``if __name__ == "__main__":`` block does not run on a load.
+    Under this name the leaked text becomes ``01_basics.Named``, which is not a
+    placeholder: it is exactly what importing that file produces. Naming the
+    module ``__main__`` instead would have fixed the same two leaks and made
+    every load run the guarded block -- code the author marked as "only when
+    run directly", executed because someone asked to load a file. Running it
+    deliberately is a separate command; see issue #78 run-file-as-script.
+
+    ``__init__.py`` is named after its directory, because that is a package's
+    name and the file is only how it opens. Anything with no name to take --
+    the ``<evalens>`` placeholder a source with no path gets -- keeps
+    ``__evalens__``, which is now the honest answer rather than the universal
+    one: there is no module, so there is no name for it.
+    """
+    stem = os.path.splitext(os.path.basename(filename or ""))[0]
+    if stem == "__init__":
+        stem = os.path.basename(os.path.dirname(os.path.abspath(filename)))
+    if not stem or stem.startswith("<"):
+        return NO_MODULE_NAME
+    return stem
+
+
 def _script_directory(filename: str) -> Optional[str]:
     """The directory ``python3 <filename>`` would put at ``sys.path[0]``.
 
@@ -1381,8 +1425,36 @@ class Kernel:
     def reset(self) -> None:
         self.namespace.clear()
         self.namespace.update(
-            {"__name__": "__evalens__", "__builtins__": __builtins__}
+            # Replaced per request by `_as_module`, which knows which file is
+            # being evaluated and can therefore say what the module is called.
+            # This is what an empty session is called before anything has been
+            # evaluated into it.
+            {"__name__": NO_MODULE_NAME, "__builtins__": __builtins__}
         )
+
+    @contextlib.contextmanager
+    def _as_module(self, filename: str) -> Iterator[None]:
+        """Set the namespace up the way Python sets a module up.
+
+        Two things, and they are the same thing: the module's name, and the
+        import path a module of that name would have. Both were the kernel's
+        rather than the user's, and each was visible in the buffer -- a local
+        import that could not resolve, and a module name that appeared in
+        annotations and reprs while appearing nowhere in the source.
+
+        Per request rather than per session, because a session evaluates
+        whichever file the cursor is in and the answer is a property of that
+        file. The name is set and left: nothing between requests reads it, and
+        the next evaluation says what it is again. The path is scoped, for the
+        reasons in `_script_path`.
+
+        `__file__` is the third thing Python sets and is deliberately not here;
+        it is a promise about the namespace with its own consequences and its
+        own ticket.
+        """
+        self.namespace["__name__"] = _module_name(filename)
+        with _script_path(filename):
+            yield
 
     # -- operations ---------------------------------------------------------
 
@@ -1470,9 +1542,9 @@ class Kernel:
         # A single evaluation may prompt: someone pressed a key and is
         # sitting in front of the editor waiting for this line to answer.
         #
-        # Under the file's own directory, so that a line the user points at
-        # imports what the same line would import under `python3 file.py`.
-        with _script_path(filename):
+        # As the file's own module, so that a line the user points at imports
+        # and names what the same line would under `python3 file.py`.
+        with self._as_module(filename):
             outcome = self._run(form, filename,
                                 allow_stdin=bool(request.get("allow_stdin")))
         outcome.update(partial)
@@ -1487,11 +1559,18 @@ class Kernel:
 
         The faithful one is already right. "Load the namespace" in Python
         means *import the module*, and an imported module does not run its
-        ``if __name__ == "__main__":`` block. ``__name__`` here is
-        ``"__evalens__"``, so that guard is False without anything special
-        being done about it. ``test_kernel`` pins it, because it is true as a
-        consequence of the namespace setup and would be easy to break by
-        making ``__name__`` look more realistic.
+        ``if __name__ == "__main__":`` block. ``__name__`` here is the file's
+        own name -- ``10_concurrency`` for ``10_concurrency.py``, which is
+        precisely what an import gives it -- so that guard is False without
+        anything special being done about it, and for the reason Python has
+        rather than an invented one. ``test_kernel`` pins it, because a load
+        that ran the guarded block would be this command running code the user
+        did not point at, on every press, and it would look like success.
+
+        A file whose whole program is inside that guard therefore loads and
+        runs none of it, which is correct and is also not what its reader
+        wants. Running it is a separate, explicit command rather than a thing
+        a load starts doing; see issue #78 run-file-as-script.
 
         Every statement goes through the same ``_run`` a single evaluation
         uses. That is deliberate rather than incidental: a bare ``exec`` loop
@@ -1571,10 +1650,10 @@ class Kernel:
 
         results = []
         ran = 0
-        # One insertion for the whole load rather than one per statement: the
-        # imports at the top of a file and the function bodies further down
-        # that import lazily are the same file and get the same path.
-        with _script_path(filename):
+        # Once for the whole load rather than once per statement: the imports
+        # at the top of a file and the function bodies further down that import
+        # lazily are the same file, and get the same name and the same path.
+        with self._as_module(filename):
             for form in forms:
                 # Prompts if the caller allowed it, exactly as a single
                 # evaluation does. The flag is the caller's decision either

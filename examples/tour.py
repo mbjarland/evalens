@@ -105,9 +105,11 @@ lst
 #     hands evaluated code a stdin that is deliberately not a terminal, so
 #     isatty() answers False exactly where you *do* want to ask, and True in
 #     the plain `python3 examples/tour.py` run, where stopping to wait for a
-#     human would hang the script.  `__name__` is `"__evalens__"` under
-#     Evalens and `"__main__"` as a script -- the same fact case 52 turns on.
-if __name__ == "__evalens__":
+#     human would hang the script.  `__name__` is `"tour"` under Evalens --
+#     this file's own name, which is what importing it would give -- and
+#     `"__main__"` as a script.  That is the same fact case 52 turns on, so
+#     the test is "not run as a script" rather than any particular name.
+if __name__ != "__main__":
     answer = input("Enter a value: ")
     print("You entered:", answer)
 
@@ -261,10 +263,10 @@ sys.stderr.write('careful\n')
 #    session in exactly the file you opened the tool to debug.
 #
 #    It is behind a guard so that `python3 examples/tour.py` still exits 0.
-#    Under Evalens `__name__` is `"__evalens__"`, so the branch is taken and
-#    the line runs; run as a script it is skipped.  That is the same fact the
-#    `__main__` guard at the foot of the file depends on, seen from the other
-#    side.
+#    Under Evalens `__name__` is `"tour"`, so the branch is taken and the line
+#    runs; run as a script it is `"__main__"` and the line is skipped.  That is
+#    the same fact the `__main__` guard at the foot of the file depends on,
+#    seen from the other side.
 if __name__ != "__main__":
     undefined_name
 
@@ -716,11 +718,11 @@ describe('the tour')
 
 # 52. What must NOT run on load.  Evalens loads a file the way `import` does,
 #     and an imported module does not run its `__main__` block: `__name__` in
-#     the kernel is `"__evalens__"`, so this condition is False and the body
-#     is skipped.  The proof is here rather than only in a unit test because a
-#     banner that never appears in the annotations is something a human can
-#     check in one look -- and because a SystemExit that did run would be a
-#     loud, obvious failure rather than a quiet one.
+#     the kernel is this file's own name, `"tour"`, so this condition is False
+#     and the body is skipped.  The proof is here rather than only in a unit
+#     test because a banner that never appears in the annotations is something
+#     a human can check in one look -- and because a SystemExit that did run
+#     would be a loud, obvious failure rather than a quiet one.
 #
 #     Running the file as a script is the other half of the proof: then the
 #     block does run, prints, and exits 0.
