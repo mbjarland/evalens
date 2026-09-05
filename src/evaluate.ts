@@ -817,7 +817,7 @@ export class Evaluator {
     // Built before the request, for the same reason `evaluateFile` builds
     // its painting state first: the first statement can report before the
     // `await` below has yielded even once.
-    const load = new LoadPainting(document, this.annotations);
+    const load = new LoadPainting(document, this.annotations, this.flash, editor);
     const blocked = new BlockedMark();
     this.asking = { document, load: new LoadPrompts(), blocked };
     try {

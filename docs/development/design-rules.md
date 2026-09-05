@@ -195,11 +195,13 @@ The settled shape, in `docs/development/namespace-reset.md`: **loading has to
 be idempotent, and deliberately re-evaluating is allowed to be destructive**
 — Emacs' `eval-region` versus `C-M-x` on a `defvar`, and JupyterLab's `Run
 All` versus `Restart Kernel and Run All`, are the same principle reached
-twice. The command bound to a single keystroke is the one that resets;
-keeping the namespace across a load is the deliberate, palette-only choice,
-because a default that requires remembering to ask for the safe behaviour is
-the exact discipline notebook users are already supposed to have and mostly
-do not.
+twice. The mechanism settled on #99, superseding that document's own
+two-command recommendation: one setting, `evalens.resetOnLoad`, governs
+`Evaluate File`'s one keybinding, and it defaults to resetting. Keeping the
+namespace across a load is the deliberate choice of turning that setting
+off, because a default that requires remembering to ask for the safe
+behaviour is the exact discipline notebook users are already supposed to
+have and mostly do not.
 
 Two things this generalises to rather than being special-cased for:
 `Run File as Script` (#78) always resets, because it exists to answer
