@@ -30,6 +30,18 @@ export const COLOR_REGION = 'evalens.evaluatedRegionBackground';
 export const COLOR_PENDING = 'evalens.pendingForeground';
 export const COLOR_PENDING_REGION = 'evalens.pendingRegionBackground';
 export const COLOR_FLASH_REGION = 'evalens.flashRegionBackground';
+/**
+ * The border marking an annotation as a distinct surface (#95), on its
+ * leading edge only -- the far side of the same margin the alignment gap
+ * already reserves, so painting it costs no character cell and moves nothing.
+ *
+ * Used only for a value that is currently and genuinely `evaluated`. A stale
+ * or still-pending annotation greys the bar through `COLOR_PENDING` instead,
+ * and an error reddens it through `COLOR_ERROR` -- both already contributed
+ * and already what that state's own text is painted in -- so the bar never
+ * claims more confidence than the state it marks.
+ */
+export const COLOR_ANNOTATION_BORDER = 'evalens.annotationBorder';
 
 /**
  * The command the hover's link runs -- the one click from the annotation to
@@ -63,6 +75,18 @@ const CHIP = 'none; padding: 0 5px; border-radius: 3px;';
 const CHIP_FIRST = 'none; padding: 0 0 0 5px; border-radius: 3px 0 0 3px;';
 const CHIP_MIDDLE = 'none; padding: 0;';
 const CHIP_LAST = 'none; padding: 0 5px 0 0; border-radius: 0 3px 3px 0;';
+
+/**
+ * The `border` value that makes only the leading edge visible: every side
+ * reset to `none`, then the left overridden to a solid 2px rule. `border` and
+ * `borderColor` are the one place this file needs no CSS smuggled through
+ * `textDecoration` -- the decoration API exposes both directly, and
+ * `borderColor` takes a genuine `ThemeColor` the same way `color` does -- but
+ * a single side is still not a shorthand CSS has a name for, so the override
+ * is written the same way the padding above is: as a second declaration
+ * inside the one string the field accepts.
+ */
+const BORDER_LEFT = 'none; border-left: 2px solid;';
 
 /** Which chip edge a segment carries, given where it sits in the line. */
 function chipAt(index: number, count: number): string {
@@ -205,6 +229,10 @@ export class Decorator implements vscode.Disposable {
       backgroundColor: new vscode.ThemeColor(COLOR_ERROR_BG),
       textDecoration: CHIP,
       fontStyle: 'italic',
+      // The #95 bar takes the error colour here, never the annotation-border
+      // one -- an error is exactly as loud as the text beside it already is.
+      border: BORDER_LEFT,
+      borderColor: new vscode.ThemeColor(COLOR_ERROR),
     },
   });
 
@@ -218,6 +246,10 @@ export class Decorator implements vscode.Disposable {
       color: new vscode.ThemeColor(COLOR_PENDING),
       textDecoration: CHIP,
       fontStyle: 'italic',
+      // Greyed with the rest of this state, for the same reason: a bright
+      // bar would be the loudest thing on a row that is saying "not yet".
+      border: BORDER_LEFT,
+      borderColor: new vscode.ThemeColor(COLOR_PENDING),
     },
   });
 
@@ -421,6 +453,15 @@ export class Decorator implements vscode.Disposable {
           const painted: readonly Segment[] = segments.length <= results.length
             ? segments
             : [{ role: 'value', text }];
+          // `annotation.error` is undefined on this branch (it is handled
+          // above), so `markerFor` can only answer `evaluated` or `stale`
+          // here -- exactly the two the #95 bar needs to tell apart. Stale
+          // reuses the pending colour rather than getting one of its own: the
+          // same mark, not a second kind of amber, this time for a bar
+          // instead of the gutter icon `registry.ts` says that about.
+          const borderColor = markerFor(annotation) === 'stale'
+            ? COLOR_PENDING
+            : COLOR_ANNOTATION_BORDER;
           painted.forEach((segment, slot) => {
             results[slot]!.push({
               range: at,
@@ -431,10 +472,19 @@ export class Decorator implements vscode.Disposable {
               renderOptions: {
                 after: {
                   // Only the first segment is pushed out to the alignment
-                  // column. The rest follow the one before them, which is what
-                  // makes the line read as one annotation rather than as
-                  // several.
-                  ...(slot === 0 ? { margin } : {}),
+                  // column, and only the first carries the #95 bar -- it is
+                  // the annotation's leading edge whether the line is one
+                  // segment or several, and `chipAt` already knows that slot
+                  // as `CHIP` or `CHIP_FIRST`. The rest follow the one before
+                  // them, which is what makes the line read as one annotation
+                  // rather than as several.
+                  ...(slot === 0
+                    ? {
+                        margin,
+                        border: BORDER_LEFT,
+                        borderColor: new vscode.ThemeColor(borderColor),
+                      }
+                    : {}),
                   contentText: segment.text,
                   color: new vscode.ThemeColor(COLOR_FOR[segment.role]),
                   textDecoration: chipAt(slot, painted.length),

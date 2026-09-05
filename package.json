@@ -255,6 +255,16 @@
           "highContrast": "#4a9c8c99",
           "highContrastLight": "#2a7d6d66"
         }
+      },
+      {
+        "id": "evalens.annotationBorder",
+        "description": "Colour of the 2px border on an annotation's leading edge, marking it as a distinct surface from the source line it sits beside rather than a second comment. Defaults to the label colour, since the bar is chrome introducing the annotation, not content in it. Only for a value that is currently evaluated: a stale or still-pending annotation is greyed through `evalens.pendingForeground` instead, and an error takes `evalens.errorForeground` — both already contributed — so the bar never reads more confidently than the state it marks.",
+        "defaults": {
+          "dark": "#8d7a5a",
+          "light": "#96866a",
+          "highContrast": "#cfb885",
+          "highContrastLight": "#6e5a2e"
+        }
       }
     ],
     "keybindings": [
