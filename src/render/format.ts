@@ -149,9 +149,87 @@ function streamsOf(printed?: Printed): [string, string][] {
   return streams;
 }
 
-/** Did the statement write anything worth a segment of its own? */
+/** Did the statement write anything worth a piece of its own? */
 export function hasOutput(printed?: Printed): boolean {
   return streamsOf(printed).length > 0;
+}
+
+/**
+ * What kind of thing one run of an annotation is, and therefore what colour
+ * it takes.
+ *
+ * The rule is one sentence -- **labels are chrome, values are content** --
+ * and chrome comes in two kinds:
+ *
+ * - `value` is every `repr()` the program produced: the statement's own value
+ *   after `=>`, each name's value, each value in a loop's sequence, and **the
+ *   text a statement printed**. Output is something the program made rather
+ *   than something this extension wrote around it, which is what keeps the
+ *   rule learnable in one sentence: a reader scanning for "what did my code
+ *   actually produce" finds one colour, everywhere, output included.
+ * - `nameLabel` is what this extension wrote to introduce a value: `x:`, the
+ *   `=>` separator, the gap between two pieces, the `…+N more` footnote and
+ *   the reduced-context caveat.
+ * - `streamLabel` is `printed:` and `stderr:`, and nothing else. Output is a
+ *   different kind of thing from state, so its label leaves the hue family
+ *   the other two share -- and it is emphatically not an error colour, for
+ *   the reason `STDERR_LABEL` gives.
+ *
+ * An elision stays part of the value it shortens. `…(3 lines)` after a print
+ * and `… (+9,994 more) …` inside a loop's sequence describe the shape of what
+ * the program produced rather than label it, so the split always falls in the
+ * same place: the punctuation this extension wrote is the label, and every
+ * character after it is what ran.
+ */
+export type SegmentRole = 'value' | 'nameLabel' | 'streamLabel';
+
+/** One run of an annotation that takes one colour. */
+export interface Segment {
+  readonly role: SegmentRole;
+  readonly text: string;
+}
+
+/** Something this extension wrote to introduce a value. */
+function asLabel(text: string): Segment {
+  return { role: 'nameLabel', text };
+}
+
+/** Something the program produced. */
+function asValue(text: string): Segment {
+  return { role: 'value', text };
+}
+
+/**
+ * The segments as the one string they used to be.
+ *
+ * Kept as the definition of what the segments say, rather than as a second
+ * implementation of it. Painting several `after` attachments at one position
+ * is not officially supported by VS Code -- the ordering between them is a
+ * tie-break on a generated class name -- so the single-colour rendering has to
+ * remain a working path that a patch release can fall back to. It is also
+ * what makes the alignment column safe to reason about: however the segments
+ * are painted, the width they add up to is the width of this string.
+ */
+export function joinSegments(segments: readonly Segment[]): string {
+  return segments.map((segment) => segment.text).join('');
+}
+
+/**
+ * The pieces of an annotation, with a gap between each two.
+ *
+ * The gap is chrome like every other separator, and it is the reason a piece
+ * is a list rather than a pair: `printed: hello` is a stream label and a
+ * value, and what sits between it and the piece before is neither.
+ */
+function spaced(pieces: readonly (readonly Segment[])[]): Segment[] {
+  const segments: Segment[] = [];
+  for (const piece of pieces) {
+    if (segments.length > 0) {
+      segments.push(asLabel(GAP));
+    }
+    segments.push(...piece);
+  }
+  return segments;
 }
 
 /**
@@ -172,7 +250,7 @@ export function hasOutput(printed?: Printed): boolean {
  * own is a thing beginners write, and `printed:` followed by nothing reads as
  * a bug in the extension rather than as the answer.
  */
-function streamText(label: string, text: string): string {
+function streamPiece(label: string, text: string): readonly Segment[] {
   const lines = text.replace(/\r?\n$/, '').split(/\r?\n/);
   const first = collapseLines(lines[0] ?? '');
   const head = first === '' ? '(blank line)' : first;
@@ -181,18 +259,22 @@ function streamText(label: string, text: string): string {
     : head;
   // A word takes the colon the rest of the grammar uses; a glyph does not,
   // because `»: hello` stacks punctuation on punctuation for no gain.
-  return `${label}${/[A-Za-z0-9]$/.test(label) ? ':' : ''} ${summary}`;
+  const said = `${label}${/[A-Za-z0-9]$/.test(label) ? ':' : ''} `;
+  // The label is the extension's word for the stream; everything after it is
+  // what the program wrote, elision and all.
+  return [{ role: 'streamLabel', text: said }, asValue(summary)];
 }
 
 /**
- * The output segments a line carries, stdout first.
+ * The output pieces a line carries, stdout first.
  *
  * Both streams can be present at once and each keeps its own label, so a
  * statement that printed and warned says both without either being mistaken
  * for the other.
  */
-export function outputSegments(printed?: Printed): string[] {
-  return streamsOf(printed).map(([label, text]) => streamText(label, text));
+export function outputPieces(printed?: Printed): string[] {
+  return streamsOf(printed).map(
+    ([label, text]) => joinSegments(streamPiece(label, text)));
 }
 
 /**
@@ -448,17 +530,60 @@ export function paintedSlots(
  * the line merely *read* keeps it, because several of those sit side by side
  * and the label is the only thing telling the reader which is which.
  */
-function slotText(slot: Slot): string {
+function slotSegments(slot: Slot): readonly Segment[] {
   if (slot.name === null) {
-    return `${SEPARATOR} ${slot.value}`;
+    return [asLabel(`${SEPARATOR} `), asValue(slot.value)];
   }
+  // A dropped label leaves the value alone on the line, which is exactly
+  // right: `def greet(name)` is what the statement produced, and there is no
+  // longer any chrome in front of it to colour.
   return slot.own && namesItself(slot.name, slot.value)
-    ? slot.value
-    : `${slot.name}: ${slot.value}`;
+    ? [asValue(slot.value)]
+    : [asLabel(`${slot.name}: `), asValue(slot.value)];
 }
 
 /**
- * The painted annotation for a successful evaluation.
+ * Everything an annotation is rendered from, named rather than counted.
+ *
+ * Named because the positional form had already produced a silent defect: the
+ * signature grew one parameter per feature, a rebase moved `partialFrom` from
+ * slot five to slot six when `bindings` landed between them, and five call
+ * sites went on passing a line number where a binding list belonged. They
+ * compiled -- both parameters are optional, and `undefined` is assignable to
+ * anything -- so nothing caught it but a reader. With an object, the same
+ * rebase produces a missing key rather than a plausible line.
+ *
+ * Shared with `hoverText` on purpose. The two render the same answer at two
+ * lengths, and one shape for both means a field cannot mean one thing on the
+ * line and another on the hover.
+ */
+export interface Rendered {
+  /** The `repr()` the statement produced, or null when it produced none. */
+  readonly value: string | null;
+  /** The expression the value came from, for labelling. */
+  readonly display?: string | null;
+  /** Every value a loop's target held; displaces `value` when present. */
+  readonly loop?: LoopTrace | null;
+  /** What the names on the line held when it ran. */
+  readonly names?: readonly NamedValue[];
+  /** Every value the loop's body bound, per name. */
+  readonly bindings?: readonly BindingTrace[];
+  /** What the statement wrote to stdout and stderr, when it wrote anything. */
+  readonly printed?: Printed;
+  /** How many further names the kernel's per-line cap left off the line. */
+  readonly more?: number;
+  /** The 0-based line the file stopped parsing at, if it did. */
+  readonly partialFrom?: number;
+  /** The break that reduced the context, spelled out for the hover. */
+  readonly partial?: {
+    readonly truncated_at: number;
+    readonly message: string;
+  };
+}
+
+/**
+ * The painted annotation for a successful evaluation, in the pieces that take
+ * different colours.
  *
  * What the statement printed follows every value on the line, and `more` --
  * how many names the kernel's per-line cap left off -- follows that. Saying
@@ -468,33 +593,44 @@ function slotText(slot: Slot): string {
  * not a name. It is last of all, because it is a footnote about the line
  * rather than another thing on it.
  *
- * `printed` sits at the position `paintedSlots` gives it, so the two
- * signatures agree for as far as they overlap: six positional parameters that
- * mean different things in the two functions is how a line number ends up
- * where a binding was expected, compiling all the way.
+ * Segments rather than one string because CSS cannot colour part of a text
+ * node, and one `after` attachment is one text node. Splitting the decision
+ * from the painting keeps the decision here, where it is pure and can be
+ * checked without an editor -- which matters more than usual, because the
+ * painting side rests on behaviour VS Code does not document.
  */
-export function resultText(
-  value: string | null, display?: string | null, loop?: LoopTrace | null,
-  names?: readonly NamedValue[], bindings?: readonly BindingTrace[],
-  printed?: Printed, more = 0, partialFrom?: number
-): string {
+export function resultSegments(rendered: Rendered): readonly Segment[] {
+  const { value, display, loop, names, bindings, printed } = rendered;
+  const more = rendered.more ?? 0;
+  const partialFrom = rendered.partialFrom;
   const slots = paintedSlots(value, display, loop, names, bindings, printed);
-  const painted = slots.map(slotText);
-  painted.push(...outputSegments(printed));
+  const painted: (readonly Segment[])[] = slots.map(slotSegments);
+  painted.push(
+    ...streamsOf(printed).map(([label, text]) => streamPiece(label, text)));
   // The footnote counts names, so it needs a name on the line to be a
   // footnote to. A line whose names were all dropped as repeats keeps its
   // output and loses the count with them: `printed: hello   …+1 more` reads
   // as a claim about the output -- one more line of it -- which is not what
   // the cap left off and not something this knows.
   if (more > 0 && slots.some((slot) => !slot.own)) {
-    painted.push(`…+${grouped(more)} more`);
+    painted.push([asLabel(`…+${grouped(more)} more`)]);
   }
   // The caveat goes last of all: it qualifies the whole line -- every value on
-  // it and both footnotes after them -- rather than any one thing on it.
+  // it and both footnotes after them -- rather than any one thing on it. It is
+  // a remark this extension is making, so it is chrome rather than a value.
   if (partialFrom !== undefined) {
-    painted.push(partialNote(partialFrom));
+    painted.push([asLabel(partialNote(partialFrom))]);
   }
-  return preserveSpacing(painted.join(GAP));
+  // Applied per segment rather than to the joined line, which comes to the
+  // same string: it is a per-character substitution, and doing it here means
+  // no caller can paint a segment that lost its spacing.
+  return spaced(painted).map(
+    (segment) => ({ ...segment, text: preserveSpacing(segment.text) }));
+}
+
+/** The same annotation as the one string it used to be. */
+export function resultText(rendered: Rendered): string {
+  return joinSegments(resultSegments(rendered));
 }
 
 function iterations(count: number): string {
@@ -538,12 +674,8 @@ function bindingNote(
  * -- is real, and is learned exactly once. After that it is noise on every
  * mutating call for the rest of a career, which is what the hover is for.
  */
-export function hoverText(
-  display: string | null | undefined, value: string | null,
-  loop?: LoopTrace | null, names?: readonly NamedValue[],
-  bindings?: readonly BindingTrace[], printed?: Printed,
-  partial?: { readonly truncated_at: number; readonly message: string }
-): string {
+export function hoverText(rendered: Rendered): string {
+  const { display, value, loop, names, bindings, printed, partial } = rendered;
   const lines: string[] = [];
   if (loop) {
     const sequence = sequenceText(loop);

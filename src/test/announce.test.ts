@@ -59,7 +59,8 @@ test('a label the value states is still spoken', () => {
     spokenText({ value: 'def greet(name)', display: 'greet' }),
     'greet is def greet(name)');
   assert.equal(
-    resultText('def greet(name)', 'greet').split(NBSP).join(' '),
+    resultText({ value: 'def greet(name)', display: 'greet' })
+      .split(NBSP).join(' '),
     'def greet(name)');
 });
 
@@ -68,7 +69,7 @@ test('nothing spoken carries the non-breaking spaces the line is painted with', 
   // a decoration's `contentText`. That is a rendering workaround and has no
   // business in a string handed to a screen reader, some of which announce the
   // character by name.
-  const painted = resultText('{"a": 1, "b": 2}', 'd');
+  const painted = resultText({ value: '{"a": 1, "b": 2}', display: 'd' });
   assert.ok(painted.includes(NBSP), 'the painted text should have them');
   const spoken = spokenText({ value: '{"a": 1, "b": 2}', display: 'd' })!;
   assert.ok(!spoken.includes(NBSP), `spoken text carried one: ${spoken}`);

@@ -4,9 +4,10 @@ import {
   BindingTrace, LoopTrace, NamedValue, Range as KernelRange,
 } from '../kernel/protocol';
 import {
-  PRINTED_LABEL, Printed, alignmentGap, columnWidth, errorText, hasOutput,
-  restatesLine, resultText,
+  PRINTED_LABEL, Printed, Segment, SegmentRole, alignmentGap, columnWidth,
+  errorText, hasOutput, joinSegments, restatesLine, resultSegments,
 } from './format';
+import { SEGMENT_SLOTS, coalesce, paintOrder } from './layers';
 import { Marker, Traced, markerFor, normalizeSource } from './registry';
 import { Pending, pendingText } from './status';
 
@@ -19,6 +20,8 @@ import { Pending, pendingText } from './status';
  * paints invisibly, which is why a test checks these against the manifest.
  */
 export const COLOR_RESULT = 'evalens.resultForeground';
+export const COLOR_LABEL = 'evalens.labelForeground';
+export const COLOR_OUTPUT_LABEL = 'evalens.outputLabelForeground';
 export const COLOR_RESULT_BG = 'evalens.resultBackground';
 export const COLOR_ERROR = 'evalens.errorForeground';
 export const COLOR_ERROR_BG = 'evalens.errorBackground';
@@ -47,8 +50,36 @@ const MINIMUM_GAP = 2;
  * separation from italics and a warm colour rather than from a chip; this
  * only takes effect if someone sets one through
  * `workbench.colorCustomizations`.
+ *
+ * Split across the segments an annotation is painted in, because padding takes
+ * up width whether or not anything is drawn in it: five pixels on each of a
+ * dozen segments is sixty columns of nothing, and the annotation would no
+ * longer end where it used to. Only the outer edges carry it, and only the
+ * outer corners are rounded, so however many pieces the line is painted in the
+ * chip is one chip.
  */
 const CHIP = 'none; padding: 0 5px; border-radius: 3px;';
+const CHIP_FIRST = 'none; padding: 0 0 0 5px; border-radius: 3px 0 0 3px;';
+const CHIP_MIDDLE = 'none; padding: 0;';
+const CHIP_LAST = 'none; padding: 0 5px 0 0; border-radius: 0 3px 3px 0;';
+
+/** Which chip edge a segment carries, given where it sits in the line. */
+function chipAt(index: number, count: number): string {
+  if (count === 1) {
+    return CHIP;
+  }
+  if (index === 0) {
+    return CHIP_FIRST;
+  }
+  return index === count - 1 ? CHIP_LAST : CHIP_MIDDLE;
+}
+
+/** The colour each role is painted in. */
+const COLOR_FOR: Record<SegmentRole, string> = {
+  value: COLOR_RESULT,
+  nameLabel: COLOR_LABEL,
+  streamLabel: COLOR_OUTPUT_LABEL,
+};
 
 /**
  * Where the three state markers live, relative to the extension root.
@@ -149,21 +180,22 @@ export interface Annotation extends Traced {
  * not -- that one is a gesture on a timer and belongs to `Flash`.
  */
 export class Decorator implements vscode.Disposable {
-  private readonly resultType = vscode.window.createTextEditorDecorationType({
-    // ClosedOpen: the decoration does not absorb text typed at its boundary,
-    // so an annotation does not smear along the line as the user keeps
-    // editing.
-    rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
-    after: {
-      color: new vscode.ThemeColor(COLOR_RESULT),
-      backgroundColor: new vscode.ThemeColor(COLOR_RESULT_BG),
-      textDecoration: CHIP,
-      // Italic is what makes an annotation legible as not-code at a glance,
-      // before colour is even processed. Rider leans on this and it carries
-      // most of the separation.
-      fontStyle: 'italic',
-    },
-  });
+  /**
+   * One decoration type per segment of a line, in the order they will paint.
+   *
+   * They are identical, and that is the point: what differs between two
+   * segments -- the text, the colour, the chip edge, the alignment margin --
+   * rides on the per-range `renderOptions`, and what does not differ stays
+   * here. A sub-type's CSS selector carries both its own class and its
+   * parent's, so anything set on both would be won by the sub-type; keeping
+   * the two apart is what stops that mattering.
+   *
+   * Sorted rather than used in creation order. VS Code breaks the tie between
+   * two attachments at one position with a string comparison of the generated
+   * class name, and the counter that name is built from crosses digit
+   * boundaries -- see `layers.ts`, where the rule is written down and tested.
+   */
+  private readonly segmentTypes: readonly vscode.TextEditorDecorationType[];
 
   private readonly errorType = vscode.window.createTextEditorDecorationType({
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
@@ -211,6 +243,21 @@ export class Decorator implements vscode.Disposable {
     Marker, vscode.TextEditorDecorationType>;
 
   constructor(extensionUri: vscode.Uri) {
+    this.segmentTypes = paintOrder(
+      Array.from({ length: SEGMENT_SLOTS }, () =>
+        vscode.window.createTextEditorDecorationType({
+          // ClosedOpen: the decoration does not absorb text typed at its
+          // boundary, so an annotation does not smear along the line as the
+          // user keeps editing.
+          rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
+          after: {
+            backgroundColor: new vscode.ThemeColor(COLOR_RESULT_BG),
+            // Italic is what makes an annotation legible as not-code at a
+            // glance, before colour is even processed. Rider leans on this and
+            // it carries most of the separation.
+            fontStyle: 'italic',
+          },
+        })));
     this.markerTypes = new Map(MARKERS.map((marker) => [
       marker,
       vscode.window.createTextEditorDecorationType({
@@ -225,7 +272,11 @@ export class Decorator implements vscode.Disposable {
 
   /** Replace this editor's annotations with `annotations`. */
   show(editor: vscode.TextEditor, annotations: readonly Annotation[]): void {
-    const results: vscode.DecorationOptions[] = [];
+    // One list per segment slot, so slot n of every line on screen goes to the
+    // same decoration type and the types paint in the order they were sorted
+    // into.
+    const results: vscode.DecorationOptions[][] =
+      this.segmentTypes.map(() => []);
     const errors: vscode.DecorationOptions[] = [];
     const waiting: vscode.DecorationOptions[] = [];
     const regions: vscode.DecorationOptions[] = [];
@@ -338,10 +389,17 @@ export class Decorator implements vscode.Disposable {
         // A loop that ran zero times has a trace and no value, and still has
         // something to report. So does an `if` that bound a name: no value of
         // its own, and the name is the answer.
-        const text = resultText(
-          annotation.value ?? null, annotation.display, annotation.loop,
-          annotation.names, annotation.bindings, printed, annotation.more,
-          annotation.partialFrom);
+        const segments = coalesce(resultSegments({
+          value: annotation.value ?? null,
+          display: annotation.display,
+          loop: annotation.loop,
+          names: annotation.names,
+          bindings: annotation.bindings,
+          printed,
+          more: annotation.more,
+          partialFrom: annotation.partialFrom,
+        }));
+        const text = joinSegments(segments);
         // Rendered first, then compared with the line it would sit on: an
         // annotation that only restates its own line is not worth the width,
         // and the region highlight below already says that it ran. The
@@ -353,10 +411,32 @@ export class Decorator implements vscode.Disposable {
         // the screen, and there is nothing to hover over on a line with no
         // annotation on it.
         if (!restatesLine(text, host.text)) {
-          results.push({
-            range: at,
-            hoverMessage,
-            renderOptions: { after: { margin, contentText: text } },
+          // Beyond the pool there is no type left to paint in, so the line
+          // falls back to the rendering this replaced: one attachment, one
+          // colour, every character still there. Less legible, never wrong.
+          const painted: readonly Segment[] = segments.length <= results.length
+            ? segments
+            : [{ role: 'value', text }];
+          painted.forEach((segment, slot) => {
+            results[slot]!.push({
+              range: at,
+              // On every segment rather than only the first: the hover hangs
+              // off the text, and a reader pointing at a value should not have
+              // to find the piece of it that happens to carry the shelf.
+              hoverMessage,
+              renderOptions: {
+                after: {
+                  // Only the first segment is pushed out to the alignment
+                  // column. The rest follow the one before them, which is what
+                  // makes the line read as one annotation rather than as
+                  // several.
+                  ...(slot === 0 ? { margin } : {}),
+                  contentText: segment.text,
+                  color: new vscode.ThemeColor(COLOR_FOR[segment.role]),
+                  textDecoration: chipAt(slot, painted.length),
+                },
+              },
+            });
           });
         }
       }
@@ -364,7 +444,12 @@ export class Decorator implements vscode.Disposable {
       // region highlighted. It ran; there is simply no value to report.
     }
 
-    editor.setDecorations(this.resultType, results);
+    this.segmentTypes.forEach((type, slot) => {
+      // Every slot is set on every paint, empty included, for the same reason
+      // the markers are: a slot left out keeps whatever it painted last time,
+      // so a line that got shorter would keep the tail of the old one.
+      editor.setDecorations(type, results[slot] ?? []);
+    });
     editor.setDecorations(this.errorType, errors);
     editor.setDecorations(this.pendingType, waiting);
     editor.setDecorations(this.regionType, regions);
@@ -382,7 +467,9 @@ export class Decorator implements vscode.Disposable {
   }
 
   dispose(): void {
-    this.resultType.dispose();
+    for (const type of this.segmentTypes) {
+      type.dispose();
+    }
     this.errorType.dispose();
     this.pendingType.dispose();
     this.regionType.dispose();

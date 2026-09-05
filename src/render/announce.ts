@@ -47,19 +47,19 @@
  *
  * ## Why the label-dropping rule does not carry over
  *
- * `format.slotText` drops a label the value already states, so `greet: def
- * greet(name)` is painted `def greet(name)`. That rule buys columns, and
+ * `format.slotSegments` drops a label the value already states, so `greet:
+ * def greet(name)` is painted `def greet(name)`. That rule buys columns, and
  * columns are the scarce thing on a line. Speech is scarce in *time*, and one
  * repeated word costs a fraction of a second, while the label is what tells a
  * listener which of several values is being reported. So the label is always
  * spoken. This is a deliberate divergence from the painted text and the only
- * one: everything else here is built from `paintedSlots` and `outputSegments`
+ * one: everything else here is built from `paintedSlots` and `outputPieces`
  * precisely so the two channels cannot drift into describing the same response
  * differently.
  */
 
 import { BindingTrace, LoopTrace, NamedValue } from '../kernel/protocol';
-import { Printed, outputSegments, paintedSlots } from './format';
+import { Printed, outputPieces, paintedSlots } from './format';
 import { markerFor } from './registry';
 
 /**
@@ -214,7 +214,7 @@ function spokenSlots(annotation: Announceable): string[] {
     annotation.names, annotation.bindings, annotation.printed);
   const said = slots.map(
     (slot) => slot.name === null ? slot.value : `${slot.name} is ${slot.value}`);
-  said.push(...outputSegments(annotation.printed));
+  said.push(...outputPieces(annotation.printed));
   // The same guard the painted footnote carries: it counts names, so it needs
   // a name on the line to be a footnote to.
   if ((annotation.more ?? 0) > 0 && slots.some((slot) => !slot.own)) {
