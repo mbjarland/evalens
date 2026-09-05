@@ -180,3 +180,31 @@ acceptance is "somebody sees it".
 The habit matters more than any individual instance: this project has been
 wrong about its own behaviour often enough that unverified confidence is
 expensive.
+
+## 12. Loading is not re-evaluating, and only one of them may be destructive
+
+`evaluate_file` never reset the namespace, and nobody had decided whether it
+should — it was an accident of implementation, and driving the real kernel
+(#56) showed the accident is worse than it reads: a binding deleted from a
+file and reloaded survives, and so does a binding from a file that was never
+even opened, because the namespace belongs to the kernel process, not to
+whichever file is on screen. That is the notebook failure this project
+exists to stop, arrived at by a different door.
+
+The settled shape, in `docs/development/namespace-reset.md`: **loading has to
+be idempotent, and deliberately re-evaluating is allowed to be destructive**
+— Emacs' `eval-region` versus `C-M-x` on a `defvar`, and JupyterLab's `Run
+All` versus `Restart Kernel and Run All`, are the same principle reached
+twice. The command bound to a single keystroke is the one that resets;
+keeping the namespace across a load is the deliberate, palette-only choice,
+because a default that requires remembering to ask for the safe behaviour is
+the exact discipline notebook users are already supposed to have and mostly
+do not.
+
+Two things this generalises to rather than being special-cased for:
+`Run File as Script` (#78) always resets, because it exists to answer
+whether the file matches `python3 file.py`, a question a carried-over
+namespace makes unanswerable. Any state that changes what running the file
+*does* rather than merely what it prints — #86's replayed `input()` answers
+are the other instance found so far — resets on the same triggers the
+namespace does, for the same reason.
