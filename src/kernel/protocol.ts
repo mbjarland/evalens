@@ -211,6 +211,32 @@ export interface LoopTrace {
 }
 
 /**
+ * What one name the loop's *body* bound held, iteration by iteration.
+ *
+ * The target is usually the input being iterated; the body binding is usually
+ * the computed result, which is the half the reader came for. Both change on
+ * every iteration, and reporting the input's whole history beside the output's
+ * final value -- in the same style, side by side -- is exactly backwards.
+ *
+ * Bounded on the same terms as the target's trace, which is why this extends
+ * it rather than repeating it. Two things are its own:
+ *
+ * **`count` need not match the loop's.** An iteration that hit `continue` or
+ * `break` left the body before the recorder and computed no result, so it
+ * contributes nothing. Rendering the two as parallel columns is wrong the
+ * first time someone writes a filter loop; they are separate sequences that
+ * happen to have been recorded by one statement.
+ *
+ * **`constant`** says every iteration bound the same value, and `values` then
+ * holds that one reading. `c: 7, 7, 7, 7` is four observations of one fact,
+ * and it crowds out the sequence next to it that is actually moving.
+ */
+export interface BindingTrace extends LoopTrace {
+  readonly name: string;
+  readonly constant?: boolean;
+}
+
+/**
  * What one name on a line holds, read at the moment the line ran.
  *
  * Most lines in a real file are not bindings, and their own value has nothing
@@ -263,6 +289,8 @@ export interface Evaluated {
   readonly stderr: string;
   /** Present only for a `for` / `async for`. */
   readonly loop?: LoopTrace;
+  /** What the loop's body bound; present only when it bound something. */
+  readonly bindings?: readonly BindingTrace[];
   /** Present only when the line mentions names worth reporting. */
   readonly names?: readonly NamedValue[];
 }
@@ -295,6 +323,7 @@ export type StatementOutcome =
       readonly stdout: string;
       readonly stderr: string;
       readonly loop?: LoopTrace;
+      readonly bindings?: readonly BindingTrace[];
       readonly names?: readonly NamedValue[];
     }
   | {

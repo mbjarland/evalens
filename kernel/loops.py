@@ -1,10 +1,16 @@
-"""Make a `for` loop report every value its target held, not just the last.
+"""Make a `for` loop report what it ran through, not just where it stopped.
 
 `for p in lst:` leaves `p` bound to the final element, and annotating that is
 true and nearly useless: the reason to run a loop in an exploration file is to
 watch what it does, and every iteration but the last is thrown away. This
 module rewrites the loop so each iteration announces itself, and the kernel
 paints the sequence.
+
+Two things are watched, because the loop binds two kinds of name. The
+**target** is what the loop was handed, and the names the **body** binds are
+what it computed from it. Both change on every iteration and both used to be
+reported the same way -- the target as a history, the body binding as the one
+value it happened to end on, which reads as that history's last entry.
 
 **Why an AST rewrite and not `sys.settrace`.** A trace function sees every
 line of every frame in the process, so it would tax all evaluation -- the
@@ -26,10 +32,24 @@ unavoidable price of a *truthful* last value -- deferring that one repr() to
 the end would reintroduce exactly the mutable-object lie above, for the value
 the eye lands on last.
 
-**The injection goes first in the body.** `continue` then still records the
-iteration it skipped out of, and `break` records the value it broke on -- the
-value you were looking for, since it is why the loop stopped. Recording at the
-bottom would silently drop both.
+**The target's recorder goes first in the body.** `continue` then still
+records the iteration it skipped out of, and `break` records the value it
+broke on -- the value you were looking for, since it is why the loop stopped.
+Recording at the bottom would silently drop both.
+
+**The body's recorder goes last, for the mirror-image reason.** A name the
+body binds does not exist yet at the top of the first pass: a recorder placed
+there would find nothing, or -- worse -- find what a previous evaluation left
+in the namespace and report it as this iteration's. It has to run after the
+iteration computed something to have anything true to say about it.
+
+**The two sequences are not parallel, and nothing may assume they are.** An
+iteration that left the body early -- `continue`, `break`, `return`, an
+exception -- computed no result, so its binding has one entry fewer than the
+target does. That is not a gap to be filled. Inventing a value for an
+iteration that did not produce one is the same lie as reporting a mutable
+object's final state N times, and the loop that makes it visible is an
+ordinary filter rather than a corner case.
 
 The rewrite is additive: it inserts statements and changes nothing else, so
 the namespace a loop leaves behind is identical instrumented or not.
@@ -42,6 +62,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import sys
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 #: The name the rewritten code reaches the recorders through. Installed in the
@@ -60,23 +81,55 @@ HEAD_LIMIT = 5
 #: own -- taking one would mean importing the kernel, which imports this.
 ITEM_LIMIT = 200
 
+#: How many names bound in the body one loop may report, on the same principle
+#: as the kernel's cap on names per line: the annotation shares a line with the
+#: code it describes, and the target's own sequence is already on it. A body
+#: binding five names would bury the loop under five more histories. Naming a
+#: specific one is what a watch expression is for.
+BINDING_LIMIT = 3
+
+#: `sys._getframe`, looked up once. See `LoopTrace.bind` for why the body
+#: recorder reads the frame rather than being handed its values, and None here
+#: for an interpreter that does not offer frames: the loop then runs with no
+#: body sequence at all, which is what it did before this existed.
+_FRAME = getattr(sys, "_getframe", None)
+
+#: Distinguishes "the iteration did not bind this name" from "it bound None".
+_MISSING = object()
+
 
 class LoopTrace:
-    """What one loop's target held, iteration by iteration, bounded.
+    """What one loop held, iteration by iteration, bounded.
 
     One instance per loop rather than one per target name: nested loops, and
     an inner loop that reuses the outer loop's target name, are otherwise the
     same key and quietly interleave into one nonsensical sequence.
+
+    The same class serves both recorders. A loop's own trace holds the target's
+    values and owns one child trace per body name, and each child is an
+    ordinary trace of that name's values -- so the bounding, the repr-at-
+    capture-time rule and the wire shape are written once and cannot drift
+    between the two halves of the answer.
     """
 
-    __slots__ = ("_repr", "_limit", "head", "last", "count")
+    __slots__ = ("_repr", "_limit", "_before", "head", "last", "count",
+                 "varied", "bindings")
 
-    def __init__(self, repr_fn: Callable[[Any], str], limit: int = HEAD_LIMIT):
+    def __init__(self, repr_fn: Callable[[Any], str], limit: int = HEAD_LIMIT,
+                 names: Tuple[str, ...] = ()):
         self._repr = repr_fn
         self._limit = limit
+        #: What the watched names held before this loop ran. See `bind`.
+        self._before: Dict[str, Any] = {}
         self.head: List[str] = []
         self.last: Optional[str] = None
         self.count = 0
+        #: Whether any recorded value differed from the first one. What lets a
+        #: name that never changes be reported once instead of as `c: 7, 7, 7`.
+        self.varied = False
+        #: One trace per name the body binds, in the order they are written.
+        self.bindings: Dict[str, "LoopTrace"] = {
+            name: LoopTrace(repr_fn, limit) for name in names}
 
     def record(self, value: Any) -> None:
         """Called once per iteration, from inside the user's loop.
@@ -86,13 +139,79 @@ class LoopTrace:
         line they cannot see; `repr_fn` is expected to contain its own.
         """
         self.count += 1
+        if self.count == 1 and self.bindings and _FRAME is not None:
+            # The first call runs before the body ever has, which makes this
+            # the one moment the watched names can be seen as the loop found
+            # them. `bind` needs that to tell what an iteration computed from
+            # what an earlier evaluation left lying in the namespace.
+            scope = _FRAME(1).f_locals
+            self._before = {name: scope.get(name, _MISSING)
+                            for name in self.bindings}
         text = self._repr(value)
+        if self.head and text != self.head[0]:
+            # Compared against the first rather than the previous value, so
+            # `varied` means "this changed at some point" whatever the head
+            # limit is -- and costs one string comparison per iteration.
+            self.varied = True
         if len(self.head) < self._limit:
             self.head.append(text)
         else:
             # Only the newest survives past the head, so memory is flat no
             # matter how long the loop runs.
             self.last = text
+
+    def bind(self) -> None:
+        """Record what this iteration bound, read from the calling frame.
+
+        Called as the last statement of the body, so what it reads is what the
+        iteration computed. An iteration that left early never reaches it, and
+        the name it was watching simply has one entry fewer -- see the module
+        docstring for why that is the honest answer rather than a hole.
+
+        **Why the frame and not arguments.** Passing `u` to this call would
+        raise `NameError` inside the user's loop on any iteration that did not
+        bind it, which is an annotation turning into a crash in their code; a
+        first pass that took the other branch is enough to trigger it, and
+        Python has no expression for "this name if it has one". Wrapping the
+        call in `except NameError` instead would drop every name because one
+        was missing. `locals()` in the injected code would read correctly and
+        is a *name*: a namespace holding the user's own `locals` would have the
+        rewrite calling it. The frame is reached through nothing the user's
+        code can rebind, and `f_locals` is the right mapping in every scope.
+
+        Reading each name out of that mapping is a dictionary lookup and
+        nothing else, which is what makes doing it unbidden safe -- the same
+        rule the kernel follows for the names it reports beside a line.
+
+        **A name still holding what it held before the loop has not been
+        bound.** The scope cannot say who put a value there, and a session's
+        namespace is long-lived: `u = 99` from ten minutes ago is sitting in it
+        when a loop whose `u = ...` never fires runs, and reporting 99 as this
+        loop's per-iteration result is precisely the invented observation the
+        whole rewrite exists to avoid. So a name is reported only once it
+        differs from what the loop found -- after which every iteration counts,
+        including the ones that rebind it to the same value, because by then it
+        is demonstrably this loop's to report.
+
+        Compared by identity, never by `==`: equality runs the object's own
+        code, which can raise, cost real time, or -- for an array -- answer
+        with something that is not a boolean at all.
+        """
+        if not self.bindings or _FRAME is None:
+            return
+        scope = _FRAME(1).f_locals
+        for name, trace in self.bindings.items():
+            value = scope.get(name, _MISSING)
+            if value is _MISSING:
+                continue
+            if not trace.count:
+                if value is self._before.get(name, _MISSING):
+                    continue
+                # Proved to be this loop's. Letting go of the pre-loop value
+                # here keeps the recorder from holding an object the body has
+                # replaced alive for the rest of the run.
+                self._before.pop(name, None)
+            trace.record(value)
 
     @property
     def latest(self) -> Optional[str]:
@@ -116,6 +235,33 @@ class LoopTrace:
         """
         return {"values": list(self.head), "last": self.last,
                 "count": self.count}
+
+    def bindings_wire(self) -> List[Dict[str, Any]]:
+        """What the body bound, one entry per name, in the order written.
+
+        A name no iteration bound is left out entirely rather than sent as an
+        empty sequence. The loop's own trace already says whether it ran, and a
+        filter that matched nothing would otherwise answer with a row of names
+        all saying the same nothing.
+        """
+        return [trace.named_wire(name)
+                for name, trace in self.bindings.items() if trace.count]
+
+    def named_wire(self, name: str) -> Dict[str, Any]:
+        """This trace as JSON under `name`, collapsed if it never changed.
+
+        `c: 7, 7, 7, 7` is four observations of one fact, and it crowds out
+        the sequence beside it that is actually moving. The collapse happens
+        here rather than in the renderer because this is the side that knows
+        the values were identical -- and it sends one value, so a consumer
+        that ignores the flag still paints something true.
+        """
+        payload: Dict[str, Any] = {"name": name, **self.wire()}
+        if self.count > 1 and not self.varied:
+            payload["values"] = self.head[:1]
+            payload["last"] = None
+            payload["constant"] = True
+        return payload
 
 
 def _load_copy(target: ast.expr) -> Optional[ast.expr]:
@@ -191,11 +337,80 @@ def _readable_index(node: ast.expr) -> Optional[ast.expr]:
     return None
 
 
-class _Instrumenter(ast.NodeTransformer):
-    """Inserts one recorder call at the top of every loop body in scope."""
+class _BoundNames(ast.NodeVisitor):
+    """The names a loop body binds itself, in the order they are written.
+
+    Bindings only, and only this body's. What is deliberately left out is as
+    much of the answer as what is kept, because each exclusion is a way for an
+    informative line to become a wall of numbers:
+
+    * **Names merely read.** They are the line's inputs and are already
+      wherever they came from; the loop did not do anything to them.
+    * **Names bound in a nested loop.** They take a value per inner iteration,
+      so reporting them beside the outer sequence puts two different clocks on
+      one line. The inner loop annotates its own when someone points at it.
+    * **A `def`, `class` or `lambda`.** They bind machinery rather than data,
+      and their `repr()` carries an address that changes every iteration --
+      which would read as a value that keeps changing when nothing has.
+    * **A comprehension's target.** It has its own scope and never reaches the
+      namespace, so watching one spends a slot to report nothing.
+    * **The `else` clause.** It runs once, after the loop, so it is not a
+      per-iteration binding at all; the names on the line already cover it.
+
+    Everything else in the body is descended into, and the `if`/`try`/`with`
+    ones matter: a name bound under a branch is the filter loop this feature is
+    for, not an edge case to skip.
+    """
 
     def __init__(self) -> None:
-        self.loops = 0
+        self.names: List[str] = []
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, ast.Store) and node.id not in self.names:
+            self.names.append(node.id)
+
+    def _skip(self, node: ast.AST) -> None:
+        """A scope or a clock of its own. See the class docstring."""
+        return
+
+    visit_For = _skip
+    visit_AsyncFor = _skip
+    visit_While = _skip
+    visit_FunctionDef = _skip
+    visit_AsyncFunctionDef = _skip
+    visit_ClassDef = _skip
+    visit_Lambda = _skip
+    visit_ListComp = _skip
+    visit_SetComp = _skip
+    visit_DictComp = _skip
+    visit_GeneratorExp = _skip
+
+
+def _body_names(node) -> Tuple[str, ...]:
+    """The names this loop's body binds and is worth watching, capped.
+
+    The loop's own targets are dropped: they are the sequence already being
+    reported, and `for v in xs:` with `v = v * 2` in the body would otherwise
+    put `v` on the line twice saying two different things.
+    """
+    collector = _BoundNames()
+    for statement in node.body:
+        collector.visit(statement)
+    targets = {name.id for name in ast.walk(node.target)
+               if isinstance(name, ast.Name)}
+    names = [name for name in collector.names
+             if name not in targets and name != RECORDERS]
+    return tuple(names[:BINDING_LIMIT])
+
+
+class _Instrumenter(ast.NodeTransformer):
+    """Inserts the recorder calls around every loop body in scope."""
+
+    def __init__(self) -> None:
+        #: One entry per instrumented loop, in allocation order, holding the
+        #: body names that loop's recorder watches. Its length is the number
+        #: of recorders the rewritten tree expects.
+        self.plan: List[Tuple[str, ...]] = []
 
     # A nested `def`, `class` or `lambda` is a different execution scope and,
     # more to the point, a different *time*: its loops run when it is called,
@@ -231,24 +446,38 @@ class _Instrumenter(ast.NodeTransformer):
         index = None
         if readable is not None:
             # Allocated before descending, so the loop the user pointed at is
-            # index 0 however deeply the ones inside it nest.
-            index = self.loops
-            self.loops += 1
+            # index 0 however deeply the ones inside it nest. The body names
+            # are read from the body as the user wrote it, before the rewrite
+            # puts anything of its own in there.
+            index = len(self.plan)
+            self.plan.append(_body_names(node))
 
         self.generic_visit(node)
 
         if index is not None:
-            node.body.insert(0, _record_call(index, readable, node))
+            node.body.insert(0, _recorder_call(index, "record", [readable],
+                                               node))
+            if self.plan[index]:
+                # Last, so it sees what the iteration computed -- and appended
+                # after the rewrite of any nested loop, which changes nothing
+                # about the order it runs in but keeps this statement the last
+                # thing in the body it belongs to.
+                node.body.append(_recorder_call(index, "bind", [], node))
         return node
 
 
-def _record_call(index: int, readable: ast.expr, at: ast.stmt) -> ast.stmt:
-    """`__evalens_loops__[index].record(<target>)`, positioned at the loop.
+def _recorder_call(index: int, method: str, args: List[ast.expr],
+                   at: ast.stmt) -> ast.stmt:
+    """`__evalens_loops__[index].<method>(*args)`, positioned at the loop.
 
     Every synthesised node is given the `for` statement's own position. An AST
     node without one is a hard compile error, and one carrying a plausible but
     wrong line is worse: `linecache` would quote a line the user never wrote
     into the middle of their traceback.
+
+    Both recorders are built here rather than each writing its own tree, so
+    "give the injected nodes a real position" is stated once and cannot be
+    remembered for one call and forgotten for the other.
     """
     call = ast.Expr(
         value=ast.Call(
@@ -257,17 +486,21 @@ def _record_call(index: int, readable: ast.expr, at: ast.stmt) -> ast.stmt:
                     value=ast.Name(id=RECORDERS, ctx=ast.Load()),
                     slice=ast.Constant(value=index),
                     ctx=ast.Load()),
-                attr="record",
+                attr=method,
                 ctx=ast.Load()),
-            args=[readable],
+            args=args,
             keywords=[]))
     for node in ast.walk(call):
         ast.copy_location(node, at)
     return ast.fix_missing_locations(call)
 
 
-def instrument(node: ast.stmt) -> Tuple[ast.stmt, int]:
-    """A rewritten copy of `node`, and how many recorders it expects.
+def instrument(node: ast.stmt) -> Tuple[ast.stmt, List[Tuple[str, ...]]]:
+    """A rewritten copy of `node`, and what each of its recorders watches.
+
+    The plan is a list rather than a count because a recorder is no longer
+    interchangeable with the next one: it also holds the body names of the loop
+    it belongs to, and `len(plan)` is still how many there are.
 
     The original is left untouched. The caller holds the user's parsed tree
     and may still want to read positions off it, and a transformer that
@@ -275,15 +508,13 @@ def instrument(node: ast.stmt) -> Tuple[ast.stmt, int]:
     """
     instrumenter = _Instrumenter()
     rewritten = instrumenter.visit(copy.deepcopy(node))
-    return ast.fix_missing_locations(rewritten), instrumenter.loops
+    return ast.fix_missing_locations(rewritten), instrumenter.plan
 
 
-def traces(count: int, repr_fn: Callable[[Any], str]) -> List[LoopTrace]:
+def traces(plan: List[Tuple[str, ...]],
+           repr_fn: Callable[[Any], str]) -> List[LoopTrace]:
     """One recorder per instrumented loop, in the order they were allocated."""
-    return [LoopTrace(repr_fn) for _ in range(count)]
-
-
-_MISSING = object()
+    return [LoopTrace(repr_fn, names=names) for names in plan]
 
 
 class installed:  # noqa: N801 - reads as a context manager, and is one

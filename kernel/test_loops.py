@@ -9,6 +9,7 @@ executions, which needs both of them in the same interpreter.
 
 import ast
 import asyncio
+import re
 import unittest
 
 import loops
@@ -23,8 +24,16 @@ def fresh_namespace():
 
 
 def visible(namespace):
-    """The namespace as a user would see it, by value rather than identity."""
-    return {name: repr(value) for name, value in namespace.items()
+    """The namespace as a user would see it, by value rather than identity.
+
+    Addresses are normalised out. The two runs being compared build two
+    separate sets of objects, so a `repr()` that ends in `at 0x7f…` differs
+    between them however faithful the rewrite is -- and a comparison that
+    called that a failure could not include a loop binding a function or a
+    file, which are exactly the bodies worth checking.
+    """
+    return {name: re.sub(r"0x[0-9a-fA-F]+", "0x…", repr(value))
+            for name, value in namespace.items()
             if name not in ("__name__", "__builtins__")}
 
 
@@ -38,8 +47,8 @@ def run(source, instrument=True, namespace=None):
     recorders = []
     for statement in ast.parse(source).body:
         if instrument:
-            statement, count = loops.instrument(statement)
-            recorders = loops.traces(count, repr)
+            statement, plan = loops.instrument(statement)
+            recorders = loops.traces(plan, repr)
         with loops.installed(namespace, recorders):
             exec(compiled(statement), namespace)
     return namespace, recorders
@@ -48,6 +57,11 @@ def run(source, instrument=True, namespace=None):
 def trace_of(source):
     """The recorded sequence for the loop in `source`."""
     return run(source)[1][0]
+
+
+def bindings_of(source):
+    """What the body of the loop in `source` bound, as it goes on the wire."""
+    return trace_of(source).bindings_wire()
 
 
 async def stream(values):
@@ -77,13 +91,36 @@ class Additive(unittest.TestCase):
         "        grid.append(cell)\n",
         "rows = [[], []]\nfor r in rows:\n    r.append(len(r))\n",
         "acc = []\nfor p in (n for n in range(3)):\n    acc.append(p * 2)\n",
+        # From here down the body *binds*, which is what the second recorder
+        # watches. It runs last in the body, so it is the injection that sits
+        # in the way of `continue`, `break` and a `raise` -- and the one that
+        # reads names, which is where a NameError would come from.
+        "for v in [1, 2, 3]:\n    u = 4 * v\n",
+        "for v in [1, 2, 3]:\n    if v == 2:\n        continue\n"
+        "    u = 4 * v\n",
+        "for v in [1, 2, 3]:\n    u = v\n    if v == 2:\n        break\n",
+        # `u` does not exist on the first pass, which is exactly the shape that
+        # would raise if the recorder were handed the value as an argument.
+        "for v in [1, 2, 3]:\n    if v > 1:\n        u = v\n",
+        "for v in [1, 2]:\n    u = v\n    del u\n",
+        "for v in [1, 2]:\n    with io.StringIO() as sink:\n"
+        "        sink.write(str(v))\n",
+        "out = []\nfor v in [1, 2]:\n    try:\n        u = 1 / (v - 1)\n"
+        "    except ZeroDivisionError as exc:\n        u = None\n"
+        "    out.append(u)\n",
+        "for v in [1, 2]:\n    def scaled(n=v):\n        return n * 2\n",
+        "for v in [1, 2]:\n    squares = [n * n for n in range(v)]\n",
     )
+
+    #: One source above opens a StringIO, and both runs need the name.
+    PREAMBLE = "import io\n"
 
     def test_the_namespace_is_identical_instrumented_or_not(self):
         for source in self.LOOPS:
             with self.subTest(source=source):
-                instrumented, _ = run(source, instrument=True)
-                plain, _ = run(source, instrument=False)
+                whole = self.PREAMBLE + source
+                instrumented, _ = run(whole, instrument=True)
+                plain, _ = run(whole, instrument=False)
                 self.assertEqual(visible(instrumented), visible(plain))
 
     def test_the_recorder_name_does_not_survive_the_run(self):
@@ -168,16 +205,16 @@ class WhatIsRecorded(unittest.TestCase):
         for source in ("for d[next(it)] in [1]:\n    pass\n",
                        "for d[i + 1] in [1]:\n    pass\n"):
             with self.subTest(source=source):
-                _, count = loops.instrument(ast.parse(source).body[0])
-                self.assertEqual(count, 0)
+                _, plan = loops.instrument(ast.parse(source).body[0])
+                self.assertEqual(plan, [])
 
     def test_a_target_that_cannot_be_read_back_is_left_alone(self):
         # `for f()[0] in xs:` is legal, and re-evaluating `f()` to display the
         # value would call it a second time. Not instrumenting is the safe
         # answer: the loop annotates its final value as it did before.
         node = ast.parse("for f()[0] in [1, 2]:\n    pass\n").body[0]
-        _, count = loops.instrument(node)
-        self.assertEqual(count, 0)
+        _, plan = loops.instrument(node)
+        self.assertEqual(plan, [])
 
     def test_a_loop_that_never_runs_records_nothing(self):
         trace = trace_of("for p in []:\n    pass\n")
@@ -185,6 +222,195 @@ class WhatIsRecorded(unittest.TestCase):
         self.assertIsNone(trace.latest)
         self.assertEqual(trace.wire(), {"values": [], "last": None,
                                         "count": 0})
+
+
+class WhatTheBodyBinds(unittest.TestCase):
+    """The other half of a loop: what each iteration computed.
+
+    The target is usually the input being iterated and the body binding is
+    usually the result. Reporting the input's whole history beside the output's
+    last value -- in the same style, side by side -- is exactly backwards, and
+    is what the second recorder exists to fix.
+    """
+
+    def test_a_body_binding_is_recorded_once_per_iteration(self):
+        # The ticket's example. stdout said 4, 8 and 12; the annotation said
+        # 12, because `u` fell through to the read-the-namespace-once path.
+        self.assertEqual(
+            bindings_of("for v in [1, 2, 3]:\n    u = 4 * v\n"),
+            [{"name": "u", "values": ["4", "8", "12"], "last": None,
+              "count": 3}])
+
+    def test_the_recorder_runs_after_the_iteration_computed(self):
+        # Last in the body, not first. At the top of the first pass `u` does
+        # not exist yet, so a recorder there would find nothing to record --
+        # or, if the namespace held one from an earlier run, would report that.
+        instrumented, _ = loops.instrument(
+            ast.parse("for v in [1, 2]:\n    u = v\n").body[0])
+        self.assertEqual(instrumented.body[0].value.func.attr, "record")
+        self.assertEqual(instrumented.body[-1].value.func.attr, "bind")
+
+    def test_an_iteration_that_continued_computed_nothing_to_record(self):
+        # The sequences are not parallel, and this is the shape that proves
+        # it: three iterations, two results. Inventing a third would be the
+        # same lie as repeating a mutable object's final state.
+        trace = trace_of("for v in [1, 2, 3]:\n    if v == 2:\n"
+                         "        continue\n    u = 4 * v\n")
+        self.assertEqual(trace.head, ["1", "2", "3"])
+        self.assertEqual(trace.bindings_wire(),
+                         [{"name": "u", "values": ["4", "12"], "last": None,
+                           "count": 2}])
+
+    def test_an_iteration_that_broke_out_leaves_the_same_way(self):
+        # `break` is `continue` for this purpose: the iteration left the body
+        # before the recorder. The target still records the value it broke on,
+        # which is what the first recorder is positioned to catch.
+        trace = trace_of("for v in [1, 2, 3]:\n    u = v * 10\n"
+                         "    if v == 2:\n        break\n")
+        self.assertEqual(trace.head, ["1", "2"])
+        self.assertEqual(trace.bindings["u"].head, ["10"])
+
+    def test_a_name_the_first_pass_does_not_bind_does_not_raise(self):
+        # The reason the recorder reads the frame rather than being handed
+        # values: `u` does not exist on the first iteration, and passing it as
+        # an argument would turn an annotation into a NameError in the user's
+        # loop.
+        namespace, recorders = run(
+            "for v in [1, 2, 3]:\n    if v > 1:\n        u = v\n")
+        self.assertEqual(namespace["u"], 3)
+        self.assertEqual(recorders[0].bindings["u"].head, ["2", "3"])
+
+    def test_a_name_no_iteration_binds_is_left_off_the_wire(self):
+        # The loop's own sequence already says what happened. A filter that
+        # matched nothing would otherwise answer with a name saying nothing.
+        self.assertEqual(
+            bindings_of("for v in [1, 2]:\n    if v > 9:\n        u = v\n"),
+            [])
+
+    def test_a_value_the_loop_found_is_not_reported_as_its_work(self):
+        # A session's namespace is long-lived, so the name may well hold
+        # something -- and the scope cannot say who put it there. Reporting
+        # `u = 99` from an earlier evaluation as this loop's per-iteration
+        # result is exactly the invented observation the rewrite exists to
+        # avoid.
+        self.assertEqual(
+            bindings_of("u = 99\nfor v in [1, 2, 3]:\n"
+                        "    if v > 9:\n        u = v\n"),
+            [])
+
+    def test_a_name_the_loop_does_rebind_is_reported_from_then_on(self):
+        # Once it differs from what the loop found, it is demonstrably this
+        # loop's -- including the later iterations that rebind it to the same
+        # value, which is what keeps `constant` honest.
+        self.assertEqual(
+            bindings_of("u = 99\nfor v in [1, 2, 3]:\n    u = 7\n"),
+            [{"name": "u", "values": ["7"], "last": None, "count": 3,
+              "constant": True}])
+
+    def test_a_binding_that_never_changes_is_reported_once(self):
+        # `c: 7, 7, 7, 7` is four observations of one fact, and it crowds out
+        # the sequence beside it that is moving.
+        self.assertEqual(
+            bindings_of("for v in [1, 2, 3, 4]:\n    c = 7\n    d = v * v\n"),
+            [{"name": "c", "values": ["7"], "last": None, "count": 4,
+              "constant": True},
+             {"name": "d", "values": ["1", "4", "9", "16"], "last": None,
+              "count": 4}])
+
+    def test_one_iteration_is_not_called_unchanged(self):
+        # True but unhelpful: nothing had a chance to change, and a note
+        # saying "unchanged" would imply something was watched for longer.
+        self.assertEqual(
+            bindings_of("for v in [1]:\n    u = v\n"),
+            [{"name": "u", "values": ["1"], "last": None, "count": 1}])
+
+    def test_a_binding_is_bounded_exactly_as_the_target_is(self):
+        trace = trace_of("for v in range(10000):\n    u = v * 2\n")
+        self.assertEqual(
+            trace.bindings["u"].wire(),
+            {"values": ["0", "2", "4", "6", "8"], "last": "19998",
+             "count": 10000})
+
+    def test_a_body_binding_takes_its_repr_at_capture_time(self):
+        # The same list rebound every iteration, mutated as it goes. Deferring
+        # the repr() would report the final state three times.
+        self.assertEqual(
+            bindings_of("row = []\nfor v in [1, 2, 3]:\n    row.append(v)\n"
+                        "    seen = row\n"),
+            [{"name": "seen", "values": ["[1]", "[1, 2]", "[1, 2, 3]"],
+              "last": None, "count": 3}])
+
+    def test_the_names_are_capped(self):
+        # The same rule the kernel applies to names per line: the annotation
+        # shares a line with the code, and the target's sequence is already
+        # on it.
+        _, plan = loops.instrument(ast.parse(
+            "for v in [1]:\n    a = v\n    b = v\n    c = v\n    d = v\n"
+            "    e = v\n").body[0])
+        self.assertEqual(plan, [("a", "b", "c", "d")[:loops.BINDING_LIMIT]])
+
+    def test_the_target_is_not_reported_a_second_time(self):
+        # `for v in xs:` with `v = v * 2` in the body would otherwise put `v`
+        # on the line twice, saying two different things.
+        self.assertEqual(bindings_of("for v in [1, 2]:\n    v = v * 2\n"), [])
+
+    def test_a_name_only_read_is_not_a_binding(self):
+        # Out of scope deliberately: the loop did nothing to it, and a line of
+        # every name a body mentions is where this stops being informative.
+        self.assertEqual(
+            bindings_of("factor = 3\nseen = []\n"
+                        "for v in [1, 2]:\n    seen.append(v * factor)\n"),
+            [])
+
+    def test_a_nested_loops_bindings_belong_to_the_nested_loop(self):
+        # They take a value per inner iteration, so reporting them beside the
+        # outer sequence would put two clocks on one line. The outer body's
+        # own binding is still reported.
+        _, recorders = run(
+            "for row in [[1, 2], [3, 4]]:\n    total = 0\n"
+            "    for cell in row:\n        doubled = cell * 2\n"
+            "        total += doubled\n")
+        self.assertEqual(list(recorders[0].bindings), ["total"])
+        self.assertEqual(recorders[0].bindings["total"].head, ["6", "14"])
+        # `total` is rebound by the inner body too, so the inner recorder
+        # watches it as well -- on the inner loop's clock, which is the whole
+        # reason the two are not merged.
+        self.assertEqual(list(recorders[1].bindings), ["doubled", "total"])
+        self.assertEqual(recorders[1].bindings["total"].head,
+                         ["2", "6", "6", "14"])
+
+    def test_a_def_in_the_body_is_not_a_binding(self):
+        # It binds machinery rather than data, and its repr() carries an
+        # address that changes every iteration -- which reads as a value that
+        # keeps changing when nothing has.
+        self.assertEqual(
+            bindings_of("for v in [1, 2]:\n"
+                        "    def scaled(n=v):\n        return n * 2\n"),
+            [])
+
+    def test_a_comprehension_target_is_not_a_binding(self):
+        # It has its own scope and never reaches the namespace, so watching
+        # one would spend a capped slot to report nothing.
+        self.assertEqual(
+            [entry["name"] for entry in bindings_of(
+                "for v in [1, 2]:\n"
+                "    squares = [n * n for n in range(v)]\n")],
+            ["squares"])
+
+    def test_the_else_clause_is_not_a_per_iteration_binding(self):
+        # It runs once, after the loop, so the names on the line cover it.
+        self.assertEqual(
+            bindings_of("for v in [1, 2]:\n    pass\n"
+                        "else:\n    done = True\n"),
+            [])
+
+    def test_a_loop_with_nothing_to_watch_gets_no_second_injection(self):
+        # An empty plan entry means no `bind` call at all, so a loop that
+        # binds nothing costs exactly what it did before this existed.
+        instrumented, plan = loops.instrument(
+            ast.parse("for v in [1, 2]:\n    print(v)\n").body[0])
+        self.assertEqual(plan, [()])
+        self.assertEqual(len(instrumented.body), 2)
 
 
 class Bounded(unittest.TestCase):
@@ -258,8 +484,8 @@ class Scope(unittest.TestCase):
         # Comprehensions are expressions and out of scope; nothing in the
         # rewrite should mistake one for a loop.
         node = ast.parse("squares = [n * n for n in range(4)]\n").body[0]
-        _, count = loops.instrument(node)
-        self.assertEqual(count, 0)
+        _, plan = loops.instrument(node)
+        self.assertEqual(plan, [])
 
     def test_an_async_for_is_instrumented_the_same_way(self):
         # Unreachable from the cursor today -- `async for` at module level is
@@ -269,18 +495,23 @@ class Scope(unittest.TestCase):
         tree = ast.parse(
             "async def collect(source):\n"
             "    async for item in source:\n"
-            "        pass\n")
-        instrumented, count = loops.instrument(tree.body[0].body[0])
-        self.assertEqual(count, 1)
+            "        doubled = item * 2\n")
+        instrumented, plan = loops.instrument(tree.body[0].body[0])
+        self.assertEqual(plan, [("doubled",)])
 
         tree.body[0].body[0] = instrumented
         ast.fix_missing_locations(tree)
-        recorders = loops.traces(count, repr)
+        recorders = loops.traces(plan, repr)
         namespace = fresh_namespace()
         with loops.installed(namespace, recorders):
             exec(compiled(tree.body[0]), namespace)
             asyncio.run(namespace["collect"](stream([1, 2, 3])))
         self.assertEqual(recorders[0].head, ["1", "2", "3"])
+        # The body recorder reads the frame it was called from, so a loop in a
+        # function scope reports its bindings as readily as a module-level one
+        # -- there is no globals() lookup here to come up empty.
+        self.assertEqual(recorders[0].bindings["doubled"].head,
+                         ["2", "4", "6"])
 
 
 class Positions(unittest.TestCase):

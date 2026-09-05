@@ -73,6 +73,21 @@ its target ran through rather than only the value it stopped on::
 already among them, and ``count`` is how many there were. The extension turns
 the three into one line; see ``loops`` for why the shape is bounded.
 
+``bindings`` carries the same shape once per name the loop's *body* bound,
+which is usually the result the reader came for -- the target is the input
+being iterated::
+
+    <- {..., "display":"v", "loop":{"values":["1","2","3"],...},
+        "bindings":[{"name":"u","values":["4","8","12"],"last":null,
+                     "count":3}]}
+
+Each entry is bounded exactly as ``loop`` is and may add ``"constant":true``,
+which says every iteration bound the same value and one reading is the whole
+story. **A binding's ``count`` need not match the loop's.** An iteration that
+hit ``continue`` or ``break`` computed no result, so it contributes nothing;
+consumers must render the two sequences independently rather than as columns
+of one table. Present only when there is something to report.
+
 A compound statement -- a ``def``, a loop, an ``if`` -- answers with an
 ``anchor``, the line its value belongs beside::
 
@@ -794,6 +809,20 @@ def _named_values(
     return pairs
 
 
+def _unwatched(names: Iterable[str], recorders: list) -> list:
+    """`names`, minus the ones a loop's body recorder already reports.
+
+    Split out because the reason is easy to lose: this is not a tidy-up, it is
+    what stops one name appearing twice on a line saying two different things.
+    `u` recorded as `4, 8, 12` and read back out of the namespace as `12` are
+    both true, and side by side one of them reads as a correction of the other.
+    """
+    if not recorders:
+        return list(names)
+    watched = recorders[0].bindings
+    return [name for name in names if name not in watched]
+
+
 def _instrumented(node: ast.stmt) -> tuple[ast.stmt, list]:
     """`node` rewritten to announce each iteration, plus its recorders.
 
@@ -807,9 +836,9 @@ def _instrumented(node: ast.stmt) -> tuple[ast.stmt, list]:
     """
     if not isinstance(node, (ast.For, ast.AsyncFor)):
         return node, []
-    rewritten, count = loops.instrument(node)
+    rewritten, plan = loops.instrument(node)
     return rewritten, loops.traces(
-        count, lambda value: safe_repr(value, loops.ITEM_LIMIT))
+        plan, lambda value: safe_repr(value, loops.ITEM_LIMIT))
 
 
 def _position(line: int, character: int) -> Dict[str, int]:
@@ -1057,6 +1086,7 @@ class Kernel:
         shown: Optional[str] = None
         raw_repr: Optional[str] = None
         loop: Optional[Dict[str, Any]] = None
+        bindings: list = []
         names: list = []
 
         with _user_io(allow_stdin) as (out, err):
@@ -1108,6 +1138,11 @@ class Kernel:
                         # describe and no untouched repr to send beside it.
                         loop = recorders[0].wire()
                         shown = recorders[0].latest
+                        # What the body computed, on the same terms. The
+                        # target is usually the input being iterated and this
+                        # is usually the result, which is the half the reader
+                        # came for.
+                        bindings = recorders[0].bindings_wire()
                     elif form.display is not None:
                         # Safe for the remaining statement kinds because every
                         # display expression they produce is a name, or a
@@ -1129,7 +1164,16 @@ class Kernel:
                 # raised leaves the namespace half-updated, and reporting a
                 # name out of it would put a value beside code that did not
                 # finish producing it.
-                names = _named_values(self.namespace, form.names)
+                #
+                # A name the loop's body recorder watched is left out, whether
+                # or not any iteration bound it. Reporting it here as well
+                # would say the same name twice on one line -- once as the
+                # sequence it took, once as where it stopped -- and for a name
+                # no iteration reached, the value in the namespace is whatever
+                # an earlier evaluation left there rather than anything this
+                # statement did.
+                names = _named_values(
+                    self.namespace, _unwatched(form.names, recorders))
             except BaseException as exc:  # noqa: BLE001
                 # BaseException, not Exception, and this catch carries more
                 # weight than it looks like it does.
@@ -1176,6 +1220,12 @@ class Kernel:
             # Present only for a loop, so a reader of the wire can tell "this
             # ran once" from "this ran and the sequence is elsewhere".
             outcome["loop"] = loop
+        if bindings:
+            # Absent for a loop whose body bound nothing worth watching, and
+            # never parallel to `loop`: an iteration that left early computed
+            # no result, so a binding legitimately has fewer entries than the
+            # target has. See `loops` for why filling that in would be a lie.
+            outcome["bindings"] = bindings
         if names:
             # Absent rather than empty, in line with the two above: a line
             # with nothing else to say about it costs no field.

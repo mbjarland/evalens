@@ -125,6 +125,18 @@ the annotation shows the sequence, bounded — `p: 1, 2, 3, 4`, or
 place a value is shown without the target being re-read afterwards;
 `kernel/loops.py` carries the reasoning.
 
+A second recorder, injected as the **last** statement of the body, watches
+the names the body binds — because the target is usually the *input* being
+iterated and the body binding is usually the *computed result*, which is
+the half the reader came for. `for v in x:` with `u = 4 * v` inside
+annotates `v: 1, 2, 3   u: 4, 8, 12`, where `u` used to be one value read
+out of the namespace, sitting beside a history and reading as its last
+entry. Last rather than first, because `u` does not exist yet at the top of
+the first pass. The consequence to design for rather than paper over: an
+iteration that hit `continue` or `break` computed no result, so the two
+sequences are **not** the same length — and a filter loop is where anything
+that renders them as parallel columns gets caught.
+
 **One value per statement is the wrong unit**, though, and that is the
 second half of the answer. It is right for a binding and has nothing to
 say for everything else, which is most lines: `print("y unaffected by

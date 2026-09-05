@@ -1,4 +1,6 @@
-import { EvalResponse, LoopTrace, NamedValue, Range } from '../kernel/protocol';
+import {
+  BindingTrace, EvalResponse, LoopTrace, NamedValue, Range,
+} from '../kernel/protocol';
 import { hoverText } from './format';
 
 /**
@@ -26,6 +28,14 @@ export type Presentation =
       readonly display: string | null;
       /** Every value a loop's target held, when the statement was a loop. */
       readonly loop?: LoopTrace;
+      /**
+       * Every value the loop's body bound, per name.
+       *
+       * Kept beside `loop` rather than folded into it: the sequences are
+       * recorded by one statement and are not the same length, because an
+       * iteration that took an early exit computed no result.
+       */
+      readonly bindings?: readonly BindingTrace[];
       /** What the names on the line held when it ran. */
       readonly names?: readonly NamedValue[];
       readonly hover?: string;
@@ -78,12 +88,15 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
     value: response.value,
     display: response.display,
     ...(response.loop === undefined ? {} : { loop: response.loop }),
+    ...(response.bindings === undefined
+      ? {}
+      : { bindings: response.bindings }),
     ...(response.names === undefined ? {} : { names: response.names }),
     ...(speaks
       ? {
           hover: hoverFor(
             response.display, response.value, response.repr, response.loop,
-            response.names
+            response.names, response.bindings
           ),
         }
       : {}),
@@ -104,9 +117,10 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
  */
 export function hoverFor(
   display: string | null, value: string | null, repr?: string,
-  loop?: LoopTrace | null, names?: readonly NamedValue[]
+  loop?: LoopTrace | null, names?: readonly NamedValue[],
+  bindings?: readonly BindingTrace[]
 ): string {
-  return hoverText(display, repr ?? value, loop, names);
+  return hoverText(display, repr ?? value, loop, names, bindings);
 }
 
 

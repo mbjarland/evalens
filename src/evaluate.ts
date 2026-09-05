@@ -55,9 +55,11 @@ function annotationFor(outcome: StatementOutcome): Annotation | undefined {
     ...(outcome.value === null ? {} : { value: outcome.value }),
     display: outcome.display,
     ...(outcome.loop === undefined ? {} : { loop: outcome.loop }),
+    ...(outcome.bindings === undefined ? {} : { bindings: outcome.bindings }),
     ...(outcome.names === undefined ? {} : { names: outcome.names }),
     hover: hoverFor(
-      outcome.display, outcome.value, outcome.repr, outcome.loop, outcome.names
+      outcome.display, outcome.value, outcome.repr, outcome.loop,
+      outcome.names, outcome.bindings
     ),
   };
 }
@@ -318,6 +320,9 @@ export class Evaluator {
             ...(presentation.loop === undefined
               ? {}
               : { loop: presentation.loop }),
+            ...(presentation.bindings === undefined
+              ? {}
+              : { bindings: presentation.bindings }),
             ...(presentation.names === undefined
               ? {}
               : { names: presentation.names }),

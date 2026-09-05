@@ -1134,6 +1134,111 @@ class Loops(KernelTest):
                          ["1", "2", "3"])
 
 
+class LoopBodyBindings(KernelTest):
+    """What a loop computed, not only what it was handed.
+
+    The target is usually the input being iterated and the name the body binds
+    is usually the result. Reporting the input's whole history beside the
+    result's final value -- in the same style, side by side -- is exactly
+    backwards, and one of them then reads as the other's last entry.
+    """
+
+    def bindings(self, result):
+        return [(b["name"], b["values"], b["count"]) for b in
+                result.get("bindings", [])]
+
+    def test_a_body_binding_reports_every_value_it_took(self):
+        # The ticket's example, through the real kernel. stdout said 4, 8 and
+        # 12; the annotation said `u: 12`.
+        source = ("x = [1, 2, 3]\n"
+                  "for v in x:\n"
+                  "    u = 4 * v\n"
+                  "    print('value is ' + str(u))\n")
+        result = self.k.evaluate_lines(source, 0, 1)
+        self.assertEqual(result["stdout"],
+                         "value is 4\nvalue is 8\nvalue is 12\n")
+        self.assertEqual(result["loop"]["values"], ["1", "2", "3"])
+        self.assertEqual(self.bindings(result), [("u", ["4", "8", "12"], 3)])
+
+    def test_a_binding_is_not_also_reported_as_a_name(self):
+        # It would appear twice on one line otherwise -- once as the sequence
+        # it took, once as where it stopped -- and the second reads as a
+        # correction of the first.
+        result = self.k.evaluate("for v in [1, 2, 3]:\n    u = 4 * v\n", 0)
+        self.assertNotIn("u", [pair["name"] for pair in
+                               result.get("names", [])])
+
+    def test_an_iteration_that_continued_has_nothing_to_contribute(self):
+        # The acceptance case for unequal lengths: three iterations of the
+        # target, two results. Anything that renders these as parallel columns
+        # is wrong the first time someone writes a filter loop.
+        result = self.k.evaluate(
+            "for v in [1, 2, 3]:\n    if v == 2:\n        continue\n"
+            "    u = 4 * v\n", 0)
+        self.assertEqual(result["loop"]["count"], 3)
+        self.assertEqual(self.bindings(result), [("u", ["4", "12"], 2)])
+
+    def test_an_unchanging_binding_is_reported_once(self):
+        result = self.k.evaluate(
+            "for v in [1, 2, 3, 4]:\n    c = 7\n", 0)
+        self.assertEqual(result["bindings"],
+                         [{"name": "c", "values": ["7"], "last": None,
+                           "count": 4, "constant": True}])
+
+    def test_a_loop_whose_body_binds_nothing_carries_no_bindings(self):
+        result = self.k.evaluate("for p in [1, 2, 3]:\n    pass\n", 0)
+        self.assertIn("loop", result)
+        self.assertNotIn("bindings", result)
+
+    def test_a_name_the_first_pass_does_not_bind_is_not_an_error(self):
+        # The recorder reads the frame rather than being handed values, so a
+        # name that does not exist yet costs a missing entry rather than a
+        # NameError raised inside the user's loop.
+        result = self.k.evaluate(
+            "for v in [1, 2, 3]:\n    if v > 1:\n        u = v\n", 0)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(self.bindings(result), [("u", ["2", "3"], 2)])
+
+    def test_a_binding_no_iteration_reached_says_nothing(self):
+        # Including when an earlier evaluation left a value in the namespace
+        # under that name: it is not what this statement did.
+        result = self.k.evaluate_lines(
+            "u = 99\nfor v in [1, 2]:\n    if v > 9:\n        u = v\n", 0, 1)
+        self.assertNotIn("bindings", result)
+        self.assertNotIn("u", [pair["name"] for pair in
+                               result.get("names", [])])
+
+    def test_each_recorded_binding_is_capped_before_the_wire(self):
+        result = self.k.evaluate(
+            "for v in [1, 2]:\n    wide = 'x' * 5000 + str(v)\n", 0)
+        for value in result["bindings"][0]["values"]:
+            self.assertLess(len(value), 400)
+            self.assertIn("truncated from", value)
+
+    def test_a_body_that_raises_leaves_the_line_reporting_the_failure(self):
+        # The recorder is the last statement of the body, so an exception
+        # never reaches it -- and the failure path reports no values at all,
+        # which is what it did before.
+        result = self.k.evaluate(
+            "for v in [1, 2]:\n    u = 1 / (v - 1)\n", 0,
+            filename="/tmp/user.py")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["type"], "ZeroDivisionError")
+        self.assertNotIn("loops.py", result["error"]["traceback"])
+
+    def test_the_loop_still_leaves_no_machinery_in_the_namespace(self):
+        self.k.evaluate("for v in [1, 2]:\n    u = v\n", 0)
+        listed = self.k.evaluate("sorted(dir())\n", 0)["value"]
+        self.assertNotIn("evalens_loops", listed)
+
+    def test_loading_a_file_reports_the_body_bindings_too(self):
+        result = self.k.send(op="eval_file",
+                             source="for v in [1, 2, 3]:\n    u = 4 * v\n",
+                             filename="/tmp/module.py")
+        self.assertEqual(result["results"][0]["bindings"][0]["values"],
+                         ["4", "8", "12"])
+
+
 class Names(KernelTest):
     """What the names on a line hold, which for most lines is the answer.
 

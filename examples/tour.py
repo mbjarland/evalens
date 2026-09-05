@@ -224,6 +224,33 @@ budget += 25
 for index in range(3):
     pass
 
+# 18a. What the loop COMPUTED, beside what it was handed.  `v` is the input
+#      being iterated and `u` is the result, and both change on every
+#      iteration -- so `v: 1, 2, 3   u: 4, 8, 12` is the annotation, where it
+#      used to be `v: 1, 2, 3   u: 12`.  One value beside a history reads as
+#      that history's last entry, and it was the half of the line the reader
+#      came for.
+inputs = [1, 2, 3]
+for v in inputs:
+    u = 4 * v
+
+# 18b. The same thing with a `continue`, where the two sequences are
+#      deliberately NOT the same length: five iterations, two results, because
+#      an iteration that skipped out early computed nothing to report.
+#      Padding `kept` out to five entries would be inventing observations, so
+#      the annotation says `n: 1, 2, 3, 4, 5   kept: 4, 8`.
+for n in [1, 2, 3, 4, 5]:
+    if n % 2:
+        continue
+    kept = n * 2
+
+# 18c. A body binding that never changes is shown once rather than as
+#      `limit: 10, 10, 10`.  Three readings of one fact would crowd out the
+#      sequence beside it that is actually moving.
+for step in range(3):
+    limit = 10
+    reached = step * limit
+
 # 19. A tuple loop target is shown whole, the same as a tuple assignment.
 for key, value in shelf.items():
     pass

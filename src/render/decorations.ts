@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 import {
-  LoopTrace, NamedValue, Range as KernelRange,
+  BindingTrace, LoopTrace, NamedValue, Range as KernelRange,
 } from '../kernel/protocol';
 import { alignmentGap, columnWidth, errorText, resultText } from './format';
 
@@ -51,6 +51,8 @@ export interface Annotation {
   readonly display?: string | null;
   /** Every value a loop's target held; displaces `value` when present. */
   readonly loop?: LoopTrace;
+  /** Every value the loop's body bound, per name; painted after the target. */
+  readonly bindings?: readonly BindingTrace[];
   /** What the names on the line held; painted beside `value`, not instead. */
   readonly names?: readonly NamedValue[];
   readonly error?: { readonly type: string; readonly message: string };
@@ -163,7 +165,7 @@ export class Decorator implements vscode.Disposable {
               // name: no value of its own, and the name is the answer.
               contentText: resultText(
                 annotation.value ?? null, annotation.display, annotation.loop,
-                annotation.names),
+                annotation.names, annotation.bindings),
             },
           },
         });

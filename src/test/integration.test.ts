@@ -111,7 +111,8 @@ async function paint(
       continue;
     }
     painted.push(
-      resultText(shown.value, shown.display, shown.loop, shown.names)
+      resultText(shown.value, shown.display, shown.loop, shown.names,
+        shown.bindings)
         .replace(/ /g, ' '));
   }
   return painted;
@@ -554,6 +555,65 @@ test('a mutable loop reports each iteration, not the end state', async (t) => {
   await evaluate(client, source, 0);
   const result = await evaluate(client, source, 1) as Evaluated;
   assert.deepEqual(result.loop?.values, ['[]', '[0]', '[0, 1]']);
+});
+
+test('a loop annotates what its body computed, through the real kernel', async (t) => {
+  // The ticket's acceptance case end to end. stdout said 4, 8 and 12 while
+  // the annotation said `u: 12` -- the input's whole history beside the
+  // result's final value, which is the wrong way round.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = [
+    'x = [1, 2, 3]',
+    'for v in x:',
+    '    u = 4 * v',
+    "    print('value is ' + str(u))",
+    '',
+  ].join('\n');
+  await evaluate(client, source, 0);
+
+  const result = await evaluate(client, source, 1) as Evaluated;
+  assert.equal(result.stdout, 'value is 4\nvalue is 8\nvalue is 12\n',
+    'the kernel saw every value u took');
+  assert.deepEqual(await paint(client, source, [1]),
+    ['v: 1, 2, 3   u: 4, 8, 12   x: [1, 2, 3]']);
+});
+
+test('a filter loop paints two sequences of different lengths', async (t) => {
+  // The iteration that hit `continue` computed no result, so `u` has one
+  // entry fewer than `v` does. Rendering the two as parallel columns is wrong
+  // the first time anyone writes this loop, which is why it is an acceptance
+  // case rather than a corner one.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = [
+    'for v in [1, 2, 3]:',
+    '    if v == 2:',
+    '        continue',
+    '    u = 4 * v',
+    '',
+  ].join('\n');
+
+  assert.deepEqual(await paint(client, source, [0]),
+    ['v: 1, 2, 3   u: 4, 12']);
+});
+
+test('a loop body binding one value every time says it once', async (t) => {
+  // `c: 7, 7, 7, 7` would crowd out the sequence beside it that is moving.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = [
+    'for v in [1, 2, 3, 4]:',
+    '    c = 7',
+    '    d = v * v',
+    '',
+  ].join('\n');
+
+  assert.deepEqual(await paint(client, source, [0]),
+    ['v: 1, 2, 3, 4   c: 7   d: 1, 4, 9, 16']);
 });
 
 test('a loop stopped by break annotates the value it broke on', async (t) => {

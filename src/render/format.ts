@@ -5,7 +5,7 @@
  * without an editor, and the part with the one non-obvious rule.
  */
 
-import { LoopTrace, NamedValue } from '../kernel/protocol';
+import { BindingTrace, LoopTrace, NamedValue } from '../kernel/protocol';
 
 /** Reads as annotation rather than as code the user wrote. */
 export const SEPARATOR = '=>';
@@ -94,6 +94,19 @@ export function sequenceText(loop: LoopTrace): string {
 }
 
 /**
+ * One name the loop's body bound, and the sequence it took: `u: 4, 8, 12`.
+ *
+ * Rendered by exactly the same rule as the target's sequence, and separately
+ * from it. The two are not columns of one table -- an iteration that hit
+ * `continue` computed no result, so `v: 1, 2, 3   u: 4, 12` is a correct
+ * annotation of a filter loop rather than a dropped value. Anything that
+ * zipped them, or padded the shorter one, would invent an observation.
+ */
+export function bindingText(binding: BindingTrace): string {
+  return `${binding.name}: ${sequenceText(binding)}`;
+}
+
+/**
  * The painted annotation for a successful evaluation.
  *
  * Several `name: value` pairs on one line, following Rider's inline values
@@ -122,11 +135,19 @@ export function sequenceText(loop: LoopTrace): string {
  * A loop displaces `value` with its whole sequence: `p: 1, 2, 3, 4` rather
  * than `p: 4`. `value` is still the last iteration, so a caller that ignores
  * the trace shows something true rather than nothing.
+ *
+ * **What the loop's body bound goes between the two**, which is where the
+ * reader was already finding it -- `for v in x:` with `u = 4 * v` inside
+ * annotates `v: 1, 2, 3   u: 4, 8, 12   x: [1, 2, 3]`. The order follows the
+ * same rule the rest of the line does: what the statement did, then what it
+ * read. The difference is that `u` used to be one value from the namespace
+ * sitting beside a history, and is now the history it actually took.
  */
 export function resultText(
   value: string | null, display?: string | null, loop?: LoopTrace | null,
-  names?: readonly NamedValue[]
+  names?: readonly NamedValue[], bindings?: readonly BindingTrace[]
 ): string {
+  const bound = (bindings ?? []).map(bindingText);
   const pairs = (names ?? []).map(
     (each) => `${each.name}: ${collapseLines(each.value)}`);
   const produced = loop
@@ -141,11 +162,35 @@ export function resultText(
 
   if (produced === null
       || (!leads && produced === 'None' && pairs.length > 0)) {
-    return preserveSpacing(pairs.join(GAP));
+    return preserveSpacing([...bound, ...pairs].join(GAP));
   }
   const slot = `${binds ? `${display}:` : SEPARATOR} ${produced}`;
   return preserveSpacing(
-    (leads ? [slot, ...pairs] : [...pairs, slot]).join(GAP));
+    (leads ? [slot, ...bound, ...pairs] : [...bound, ...pairs, slot])
+      .join(GAP));
+}
+
+function iterations(count: number): string {
+  return `${count} iteration${count === 1 ? '' : 's'}`;
+}
+
+/**
+ * Why a binding's sequence is shorter than the loop it belongs to, if it is.
+ *
+ * Two different shortenings, and telling them apart is the whole point: a name
+ * that never changed was recorded every time and is shown once, and a name
+ * bound on fewer iterations than the loop ran was genuinely not computed on
+ * the others. Silence when neither applies -- the sequence speaks for itself.
+ */
+function bindingNote(
+  binding: BindingTrace, loop?: LoopTrace | null
+): string {
+  if (loop && binding.count !== loop.count) {
+    return ` (bound on ${binding.count} of ${iterations(loop.count)})`;
+  }
+  return binding.constant
+    ? ` (unchanged over ${iterations(binding.count)})`
+    : '';
 }
 
 /**
@@ -168,15 +213,25 @@ export function resultText(
  */
 export function hoverText(
   display: string | null | undefined, value: string | null,
-  loop?: LoopTrace | null, names?: readonly NamedValue[]
+  loop?: LoopTrace | null, names?: readonly NamedValue[],
+  bindings?: readonly BindingTrace[]
 ): string {
   const lines: string[] = [];
   if (loop) {
     const sequence = sequenceText(loop);
     lines.push(display ? `${display} = ${sequence}` : sequence);
-    lines.push(`${loop.count} iteration${loop.count === 1 ? '' : 's'}`);
+    lines.push(iterations(loop.count));
   } else if (value !== null) {
     lines.push(display ? `${display} = ${value}` : value);
+  }
+  for (const each of bindings ?? []) {
+    // Where the line's two elisions are spelled out. A binding shown once is
+    // either one iteration's work or a value that never changed, and a
+    // sequence shorter than the loop's is a body that took an early exit --
+    // both look like the same short answer inline, and the difference is
+    // exactly what someone hovering is asking about.
+    lines.push(
+      `${each.name} = ${sequenceText(each)}${bindingNote(each, loop)}`);
   }
   for (const each of names ?? []) {
     // The untouched repr where there is one, on the same terms as the value

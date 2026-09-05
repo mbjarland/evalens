@@ -168,6 +168,21 @@ test("a loop's sequence reaches the presentation intact", () => {
   assert.equal(result.hover, 'p = 1, 2, 3, 4\n4 iterations');
 });
 
+test("what a loop's body bound reaches the presentation and the hover", () => {
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: '3', display: 'v',
+    kind: 'For', range, stdout: '', stderr: '',
+    loop: { values: ['1', '2', '3'], last: null, count: 3 },
+    bindings: [{ name: 'u', values: ['4', '12'], last: null, count: 2 }],
+  };
+  const result = present(response, 3) as {
+    bindings: readonly { name: string }[]; hover: string;
+  };
+  assert.deepEqual(result.bindings.map((each) => each.name), ['u']);
+  assert.equal(result.hover,
+    'v = 1, 2, 3\n3 iterations\nu = 4, 12 (bound on 2 of 3 iterations)');
+});
+
 test('a loop that ran zero times is still something to paint', () => {
   // value is null, as it is for an `if` -- but unlike an `if`, this has an
   // answer, and skipping it leaves the previous run's value on screen.

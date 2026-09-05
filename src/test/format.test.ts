@@ -1,16 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { LoopTrace, NamedValue } from '../kernel/protocol';
+import { BindingTrace, LoopTrace, NamedValue } from '../kernel/protocol';
 import {
-  SEPARATOR, alignmentGap, collapseLines, columnWidth, errorText, hoverText,
-  preserveSpacing, resultText, sequenceText,
+  SEPARATOR, alignmentGap, bindingText, collapseLines, columnWidth, errorText,
+  hoverText, preserveSpacing, resultText, sequenceText,
 } from '../render/format';
 
 function trace(
   values: string[], last: string | null, count = values.length
 ): LoopTrace {
   return { values, last, count };
+}
+
+function bound(
+  name: string, values: string[], count = values.length,
+  extra: { last?: string | null; constant?: boolean } = {}
+): BindingTrace {
+  return { name, values, last: extra.last ?? null, count,
+    ...(extra.constant === undefined ? {} : { constant: extra.constant }) };
 }
 
 function pairs(...entries: [string, string][]): NamedValue[] {
@@ -218,6 +226,43 @@ test('a tuple loop target still leads with its sequence', () => {
     preserveSpacing("=> ('a', 1), ('b', 2)   shelf: {'a': 1, 'b': 2}"));
 });
 
+test('what the loop computed is shown as a sequence, not as where it stopped', () => {
+  // The ticket's case. `u` took 4, 8 and 12, and the annotation said `u: 12`
+  // beside a target rendered as a history -- so one of the two names on the
+  // line read as the other's last entry.
+  assert.equal(
+    resultText('3', 'v', trace(['1', '2', '3'], null),
+      pairs(['x', '[1, 2, 3]']), [bound('u', ['4', '8', '12'])]),
+    preserveSpacing('v: 1, 2, 3   u: 4, 8, 12   x: [1, 2, 3]'));
+});
+
+test('a body binding shorter than the loop still renders', () => {
+  // A filter loop: three iterations, two results, because the iteration that
+  // hit `continue` computed nothing. Anything that zipped or padded the two
+  // sequences would invent an observation here.
+  assert.equal(
+    resultText('3', 'v', trace(['1', '2', '3'], null), [],
+      [bound('u', ['4', '12'], 2)]),
+    preserveSpacing('v: 1, 2, 3   u: 4, 12'));
+});
+
+test('an unchanging binding is one reading beside a moving one', () => {
+  // `c: 7, 7, 7, 7` is four observations of one fact, and it crowds out the
+  // sequence next to it that is actually moving.
+  assert.equal(
+    resultText('4', 'v', trace(['1', '2', '3', '4'], null), [],
+      [bound('c', ['7'], 4, { constant: true }),
+        bound('d', ['1', '4', '9', '16'])]),
+    preserveSpacing('v: 1, 2, 3, 4   c: 7   d: 1, 4, 9, 16'));
+});
+
+test('a body binding is bounded exactly as the target is', () => {
+  assert.equal(
+    bindingText(bound('u', ['0', '2', '4', '6', '8'], 10000,
+      { last: '19998' })),
+    'u: 0, 2, 4, 6, 8, … (+9,994 more) … 19998');
+});
+
 test('a multi-line value in a pair collapses like any other', () => {
   assert.equal(resultText(null, null, null, pairs(['p', 'Point(\n  x=1\n)'])),
     preserveSpacing('p: Point( x=1 )'));
@@ -251,6 +296,27 @@ test('a hover names the binding and says how many iterations there were', () => 
     'p = 1, … (+9,998 more) … 10000\n10000 iterations');
   assert.equal(hoverText('p', '1', trace(['1'], null, 1)),
     'p = 1\n1 iteration');
+});
+
+test('a hover spells out what a short binding means', () => {
+  // Inline, `u: 4, 12` and `c: 7` are both just short. The hover is where the
+  // difference between "the body took an early exit" and "this never changed"
+  // has room to be said.
+  assert.equal(
+    hoverText('v', '3', trace(['1', '2', '3'], null), [],
+      [bound('u', ['4', '12'], 2)]),
+    'v = 1, 2, 3\n3 iterations\nu = 4, 12 (bound on 2 of 3 iterations)');
+  assert.equal(
+    hoverText('v', '3', trace(['1', '2', '3'], null), [],
+      [bound('c', ['7'], 3, { constant: true })]),
+    'v = 1, 2, 3\n3 iterations\nc = 7 (unchanged over 3 iterations)');
+});
+
+test('a hover says nothing extra about a binding that kept up', () => {
+  assert.equal(
+    hoverText('v', '3', trace(['1', '2', '3'], null), [],
+      [bound('u', ['4', '8', '12'])]),
+    'v = 1, 2, 3\n3 iterations\nu = 4, 8, 12');
 });
 
 test('a hover without a loop is unchanged', () => {
