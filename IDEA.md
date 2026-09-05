@@ -396,6 +396,34 @@ Well-documented, well-trodden.
   documentation says tracking mutations reliably is impossible in Python,
   and why nbsafety pays a 1.44× median slowdown for the version that
   catches them.
+- **A decoration cannot be labelled, so the whole product is invisible to
+  a screen reader.** `AccessibilityInformation` — `{ label, role }` —
+  exists in the VS Code API and is accepted by `StatusBarItem`,
+  `NotebookCellStatusBarItem` and `TreeItem`. It is accepted by no
+  decoration type, and there is no `aria`, `role` or label field anywhere
+  on `DecorationRenderOptions`. That is the API's shape rather than an
+  oversight to work around, so the answer has to be a *second channel*
+  rather than an attribute — and an addition, never a replacement, because
+  moving the answer off the line is the notebook's mistake and the thing
+  this project exists to stop.
+
+  Nobody in this category has bothered. Jupyter's own accessibility audit
+  has listed "status changes are not announced for assistive
+  technologies" among its critical failures since 2019, and JupyterLab's
+  per-cell prompt still renders as `textContent` with no role and no live
+  region. Doing it cheaply here is a real differentiator, and it lands on
+  the audience this was written for: university software carries
+  accessibility obligations a personal tool does not.
+
+  What makes it awkward is that **VS Code exposes no way for an extension
+  to learn that a screen reader is attached.** There is no
+  `env.isScreenReaderOptimized`, and the editor's own auto-detection
+  leaves `editor.accessibilitySupport` reading `auto` whether it found
+  one or not — so that setting answers the question only when the user
+  set it to `on` themselves. The announced channel therefore follows `on`
+  automatically and is otherwise opt-in, which is design rule 6 honoured
+  for as much of the audience as the API permits and stated plainly for
+  the rest.
 
 ## Prior art: take the display approach from Calva
 
