@@ -53,6 +53,7 @@ without a way to run these.
 | Evalens: Announce Result at Cursor | Puts what is painted on the cursor's line into a notification, where a screen reader reads it |
 | Evalens: Interrupt Evaluation | Stops a running evaluation and keeps the namespace it built |
 | Evalens: Restart Kernel | Throws away the namespace and starts a fresh interpreter |
+| Evalens: Clear Input Answers | Forgets every replayed `input()` answer, keeping the namespace |
 | Evalens: Show Output | Opens the Evalens output channel without taking the cursor out of the editor |
 | Evalens: Fix Keybinding Conflict | Hands you the user keybinding described below |
 
@@ -237,6 +238,38 @@ in the error colour: a library writing a warning has not failed.
 The channel never opens itself and never takes the cursor. Output belongs
 beside the code that produced it; a panel would put the answer somewhere other
 than the code, which is the problem this extension exists to solve.
+
+## Answering input()
+
+A file with `input()` in it prompts the first time a statement reaches it.
+Every evaluation after that reuses the same answers automatically, so
+iterating on the twenty lines below a prompt does not mean retyping it twenty
+times. The stored answers are the running kernel's, keyed to the statement
+that asked rather than to its line number, so inserting a line above a prompt
+never shifts a saved answer onto the wrong one; editing the statement itself
+starts it asking again. **Evalens: Clear Input Answers** forgets everything
+stored without touching the namespace, and restarting the kernel forgets it
+too.
+
+For an answer you never want to type, or one that should travel with the
+file, write it in a comment instead:
+
+```python
+name = input("Your name: ")   # evalens: Ada
+age  = int(input("Age? "))    # evalens: 34
+```
+
+The comment is never evaluated — the text after `evalens:` is taken literally,
+so it is exactly as inert as any other comment even if it looks like code —
+and it wins over a stored answer whenever both exist. `a, b = input(),
+input()` reads a comma-separated list in order: `# evalens: Ada, 34` answers
+the first read with `Ada` and the second with `34`. The value is always a
+string, the same as `input()` itself always returns one, so `# evalens: 34`
+gives `int(input(...))` a real `"34"` to convert rather than a number it never
+had to.
+
+Because the comment is ordinary Python, `python file.py` runs the file
+exactly as written and still asks a person for real.
 
 ## The marker in the gutter
 

@@ -56,6 +56,10 @@
         "title": "Evalens: Restart Kernel"
       },
       {
+        "command": "evalens.clearInputAnswers",
+        "title": "Evalens: Clear Input Answers"
+      },
+      {
         "command": "evalens.clearResults",
         "title": "Evalens: Clear Inline Results"
       },

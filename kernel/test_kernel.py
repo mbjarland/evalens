@@ -1108,6 +1108,215 @@ class Prompts(KernelTest):
                          "the response still carries the whole of it")
 
 
+@unittest.skipUnless(CAN_OPEN_CONTROL,
+                     "this harness cannot hand the kernel a control channel")
+class CannedInput(KernelTest):
+    """#86: answering `input()` without a human typing every time.
+
+    Two independent sources of an answer, checked in this order before the
+    kernel asks anyone anything: a `# evalens: ...` comment on the statement's
+    own line, then whatever this exact statement was typed last time. Both
+    have to deliver the reply through the same queue a typed answer uses --
+    that is what the other tests in `Prompts` already pin down -- so what is
+    left to prove here is *which* value gets there and when the kernel still
+    has to ask.
+    """
+
+    def load(self, source, filename="/tmp/canned.py"):
+        return self.k.send(op="eval_file", source=source, filename=filename,
+                           allow_stdin=True)
+
+    def test_first_run_prompts_second_run_replays_without_prompting(self):
+        source = "name = input('Name: ')\n"
+        self.k.send_async(op="eval_file", source=source,
+                          filename="/tmp/replay.py", allow_stdin=True)
+        request = self.k.read_control_until("input_request")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="Ada")
+        first = self.k.read()
+        self.assertEqual(first["results"][0]["value"], "'Ada'")
+        self.assertEqual(first["results"][0]["stdin"],
+                         [{"value": "Ada", "source": "typed"}])
+
+        # No `send_async` / `read_control_until` here on purpose: if the
+        # kernel asked again, `send` would hang waiting for a response that
+        # cannot arrive until a prompt nobody is answering is answered, and
+        # the test's own timeout would fail it.
+        second = self.load(source, filename="/tmp/replay.py")
+        self.assertTrue(second["ok"], second)
+        self.assertEqual(second["results"][0]["value"], "'Ada'")
+        self.assertEqual(second["results"][0]["stdin"],
+                         [{"value": "Ada", "source": "replay"}],
+                         "the annotation must be able to tell a replay apart "
+                         "from a typed answer")
+
+    def test_replay_is_keyed_to_the_statement_not_the_line(self):
+        # Inserting a line above the prompt must not shift its answer onto
+        # a different one -- the whole reason #86 asks for keying by content.
+        source = "name = input('Name: ')\n"
+        self.k.send_async(op="eval_file", source=source,
+                          filename="/tmp/shift.py", allow_stdin=True)
+        request = self.k.read_control_until("input_request")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="Ada")
+        self.k.read()
+
+        shifted = "before = 1\n" + source
+        result = self.load(shifted, filename="/tmp/shift.py")
+        self.assertEqual(result["results"][1]["value"], "'Ada'")
+        self.assertEqual(result["results"][1]["stdin"][0]["source"], "replay")
+
+    def test_a_changed_statement_asks_again(self):
+        # A different prompt string is a different statement, so it has never
+        # been answered and there is nothing to replay.
+        self.k.send_async(op="eval_file", source="name = input('Name: ')\n",
+                          filename="/tmp/change.py", allow_stdin=True)
+        request = self.k.read_control_until("input_request")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="Ada")
+        self.k.read()
+
+        self.k.send_async(op="eval_file", source="name = input('Who? ')\n",
+                          filename="/tmp/change.py", allow_stdin=True)
+        second = self.k.read_control_until("input_request")
+        self.assertEqual(second["prompt"], "Who? ")
+        self.k.send_control(op="input_reply", seq=second["seq"], value="Bob")
+        result = self.k.read()
+        self.assertEqual(result["results"][0]["value"], "'Bob'")
+
+    def test_a_comment_answers_without_ever_prompting(self):
+        result = self.load("name = input('Name: ')  # evalens: Ada\n")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["results"][0]["value"], "'Ada'")
+        self.assertEqual(result["results"][0]["stdin"],
+                         [{"value": "Ada", "source": "comment"}])
+
+    def test_the_comment_value_is_a_string_not_a_number(self):
+        # `input()` returns `str`, always. A comment answering `34` must
+        # supply `"34"`, so `int(input(...))` is still doing real work rather
+        # than being handed an int it never converted.
+        result = self.load(
+            "age = int(input('Age: '))  # evalens: 34\n")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["results"][0]["value"], "34",
+                         "int(input()) converted a string, and 34 is its "
+                         "repr -- not proof the input itself was ever an int")
+        self.assertEqual(result["results"][0]["stdin"][0]["value"], "34")
+        self.assertIsInstance(result["results"][0]["stdin"][0]["value"], str)
+
+    def test_a_comment_beats_a_stored_replay(self):
+        source = "name = input('Name: ')\n"
+        self.k.send_async(op="eval_file", source=source,
+                          filename="/tmp/beats.py", allow_stdin=True)
+        request = self.k.read_control_until("input_request")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="Ada")
+        self.k.read()
+
+        commented = "name = input('Name: ')  # evalens: Bob\n"
+        result = self.load(commented, filename="/tmp/beats.py")
+        self.assertEqual(result["results"][0]["value"], "'Bob'",
+                         "the comment is what the user wrote down; it wins")
+        self.assertEqual(result["results"][0]["stdin"][0]["source"], "comment")
+
+    def test_never_evaluates_the_comment(self):
+        # Design rule 3 in its strongest form: this is not even code the user
+        # pointed at, only a file they opened. If this were ever passed to
+        # `eval` or `ast.literal_eval`, this test would either raise or the
+        # marker file would appear; it must do neither.
+        marker = os.path.join(tempfile.gettempdir(), "evalens_never_run")
+        if os.path.exists(marker):
+            os.remove(marker)
+        payload = f'__import__("os").system({marker!r})'
+        result = self.load(
+            f"x = input('X: ')  # evalens: {payload}\n")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["results"][0]["value"], repr(payload))
+        self.assertFalse(os.path.exists(marker),
+                         "the comment text was executed")
+
+    def test_a_string_literal_is_not_mistaken_for_a_comment(self):
+        # Tokenizing rather than searching the raw line: a `#` (or the words
+        # `evalens:`) inside a string must not be read as a real comment.
+        self.k.send_async(
+            op="eval_file", source='x = input("say evalens: now")\n',
+            filename="/tmp/literal.py", allow_stdin=True)
+        request = self.k.read_control_until("input_request")
+        self.assertEqual(request["prompt"], "say evalens: now")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="ok")
+        result = self.k.read()
+        self.assertEqual(result["results"][0]["stdin"][0]["source"], "typed")
+
+    def test_a_sequence_on_the_comment_answers_two_reads_in_order(self):
+        result = self.load(
+            "a, b = input('A: '), input('B: ')  # evalens: X, Y\n")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(
+            result["results"][0]["stdin"],
+            [{"value": "X", "source": "comment"},
+             {"value": "Y", "source": "comment"}])
+
+    def test_a_quoted_value_may_contain_a_comma(self):
+        result = self.load(
+            'x = input("X: ")  # evalens: "hello, world"\n')
+        self.assertEqual(result["results"][0]["value"], "'hello, world'")
+
+    def test_a_short_sequence_does_not_repeat_its_last_value(self):
+        # `a, b = input(), input()` with one comment value must not silently
+        # feed that value to both reads -- the second is a real question.
+        self.k.send_async(
+            op="eval_file",
+            source="a, b = input('A: '), input('B: ')  # evalens: X\n",
+            filename="/tmp/short.py", allow_stdin=True)
+        request = self.k.read_control_until("input_request")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="Y")
+        result = self.k.read()
+        self.assertEqual(
+            result["results"][0]["stdin"],
+            [{"value": "X", "source": "comment"},
+             {"value": "Y", "source": "typed"}])
+
+    def test_clear_input_replay_forgets_stored_answers_only(self):
+        source = "a = 1\nname = input('Name: ')\n"
+        self.k.send_async(op="eval_file", source=source,
+                          filename="/tmp/clear.py", allow_stdin=True)
+        request = self.k.read_control_until("input_request")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="Ada")
+        self.k.read()
+
+        self.assertTrue(self.k.send(op="clear_input_replay")["ok"])
+
+        # The namespace itself is untouched by the lighter clear.
+        self.assertEqual(self.k.evaluate_lines("a\n", 0)["value"], "1")
+
+        self.k.send_async(op="eval_file", source=source,
+                          filename="/tmp/clear.py", allow_stdin=True)
+        request = self.k.read_control_until("input_request")
+        self.assertEqual(request["prompt"], "Name: ",
+                         "cleared, so the statement has to ask again")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="Bob")
+        self.k.read()
+
+    def test_reset_also_forgets_stored_answers(self):
+        source = "name = input('Name: ')\n"
+        self.k.send_async(op="eval_file", source=source,
+                          filename="/tmp/reset.py", allow_stdin=True)
+        request = self.k.read_control_until("input_request")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="Ada")
+        self.k.read()
+
+        self.assertTrue(self.k.send(op="reset")["ok"])
+
+        self.k.send_async(op="eval_file", source=source,
+                          filename="/tmp/reset.py", allow_stdin=True)
+        request = self.k.read_control_until("input_request")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="Bob")
+        self.k.read()
+
+    def test_a_statement_that_raises_after_reading_still_reports_stdin(self):
+        result = self.load("age = int(input('Age: '))  # evalens: nope\n")
+        self.assertFalse(result["results"][0]["ok"], result)
+        self.assertEqual(result["results"][0]["error"]["type"], "ValueError")
+        self.assertEqual(result["results"][0]["stdin"],
+                         [{"value": "nope", "source": "comment"}])
+
+
 class LoadFile(KernelTest):
     SOURCE = (
         "import sys\n"

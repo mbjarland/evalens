@@ -244,6 +244,40 @@ Cancelling a prompt sends a null answer, which reads as end-of-file and
 raises ``EOFError`` -- today's behaviour, kept deliberately, because a student
 who cannot get out of a prompt is worse off than one whose program errors.
 
+Not asking, when an answer is already known
+--------------------------------------------
+A statement that prompts twenty times in a row for the same twenty answers is
+the exact friction #86 exists to remove. Before ``_AskingStdin`` asks anyone
+anything, it checks for a canned answer, in this order:
+
+1. A ``# evalens: ...`` comment on the *statement's own last line*. Never
+   evaluated -- the text after the marker is split into literal values by a
+   small hand-written parser, the same way a CSV cell is, and nothing about it
+   ever reaches ``eval`` or ``ast.literal_eval``. A comment that happened to
+   read ``__import__("os").system(...)`` is exactly as inert as one that
+   reads ``Ada``.
+2. Failing that, whatever this exact statement's *previous* run was given, in
+   ``_REPLAY_ANSWERS``. Keyed by ``ast.unparse(form.node)`` rather than by
+   line number, so inserting a line above an ``input()`` does not shift a
+   stored answer onto a different prompt -- and a statement that now reads
+   differently starts asking again, because it is a different key. Cleared by
+   ``reset`` and by the dedicated ``clear_input_replay`` op; never invented
+   for a fresh kernel, which starts with no answers to forget.
+
+``a, b = input(), input()`` makes two reads on one statement, and a comment or
+a replay answers them by position -- the first value for the first read, the
+second for the second. Once a comment's list of values runs out, the calls
+after it are **not** given the last value again; they fall through to replay
+and then to actually asking, because feeding one typed answer to two reads
+silently would be answering a question nobody was asked.
+
+Whichever source supplies it, the value reaches ``readline()`` exactly the
+way a typed answer does: put on ``_INPUT_REPLIES`` and taken back off it by
+the one loop below that turns a reply into what ``input()``, ``readline()``
+and ``read()`` return. There is no second implementation of that -- a canned
+answer is a reply that arrived before anyone had to type it, not a different
+kind of value.
+
 How much to show
 ----------------
 An ``eval`` or ``eval_file`` request may carry ``limits``: ``loop_values``,
@@ -274,13 +308,15 @@ import json
 import linecache
 import os
 import queue
+import re
 import reprlib
 import signal
 import sys
 import threading
+import tokenize
 import traceback
 import types
-from typing import Any, Dict, Iterable, Iterator, Optional, TextIO, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, TextIO, Tuple
 
 import loops
 from resolver import Form, Parsed, form_at, forms_in, parse_prefix
@@ -416,6 +452,19 @@ _ALLOW_STDIN = False
 #: extension sent a cursor position or a whole file, and during a load neither
 #: of those is the statement that reached `input()`.
 _RUNNING_AT: Optional[Dict[str, Any]] = None
+
+#: A statement's own typed answers, replayed the next time it runs -- see the
+#: module docstring's "Not asking, when an answer is already known". Keyed by
+#: `_replay_key`, one list per statement, each entry the answer its `input()`
+#: call at that position got. Comment-supplied answers are never written here:
+#: the comment already wins every time, and a copy of it would just be a
+#: second place for the same value to go stale.
+#:
+#: Unbounded and never pruned. A session that runs thousands of distinct
+#: prompting statements without ever resetting is not a case this feature
+#: optimises for, and pruning by guesswork is how a still-wanted answer gets
+#: discarded instead.
+_REPLAY_ANSWERS: Dict[str, List[str]] = {}
 
 
 def _open_control(argv: list) -> Tuple[Optional[TextIO], Optional[TextIO]]:
@@ -658,9 +707,26 @@ class _AskingStdin(io.TextIOBase):
     hooking something that needs a terminal and half-succeeding.
     """
 
-    def __init__(self, out: "_UserStream", err: "_UserStream") -> None:
+    def __init__(self, out: "_UserStream", err: "_UserStream",
+                 comment: Optional[Tuple[str, ...]] = None,
+                 replay_key: Optional[str] = None) -> None:
         self._out = out
         self._err = err
+        #: Values a `# evalens: ...` comment on this statement supplied, one
+        #: per `input()` call in order; None when there is no such comment.
+        #: See `_comment_answers`.
+        self._comment = comment
+        #: This statement's identity in `_REPLAY_ANSWERS`, or None when it has
+        #: none -- an outline or another caller that never had a `Form` to
+        #: give `_user_io`. See `_replay_key`.
+        self._replay_key = replay_key
+        #: Which `input()` call on this statement is next: 0, 1, 2, ... A
+        #: fresh object per statement (see `_user_io`), so this never needs
+        #: resetting between statements the way a module global would.
+        self._call = 0
+        #: What every read on this object answered, and where the answer came
+        #: from -- `_run` reads this back to fill the outcome's `stdin` field.
+        self.log: List[Dict[str, str]] = []
 
     def readable(self) -> bool:
         return True
@@ -678,6 +744,15 @@ class _AskingStdin(io.TextIOBase):
         feature could not ship without a way to interrupt: while this waits,
         a prompt the user dismissed and a genuinely hung kernel look identical
         from the outside.
+
+        Before asking anyone, this checks for an answer that is already
+        known -- a `# evalens:` comment on the statement's own line, or the
+        answer this same statement was given last time it ran. See the module
+        docstring's "Not asking, when an answer is already known". Either way
+        the value is put on `_INPUT_REPLIES` and taken back off it by the loop
+        below, exactly like a typed answer -- so a canned reply is never a
+        second implementation of what this method returns, only an earlier
+        arrival for the one implementation there is.
         """
         if _CONTROL_OUT is None or not _ALLOW_STDIN:
             # No channel to ask on, or a caller that said not to ask. Empty is
@@ -687,19 +762,39 @@ class _AskingStdin(io.TextIOBase):
         global _INPUT_SEQ
         _INPUT_SEQ += 1
         wanted = _INPUT_SEQ
-        # The prompt is whatever user code has written and not terminated:
-        # stdout for `input()`, stderr for the one thing that prompts there.
-        prompt = self._out.tail() or self._err.tail()
-        control({
-            "op": "input_request",
-            "seq": wanted,
-            "prompt": _capped(prompt, PROMPT_LIMIT),
-            "password": _reading_a_password(),
-            # Which line is asking. The extension marks and reveals it, so a
-            # prompt from a statement scrolled off screen brings the reader to
-            # it rather than opening a box about code they cannot see.
-            **(_RUNNING_AT or {}),
-        })
+        index, self._call = self._call, self._call + 1
+
+        source: Optional[str] = None
+        canned: Optional[str] = None
+        if self._comment is not None and index < len(self._comment):
+            canned, source = self._comment[index], "comment"
+        elif self._replay_key is not None:
+            stored = _REPLAY_ANSWERS.get(self._replay_key)
+            if stored is not None and index < len(stored):
+                canned, source = stored[index], "replay"
+
+        if canned is None:
+            # The prompt is whatever user code has written and not
+            # terminated: stdout for `input()`, stderr for the one thing that
+            # prompts there.
+            prompt = self._out.tail() or self._err.tail()
+            control({
+                "op": "input_request",
+                "seq": wanted,
+                "prompt": _capped(prompt, PROMPT_LIMIT),
+                "password": _reading_a_password(),
+                # Which line is asking. The extension marks and reveals it, so
+                # a prompt from a statement scrolled off screen brings the
+                # reader to it rather than opening a box about code they
+                # cannot see.
+                **(_RUNNING_AT or {}),
+            })
+        else:
+            # Delivered through the same queue an extension's `input_reply`
+            # uses, and read back by the same loop just below -- see the
+            # docstring above for why that is the whole point.
+            _INPUT_REPLIES.put((wanted, canned))
+
         while True:
             try:
                 seq, value = _INPUT_REPLIES.get(timeout=0.1)
@@ -722,7 +817,23 @@ class _AskingStdin(io.TextIOBase):
                 # cannot get out of a prompt is worse off than one whose
                 # program raises.
                 return ""
-            return value if value.endswith("\n") else value + "\n"
+            break
+
+        if source is None:
+            # A real, typed answer -- worth remembering in case this exact
+            # statement (see `_replay_key`) runs again before the value does.
+            # A comment-supplied answer is never stored here; the comment
+            # already wins every time, so a copy of it would only be a second
+            # place for the same value to go stale.
+            source = "typed"
+            if self._replay_key is not None:
+                answers = _REPLAY_ANSWERS.setdefault(self._replay_key, [])
+                if index < len(answers):
+                    answers[index] = value
+                else:
+                    answers.append(value)
+        self.log.append({"value": value, "source": source})
+        return value if value.endswith("\n") else value + "\n"
 
     def read(self, size: int = -1) -> str:  # noqa: ARG002 - size ignored
         """Everything, which means asking until the answer is EOF."""
@@ -761,10 +872,125 @@ def _reading_a_password() -> bool:
     return False
 
 
+#: What a `# evalens: ...` comment's marker looks like, once the comment
+#: itself has already been found. Matched against the comment text alone
+#: (see `_trailing_comment`), never against the whole line -- so a `#` inside
+#: a string earlier on the line can never be mistaken for this one.
+_COMMENT_MARKER = re.compile(r"#\s*evalens\s*:\s*(.*)$")
+
+
+def _trailing_comment(line: str) -> Optional[str]:
+    """The real trailing ``#...`` comment on this line, or None.
+
+    Tokenizes rather than searching the raw text, so a string literal that
+    happens to contain the words ``evalens:`` --
+    ``input("please say evalens: now")`` -- is never mistaken for a comment
+    supplying an answer. Tokenizing is a lexical pass, the same one
+    ``ast.parse`` makes before it builds a tree; nothing here executes
+    anything, and a line that fails to tokenize on its own -- the closing
+    half of a statement that opened a bracket on an earlier line -- is simply
+    answered with None, exactly as "no comment" would be.
+    """
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(line).readline)
+        for tok in tokens:
+            if tok.type == tokenize.COMMENT:
+                return tok.string
+    except Exception:  # noqa: BLE001 - best-effort; never fail the statement
+        return None
+    return None
+
+
+def _split_comment_values(text: str) -> Tuple[str, ...]:
+    """Split an ``# evalens:`` comment's text into literal answers.
+
+    A small explicit parser, not a general expression, and deliberately not
+    good enough to be mistaken for one. A value is either bare text up to the
+    next comma, taken verbatim but for the whitespace around it, or a
+    ``'...'``/``"..."`` quoted span, taken verbatim between the quotes -- no
+    escaping, no interpretation, just characters copied out. Good enough for
+    "a name" and "a number written as a string"; anyone who needs more than a
+    literal comma inside a value can quote it, and anyone who needs more than
+    that should not be putting it in a comment.
+    """
+    values: List[str] = []
+    i, n = 0, len(text)
+    while i <= n:
+        while i < n and text[i] in " \t":
+            i += 1
+        if i < n and text[i] in "'\"":
+            quote = text[i]
+            end = text.find(quote, i + 1)
+            if end == -1:
+                # Unterminated quote: take the rest of the text verbatim
+                # rather than guess where it was meant to close.
+                values.append(text[i + 1:])
+                break
+            values.append(text[i + 1:end])
+            comma = text.find(",", end + 1)
+            i = n + 1 if comma == -1 else comma + 1
+        else:
+            comma = text.find(",", i)
+            if comma == -1:
+                values.append(text[i:].rstrip())
+                i = n + 1
+            else:
+                values.append(text[i:comma].rstrip())
+                i = comma + 1
+    return tuple(values)
+
+
+def _comment_answers(form: Form, filename: str) -> Optional[Tuple[str, ...]]:
+    """Values a ``# evalens: ...`` comment on ``form``'s own line supplies.
+
+    Only the statement's *last physical line* is read. Every example in #86
+    is one line, a multi-line statement's answer has nowhere unambiguous to
+    sit across the lines it spans, and the last line is where the value that
+    replaces the statement is already shown, so it is the natural line for
+    the value that fed it too.
+
+    ``linecache`` rather than a line handed down from the caller, because the
+    caller already put the whole source there before running anything -- see
+    ``evaluate`` and ``evaluate_file`` -- and reading it back here means
+    nothing about *executing* a statement has to also thread its raw text
+    through.
+    """
+    line = linecache.getline(filename, form.end_line + 1)
+    if not line:
+        return None
+    comment = _trailing_comment(line.rstrip("\r\n"))
+    if comment is None:
+        return None
+    match = _COMMENT_MARKER.match(comment)
+    if match is None:
+        return None
+    return _split_comment_values(match.group(1))
+
+
+def _replay_key(form: Form) -> Optional[str]:
+    """A statement's identity in `_REPLAY_ANSWERS`: what it says, not where
+    it sits.
+
+    ``ast.unparse`` rather than the raw source line, so that reindenting the
+    statement, or adding the very ``# evalens:`` comment this feature reads,
+    does not read as a different statement -- comments and incidental
+    whitespace are not part of the tree. A statement that now does something
+    else *is* a different key, which is the "until the statement changes"
+    #86 asks for, and falls out of keying by content instead of position
+    rather than needing its own tracking.
+    """
+    try:
+        return ast.unparse(form.node)
+    except Exception:  # noqa: BLE001 - identity is best-effort, never fatal
+        return None
+
+
 @contextlib.contextmanager
 def _user_io(allow_stdin: bool = False,
-             at: Optional[Dict[str, Any]] = None
-             ) -> Iterator[tuple[io.StringIO, io.StringIO]]:
+             at: Optional[Dict[str, Any]] = None,
+             form: Optional[Form] = None,
+             filename: Optional[str] = None
+             ) -> Iterator[tuple[io.StringIO, io.StringIO, "_AskingStdin"]]:
     """Attribute this statement's output to it, and let it ask questions.
 
     Two hazards, both silent if unhandled:
@@ -804,6 +1030,14 @@ def _user_io(allow_stdin: bool = False,
     raises. Only this side knows: during a load the extension sent a whole
     file and has no idea which statement stopped.
 
+    ``form`` and ``filename`` are how a canned answer gets resolved -- a
+    ``# evalens:`` comment on the statement's own source, or a value the same
+    statement was given the last time it ran; see the module docstring's "Not
+    asking, when an answer is already known". Both are optional and default
+    to None, which answers exactly as before: ask every time. That is what a
+    caller with no form to give gets, rather than an error, because "cannot
+    resolve a canned answer" is not a reason to stop letting code ask.
+
     Known limitation, unchanged and worth restating because the permanent
     redirection above can read as more than it is: this rebinds *Python-level*
     streams. A native extension writing straight to file descriptor 1 still
@@ -818,11 +1052,15 @@ def _user_io(allow_stdin: bool = False,
     out, err = io.StringIO(), io.StringIO()
     previous_out = _USER_OUT.capture(out)
     previous_err = _USER_ERR.capture(err)
+    comment = (_comment_answers(form, filename)
+               if form is not None and filename is not None else None)
+    key = _replay_key(form) if form is not None else None
     stdin, allowed, was_at = sys.stdin, _ALLOW_STDIN, _RUNNING_AT
     _ALLOW_STDIN, _RUNNING_AT = allow_stdin, at
-    sys.stdin = _AskingStdin(_USER_OUT, _USER_ERR)
+    asking = _AskingStdin(_USER_OUT, _USER_ERR, comment=comment, replay_key=key)
+    sys.stdin = asking
     try:
-        yield out, err
+        yield out, err, asking
     finally:
         _USER_OUT.capture(previous_out)
         _USER_ERR.capture(previous_err)
@@ -2169,6 +2407,10 @@ class Kernel:
             # evaluated into it.
             {"__name__": NO_MODULE_NAME, "__builtins__": __builtins__}
         )
+        # A fresh session has no statement it has already asked, so it has
+        # nothing to replay either -- see `clear_input_replay` for the lighter
+        # version of this that keeps the namespace.
+        _REPLAY_ANSWERS.clear()
 
     @contextlib.contextmanager
     def _as_module(self, filename: str) -> Iterator[None]:
@@ -2202,6 +2444,14 @@ class Kernel:
             return {"ok": True, "python": sys.version, "pid": os.getpid()}
         if op == "reset":
             self.reset()
+            return {"ok": True}
+        if op == "clear_input_replay":
+            # Lighter than `reset`: the namespace and every binding in it
+            # stay exactly as they were, and only the memory of what answered
+            # past prompts is let go. What "the user cleared it" means for
+            # mechanism 1 of #86 -- the comment mechanism needs no clearing,
+            # since editing or removing the comment already is that.
+            _REPLAY_ANSWERS.clear()
             return {"ok": True}
         if op == "eval":
             return self.evaluate(request)
@@ -2540,7 +2790,8 @@ class Kernel:
         names: list = []
         more_names = 0
 
-        with _user_io(allow_stdin, _located(form)) as (out, err):
+        with _user_io(allow_stdin, _located(form), form=form,
+                     filename=filename) as (out, err, stdin_stub):
             try:
                 # One dict for globals AND locals. Passing two makes
                 # comprehensions and nested scopes fail to see module-level
@@ -2677,7 +2928,7 @@ class Kernel:
                 # own line, with everything the session had bound still bound.
                 # It is tested rather than assumed, because nothing about the
                 # line above says "and this is the stop button".
-                return {
+                failure: Dict[str, Any] = {
                     "ok": False,
                     "error": _error(exc, tb_skip=1),
                     "kind": form.kind,
@@ -2687,6 +2938,13 @@ class Kernel:
                     "stdout": out.getvalue(),
                     "stderr": err.getvalue(),
                 }
+                if stdin_stub.log:
+                    # A read can succeed and the statement still fail
+                    # afterwards -- `int(input("Age: "))` on a non-numeric
+                    # reply -- and what answered the read is worth keeping
+                    # even though the statement raised.
+                    failure["stdin"] = list(stdin_stub.log)
+                return failure
 
         outcome: Dict[str, Any] = {
             "ok": True,
@@ -2700,6 +2958,13 @@ class Kernel:
             "stdout": out.getvalue(),
             "stderr": err.getvalue(),
         }
+        if stdin_stub.log:
+            # Absent when the statement never read anything, in line with
+            # every other conditional field here. Present, it says what
+            # answered each `input()` call and whether the answer was typed
+            # just now, replayed from this statement's last run, or read off
+            # its own `# evalens:` comment -- see #86.
+            outcome["stdin"] = list(stdin_stub.log)
         if raw_repr is not None:
             # Only when a description replaced it: sending it unconditionally
             # would double the width of every large value on the wire to say

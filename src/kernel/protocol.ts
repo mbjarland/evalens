@@ -144,7 +144,15 @@ export type Request =
   | EvalFileRequest
   | OutlineRequest
   | { readonly op: 'ping' }
-  | { readonly op: 'reset' };
+  | { readonly op: 'reset' }
+  /**
+   * Forget every replayed `input()` answer, and nothing else.
+   *
+   * Lighter than `reset`: the namespace is untouched, only the memory of
+   * what answered a past prompt is let go. See `InputAnswer` for what a
+   * replay is and why it has to be told apart from a typed answer.
+   */
+  | { readonly op: 'clear_input_replay' };
 
 /**
  * What the extension sends down the control channel.
@@ -388,6 +396,23 @@ export interface NamedValue {
   readonly repr?: string;
 }
 
+/**
+ * One line `input()` (or `readline()` / `read()`) returned, and where the
+ * value came from.
+ *
+ * `typed` is a human answering the box just now. `replay` is this exact
+ * statement's own most recent typed answer, reused automatically -- and
+ * told apart from `typed` because design rule 1 says an annotation must
+ * never assert more than is known: reusing an answer silently would claim a
+ * human was asked when nobody was. `comment` is a `# evalens: ...` on the
+ * statement's own line, which beats a replay whenever both are available,
+ * because it is the value the user wrote down. See #86.
+ */
+export interface InputAnswer {
+  readonly value: string;
+  readonly source: 'typed' | 'replay' | 'comment';
+}
+
 export interface Evaluated {
   readonly id: number;
   readonly ok: true;
@@ -450,6 +475,12 @@ export interface Evaluated {
   readonly reads?: readonly string[];
   /** Present when the file did not parse whole -- see `PartialParse`. */
   readonly partial?: PartialParse;
+  /**
+   * What answered each `input()` call this statement made, in order.
+   * Absent when the statement read nothing, in line with every other
+   * conditional field here.
+   */
+  readonly stdin?: readonly InputAnswer[];
 }
 
 export interface Failed {
@@ -460,6 +491,13 @@ export interface Failed {
   /** Where the message belongs, when that is not the end of `range`. */
   readonly anchor?: number;
   readonly kind?: string;
+  /**
+   * What answered each `input()` call before the statement raised. A read
+   * can succeed and the statement still fail afterwards --
+   * `int(input("Age: "))` on a non-numeric reply -- and what supplied the
+   * value is worth keeping even though the statement did not finish.
+   */
+  readonly stdin?: readonly InputAnswer[];
   readonly stdout?: string;
   readonly stderr?: string;
   /**
@@ -509,6 +547,7 @@ export type StatementOutcome =
       readonly more_names?: number;
       readonly binds?: readonly string[];
       readonly reads?: readonly string[];
+      readonly stdin?: readonly InputAnswer[];
     }
   | {
       readonly ok: false;
@@ -520,6 +559,7 @@ export type StatementOutcome =
       readonly stderr?: string;
       readonly binds?: readonly string[];
       readonly reads?: readonly string[];
+      readonly stdin?: readonly InputAnswer[];
     };
 
 /**

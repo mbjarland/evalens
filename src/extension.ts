@@ -146,6 +146,24 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    // The way out mechanism 1 of #86 promises: a stored answer is replayed
+    // until the statement that asked for it changes or this is run. Nothing
+    // to forget if the kernel has never prompted, so this reaches for the
+    // client directly rather than through `ensureClient` -- spawning an
+    // interpreter just to tell it to clear an empty store would be the
+    // "opening a file starts a process" mistake lazy activation exists to
+    // avoid.
+    vscode.commands.registerCommand('evalens.clearInputAnswers', async () => {
+      if (!client) {
+        return;
+      }
+      await client.request({ op: 'clear_input_replay' });
+      vscode.window.setStatusBarMessage(
+        'Evalens: input answers cleared', STATUS_ACK_MS);
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand(
       'evalens.fixKeybindingConflict', fixKeybindingConflict)
   );
