@@ -1061,6 +1061,13 @@ export class Evaluator {
             ...(presentation.more === undefined
               ? {}
               : { more: presentation.more }),
+            // #81. Without this the renderer falls back to asking whether
+            // `display` looks like an identifier, which `led['a']` does not,
+            // so an assignment to a subscript was labelled as though it were
+            // a bare expression's own value.
+            ...(presentation.isBinding === undefined
+              ? {}
+              : { isBinding: presentation.isBinding }),
             // #24. Carried the same way as every other optional field above,
             // so a value that duck-types as a table reaches the hover from a
             // live keypress rather than only from a test.

@@ -232,6 +232,16 @@ export interface Annotation extends Traced {
    */
   readonly more?: number;
   /**
+   * Whether `display` names a place this statement bound (#81).
+   *
+   * `led['a'] = 1` binds a subscript, which is not an identifier, so the
+   * regex that used to decide this labelled it as a bare expression result.
+   * The kernel answers it from the AST instead; absent means "not a
+   * binding, or a kernel that does not say", and `isBoundTarget` keeps the
+   * old regex as the fallback for the second.
+   */
+  readonly isBinding?: boolean;
+  /**
    * A bounded table description of `value`, for #24 -- a `pandas.DataFrame`,
    * or a list/tuple of dicts, `namedtuple`s, or same-length lists/tuples.
    * Never painted here: it is an elaboration reached from the hover
@@ -577,6 +587,7 @@ export class Decorator implements vscode.Disposable {
           bindings: annotation.bindings,
           printed,
           more: annotation.more,
+          isBinding: annotation.isBinding,
           partialFrom: annotation.partialFrom,
         }).map(coalesce).filter((group) => group.length > 0);
 

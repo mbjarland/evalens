@@ -215,7 +215,7 @@ async function paint(
     painted.push(
       resultText({ value: shown.value, display: shown.display, loop: shown.loop,
         names: shown.names, bindings: shown.bindings, printed: shown.printed,
-        more: shown.more })
+        more: shown.more, isBinding: shown.isBinding })
         .replace(/ /g, ' '));
   }
   return painted;
@@ -2373,3 +2373,37 @@ test('a value with no tabular shape carries no table field, over a real '
   assert.equal(response.ok, true);
   assert.equal(response.table, undefined);
 });
+
+test('an assignment to a subscript or attribute is labelled as a binding',
+  async (t) => {
+    // #81. `led['a']` is not an identifier, so the regex that used to decide
+    // this labelled an assignment to it as though it were a bare
+    // expression's own value -- `=> 1` rather than `led['a']: 1`. The kernel
+    // answers it from the AST now (`resolver.Form.is_binding`), and this
+    // pins the whole path: kernel, wire, presentation, annotation, renderer.
+    const client = connect();
+    t.after(() => client.dispose());
+
+    const source = [
+      'import types',
+      'led = {}',
+      "led['a'] = 1",
+      'o = types.SimpleNamespace()',
+      'o.attr = 5',
+      'xs = [7, 8]',
+      'xs[0]',
+    ].join('\n') + '\n';
+
+    // Every line runs, in order, because the interesting ones depend on the
+    // setup above them; the assertions pick out the three that matter.
+    const painted = await paint(client, source, [0, 1, 2, 3, 4, 5, 6]);
+    assert.equal(painted[2], "led['a']: 1");
+    assert.equal(painted[4], 'o.attr: 5');
+    // Still an expression: reading a subscript produces a value that is its
+    // own answer, and nothing was bound. This half is what stops the fix
+    // from relabelling every read as a binding. The line also reports `xs`
+    // itself, which is #21 doing its own job -- what matters here is the
+    // `=> 7`, and that it is not `xs[0]: 7`.
+    assert.match(painted[6]!, /=> 7$/);
+    assert.doesNotMatch(painted[6]!, /xs\[0\]:/);
+  });
