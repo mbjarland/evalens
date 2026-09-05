@@ -12,20 +12,51 @@ const manifest = JSON.parse(
  * nothing and paints invisibly. Nothing fails, nothing logs -- the value is
  * simply not there, which reads as "the extension is broken" and is the
  * hardest kind of rendering bug to track down.
+ *
+ * Every `COLOR_*` constant in `src/`, not only `decorations.ts`'s own: that
+ * was this test's original scope, on the assumption that every theme colour
+ * the extension owns is declared in that one file, which held only because
+ * nothing checked it. `flash.ts` reuses `COLOR_REGION` and
+ * `COLOR_FLASH_REGION` from there today, but nothing requires a colour's
+ * declaration to live where `decorations.ts` happens to be, and widening the
+ * search is what keeps that from becoming a second, quieter place a colour
+ * could go uncontributed.
+ *
+ * This checks every *declaration*, not every *use*. A call-site scan --
+ * following each `new vscode.ThemeColor(...)` back to what it was built from
+ * -- was tried and does not hold up: `flash.ts`'s `typeFor(color: string)`
+ * takes `color` as a parameter, so the identifier at that call site is
+ * `color` itself, and resolving *that* to `COLOR_REGION` or
+ * `COLOR_FLASH_REGION` needs tracing which `FlashStyle` a caller passed in --
+ * real data flow, not something a regex can do without pretending to be a
+ * type checker. Checking the declaration instead sidesteps needing to follow
+ * that: every colour id the extension owns is declared once, as `export
+ * const COLOR_NAME = '...'`, however many places go on to reuse the
+ * constant. What this still cannot catch is a `ThemeColor` built straight
+ * from a string literal with no `COLOR_*` constant behind it at all -- there
+ * is no such call today (`git grep "new vscode.ThemeColor('"` finds none),
+ * but a future one would paint invisibly without this test ever seeing it.
  */
-test('every theme colour used in the source is contributed', () => {
+test('every declared COLOR_* constant is contributed', () => {
   const contributed = new Set<string>(
     (manifest.contributes?.colors ?? []).map((c: { id: string }) => c.id));
-  const source = fs.readFileSync(
-    path.join(root, 'src', 'render', 'decorations.ts'), 'utf8');
 
-  const used = [...source.matchAll(/^export const COLOR_\w+ = '([^']+)';$/gm)]
-    .map((m) => m[1]!);
+  const files = fs.readdirSync(path.join(root, 'src'), { recursive: true })
+    .filter((f): f is string => typeof f === 'string' && f.endsWith('.ts')
+      && !f.startsWith('test'));
 
-  assert.ok(used.length > 0, 'no theme colours found in decorations.ts');
-  for (const id of used) {
+  const declared = new Map<string, string>();
+  for (const file of files) {
+    const source = fs.readFileSync(path.join(root, 'src', file), 'utf8');
+    for (const match of source.matchAll(/^export const COLOR_\w+ = '([^']+)';$/gm)) {
+      declared.set(match[1]!, file);
+    }
+  }
+
+  assert.ok(declared.size > 0, 'no COLOR_* constant declared anywhere in src/');
+  for (const [id, file] of declared) {
     assert.ok(contributed.has(id),
-      `${id} is used as a ThemeColor but not contributed in package.json`);
+      `${file} declares "${id}" but package.json does not contribute it`);
   }
 });
 

@@ -132,6 +132,41 @@ test('the key is a keybinding, never a setting', () => {
   }
 });
 
+test('the evaluateFile keybinding uses the same context as evaluate', () => {
+  // Not covered by any test above, which only ever filters `keybindings` down
+  // to `EVALUATE_AT_CURSOR` and `EVALUATE_AND_ADVANCE` -- so a `when` typo or
+  // a stale copy-paste on this third binding would ship silently.
+  const evaluateFile = keybindings.filter((b) => b.command === 'evalens.evaluateFile');
+  assert.equal(evaluateFile.length, 1, 'evalens.evaluateFile has no keybinding');
+  assert.equal(evaluateFile[0]!.key, 'ctrl+alt+enter');
+  assert.equal(evaluateFile[0]!.mac, 'cmd+alt+enter');
+  assert.equal(evaluateFile[0]!.when, EVALUATE_WHEN,
+    "evaluateFile's keybinding binds a different context than " +
+    'evaluateAtCursor and evaluateAndAdvance do, which is either a ' +
+    'deliberate divergence nothing documents or a drifted copy-paste');
+});
+
+test("the clearResults keybinding's when clause names the flag the code " +
+  'actually sets', () => {
+  // `HAS_ANNOTATIONS` lives in `render/annotations.ts`, which imports
+  // `vscode` -- so it is read out of the source text here, the way
+  // `audit.test.ts` reads `MAX_LOAD_ANNOTATIONS` out of `evaluate.ts`, rather
+  // than imported. Importing it would require a `vscode` module to exist at
+  // test time, which is exactly the gap #42 is about; `extension.test.ts`
+  // carries the harness that supplies one where it is actually needed.
+  const source = fs.readFileSync(
+    path.join(root, 'src', 'render', 'annotations.ts'), 'utf8');
+  const match = /^export const HAS_ANNOTATIONS = '([^']+)';$/m.exec(source);
+  assert.ok(match, 'HAS_ANNOTATIONS not found in render/annotations.ts');
+  const contextKey = match![1]!;
+
+  const clearResults = keybindings.filter((b) => b.command === 'evalens.clearResults');
+  assert.equal(clearResults.length, 1, 'evalens.clearResults has no keybinding');
+  assert.ok(clearResults[0]!.when?.includes(contextKey),
+    `evalens.clearResults's when clause "${clearResults[0]!.when}" does not ` +
+    `reference ${contextKey}, the context key the code actually sets`);
+});
+
 test('activation is scoped, not eager', () => {
   const events: string[] = manifest.activationEvents ?? [];
   assert.ok(!events.includes('*'),
