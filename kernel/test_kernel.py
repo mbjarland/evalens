@@ -2007,6 +2007,97 @@ class Names(KernelTest):
                          [("y", "[1, 2, 3]")])
 
 
+class StarImports(KernelTest):
+    """`from pkg import *` ran, bound its names, and was painted as broken.
+
+    The display step was handed the literal `"*"` as the expression to show
+    and compiled it, so the extension's own `SyntaxError` arrived through the
+    same channel as one in the user's source -- in red, on a working line,
+    quoting `<unknown>, line 1`, which is a file and a line the reader cannot
+    go and look at. A star import is one of the first things a teaching file
+    demonstrates.
+    """
+
+    def package(self, name, body):
+        """A real importable package, on the kernel's path. Returns its dir."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        os.mkdir(os.path.join(directory.name, name))
+        with open(os.path.join(directory.name, name, "__init__.py"), "w",
+                  encoding="utf-8") as handle:
+            handle.write(body)
+        return directory.name
+
+    def source_importing(self, name, body, *rest):
+        """A buffer that puts the package on `sys.path` and star-imports it."""
+        root = self.package(name, body)
+        return ("import sys\n"
+                f"sys.path.insert(0, {root!r})\n"
+                f"from {name} import *\n" + "".join(rest))
+
+    STARPKG = ("__all__ = ['label', 'SIZE']\n"
+               "def label(n):\n"
+               "    return '#%d' % n\n"
+               "SIZE = 2\n"
+               "_hidden = 'not exported'\n")
+
+    def test_a_star_import_is_not_a_syntax_error(self):
+        source = self.source_importing("starpkg", self.STARPKG, "label(3)\n")
+        result = self.k.evaluate_lines(source, 0, 1, 2)
+        self.assertTrue(result["ok"], result)
+        self.assertIsNone(result["display"])
+        # And the names really did arrive, which is what says the import was
+        # never broken in the first place.
+        self.assertEqual(self.k.evaluate(source, 3)["value"], "'#3'")
+
+    def test_a_star_import_says_what_it_brought_in(self):
+        source = self.source_importing("countpkg", self.STARPKG)
+        result = self.k.evaluate_lines(source, 0, 1, 2)
+        self.assertEqual(result["value"], "2 names: label, SIZE")
+
+    def test_the_names_are_the_modules_own_all(self):
+        # `_hidden` is in the module and not in `__all__`, so the import did
+        # not bind it and the count must not include it.
+        source = self.source_importing("allpkg", self.STARPKG)
+        result = self.k.evaluate_lines(source, 0, 1, 2)
+        self.assertNotIn("_hidden", result["value"])
+
+    def test_a_module_with_no_all_falls_back_to_its_public_names(self):
+        source = self.source_importing(
+            "openpkg", "alpha = 1\nbeta = 2\n_private = 3\n")
+        result = self.k.evaluate_lines(source, 0, 1, 2)
+        self.assertEqual(result["value"], "2 names: alpha, beta")
+
+    def test_a_second_evaluation_says_exactly_the_same_thing(self):
+        # Why the count is read from the module rather than diffed out of the
+        # namespace: a diff answers `2 names` the first time and `0 names` the
+        # second, and an annotation that changes while the code has not is
+        # what teaches a reader to distrust every annotation.
+        source = self.source_importing("stablepkg", self.STARPKG)
+        first = self.k.evaluate_lines(source, 0, 1, 2)
+        second = self.k.evaluate(source, 2)
+        self.assertEqual(first["value"], second["value"])
+
+    def test_a_wide_star_import_is_counted_rather_than_listed(self):
+        # The first four of twenty are wherever the module defined them, not
+        # a sample of anything, and the line has other things on it.
+        body = "".join(f"name{n} = {n}\n" for n in range(20))
+        source = self.source_importing("widepkg", body)
+        result = self.k.evaluate_lines(source, 0, 1, 2)
+        self.assertEqual(result["value"], "20 names")
+
+    def test_an_ordinary_import_is_unaffected(self):
+        result = self.k.evaluate("import os.path\n", 0)
+        self.assertEqual(result["display"], "os")
+
+    def test_loading_a_file_with_a_star_import_reports_no_failure(self):
+        source = self.source_importing("loadpkg", self.STARPKG, "label(1)\n")
+        loaded = self.k.send(op="eval_file", source=source)
+        self.assertTrue(loaded["ok"], loaded)
+        self.assertEqual(loaded["ran"], loaded["statements"])
+        self.assertEqual([r for r in loaded["results"] if not r["ok"]], [])
+
+
 class Docstrings(KernelTest):
     """The first impression the extension makes on a documented file.
 

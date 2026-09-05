@@ -92,6 +92,25 @@ class DisplayMapping(unittest.TestCase):
         self.assertEqual(resolve("from x import y\n", 0).display, "y")
         self.assertEqual(resolve("from x import y as z\n", 0).display, "z")
 
+    def test_a_star_import_shows_nothing(self):
+        # There is no one name to show: what `*` binds is decided at runtime
+        # by the exporting module. The alias's name is the literal `"*"`, and
+        # handing that over as the expression to display had the kernel
+        # compile it -- `=> SyntaxError: invalid syntax (<unknown>, line 1)`,
+        # in red, beside an import that had worked.
+        form = resolve("from os.path import *\n", 0)
+        self.assertEqual(form.kind, "ImportFrom")
+        self.assertIsNone(form.display)
+        self.assertFalse(form.readable)
+        self.assertFalse(form.captured)
+
+    def test_a_star_import_offers_no_names_either(self):
+        # The other reader of `_first_bound_name`, which would otherwise
+        # report a name called `*` and have the kernel look it up.
+        form = resolve("from os.path import *\n", 0)
+        self.assertEqual(form.names, ())
+        self.assertEqual(form.binds, ())
+
     def test_for_shows_the_loop_target(self):
         self.assertEqual(resolve("for i in range(3):\n    pass\n", 0).display, "i")
 
@@ -241,6 +260,7 @@ SHAPES = (
     "class C:\n    pass\n",
     "import os.path\n",
     "from x import y as z\n",
+    "from x import *\n",
     "for i in range(3):\n    pass\n",
     "for k, v in d.items():\n    pass\n",
     "for box.item in [1, 2]:\n    pass\n",

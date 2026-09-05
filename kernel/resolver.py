@@ -118,13 +118,23 @@ _HEADER_ANCHORED = (
 )
 
 
-def _first_bound_name(alias: ast.alias) -> str:
-    """The name an `import` actually binds.
+def _first_bound_name(alias: ast.alias) -> Optional[str]:
+    """The name an `import` actually binds, or None when there is not one.
 
     `import os.path` binds `os`, not `os.path` -- evaluating the latter as an
     expression happens to work, but the name the statement put in the
     namespace is the first segment, and that is what the user just created.
+
+    `from pkg import *` binds a set of names decided at runtime by the
+    exporting module's `__all__`, and there is no one name for the parser to
+    find: the alias's name is the literal string `"*"`. Answering with it sent
+    `*` to the kernel as the expression to display, where compiling it raised
+    `SyntaxError: invalid syntax (<unknown>, line 1)` -- the extension's own
+    failure, in red, beside an import that had worked, quoting a file and a
+    line the user cannot go and look at.
     """
+    if alias.name == "*":
+        return None
     if alias.asname:
         return alias.asname
     return alias.name.split(".")[0]
@@ -257,6 +267,9 @@ def _display_target(node: ast.stmt) -> Optional[Union[ast.expr, str]]:
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
         return node.name
     if isinstance(node, (ast.Import, ast.ImportFrom)):
+        # None for `from pkg import *`, which binds a set of names rather than
+        # one and has nothing for the display slot. What it did bind is the
+        # kernel's to report, from the module rather than from the parse.
         return _first_bound_name(node.names[0])
     if isinstance(node, (ast.For, ast.AsyncFor)):
         # The target labels a sequence rather than a value: the kernel records
@@ -397,7 +410,14 @@ class _Names(ast.NodeVisitor):
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
-            self._record(self.bound, _first_bound_name(alias))
+            name = _first_bound_name(alias)
+            if name is None:
+                # A star import, whose names only the exporting module knows.
+                # Reporting none of them costs the dependency walk a mark it
+                # cannot make honestly -- see `defs_and_uses` on why an
+                # unsound answer in this direction is the affordable one.
+                continue
+            self._record(self.bound, name)
 
     visit_ImportFrom = visit_Import
 

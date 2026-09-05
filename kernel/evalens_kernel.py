@@ -64,6 +64,12 @@ assignment never called, and an annotation may not execute user code the
 statement did not. ``resolver._value_source`` decides which of the three
 applies, and it decides for every statement kind.
 
+One statement has no ``display`` and a ``value`` all the same. ``from pkg
+import *`` binds a set of names rather than one, so there is nothing to write
+beside it, and what it answers with is how many names it brought in -- read
+out of the exporting module's own dictionary, which is stable across
+evaluations and cannot run anything. See ``_star_import``.
+
 ``names`` is what the names on the line hold, which for most lines is the
 answer the reader wanted and ``value`` is not::
 
@@ -245,6 +251,7 @@ import signal
 import sys
 import threading
 import traceback
+import types
 from typing import Any, Dict, Iterable, Iterator, Optional, TextIO, Tuple
 
 import loops
@@ -260,6 +267,11 @@ WIRE_REPR_LIMIT = 8192
 #: name it mentions stops being an annotation and becomes a second copy of the
 #: namespace, and the code it is written beside disappears under it.
 NAME_LIMIT = 4
+
+#: How many names a star import may name before it settles for counting them.
+#: The same reasoning as `NAME_LIMIT`: the annotation shares its line with the
+#: code it describes, and `from math import *` binds sixty.
+STAR_NAME_LIMIT = 4
 
 #: The name a captured assignment stores its value through. Installed in the
 #: namespace for the duration of one statement and removed afterwards, exactly
@@ -1019,6 +1031,73 @@ class _Capture:
         return False
 
 
+def _star_exports(namespace: Dict[str, Any]) -> list:
+    """The names `import *` takes from a module, given the module's own dict.
+
+    CPython's rule, which is worth stating because it is the whole of the
+    answer: `__all__` when the module defines one, otherwise every key that
+    does not begin with an underscore.
+
+    Read out of `__dict__` rather than off the module, and that is the point
+    of the function. `getattr(module, "__all__")` and `dir(module)` both go
+    through attribute access, and a module may define `__getattr__` and
+    `__dir__` of its own since PEP 562 -- so the obvious way to ask what an
+    import brought in is a call into somebody's code, which is exactly the
+    hazard the annotation must not be. A dictionary is a dictionary.
+    """
+    exported = namespace.get("__all__")
+    if isinstance(exported, (list, tuple)):
+        return [name for name in exported if isinstance(name, str)]
+    return [name for name in namespace if not name.startswith("_")]
+
+
+def _star_import(node: ast.stmt, limit: int = STAR_NAME_LIMIT) -> Optional[str]:
+    """What `from x import *` brought in, as a phrase, or None.
+
+    A star import has no display: it binds a set of names decided at runtime
+    rather than one name the parser can find, and the resolver says so by
+    answering `None` (before which it answered `"*"`, and the kernel compiled
+    that as an expression and painted the SyntaxError). Painting nothing at
+    all would be defensible and dull -- the line reads as though it did
+    nothing -- so this says how many names it bound, and names them where
+    there are few enough to name.
+
+    Two other ways to find that out were rejected rather than not thought of.
+    `dir()` before and after runs the module's own `__dir__` where it has one;
+    diffing the namespace's keys is safe but says `3 names` the first time a
+    line is evaluated and `0 names` the second, and an annotation that changes
+    while the code has not is the thing `describe` exists to prevent. The
+    module's own dictionary is stable across evaluations and cannot run
+    anything, which leaves it the only source that is both.
+
+    `type(...) is ModuleType` rather than `isinstance`: a lazy-loading stand-in
+    parked in `sys.modules` can define `__getattribute__`, and then even
+    reading `__dict__` off it is a call into user code. Those answer None and
+    the line simply stays quiet.
+    """
+    if not isinstance(node, ast.ImportFrom) or node.level:
+        # A relative star import needs `__package__` to resolve, which this
+        # namespace has not got; it fails on its own terms before reaching
+        # here, and if it ever stops failing, silence is the safe answer.
+        return None
+    if not any(alias.name == "*" for alias in node.names):
+        return None
+    module = sys.modules.get(node.module)
+    if type(module) is not types.ModuleType:
+        return None
+    names = _star_exports(module.__dict__)
+    if not names:
+        return "no names"
+    counted = f"{len(names)} name{'' if len(names) == 1 else 's'}"
+    if len(names) > limit:
+        # All of them or none of them, and never the first four of sixty:
+        # those are wherever the module happened to define them rather than a
+        # sample of anything, and a list that trails off invites the reader to
+        # believe it is the important end of one.
+        return counted
+    return f"{counted}: {', '.join(names)}"
+
+
 def _position(line: int, character: int) -> Dict[str, int]:
     return {"line": line, "character": character}
 
@@ -1526,6 +1605,13 @@ class Kernel:
                                     dont_inherit=True),
                             self.namespace)
                         shown, raw_repr = wire_value(value)
+                    else:
+                        # A star import is the one statement with no display
+                        # that still has something to say, and what it says
+                        # comes from the module it pulled from rather than
+                        # from anything on the line. Everything else here
+                        # answers None and paints nothing, as before.
+                        shown = _star_import(form.node)
 
                 # After the statement and before anything else can touch the
                 # namespace: these are what the names held at the moment this

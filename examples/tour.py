@@ -42,6 +42,27 @@ import sys
 from decimal import Decimal
 from types import SimpleNamespace as Record
 
+# 1a. A star import binds a set of names chosen by the exporting module
+#     rather than one name the parser can see, so the display slot has
+#     nothing to put in it.  It used to be annotated `=> SyntaxError: invalid
+#     syntax (<unknown>, line 1)`, in red, on a line that had worked: the
+#     resolver handed the kernel the literal `*` as the expression to show,
+#     and the kernel compiled it -- so the extension's own failure arrived
+#     through the same channel as a syntax error in the file, quoting a file
+#     and a line the reader cannot go and look at.
+#
+#     What it says instead is how much it brought in -- `=> 12 names` --
+#     read out of the module's own dictionary, which cannot run anything and
+#     answers identically however many times the line is evaluated.  A module
+#     exporting four or fewer is named rather than counted; twelve of them
+#     would bury the line, and the first four of twelve are wherever the
+#     module happened to define them rather than a sample of anything.  The
+#     line under it is the half a count cannot prove: a name that exists only
+#     because the import worked.
+from string import *
+
+capwords('the tour proves this name arrived')
+
 
 # ----------------------------------------------------------------- the tour --
 
