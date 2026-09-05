@@ -150,6 +150,23 @@ test('re-evaluating a def paints the same thing every time', async (t) => {
   assert.notEqual(hovers[0], hovers[1]);
 });
 
+test('a module docstring paints nothing, a bare string still does', async (t) => {
+  // Line 1 of any well-documented file, and so the first impression the
+  // extension makes. The same statement out of docstring position is someone
+  // looking at a literal and still answers.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = '"""Module 01 -- names and mutability."""\nx = 1\n"hello"\n';
+
+  const docstring = present(await evaluate(client, source, 0), 0);
+  assert.equal(docstring.kind, 'value', 'it ran; the region still highlights');
+  assert.equal((docstring as { value: string | null }).value, null);
+
+  const literal = present(await evaluate(client, source, 2), 2);
+  assert.equal((literal as { value: string | null }).value, "'hello'");
+});
+
 test('a def is painted on the def line, not beside its return', async (t) => {
   // `greet: <function greet>` next to `return f"hello {name}"` says the
   // return statement produced a function. The region highlight still covers

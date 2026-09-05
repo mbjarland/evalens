@@ -80,6 +80,47 @@ class DisplayMapping(unittest.TestCase):
                 self.assertIsNone(f.display)
 
 
+class Docstrings(unittest.TestCase):
+    """A docstring is the one string constant nobody asked to see.
+
+    The rule is positional rather than "skip string constants", because a bare
+    string somewhere else in a file is someone evaluating a literal to look at
+    it.
+    """
+
+    def test_a_module_docstring_shows_nothing(self):
+        f = resolve('"""The module."""\nx = 1\n', 0)
+        self.assertEqual(f.kind, "Expr")
+        self.assertIsNone(f.display)
+
+    def test_a_bare_string_further_down_still_shows_itself(self):
+        self.assertEqual(resolve('x = 1\n"hello"\n', 1).display, "'hello'")
+
+    def test_a_function_or_class_docstring_is_one_too(self):
+        # Unreachable today -- a cursor inside either resolves to the whole
+        # definition -- so the rule is pinned against `form_of` directly,
+        # where sub-statement resolution would meet it.
+        for src in ('def f():\n    """Doc."""\n    x = 1\n',
+                    'class C:\n    """Doc."""\n    x = 1\n'):
+            with self.subTest(src=src):
+                body = ast.parse(src).body[0].body
+                self.assertIsNone(form_of(body[0], first_in_body=True).display)
+                self.assertIsNotNone(
+                    form_of(body[1], first_in_body=False).display)
+
+    def test_the_first_statement_of_a_module_is_only_special_if_it_is_a_string(self):
+        self.assertEqual(resolve("x = 1\n", 0).display, "x")
+        self.assertEqual(resolve("42\n", 0).display, "42")
+        self.assertEqual(resolve("f'{x}'\n", 0).display, "f'{x}'")
+
+    def test_a_docstring_still_resolves_and_still_runs(self):
+        # Nothing to paint is not nothing to do: the region highlight is what
+        # says the statement was evaluated.
+        f = resolve('"""The module."""\n', 0)
+        self.assertIsNotNone(f)
+        self.assertEqual((f.start_line, f.end_line), (0, 0))
+
+
 class Positions(unittest.TestCase):
     def test_a_cursor_inside_a_function_resolves_to_the_whole_def(self):
         src = "def f():\n    x = 1\n    return x\n"

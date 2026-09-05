@@ -479,8 +479,9 @@ class Kernel:
 
         results = []
         ran = 0
-        for statement in tree.body:
-            outcome = self._run(form_of(statement), filename)
+        for index, statement in enumerate(tree.body):
+            outcome = self._run(
+                form_of(statement, first_in_body=index == 0), filename)
             results.append(outcome)
             if outcome["ok"]:
                 ran += 1
@@ -526,7 +527,13 @@ class Kernel:
                     value = eval(  # noqa: S307 - evaluating user code is the product
                         compile(expression, filename, "eval",
                                 dont_inherit=True), self.namespace)
-                    shown, raw_repr = wire_value(value)
+                    if form.display is not None:
+                        shown, raw_repr = wire_value(value)
+                    # A docstring is the one expression statement the resolver
+                    # declines to display. It still runs, and the region
+                    # highlight still says so; what it must not do is restate
+                    # a module's opening paragraph back at its author with the
+                    # newlines escaped.
                 else:
                     with loops.installed(self.namespace, recorders):
                         exec(compile(statement, filename, "exec",

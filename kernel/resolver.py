@@ -89,13 +89,42 @@ def _first_bound_name(alias: ast.alias) -> str:
     return alias.name.split(".")[0]
 
 
-def display_expr(node: ast.stmt) -> Optional[str]:
+def is_docstring(node: ast.stmt, first_in_body: bool) -> bool:
+    """Is this statement a docstring rather than a value someone asked for?
+
+    Positional, not "a string constant": a bare string that is *not* in
+    docstring position is someone evaluating a literal to see it, and
+    `"hello"` should still answer `=> 'hello'`. What makes a docstring
+    different is where it sits, so that is what the rule tests.
+
+    `first_in_body` is the caller's, because a statement does not know its
+    parent. Today only a module's first statement can reach here -- a class or
+    function docstring is inside a body that resolves to the whole definition
+    -- but the rule is written for all three, so sub-statement resolution
+    cannot reintroduce the case by accident.
+    """
+    return (
+        first_in_body
+        and isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    )
+
+
+def display_expr(node: ast.stmt, first_in_body: bool = False) -> Optional[str]:
     """The expression worth showing after `node` has run, as source.
 
     `None` means the statement runs but has nothing to display -- an `if`, a
     `del`, a bare `pass`. That is a real answer and not a failure; the caller
     highlights the region without painting a value.
+
+    A docstring is the one statement whose value is real and worth nothing:
+    restating a module's opening paragraph back at its author, with the
+    newlines escaped so it reads worse than the original, is the first thing
+    the extension does on loading any well-documented file.
     """
+    if is_docstring(node, first_in_body):
+        return None
     if isinstance(node, ast.Assign):
         # `a = b = 1` has two targets; the first is the one written left-most
         # and is what the eye lands on.
@@ -160,14 +189,19 @@ def _anchor_line(node: ast.stmt, end: int) -> int:
     return max(node.lineno, _start_line(node.body[0]) - 1) - 1
 
 
-def form_of(node: ast.stmt) -> Form:
-    """Describe a statement: what to run, what to show, and where it is."""
+def form_of(node: ast.stmt, first_in_body: bool = False) -> Form:
+    """Describe a statement: what to run, what to show, and where it is.
+
+    `first_in_body` says whether `node` opens the body it belongs to, which is
+    the only thing that separates a docstring from a string someone typed to
+    see the value of.
+    """
     start = _start_line(node) - 1
     end = (node.end_lineno or node.lineno) - 1
     return Form(
         node=node,
         kind=type(node).__name__,
-        display=display_expr(node),
+        display=display_expr(node, first_in_body),
         start_line=start,
         start_char=0 if start < node.lineno - 1 else node.col_offset,
         end_line=end,
@@ -185,9 +219,9 @@ def form_at(tree: ast.Module, line: int, character: int = 0) -> Optional[Form]:
     """
     del character  # reserved: sub-expression resolution needs it, top-level does not
 
-    for node in tree.body:
+    for index, node in enumerate(tree.body):
         start = _start_line(node) - 1
         end = (node.end_lineno or node.lineno) - 1
         if start <= line <= end:
-            return form_of(node)
+            return form_of(node, first_in_body=index == 0)
     return None

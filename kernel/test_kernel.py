@@ -595,6 +595,44 @@ class Loops(KernelTest):
                          ["1", "2", "3"])
 
 
+class Docstrings(KernelTest):
+    """The first impression the extension makes on a documented file.
+
+    A module docstring used to come back as its own text, wrapped and escaped,
+    on the one statement in the file whose value nobody could want.
+    """
+
+    DOCUMENTED = ('"""Module 01 -- names, mutability, truthiness."""\n'
+                  "x = 1\n"
+                  '"hello"\n')
+
+    def test_a_module_docstring_answers_with_no_value(self):
+        result = self.k.evaluate(self.DOCUMENTED, 0)
+        self.assertTrue(result["ok"], result)
+        self.assertIsNone(result["display"])
+        self.assertIsNone(result["value"], "its own text is not an answer")
+
+    def test_a_bare_string_out_of_docstring_position_still_answers(self):
+        result = self.k.evaluate(self.DOCUMENTED, 2)
+        self.assertEqual(result["value"], "'hello'")
+
+    def test_loading_a_file_skips_its_docstring_and_nothing_else(self):
+        result = self.k.send(op="eval_file", source=self.DOCUMENTED,
+                             filename="/tmp/module.py")
+        self.assertEqual(
+            [(r["display"], r["value"]) for r in result["results"]],
+            [(None, None), ("x", "1"), ("'hello'", "'hello'")])
+
+    def test_the_docstring_still_reports_that_it_was_evaluated(self):
+        # Nothing to paint is not nothing to do. The kind and the range are
+        # what drive the region highlight, and dropping them would make a
+        # docstring look like a blank line the cursor found nothing on.
+        result = self.k.evaluate(self.DOCUMENTED, 0)
+        self.assertTrue(result["resolved"])
+        self.assertEqual(result["kind"], "Expr")
+        self.assertEqual(result["range"]["start"]["line"], 0)
+
+
 class Anchors(KernelTest):
     """Which line the value is written on, over the wire.
 

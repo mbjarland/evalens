@@ -19,6 +19,15 @@
 # whatever interpreter the user happens to have selected, with no environment
 # to set up first.
 
+# 0. A module docstring, which must annotate NOTHING.  It is the first
+#    statement in the file and therefore the first thing the extension has an
+#    opinion about on load; restating it back at its author with the newlines
+#    escaped is worse than the original and is the one value nobody could
+#    want.  The region still highlights, because it did run.  Case 8's bare
+#    `'the value'` is the other half of the rule: an identical statement out
+#    of docstring position is someone looking at a literal, and still answers.
+"""The tour's own docstring, which no annotation should ever repeat."""
+
 # 1. An `import` shows the name it actually binds, which is not always the
 #    name written: `import os.path` binds `os`, and an `as` clause binds the
 #    alias rather than the module.  Both `import` shapes and both
