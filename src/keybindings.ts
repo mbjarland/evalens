@@ -21,6 +21,19 @@
  * fingers already know; ceding it would trade a solvable collision for a
  * permanently worse default.
  *
+ * `evaluateAtCursor` answers on two keys, and the second is not a fallback.
+ * The command resolves the enclosing *top-level* statement, and alt+enter is
+ * the key Calva puts the top-level form on -- `betterthantomorrow.calva`
+ * ships `alt+enter` for `calva.evaluateCurrentTopLevelForm` in its own
+ * manifest. So the binding is what the semantics already said it was. It also
+ * leaves ctrl+enter free for the inner-form command when that lands, which is
+ * the other half of the same split.
+ *
+ * What it is not is an escape from the collision. A scan of the shipped
+ * manifests found AREPL on alt+enter as well, under the same `when` clause,
+ * so the second key is tied exactly like the first. Two defaults are still
+ * two defaults; only a user keybinding decides either of them.
+ *
  * No `vscode` import: which key applies on which platform, and the JSON that
  * says so, are decidable without an editor.
  */
@@ -48,11 +61,33 @@ export function evaluateKey(platform: Platform): string {
   return platform === 'mac' ? 'cmd+enter' : 'ctrl+enter';
 }
 
+/**
+ * The other key it answers on: Calva's key for the top-level form, which is
+ * what `evaluateAtCursor` resolves. Platform-neutral -- `alt` is `alt` on
+ * every platform, so unlike the key above there is nothing to branch on.
+ */
+export const TOP_LEVEL_KEY = 'alt+enter';
+
+/**
+ * Both keys, in the order the manifest and the offered fix list them: the one
+ * whose loss started this, then the one the semantics always implied.
+ */
+export function evaluateKeys(platform: Platform): readonly string[] {
+  return [evaluateKey(platform), TOP_LEVEL_KEY];
+}
+
 export interface KnownConflict {
   readonly extensionId: string;
   readonly extensionName: string;
   /** The command that answers instead of ours when the other side wins. */
   readonly command: string;
+  /**
+   * The key that binding takes, as each platform resolves it. Stored rather
+   * than derived from `evaluateKey`, because a conflict is a fact about
+   * somebody else's manifest: AREPL's second binding sits on alt+enter on
+   * every platform, and deriving the key from ours would have hidden it.
+   */
+  readonly key: Readonly<Record<Platform, string>>;
   /** That binding's `when` clause, as the other extension ships it. */
   readonly when: string;
   /** Platforms where it lands on the same key as ours. */
@@ -66,18 +101,27 @@ export interface KnownConflict {
 /**
  * Read off the shipped manifests of the extensions in question, not guessed.
  *
+ * Guessing is what made this table wrong once already: it recorded AREPL on
+ * ctrl/cmd+enter and stopped there, and a later scan of the same manifest
+ * found a second binding, `extension.printDir` on alt+enter, under a `when`
+ * clause identical to the first. That omission is why alt+enter was believed
+ * uncontested. Both of AREPL's bindings are listed here now, and a conflict
+ * carries the key it takes rather than inheriting ours.
+ *
  * Jupyter is listed and documented but not notified about. Its overlap is
- * real, and it is the reason the README says so, but it bites only inside a
- * file with `# %%` cells and only where our key is `ctrl+enter`; Jupyter is
- * installed on a large share of Python setups, and a notification most of
- * those users cannot act on is how an extension teaches people to dismiss the
- * one that matters.
+ * real -- `runcurrentcell` on ctrl+enter, `runcurrentcellandaddbelow` on
+ * alt+enter, the second with no `mac` override, which means the `key` field
+ * applies on macOS too rather than being absent there. But both bite only
+ * inside a file with `# %%` cells; Jupyter is installed on a large share of
+ * Python setups, and a notification most of those users cannot act on is how
+ * an extension teaches people to dismiss the one that matters.
  */
 export const KNOWN_CONFLICTS: readonly KnownConflict[] = [
   {
     extensionId: 'almenon.arepl',
     extensionName: 'AREPL',
     command: 'extension.executeAREPLBlock',
+    key: { mac: 'cmd+enter', other: 'ctrl+enter' },
     when: 'editorTextFocus && editorLangId == python',
     platforms: ['mac', 'other'],
     notify: true,
@@ -85,9 +129,22 @@ export const KNOWN_CONFLICTS: readonly KnownConflict[] = [
       'sits on the same key under the same condition, on every platform',
   },
   {
+    extensionId: 'almenon.arepl',
+    extensionName: 'AREPL',
+    command: 'extension.printDir',
+    key: { mac: 'alt+enter', other: 'alt+enter' },
+    when: 'editorTextFocus && editorLangId == python',
+    platforms: ['mac', 'other'],
+    notify: true,
+    summary:
+      'takes alt+enter under that same condition too, so the top-level key ' +
+      'is tied exactly like the other one',
+  },
+  {
     extensionId: 'ms-toolsai.jupyter',
     extensionName: 'Jupyter',
     command: 'jupyter.runcurrentcell',
+    key: { mac: 'ctrl+enter', other: 'ctrl+enter' },
     when:
       'editorTextFocus && !editorHasSelection && jupyter.hascodecells && ' +
       '!notebookEditorFocused && !isCompositeNotebook',
@@ -96,6 +153,20 @@ export const KNOWN_CONFLICTS: readonly KnownConflict[] = [
     summary:
       'binds ctrl+enter to Run Current Cell, so it overlaps on Windows and ' +
       'Linux, and only in a file that has `# %%` cells',
+  },
+  {
+    extensionId: 'ms-toolsai.jupyter',
+    extensionName: 'Jupyter',
+    command: 'jupyter.runcurrentcellandaddbelow',
+    key: { mac: 'alt+enter', other: 'alt+enter' },
+    when:
+      'editorTextFocus && !editorHasSelection && jupyter.hascodecells && ' +
+      '!notebookEditorFocused',
+    platforms: ['mac', 'other'],
+    notify: false,
+    summary:
+      'binds alt+enter with no `mac` override, so it overlaps on every ' +
+      'platform, and only in a file that has `# %%` cells',
   },
 ];
 
@@ -126,19 +197,24 @@ export interface KeybindingEntry {
 /**
  * The user keybindings that settle a set of conflicts.
  *
- * The first entry is the fix. The removals after it are not redundant: ours
- * only wins where its `when` holds, so AREPL would still answer with the find
- * widget open -- a dead key in a different disguise.
+ * Both of our keys are claimed, so both are bound. The removals after them
+ * are not redundant: ours only wins where its `when` holds, so AREPL would
+ * still answer with the find widget open -- a dead key in a different
+ * disguise. Each removal names the key its own binding sits on, which is what
+ * lets one call cover a conflict on cmd+enter and a conflict on alt+enter.
  */
 export function keybindingEntries(
   platform: Platform,
   conflicts: readonly KnownConflict[] = []
 ): readonly KeybindingEntry[] {
-  const key = evaluateKey(platform);
   return [
-    { key, command: EVALUATE_AT_CURSOR, when: EVALUATE_WHEN },
-    ...conflicts.map((conflict) => ({
+    ...evaluateKeys(platform).map((key) => ({
       key,
+      command: EVALUATE_AT_CURSOR,
+      when: EVALUATE_WHEN,
+    })),
+    ...conflicts.map((conflict) => ({
+      key: conflict.key[platform],
       command: `-${conflict.command}`,
       when: conflict.when,
     })),
@@ -161,21 +237,32 @@ export function keybindingSnippet(
   platform: Platform,
   conflicts: readonly KnownConflict[] = []
 ): string {
-  const [ours, ...removals] = keybindingEntries(platform, conflicts);
-  const blocks = [
-    indent([
-      '// Evalens: a user keybinding is resolved after every extension\'s, so',
-      '// this one wins the key whichever extension happened to load last.',
-      JSON.stringify(ours, null, 2),
-    ].join('\n')),
-    ...removals.map((entry, index) =>
-      indent([
-        `// Removes ${conflicts[index].extensionName}'s binding on the ` +
-        'same key. Delete this entry to',
-        '// keep it -- the one above already wins wherever both apply.',
-        JSON.stringify(entry, null, 2),
-      ].join('\n'))),
-  ];
+  const entries = keybindingEntries(platform, conflicts);
+  const mine = evaluateKeys(platform).length;
+  const blocks = entries.map((entry, index) => {
+    const comment = index === 0
+      ? [
+        '// Evalens: a user keybinding is resolved after every extension\'s,',
+        '// so this one wins the key whichever extension loaded last.',
+      ]
+      : index < mine
+        ? [
+          '// The same command on the top-level-form key, which is where',
+          '// Calva puts it. Uncontested by VS Code itself; not by AREPL.',
+        ]
+        : (() => {
+          // Named per removal rather than "the same key": with one extension
+          // on both keys the generic wording repeats verbatim, and a user
+          // deciding which line to delete cannot tell them apart.
+          const conflict = conflicts[index - mine];
+          return [
+            `// Removes ${conflict.extensionName}'s ${conflict.command} from ` +
+            `${entry.key}. Delete this`,
+            '// entry to keep it -- the one above already wins where both apply.',
+          ];
+        })();
+    return indent([...comment, JSON.stringify(entry, null, 2)].join('\n'));
+  });
   return blocks.join(',\n');
 }
 
@@ -188,13 +275,26 @@ export function keybindingsQuery(platform: Platform): string {
   return `@keybinding:${evaluateKey(platform)}`;
 }
 
-/** The notification: what is wrong, and that it is fixable. */
+/** A list joined for prose, with each name said once. */
+function names(values: readonly string[]): string {
+  return [...new Set(values)].join(' and ');
+}
+
+/**
+ * The notification: what is wrong, and that it is fixable.
+ *
+ * One extension taking both keys is one problem, not two, so the names are
+ * deduplicated -- "AREPL and AREPL binds" is how a user learns the warning is
+ * machine-generated and stops reading it. The keys are listed instead,
+ * because which of them is dead is the thing they are about to check.
+ */
 export function conflictMessage(
   conflicts: readonly KnownConflict[],
   platform: Platform
 ): string {
-  const names = conflicts.map((each) => each.extensionName).join(' and ');
-  return `${names} also binds ${evaluateKey(platform)} for Python, and VS ` +
+  const who = names(conflicts.map((each) => each.extensionName));
+  const keys = names(conflicts.map((each) => each.key[platform]));
+  return `${who} also binds ${keys} for Python, and VS ` +
     'Code decides which extension answers by load order, so Evalens: ' +
     'Evaluate at Cursor may do nothing. A user keybinding settles it.';
 }
@@ -210,11 +310,12 @@ export function describeConflicts(
   platform: Platform
 ): string {
   return [
-    `keybinding conflict on ${evaluateKey(platform)}:`,
+    `keybinding conflict on ${names(conflicts.map((c) => c.key[platform]))}:`,
     ...conflicts.map(
       (conflict) =>
         `  ${conflict.extensionName} (${conflict.extensionId}) binds ` +
-        `${conflict.command} -- it ${conflict.summary}`),
+        `${conflict.command} on ${conflict.key[platform]} -- it ` +
+        `${conflict.summary}`),
     'VS Code breaks that tie by extension load order, which is not stable',
     'between reloads. A user keybinding beats every extension binding; paste',
     'this inside the outer [ ] of keybindings.json, or run the command',

@@ -36,23 +36,38 @@ without a way to run these.
 
 | macOS | Windows / Linux | Command |
 |---|---|---|
-| `Cmd+Enter` | `Ctrl+Enter` | Evalens: Evaluate at Cursor |
+| `Alt+Enter` | `Alt+Enter` | Evalens: Evaluate at Cursor — the top-level form |
+| `Cmd+Enter` | `Ctrl+Enter` | Evalens: Evaluate at Cursor — the same command |
 | `Cmd+Alt+Enter` | `Ctrl+Alt+Enter` | Evalens: Evaluate File |
 | `Escape` | `Escape` | Evalens: Clear Inline Results |
 
-**`Ctrl/Cmd+Enter` is contested, and with AREPL installed it may do nothing at
-all.** `almenon.arepl` binds the same key to `extension.executeAREPLBlock`
-under the same condition Evalens uses, `editorTextFocus && editorLangId ==
-python`. VS Code breaks a tie between two *extension* keybindings by load
-order — the last one registered wins — and nothing makes load order
+**`Alt+Enter` is the top-level-form key.** Evaluate at Cursor resolves the
+*enclosing top-level statement* — not the sub-expression under the cursor —
+and `Alt+Enter` is the key Calva puts the top-level form on, in
+`betterthantomorrow.calva`'s own manifest. So it is not a second-choice
+binding or a workaround for the conflict below; it is what the command's
+semantics already said the key should be. It is also the same chord on every
+platform, and nothing in VS Code itself claims it in a Python file with the
+find widget closed. When a command for the inner form lands it takes
+`Ctrl+Enter`, and none of this changes.
+
+**Both keys are contested, and with AREPL installed either may do nothing at
+all.** `almenon.arepl` binds *two* keys under exactly the condition Evalens
+uses, `editorTextFocus && editorLangId == python`:
+`extension.executeAREPLBlock` on `Ctrl/Cmd+Enter`, and `extension.printDir`
+on `Alt+Enter`. VS Code breaks a tie between two *extension* keybindings by
+load order — the last one registered wins — and nothing makes load order
 deterministic, so which extension answers can change between reloads. It
 presents as a dead key: no error, no notification, no log line.
 
-On Windows and Linux, where the Evalens key is `Ctrl+Enter`, the Jupyter
-extension overlaps too: `ms-toolsai.jupyter` puts `jupyter.runcurrentcell` on
-the same key, though only inside a file that has `# %%` cells
-(`jupyter.hascodecells`). On macOS Jupyter stays on `Ctrl+Enter` while Evalens
-is on `Cmd+Enter`, so the two do not meet.
+The Jupyter extension overlaps too, in both places, but only inside a file
+that has `# %%` cells (`jupyter.hascodecells`). `ms-toolsai.jupyter` puts
+`jupyter.runcurrentcell` on `Ctrl+Enter` — that one ships no `mac` override
+and `ctrl` stays `ctrl` on macOS, so there it never meets `Cmd+Enter` — and
+`jupyter.runcurrentcellandaddbelow` on `Alt+Enter`, which ships no override
+either. That second absence reads the opposite way: `key` is the
+cross-platform default, so a binding with no `mac` entry applies on macOS
+rather than being missing there.
 
 **The fix is a user keybinding.** User keybindings are resolved after every
 extension's, so the last match on a key is always yours — this is the only way
@@ -62,34 +77,53 @@ entry below and opens your `keybindings.json` so you can paste it. Nothing is
 written to your settings on your behalf, and deleting the entry undoes it.
 
 ```jsonc
-  // Evalens: a user keybinding is resolved after every extension's, so
-  // this one wins the key whichever extension happened to load last.
+  // Evalens: a user keybinding is resolved after every extension's,
+  // so this one wins the key whichever extension loaded last.
   {
     "key": "cmd+enter",
     "command": "evalens.evaluateAtCursor",
     "when": "editorTextFocus && editorLangId == python && !findWidgetVisible"
   },
-  // Removes AREPL's binding on the same key. Delete this entry to
-  // keep it -- the one above already wins wherever both apply.
+  // The same command on the top-level-form key, which is where
+  // Calva puts it. Uncontested by VS Code itself; not by AREPL.
+  {
+    "key": "alt+enter",
+    "command": "evalens.evaluateAtCursor",
+    "when": "editorTextFocus && editorLangId == python && !findWidgetVisible"
+  },
+  // Removes AREPL's extension.executeAREPLBlock from cmd+enter. Delete this
+  // entry to keep it -- the one above already wins where both apply.
   {
     "key": "cmd+enter",
     "command": "-extension.executeAREPLBlock",
     "when": "editorTextFocus && editorLangId == python"
+  },
+  // Removes AREPL's extension.printDir from alt+enter. Delete this
+  // entry to keep it -- the one above already wins where both apply.
+  {
+    "key": "alt+enter",
+    "command": "-extension.printDir",
+    "when": "editorTextFocus && editorLangId == python"
   }
 ```
 
-Use `ctrl+enter` in place of `cmd+enter` on Windows and Linux. The removal
-entry is not redundant: the Evalens binding only wins where its `when` holds,
-so without it AREPL still answers while the find widget is open.
+Use `ctrl+enter` in place of `cmd+enter` on Windows and Linux; `alt+enter` is
+the same on every platform. The removal entries are not redundant: an Evalens
+binding only wins where its `when` holds, so without them AREPL still answers
+while the find widget is open.
 
 Evalens says all of this itself. When it activates and finds AREPL enabled it
 writes the conflict and the snippet to its **Evalens** output channel every
 time, and offers the fix in a notification once — once per installation, never
-again, whatever you answer.
+again, whatever you answer. If you dismissed it, **Evalens: Fix Keybinding
+Conflict** in the palette hands you the same thing at any time.
 
-The default is staying on `Ctrl/Cmd+Enter`. It is what Calva uses, what AREPL
-uses, and what this audience's fingers already know; ceding it to dodge the
-collision would trade a solvable conflict for a permanently worse default.
+The default is staying on `Ctrl/Cmd+Enter` as well. It is what Calva uses,
+what AREPL uses, and what this audience's fingers already know; ceding it to
+dodge the collision would trade a solvable conflict for a permanently worse
+default. Adding `Alt+Enter` is not ceding it — it is binding the key the
+top-level semantics always implied, and both keys run the same command until
+the inner-form command exists to take `Ctrl+Enter` back.
 
 ## Settings
 

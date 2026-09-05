@@ -148,6 +148,11 @@
         "when": "editorTextFocus && editorLangId == python && !findWidgetVisible"
       },
       {
+        "command": "evalens.evaluateAtCursor",
+        "key": "alt+enter",
+        "when": "editorTextFocus && editorLangId == python && !findWidgetVisible"
+      },
+      {
         "command": "evalens.clearResults",
         "key": "escape",
         "when": "editorTextFocus && evalens.hasAnnotations"

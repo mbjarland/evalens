@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { EVALUATE_AT_CURSOR, EVALUATE_WHEN, evaluateKey } from '../keybindings';
+import {
+  EVALUATE_AT_CURSOR, EVALUATE_WHEN, TOP_LEVEL_KEY, evaluateKey, evaluateKeys,
+} from '../keybindings';
 
 const root = path.resolve(__dirname, '..', '..');
 const manifest = JSON.parse(
@@ -46,23 +48,52 @@ test('main points at a file the build produces', () => {
     `${manifest.main} does not exist -- did the compile run?`);
 });
 
+const atCursor = keybindings.filter((b) => b.command === EVALUATE_AT_CURSOR);
+
 test('the default stays on ctrl/cmd+enter', () => {
   // AREPL owns this key too, and the fix for that is a user keybinding, not a
   // different default: ctrl/cmd+enter is what Calva uses, what AREPL uses,
   // and what this audience's fingers know. Ceding it would trade a solvable
   // collision for a permanently worse default.
-  const binding = keybindings.find((b) => b.command === EVALUATE_AT_CURSOR);
-  assert.ok(binding, `${EVALUATE_AT_CURSOR} has no keybinding`);
-  assert.equal(binding.key, evaluateKey('other'));
+  const binding = atCursor.find((b) => b.key === evaluateKey('other'));
+  assert.ok(binding, `${EVALUATE_AT_CURSOR} has no ctrl+enter keybinding`);
   assert.equal(binding.mac, evaluateKey('mac'));
+});
+
+test('the top-level form key is bound to alt+enter, on every platform', () => {
+  // `evaluateAtCursor` resolves the enclosing *top-level* statement, and
+  // alt+enter is the key Calva puts the top-level form on -- so this is what
+  // the semantics already said, not a workaround for the collision above. It
+  // is not an escape from that collision either: AREPL's `extension.printDir`
+  // sits here under the same `when`, which is why the offered fix covers both
+  // keys. When the inner-form command lands it takes ctrl+enter, and none of
+  // this has to be undone.
+  const binding = atCursor.find((b) => b.key === TOP_LEVEL_KEY);
+  assert.ok(binding, `${EVALUATE_AT_CURSOR} has no ${TOP_LEVEL_KEY} keybinding`);
+  // No `mac` override, deliberately: alt is alt everywhere, and adding one
+  // would be the same mistake that read Jupyter's missing override as absence.
+  assert.equal(binding.mac, undefined);
+});
+
+test('the manifest binds exactly the keys the code hands out', () => {
+  // The fix Evalens copies to the clipboard binds `evaluateKeys`. If the
+  // manifest grows or loses a key without that list following, the fix either
+  // misses a dead key or rebinds one nothing contests.
+  assert.deepEqual(atCursor.map((b) => b.key).sort(),
+    [...evaluateKeys('other')].sort());
+  assert.deepEqual(
+    atCursor.map((b) => b.mac ?? b.key).sort(),
+    [...evaluateKeys('mac')].sort());
 });
 
 test('the offered fix repeats the manifest context exactly', () => {
   // The user keybinding Evalens hands out has to behave like the default it
-  // replaces. If the manifest's `when` is edited and this constant is not,
-  // the fix quietly starts binding a different context.
-  const binding = keybindings.find((b) => b.command === EVALUATE_AT_CURSOR);
-  assert.equal(binding?.when, EVALUATE_WHEN);
+  // replaces. If a manifest `when` is edited and this constant is not, the fix
+  // quietly starts binding a different context -- on either key.
+  assert.ok(atCursor.length > 0, `${EVALUATE_AT_CURSOR} has no keybinding`);
+  for (const binding of atCursor) {
+    assert.equal(binding.when, EVALUATE_WHEN, `${binding.key} binds a different context`);
+  }
 });
 
 test('activation is scoped, not eager', () => {
