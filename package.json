@@ -62,9 +62,9 @@
         },
         "evalens.alignColumn": {
           "type": "number",
-          "default": 80,
+          "default": 0,
           "minimum": 0,
-          "markdownDescription": "Column to align inline results to. A line already past this column gets a small gap instead, so one long statement cannot drag every other result off the screen. `0` disables alignment."
+          "markdownDescription": "Column to align inline results to. `0` (the default) places each result just after the code that produced it, following Rider. Set a column to line results up instead \u2014 useful in a file of plain assignments, and less so once a line carries more than one value."
         }
       }
     },
