@@ -257,6 +257,19 @@ from typing import Any, Dict, Iterable, Iterator, Optional, TextIO, Tuple
 import loops
 from resolver import Form, Parsed, form_at, forms_in, parse_prefix
 
+#: Where this kernel's own modules live, resolved once. At startup it is also
+#: `sys.path[0]`, because that is what Python does for the script it was asked
+#: to run -- see `_seal_kernel_directory` for why it does not stay there, and
+#: `_script_path` for what belongs there instead.
+_KERNEL_DIR = os.path.realpath(os.path.dirname(os.path.abspath(__file__)))
+
+#: The kernel's own modules, held here after `_seal_kernel_directory` takes
+#: them out of `sys.modules`. A plain list because the only thing it has to do
+#: is exist: the references keep the module objects alive for the code that
+#: already imported them, while the names they were registered under stop
+#: resolving for anybody else.
+_SEALED_MODULES: list = []
+
 #: Hard cap on a repr() put on the wire. This is a transport guard, not a
 #: display policy -- the extension knows the editor width and truncates for
 #: reading. Without it, one `repr()` of a large frame is a multi-megabyte JSON
@@ -1169,6 +1182,120 @@ def _error(exc: BaseException, tb_skip: int = 0) -> Dict[str, Any]:
     }
 
 
+def _resolves_to_kernel_dir(entry: str) -> bool:
+    """Does this ``sys.path`` entry name the kernel's own directory?
+
+    Compared as a resolved path rather than as a string, because the same
+    directory has several spellings on that list: ``''`` means the working
+    directory, a relative entry is relative to it, and a symlinked checkout
+    reaches the same files by two names.
+    """
+    try:
+        return os.path.realpath(entry or os.getcwd()) == _KERNEL_DIR
+    except (OSError, ValueError):
+        return False
+
+
+def _lives_in_kernel_dir(module: Any) -> bool:
+    """Was this module loaded from a file in the kernel's own directory?
+
+    Asked of the module rather than of a list of names, so that a third module
+    added beside ``loops`` and ``resolver`` is covered by the same rule the day
+    it lands instead of the day somebody remembers this function exists.
+    """
+    path = getattr(module, "__file__", None)
+    return bool(path) and _resolves_to_kernel_dir(os.path.dirname(path))
+
+
+def _seal_kernel_directory() -> None:
+    """Put Evalens' own modules out of reach of the code it evaluates.
+
+    Python gives a script's directory ``sys.path[0]``, and the script here is
+    the kernel. Left alone, every file the user evaluates runs with the
+    extension's internals first on the import path, so ``import resolver`` in
+    their buffer finds ``kernel/resolver.py`` and *succeeds* -- with a module
+    they have never seen, in place of the one sitting next to their file.
+    Nothing about that looks like a failure, which is what makes it worth
+    closing rather than documenting.
+
+    Dropping the directory is not enough by itself. An import consults
+    ``sys.modules`` before it consults the path, and ``loops`` and ``resolver``
+    are already in there under exactly the names a user might pick. So both
+    come out, and the module objects are held in `_SEALED_MODULES` instead:
+    everything that already imported them keeps working through the references
+    it holds, and user code asking for either name gets the
+    ``ModuleNotFoundError`` it would get from any other interpreter.
+
+    ``__main__`` stays, deliberately. It is this module, and unregistering it
+    would break machinery that expects a program to have one -- multiprocessing
+    spawning a worker, above all -- in order to shut a door narrower than the
+    one this is about.
+
+    Called from ``main`` rather than at import, because sealing is something a
+    kernel *process* does. A test that imports this module for its functions
+    should not find its own imports rearranged underneath it.
+    """
+    ours = [
+        name for name, module in list(sys.modules.items())
+        if name != "__main__" and _lives_in_kernel_dir(module)
+    ]
+    _SEALED_MODULES.extend(sys.modules.pop(name) for name in ours)
+    sys.path[:] = [entry for entry in sys.path
+                   if not _resolves_to_kernel_dir(entry)]
+
+
+def _script_directory(filename: str) -> Optional[str]:
+    """The directory ``python3 <filename>`` would put at ``sys.path[0]``.
+
+    ``None`` when the request does not name a file on disk -- ``<evalens>`` for
+    a source with no path, or an unsaved buffer, whose name is a title rather
+    than a location. Falling back to the working directory there would import
+    from wherever the editor happened to be launched, which is nobody's intent
+    and differs between two windows opened the same way.
+    """
+    if not filename or not os.path.isabs(filename):
+        return None
+    directory = os.path.dirname(os.path.abspath(filename))
+    return directory if os.path.isdir(directory) else None
+
+
+@contextlib.contextmanager
+def _script_path(filename: str) -> Iterator[None]:
+    """Run with the evaluated file's own directory first on ``sys.path``.
+
+    This is the half of the import path the user is entitled to. ``python3
+    myfile.py`` puts ``myfile.py``'s directory at ``sys.path[0]``, and that is
+    how a file imports the package sitting beside it; the kernel is a different
+    script in a different directory, so without this an ``import demo_pkg``
+    fails with ``demo_pkg/`` in the same folder as the file being loaded, and
+    every statement that names anything from it fails after it.
+
+    Scoped to the request rather than left in place. One session evaluates many
+    files, and a path that grows an entry per file makes each file's imports
+    depend on which files happened to be opened before it -- the same
+    accidental shadowing the kernel's own directory caused, only harder to see
+    and unbounded. Between requests ``sys.path`` is what the interpreter
+    started with.
+
+    The entry is removed by identity rather than by value or position. User
+    code may add to ``sys.path`` while it runs and is entitled to keep what it
+    added; deleting index 0 would take theirs, and removing by equality would
+    take a duplicate they inserted deliberately.
+    """
+    directory = _script_directory(filename)
+    if directory is None:
+        yield
+        return
+    sys.path.insert(0, directory)
+    try:
+        yield
+    finally:
+        for index, entry in enumerate(sys.path):
+            if entry is directory:
+                del sys.path[index]
+                break
+
+
 def _selected_lines(request: Dict[str, Any]) -> Optional[Tuple[int, int]]:
     """The 0-based inclusive line range a load was narrowed to, or None.
 
@@ -1342,8 +1469,12 @@ class Kernel:
 
         # A single evaluation may prompt: someone pressed a key and is
         # sitting in front of the editor waiting for this line to answer.
-        outcome = self._run(form, filename,
-                            allow_stdin=bool(request.get("allow_stdin")))
+        #
+        # Under the file's own directory, so that a line the user points at
+        # imports what the same line would import under `python3 file.py`.
+        with _script_path(filename):
+            outcome = self._run(form, filename,
+                                allow_stdin=bool(request.get("allow_stdin")))
         outcome.update(partial)
         return outcome
 
@@ -1440,21 +1571,27 @@ class Kernel:
 
         results = []
         ran = 0
-        for form in forms:
-            # Prompts if the caller allowed it, exactly as a single evaluation
-            # does. The flag is the caller's decision either way; nothing about
-            # running many statements makes the person watching them go away.
-            outcome = self._run(form, filename, allow_stdin=allow_stdin)
-            results.append(outcome)
-            if outcome["ok"]:
-                ran += 1
-            elif _was_interrupted(outcome):
-                # Cancel means stop. Failures do not otherwise end a load --
-                # that is the point of the paragraph above -- but an interrupt
-                # is not the file being broken, it is the user asking for the
-                # load to end, and carrying on into the next statement would
-                # answer a request to stop by running more of their code.
-                break
+        # One insertion for the whole load rather than one per statement: the
+        # imports at the top of a file and the function bodies further down
+        # that import lazily are the same file and get the same path.
+        with _script_path(filename):
+            for form in forms:
+                # Prompts if the caller allowed it, exactly as a single
+                # evaluation does. The flag is the caller's decision either
+                # way; nothing about running many statements makes the person
+                # watching them go away.
+                outcome = self._run(form, filename, allow_stdin=allow_stdin)
+                results.append(outcome)
+                if outcome["ok"]:
+                    ran += 1
+                elif _was_interrupted(outcome):
+                    # Cancel means stop. Failures do not otherwise end a load
+                    # -- that is the point of the paragraph above -- but an
+                    # interrupt is not the file being broken, it is the user
+                    # asking for the load to end, and carrying on into the next
+                    # statement would answer a request to stop by running more
+                    # of their code.
+                    break
 
         response: Dict[str, Any] = {
             "ok": True,
@@ -1719,6 +1856,9 @@ def main() -> None:
     caught, which an iterator holding the loop does not offer.
     """
     global _CONTROL_OUT
+    # Before anything is evaluated, and only once: from here on the import
+    # path belongs to the user's file, not to the extension.
+    _seal_kernel_directory()
     control_in, _CONTROL_OUT = _open_control(sys.argv)
     if control_in is not None:
         threading.Thread(target=_control_loop, args=(control_in,),

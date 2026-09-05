@@ -929,6 +929,132 @@ class LoadFile(KernelTest):
         self.assertEqual(result["statements"], 0)
 
 
+class ImportPath(KernelTest):
+    """What the evaluated file can import, and what it must not be able to.
+
+    Two halves of one property: the import path a user's file sees should be
+    the one `python3 thatfile.py` would give it -- its own directory, and not
+    the extension's. Both halves stay invisible until someone splits their code
+    into two files, at which point the first is why nothing imports and the
+    second is why the wrong thing does.
+    """
+
+    def setUp(self):
+        super().setUp()
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        # Resolved, because on macOS the temporary directory is reached
+        # through a symlink and the kernel reports where the file really is.
+        self.dir = os.path.realpath(directory.name)
+        self.main = os.path.join(self.dir, "main.py")
+
+    def write(self, name, source):
+        path = os.path.join(self.dir, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(source)
+        return path
+
+    def load(self, source, filename=None):
+        return self.k.send(op="eval_file", source=source,
+                           filename=filename or self.main)
+
+    def test_a_file_can_import_the_module_beside_it(self):
+        # The ticket's case, at its smallest. Before the fix this raised
+        # ModuleNotFoundError with helper.py in the same directory, and every
+        # statement naming anything from it failed after it.
+        self.write("helper.py", "def greet():\n    return 'hi'\n")
+        result = self.load("import helper\nhelper.greet()\n")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["ran"], 2, result["results"])
+        self.assertEqual(result["results"][1]["value"], "'hi'")
+
+    def test_a_package_beside_the_file_imports(self):
+        # A package rather than a module, because that is the shape of the
+        # course file that exposed this and the two resolve differently.
+        self.write("demo_pkg/__init__.py", "from .geometry import area\n")
+        self.write("demo_pkg/geometry.py",
+                   "def area(r):\n    return 3 * r * r\n")
+        result = self.load("import demo_pkg\n"
+                           "from demo_pkg.geometry import area\n"
+                           "area(2)\n")
+        self.assertEqual(result["ran"], 3, result["results"])
+        self.assertEqual(result["results"][2]["value"], "12")
+
+    def test_a_single_evaluation_gets_the_same_path_as_a_load(self):
+        # Pressing a key on one import line makes the same promise as loading
+        # the file it sits in, and the two go through different methods.
+        self.write("helper.py", "VALUE = 41\n")
+        source = "import helper\nhelper.VALUE + 1\n"
+        self.k.evaluate(source, 0, filename=self.main)
+        answer = self.k.evaluate(source, 1, filename=self.main)
+        self.assertEqual(answer["value"], "42")
+
+    def test_the_files_own_directory_is_first_on_the_path(self):
+        # First, not merely present: a module of the user's shadows one of the
+        # same name further down the path, which is what running the file
+        # directly does and is occasionally the point of the exercise.
+        result = self.load("import sys\nsys.path[0]\n")
+        self.assertEqual(result["results"][1]["value"], repr(self.dir))
+
+    def test_the_path_is_back_to_normal_between_requests(self):
+        # Otherwise a session accumulates one entry per file evaluated, and
+        # each file's imports start depending on which files were opened
+        # before it -- the same accidental shadowing, harder to see.
+        self.k.evaluate("import sys\nbefore = list(sys.path)\n", 0)
+        self.k.evaluate("import sys\nbefore = list(sys.path)\n", 1)
+        self.assertTrue(self.load("x = 1\n")["ok"])
+        answer = self.k.evaluate("import sys\nbefore == sys.path\n", 1)
+        self.assertEqual(answer["value"], "True")
+
+    def test_the_path_survives_user_code_adding_to_it(self):
+        # The entry is removed by identity for this reason: someone who put a
+        # directory on sys.path from an evaluated line is entitled to keep it,
+        # and deleting index 0 would take theirs instead of ours.
+        self.load("import sys\nsys.path.insert(0, '/opt/mine')\n")
+        answer = self.k.evaluate("import sys\nsys.path[0]\n", 1)
+        self.assertEqual(answer["value"], "'/opt/mine'")
+
+    def test_the_kernels_own_directory_is_not_on_the_path(self):
+        # The second hazard: a directory on the path is a directory whose
+        # modules can be imported by name, and these are not the user's.
+        kernel_dir = os.path.realpath(os.path.dirname(KERNEL))
+        source = ("import os, sys\n"
+                  "[p for p in sys.path if os.path.realpath(p or '.') == "
+                  f"{kernel_dir!r}]\n")
+        self.assertEqual(self.k.evaluate_lines(source, 0, 1)["value"], "[]")
+
+    def test_the_kernels_own_modules_are_not_importable(self):
+        # Removing the directory is not enough on its own: an import consults
+        # sys.modules first, and both of these were already in it under
+        # exactly the names a user might pick.
+        for name in ("resolver", "loops"):
+            with self.subTest(module=name):
+                answer = self.k.evaluate("import %s\n" % name, 0)
+                self.assertFalse(answer["ok"], answer)
+                self.assertEqual(
+                    answer["error"]["type"], "ModuleNotFoundError")
+
+    def test_a_users_module_named_like_the_kernels_wins(self):
+        # The silent half of the defect. This used to succeed with Evalens'
+        # own resolver bound to the name, so nothing raised and nothing looked
+        # wrong -- the file simply used a module its author had never seen.
+        self.write("resolver.py", "WHOSE = 'the user'\n")
+        result = self.load("import resolver\nresolver.WHOSE\n")
+        self.assertEqual(result["ran"], 2, result["results"])
+        self.assertEqual(result["results"][1]["value"], "'the user'")
+
+    def test_a_source_with_no_file_gets_no_path_entry(self):
+        # An unsaved buffer has a title, not a location. Falling back to the
+        # working directory would import from wherever the editor happened to
+        # be launched, which differs between two windows opened the same way.
+        self.k.evaluate("import sys\nbefore = list(sys.path)\n", 0)
+        self.k.evaluate("import sys\nbefore = list(sys.path)\n", 1)
+        self.k.send(op="eval_file", source="x = 1\n", filename="Untitled-1")
+        answer = self.k.evaluate("import sys\nbefore == sys.path\n", 1)
+        self.assertEqual(answer["value"], "True")
+
+
 class LoadSelection(KernelTest):
     """A load narrowed to the lines a selection touches.
 
