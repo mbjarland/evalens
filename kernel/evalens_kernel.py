@@ -53,6 +53,17 @@ for the few things Python reprs by memory address it is a description instead,
 and an extra ``repr`` field then carries the untouched original -- see
 ``describe``.
 
+Where it comes from is the annotation's whole safety, and there are three
+sources rather than one. Most statements have their ``display`` read back out
+of the namespace afterwards, which is allowed only because the resolver
+guarantees that display is a bare name. An expression statement is evaluated
+once and reported, never re-run. And an assignment whose target is an
+attribute or a subscript reports **what it stored**, captured as it stored it
+-- because reading ``acct.balance`` back would call a property getter the
+assignment never called, and an annotation may not execute user code the
+statement did not. ``resolver._value_source`` decides which of the three
+applies, and it decides for every statement kind.
+
 ``names`` is what the names on the line hold, which for most lines is the
 answer the reader wanted and ``value`` is not::
 
@@ -249,6 +260,15 @@ WIRE_REPR_LIMIT = 8192
 #: name it mentions stops being an annotation and becomes a second copy of the
 #: namespace, and the code it is written beside disappears under it.
 NAME_LIMIT = 4
+
+#: The name a captured assignment stores its value through. Installed in the
+#: namespace for the duration of one statement and removed afterwards, exactly
+#: as the loop recorders are: the namespace is the user's, and it is inspected
+#: with `dir()`.
+ASSIGNED = "__evalens_assigned__"
+
+#: Distinguishes "nothing was captured" from "the statement assigned None".
+_NOTHING = object()
 
 #: The real stdout, captured before anything can replace it. Responses are
 #: written here rather than through `sys.stdout`, because user code is free to
@@ -934,6 +954,71 @@ def _instrumented(node: ast.stmt) -> tuple[ast.stmt, list]:
         plan, lambda value: safe_repr(value, loops.ITEM_LIMIT))
 
 
+def _capturing(node: ast.Assign) -> ast.Assign:
+    """`node` with one more target, so the value it stores is kept.
+
+    `acct.balance = 100` becomes `__evalens_assigned__ = acct.balance = 100`.
+    Python evaluates a chained assignment's right-hand side **once** and then
+    stores that one object into each target from left to right, so this keeps
+    what the statement assigned without evaluating anything a second time.
+    That is the whole point of it: reading `acct.balance` back afterwards
+    calls a property getter the assignment never called, which is user code
+    the extension decided to run rather than the user.
+
+    Storing into a plain name runs nothing itself -- it is a dictionary write
+    -- and it happens before the target's own store, so the value is kept even
+    when a setter goes on to raise.
+
+    A new node rather than a mutated one. The caller holds the user's parsed
+    tree, and `loops.instrument` states the same rule for the same reason: a
+    transformer that edits its input turns "evaluate this twice" into
+    "instrument it twice".
+    """
+    capture = ast.copy_location(ast.Name(id=ASSIGNED, ctx=ast.Store()), node)
+    rewritten = ast.copy_location(
+        ast.Assign(targets=[capture, *node.targets], value=node.value), node)
+    return ast.fix_missing_locations(rewritten)
+
+
+class _Capture:
+    """Somewhere for a captured assignment to put its value, briefly.
+
+    The rewrite above stores through a name, so the name has to be in the
+    namespace while the statement runs and gone once it has -- the discipline
+    `loops.installed` keeps for the recorders, and for the same two reasons:
+    the namespace is the user's and gets inspected, and a name that already
+    existed is put back rather than destroyed.
+
+    Not a `@contextlib.contextmanager`, again following `loops.installed`: an
+    exception thrown into a generator-based manager propagates back out
+    through `contextlib`'s frame and this module's, and the kernel goes to
+    some trouble to keep its own frames out of the traceback the user reads.
+
+    `value` stays `_NOTHING` unless the statement got as far as storing one,
+    which is what tells "assigned None" from "raised before assigning".
+    """
+
+    __slots__ = ("_namespace", "_active", "_previous", "value")
+
+    def __init__(self, namespace: Dict[str, Any], active: bool) -> None:
+        self._namespace = namespace
+        self._active = active
+        self._previous: Any = _NOTHING
+        self.value: Any = _NOTHING
+
+    def __enter__(self) -> "_Capture":
+        if self._active:
+            self._previous = self._namespace.get(ASSIGNED, _NOTHING)
+        return self
+
+    def __exit__(self, *exc_info: Any) -> bool:
+        if self._active:
+            self.value = self._namespace.pop(ASSIGNED, _NOTHING)
+            if self._previous is not _NOTHING:
+                self._namespace[ASSIGNED] = self._previous
+        return False
+
+
 def _position(line: int, character: int) -> Dict[str, int]:
     return {"line": line, "character": character}
 
@@ -1352,6 +1437,11 @@ class Kernel:
     def _run(self, form: Form, filename: str,
              allow_stdin: bool = False) -> Dict[str, Any]:
         node, recorders = _instrumented(form.node)
+        if form.captured:
+            # An assignment to an attribute or a subscript. The value has to
+            # come from the statement, because the only other way to it is
+            # through the user's own getter. See `_capturing`.
+            node = _capturing(node)
         statement = ast.Module(body=[node], type_ignores=[])
         shown: Optional[str] = None
         raw_repr: Optional[str] = None
@@ -1394,8 +1484,9 @@ class Kernel:
                     # newlines escaped.
                 else:
                     with loops.installed(self.namespace, recorders):
-                        exec(compile(statement, filename, "exec",
-                                     dont_inherit=True), self.namespace)
+                        with _Capture(self.namespace, form.captured) as kept:
+                            exec(compile(statement, filename, "exec",
+                                         dont_inherit=True), self.namespace)
                     if recorders:
                         # A loop reports what it saw, not what its target
                         # happens to hold once it is over. Those differ
@@ -1414,12 +1505,20 @@ class Kernel:
                         # is usually the result, which is the half the reader
                         # came for.
                         bindings = recorders[0].bindings_wire()
-                    elif form.display is not None:
-                        # Safe for the remaining statement kinds because every
-                        # display expression they produce is a name, or a
-                        # subscript/attribute read of one -- not the work the
-                        # statement did. A property getter with side effects
-                        # is the residual case, and is the user's own.
+                    elif kept.value is not _NOTHING:
+                        # What the assignment stored, taken as it stored it.
+                        # `acct.balance` is never read: the annotation reports
+                        # the value the line put there, which it can do
+                        # without asking the object anything.
+                        shown, raw_repr = wire_value(kept.value)
+                    elif form.readable:
+                        # A bare name, or a tuple of them, which the resolver
+                        # has already vouched for: evaluating one is a
+                        # dictionary lookup and cannot run user code. Every
+                        # other display either arrives with its value already
+                        # in hand or is not shown at all -- see
+                        # `resolver._value_source`, and #68 for what this
+                        # branch did when it took anything it was given.
                         expression = ast.Expression(
                             ast.parse(form.display, mode="eval").body)
                         value = eval(  # noqa: S307

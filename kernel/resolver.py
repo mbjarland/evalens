@@ -20,6 +20,13 @@ and do not exist at module level.
 this module's substance, and it is why the kernel runs two steps rather than
 one.
 
+**The second step must not be an execution.** Writing the target beside the
+line and *evaluating* it are different decisions, and treating them as one is
+how `acct.balance = 100` came to run the user's property getter a second time
+under the annotation. `_value_source` splits them: a target is read back only
+where reading it is a namespace lookup, and an assignment whose target is not
+hands over the value it stored instead.
+
 **A statement's own value is not the only thing worth showing.** Most lines
 in a real file are not bindings, and one value per statement has nothing to
 say about them: `print("y unaffected by rebind:", y)` produced `None`, which
@@ -76,6 +83,15 @@ class Form:
     #: put out of date. See `defs_and_uses`.
     binds: Tuple[str, ...] = ()
     reads: Tuple[str, ...] = ()
+    #: Whether the kernel may evaluate `display` once the statement has run.
+    #: True only where doing so is a namespace lookup. False is not "nothing
+    #: to show" -- an expression statement and a loop both display something
+    #: the statement has already produced -- it is "do not run this again".
+    readable: bool = False
+    #: Whether the value beside `display` has to be taken as the statement
+    #: stores it, because reading the target back would run the user's code.
+    #: Exactly one of this and `readable` is ever true. See `_value_source`.
+    captured: bool = False
 
 
 #: Statements whose value belongs on the line that introduces them rather than
@@ -136,6 +152,30 @@ def _pattern_names(target: ast.expr) -> Set[str]:
     return set()
 
 
+def _only_names(target: ast.expr) -> bool:
+    """Is reading this target back a namespace lookup and nothing else?
+
+    The rule `_Names` states for the names a line reports, applied to the
+    display slot -- which had been exempt from it, and that was #68. A bare
+    name is a dictionary lookup that cannot run user code; `obj.attr` may be a
+    property with a body, and `d[k]` calls `__getitem__`. Reading either back
+    to annotate an assignment executes something the statement itself did not,
+    which the explicit-trigger design exists to make impossible.
+
+    A tuple or list of bare names is the same lookup several times over, so it
+    passes: `with cm() as (a, b)` can be read back safely. `*rest` cannot,
+    even though the name it binds is bare -- as an *expression* `(a, *rest)`
+    iterates `rest` rather than showing it, and iterating is the user's code
+    again as well as the wrong answer. `loops._load_copy` learned that one the
+    same way.
+    """
+    if isinstance(target, ast.Name):
+        return True
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return all(_only_names(element) for element in target.elts)
+    return False
+
+
 def is_docstring(node: ast.stmt, first_in_body: bool) -> bool:
     """Is this statement a docstring rather than a value someone asked for?
 
@@ -165,6 +205,12 @@ def _display_target(node: ast.stmt) -> Optional[Union[ast.expr, str]]:
     source to show, and which names that source already accounts for. Deriving
     the second by re-parsing the first would be a second table pretending to
     be one.
+
+    Answering with a target says what to *write* beside the line. It says
+    nothing about how to find the value, which is `_value_source`: some of
+    these are read back out of the namespace afterwards and some are not, and
+    a target that cannot be read back safely is either captured as the
+    statement stores it or dropped here.
     """
     if isinstance(node, ast.Assign):
         # `a = b = 1` has two targets; the first is the one written left-most
@@ -186,8 +232,26 @@ def _display_target(node: ast.stmt) -> Optional[Union[ast.expr, str]]:
             # re-evaluated to produce it.
             return None
         return target
-    if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
-        return node.target
+    if isinstance(node, ast.AugAssign):
+        # `n += 1` reads, computes and stores back, so its value exists only
+        # in the namespace afterwards -- there is nothing for the statement to
+        # hand over. Reading `counter.n` back would call the property a second
+        # time, having already called it once for the `+=` itself, so an
+        # augmented assignment to anything but a name shows nothing and lets
+        # the object in front of the dot be reported as an ordinary name.
+        return node.target if _only_names(node.target) else None
+    if isinstance(node, ast.AnnAssign):
+        if node.value is None:
+            # `count: int` records an annotation and binds nothing at all, so
+            # reading `count` back raised NameError on a line that ran
+            # perfectly and painted the extension's own failure in red.
+            return None
+        # An annotated assignment to an attribute is not captured: the capture
+        # works by adding a second target, and `AnnAssign` allows exactly one.
+        # It is a rare enough shape at module level -- `self.x: int = 0` lives
+        # inside a `def` -- that showing nothing costs less than moving when
+        # the annotation is evaluated relative to the store.
+        return node.target if _only_names(node.target) else None
     if isinstance(node, ast.Expr):
         return node.value
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -199,12 +263,21 @@ def _display_target(node: ast.stmt) -> Optional[Union[ast.expr, str]]:
         # what it held on each iteration and reports all of them. `p` is still
         # the right thing to write beside the answer -- it is what the reader
         # is watching -- but nothing evaluates it afterwards, because by then
-        # it holds only the last of the values already recorded. See `loops`.
+        # it holds only the last of the values already recorded, and for
+        # `for d[next(it)] in xs:` reading it back advanced the user's
+        # iterator a second time and then painted the KeyError that caused.
+        # See `loops`, which declines to instrument that shape for the same
+        # reason and was then undone by a read `_value_source` now refuses.
         return node.target
     if isinstance(node, (ast.With, ast.AsyncWith)):
         for item in node.items:
             if item.optional_vars is not None:
-                return item.optional_vars
+                # `with open(p) as obj.attr:` binds through a descriptor whose
+                # getter is the user's; only a name is read back. The first
+                # `as` clause is the one the eye lands on, so a later one does
+                # not stand in for it.
+                return (item.optional_vars
+                        if _only_names(item.optional_vars) else None)
         return None
     return None
 
@@ -231,6 +304,51 @@ def display_expr(node: ast.stmt, first_in_body: bool = False) -> Optional[str]:
     if target is None or isinstance(target, str):
         return target
     return ast.unparse(target)
+
+
+def _value_source(node: ast.stmt,
+                  target: Optional[Union[ast.expr, str]]) -> Tuple[bool, bool]:
+    """Where the value beside `display` comes from: `(readable, captured)`.
+
+    One function rather than two so the pair cannot disagree, and the whole
+    rule in one place because it is the rule an annotation is only ever as
+    safe as. **Nothing an annotation does may execute user code the statement
+    did not.** Three answers satisfy it, and this picks between them.
+
+    *Readable* -- evaluate `display` afterwards. Allowed only where that is a
+    namespace lookup, which is a bare name or a tuple of them: the same test
+    `_Names` applies to the names a line reports. A bound name from an
+    `import` or a `def` arrives here as a plain string and is one of those.
+
+    *Captured* -- an assignment whose target cannot be read back hands over
+    the value it stored instead. The right-hand side has already been
+    evaluated by the statement, so nothing runs twice, and `acct.balance: 100`
+    is what the reader wanted from `acct.balance = 100` anyway. What it claims
+    is that this is the value the line assigned, which is true even where a
+    setter went on to transform it -- a read-back would have claimed to be the
+    attribute's current value and, when the getter was not idempotent, would
+    not even have been that.
+
+    *Neither* -- the value is the statement's own doing and the kernel has it
+    already: an expression statement is evaluated exactly once and never
+    re-run (the first bug this project found), and a loop's target is a
+    recorded sequence rather than a value to look up.
+    """
+    if target is None:
+        return False, False
+    if isinstance(target, str):
+        # A name an import or a definition bound, and nothing else reaches
+        # here as a string.
+        return True, False
+    if isinstance(node, (ast.Expr, ast.For, ast.AsyncFor)):
+        return False, False
+    if _only_names(target):
+        return True, False
+    # An attribute or subscript target, which only a plain assignment still
+    # offers: every other statement kind has already answered `None` for one.
+    # Anything that reaches here without a value to hand over shows nothing,
+    # which is the answer that cannot be wrong.
+    return False, isinstance(node, ast.Assign)
 
 
 class _Names(ast.NodeVisitor):
@@ -511,10 +629,15 @@ def form_of(node: ast.stmt, first_in_body: bool = False) -> Form:
     start = _start_line(node) - 1
     end = (node.end_lineno or node.lineno) - 1
     binds, reads = defs_and_uses(node)
+    display = display_expr(node, first_in_body)
+    # Asked of the target only when there is a display to put a value beside,
+    # so a suppressed docstring cannot be reported as readable source.
+    readable, captured = _value_source(
+        node, None if display is None else _display_target(node))
     return Form(
         node=node,
         kind=type(node).__name__,
-        display=display_expr(node, first_in_body),
+        display=display,
         start_line=start,
         start_char=0 if start < node.lineno - 1 else node.col_offset,
         end_line=end,
@@ -523,6 +646,8 @@ def form_of(node: ast.stmt, first_in_body: bool = False) -> Form:
         names=annotated_names(node, first_in_body),
         binds=binds,
         reads=reads,
+        readable=readable,
+        captured=captured,
     )
 
 

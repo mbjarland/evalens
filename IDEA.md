@@ -115,6 +115,17 @@ returns nothing. The resolution: exec the statement, then separately
 evaluate the assignment *target* and display that. For a bare expression
 statement, just display its value.
 
+**"Evaluate the target" holds only while the target is a bare name**, which
+is the correction the first real corpus forced. Reading `x` back is a
+dictionary lookup and cannot run anything; reading `acct.balance` back calls
+a property getter the assignment never called, and `led['a']` calls
+`__getitem__` — user code the *annotation* chose to run, in a design whose
+whole premise is that the user chooses. So an assignment to an attribute or
+a subscript reports the value it stored, kept as the statement stored it,
+and a statement with no value that can be had safely shows none.
+`kernel/resolver.py` decides which of the three applies, per statement kind,
+and the kernel obeys it rather than deciding for itself.
+
 A `for` loop is the exception, and the interesting one. Its target holds
 only the last element once the loop is over, so reading it afterwards
 throws away every iteration but one — which is the thing you ran the loop

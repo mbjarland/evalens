@@ -295,17 +295,70 @@ head, *rest = [1, 2, 3, 4]
 #      There is no right-hand side here whose echo would say the same thing.
 low, high = high, low
 
-# 14. Subscript and attribute targets are shown as written.  Displaying
-#     `shelf` or `spot` instead would hide the thing that just changed, and
-#     re-running the right-hand side to find out would run it twice.
+# 14. Subscript and attribute targets are shown as written, and the value
+#     beside one is the value the statement stored -- kept as it was stored,
+#     never read back.  Displaying `shelf` or `spot` instead would hide the
+#     thing that just changed.
 shelf = {'jam': 1, 'tea': 2}
 shelf['jam'] = 99
 
 spot = Record(x=1, y=2)
 spot.x = 10
 
+# 14a. Why that value is kept rather than read back, said out loud.  `Meter`
+#      counts every read of `reading` and every `meter[...]`, so an
+#      annotation that reads cannot hide: evaluate the three lines below the
+#      class and `meter.reads` answers 0.  It answered 2 before, because the
+#      annotation -- not the program -- had called the property and then the
+#      `__getitem__`, and a getter is free to fetch, lazily load, pop a queue
+#      or charge a card.  Nothing on screen said so, and the count the user
+#      could then read was the extension's own footprint reported back as
+#      their program's state.
+#
+#      Then the case with no safe answer.  `meter.reading += 1` calls the
+#      getter itself, once, and leaves the sum inside the object with no way
+#      back to it but the getter again -- so the line shows no value at all,
+#      only `meter: <Meter instance>`, and the count under it reads 1, which
+#      is the read the user's own `+=` made.
+class Meter:
+    def __init__(self):
+        self._reading = 0
+        self.slots = {}
+        self.reads = 0
+
+    @property
+    def reading(self):
+        self.reads += 1
+        return self._reading
+
+    @reading.setter
+    def reading(self, value):
+        self._reading = value
+
+    def __setitem__(self, key, value):
+        self.slots[key] = value
+
+    def __getitem__(self, key):
+        self.reads += 1
+        return self.slots[key]
+
+
+meter = Meter()
+meter.reading = 7
+meter['dial'] = 'lit'
+meter.reads
+
+meter.reading += 1
+meter.reads
+
 # 15. An annotated assignment shows its target, not its annotation.
 budget: int = 500
+
+# 15a. A bare annotation binds nothing at all -- it records a type and stops
+#      -- so there is nothing to show beside it.  Reading `ceiling` back to
+#      display it raised NameError, which painted the extension's own failure
+#      in red beside a line that had run perfectly.
+ceiling: int
 
 # 16. An augmented assignment shows the target after the update, which is the
 #     only interesting moment for `+=`.

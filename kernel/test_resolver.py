@@ -54,8 +54,26 @@ class DisplayMapping(unittest.TestCase):
     def test_annotated_assign_shows_the_target(self):
         self.assertEqual(resolve("n: int = 5\n", 0).display, "n")
 
+    def test_a_bare_annotation_shows_nothing(self):
+        # `count: int` records an annotation and binds nothing at all, so
+        # there is nothing to read back -- and reading it back raised
+        # NameError, painting the extension's own failure in red beside a
+        # line that had run perfectly.
+        self.assertIsNone(resolve("count: int\n", 0).display)
+
     def test_augmented_assign_shows_the_target(self):
         self.assertEqual(resolve("n += 1\n", 0).display, "n")
+
+    def test_an_augmented_assign_to_a_place_shows_nothing(self):
+        # `counter.n += 1` has already called the getter once, legitimately.
+        # Reading the target back to display it calls it a second time, and
+        # unlike a plain assignment there is no value to hand over instead:
+        # the sum exists only inside the object it was stored into.
+        self.assertIsNone(resolve("counter.n += 1\n", 0).display)
+        self.assertIsNone(resolve("totals['a'] += 1\n", 0).display)
+
+    def test_an_annotated_assign_to_a_place_shows_nothing(self):
+        self.assertIsNone(resolve("obj.x: int = 5\n", 0).display)
 
     def test_bare_expression_shows_itself(self):
         f = resolve("lst\n", 0)
@@ -83,6 +101,14 @@ class DisplayMapping(unittest.TestCase):
         self.assertIsNone(
             resolve("with lock:\n    pass\n", 0).display)
 
+    def test_a_with_target_that_is_not_a_name_shows_nothing(self):
+        # `with open(p) as obj.fh:` is legal and rare, and reading `obj.fh`
+        # back to display it goes through whatever descriptor put it there.
+        self.assertIsNone(
+            resolve("with open('f') as obj.fh:\n    pass\n", 0).display)
+        self.assertIsNone(
+            resolve("with open('f') as slots[0]:\n    pass\n", 0).display)
+
     def test_statements_with_nothing_to_show_resolve_with_no_display(self):
         for src in ("del x\n", "if x:\n    pass\n", "while x:\n    pass\n",
                     "try:\n    pass\nexcept Exception:\n    pass\n"):
@@ -90,6 +116,154 @@ class DisplayMapping(unittest.TestCase):
                 f = resolve(src, 0)
                 self.assertIsNotNone(f, "the statement should still resolve")
                 self.assertIsNone(f.display)
+
+
+class WhereTheValueComesFrom(unittest.TestCase):
+    """Writing a target beside a line and evaluating it are different acts.
+
+    Treating them as one is what made `acct.balance = 100` call the user's
+    property getter a second time, under the annotation, with nothing on
+    screen to say so. `readable` and `captured` are how the resolver keeps
+    them apart, and the invariant at the foot of this class is the one that
+    cannot be satisfied by remembering: whatever the kernel is allowed to
+    evaluate has to be a namespace lookup.
+    """
+
+    def test_a_name_is_read_back_out_of_the_namespace(self):
+        form = resolve("x = 1\n", 0)
+        self.assertTrue(form.readable)
+        self.assertFalse(form.captured)
+
+    def test_an_attribute_target_is_captured_rather_than_read(self):
+        form = resolve("acct.balance = 100\n", 0)
+        # Still labelled with the target, because that is where the value
+        # went; the value beside it is the one the statement stored.
+        self.assertEqual(form.display, "acct.balance")
+        self.assertFalse(form.readable)
+        self.assertTrue(form.captured)
+
+    def test_a_subscript_target_is_captured_too(self):
+        form = resolve("led['a'] = 1\n", 0)
+        self.assertEqual(form.display, "led['a']")
+        self.assertFalse(form.readable)
+        self.assertTrue(form.captured)
+
+    def test_a_chained_assignment_through_a_place_is_captured(self):
+        form = resolve("obj.x = obj.y = compute()\n", 0)
+        self.assertFalse(form.readable)
+        self.assertTrue(form.captured)
+
+    def test_an_expression_statement_is_never_evaluated_a_second_time(self):
+        # The first bug this project found: `y.append(4)` exec'd and then
+        # re-evaluated for display appended twice. The kernel evaluates an
+        # expression statement once and reports that; nothing may read the
+        # display back.
+        form = resolve("y.append(4)\n", 0)
+        self.assertEqual(form.display, "y.append(4)")
+        self.assertFalse(form.readable)
+        self.assertFalse(form.captured)
+
+    def test_a_loop_target_is_never_read_back(self):
+        # The sequence comes from the recorders in `loops`, which is the only
+        # source that is true of every iteration rather than the last.
+        for src in ("for i in range(3):\n    pass\n",
+                    "for k, v in d.items():\n    pass\n",
+                    "for box.item in [1, 2]:\n    pass\n",
+                    "for d[next(it)] in [1]:\n    pass\n"):
+            with self.subTest(src=src):
+                form = resolve(src, 0)
+                self.assertFalse(form.readable)
+                self.assertFalse(form.captured)
+
+    def test_a_tuple_of_names_is_a_lookup_and_survives(self):
+        form = resolve("with cm() as (a, b):\n    pass\n", 0)
+        self.assertEqual(form.display, "(a, b)")
+        self.assertTrue(form.readable)
+
+    def test_a_starred_pattern_is_not_read_back(self):
+        # `(head, *rest)` as an expression iterates `rest` rather than showing
+        # it: user code again, and the wrong answer as well.
+        self.assertFalse(
+            resolve("with cm() as (head, *rest):\n    pass\n", 0).readable)
+
+    def test_a_docstring_is_neither(self):
+        form = resolve('"""Module."""\n', 0)
+        self.assertIsNone(form.display)
+        self.assertFalse(form.readable)
+        self.assertFalse(form.captured)
+
+    def test_nothing_readable_is_also_captured(self):
+        for src in SHAPES:
+            with self.subTest(src=src):
+                form = resolve(src, 0)
+                self.assertFalse(form.readable and form.captured)
+
+    def test_everything_readable_is_a_namespace_lookup(self):
+        # The invariant, over every statement shape the table answers for: a
+        # display the kernel may evaluate has to be a bare name or a tuple of
+        # them. Anything else -- an attribute, a subscript, a call -- runs the
+        # user's code, and an annotation runs nothing the statement did not.
+        for src in SHAPES:
+            form = resolve(src, 0)
+            if not form.readable:
+                continue
+            with self.subTest(src=src):
+                self.assertIsNotNone(form.display)
+                self.assertTrue(
+                    _only_names_in(form.display),
+                    f"{form.display!r} is not a namespace lookup")
+
+
+#: One of every statement shape the display table has an answer for, plus the
+#: shapes that made the safety rule necessary. Written out rather than
+#: generated: the point is that a reader can see what is covered.
+SHAPES = (
+    "x = 1\n",
+    "a = b = 1\n",
+    "a, b = 1, 2\n",
+    "head, *rest = [1, 2, 3, 4]\n",
+    "acct.balance = 100\n",
+    "led['a'] = 1\n",
+    "matrix[i][j] = 0\n",
+    "obj.x = obj.y = compute()\n",
+    "n: int = 5\n",
+    "count: int\n",
+    "obj.x: int = 5\n",
+    "n += 1\n",
+    "counter.n += 1\n",
+    "totals['a'] += 1\n",
+    "lst\n",
+    "y.append(4)\n",
+    "(step := 3)\n",
+    '"""Module."""\n',
+    "def f():\n    pass\n",
+    "async def g():\n    pass\n",
+    "class C:\n    pass\n",
+    "import os.path\n",
+    "from x import y as z\n",
+    "for i in range(3):\n    pass\n",
+    "for k, v in d.items():\n    pass\n",
+    "for box.item in [1, 2]:\n    pass\n",
+    "for d[next(it)] in [1]:\n    pass\n",
+    "with open('f') as fh:\n    pass\n",
+    "with cm() as (a, b):\n    pass\n",
+    "with open('f') as obj.fh:\n    pass\n",
+    "with lock:\n    pass\n",
+    "del x\n",
+    "if x:\n    pass\n",
+    "while x:\n    pass\n",
+    "pass\n",
+)
+
+
+def _only_names_in(display: str) -> bool:
+    """Is this display source a bare name, or a tuple or list of them?"""
+    node = ast.parse(display, mode="eval").body
+    if isinstance(node, ast.Name):
+        return True
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return all(isinstance(element, ast.Name) for element in node.elts)
+    return False
 
 
 class Docstrings(unittest.TestCase):
@@ -834,6 +1008,20 @@ class TheTourFile(unittest.TestCase):
                 form = form_of(node)
                 self.assertEqual(form.kind, type(node).__name__)
                 self.assertLessEqual(form.start_line, form.end_line)
+
+    def test_nothing_in_the_tour_is_read_back_but_a_lookup(self):
+        # The safety invariant over real source. Every statement the tour has
+        # gets asked where its value comes from, and the only displays the
+        # kernel is allowed to evaluate are the ones that cannot run
+        # anything: a bare name, or a tuple of them.
+        for node in self.tree.body:
+            form = form_of(node)
+            if not form.readable:
+                continue
+            with self.subTest(line=node.lineno):
+                self.assertTrue(
+                    _only_names_in(form.display),
+                    f"line {node.lineno}: {form.display!r} would be evaluated")
 
     def test_every_anchor_in_the_tour_lands_inside_its_own_statement(self):
         # An anchor outside the range would paint a value beside code the

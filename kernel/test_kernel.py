@@ -231,6 +231,157 @@ class SideEffects(KernelTest):
         self.assertEqual(self.k.evaluate(src, 5)["value"], "[1]")
 
 
+#: A class whose getter announces itself and counts. The counter is the part
+#: of the evidence that cannot be argued with: the assignment below never
+#: calls `balance`, so any reading above zero is the annotation's own.
+PROPERTY = (
+    "class Account:\n"
+    "    def __init__(self):\n"
+    "        self._balance = 0\n"
+    "        self.reads = 0\n"
+    "    @property\n"
+    "    def balance(self):\n"
+    "        self.reads += 1\n"
+    "        print('GETTER RAN')\n"
+    "        return self._balance\n"
+    "    @balance.setter\n"
+    "    def balance(self, v):\n"
+    "        self._balance = v\n"
+    "acct = Account()\n"
+)
+
+#: The same shape one level along: `__getitem__` rather than a property, and
+#: a `__setitem__` that the assignment really does call.
+CONTAINER = (
+    "class Leds:\n"
+    "    def __init__(self):\n"
+    "        self.slots = {}\n"
+    "        self.reads = 0\n"
+    "    def __setitem__(self, key, value):\n"
+    "        self.slots[key] = value\n"
+    "    def __getitem__(self, key):\n"
+    "        self.reads += 1\n"
+    "        print('GETITEM RAN')\n"
+    "        return self.slots[key]\n"
+    "led = Leds()\n"
+)
+
+
+class AnnotatingRunsNothing(KernelTest):
+    """An annotation may not execute code the statement did not.
+
+    `_display_target` used to hand back an assignment's target whatever its
+    shape, and the kernel evaluated it to read the value back. For
+    `acct.balance = 100` that called a property getter the assignment never
+    called: a lazy load, a cached fetch, a counter, a queue popped -- whatever
+    the getter does, done by the extension, invisibly, and then reported back
+    to the user as their own program's state.
+
+    Every test here asserts a counter or an untouched iterator as well as the
+    value, because that is the half of the evidence that cannot be explained
+    away by what the line happens to paint.
+    """
+
+    def test_assigning_to_a_property_does_not_call_its_getter(self):
+        src = PROPERTY + "acct.balance = 100\nacct.reads\n"
+        assignment = self.k.evaluate_lines(src, 0, 12, 13)
+        self.assertTrue(assignment["ok"], assignment)
+        self.assertEqual(assignment["stdout"], "")
+        self.assertEqual(self.k.evaluate(src, 14)["value"], "0")
+
+    def test_the_value_shown_is_the_one_the_assignment_stored(self):
+        src = PROPERTY + "acct.balance = 100\n"
+        assignment = self.k.evaluate_lines(src, 0, 12, 13)
+        self.assertEqual(assignment["display"], "acct.balance")
+        self.assertEqual(assignment["value"], "100")
+
+    def test_assigning_through_setitem_does_not_call_getitem(self):
+        src = CONTAINER + "led['a'] = 1\nled.reads\n"
+        assignment = self.k.evaluate_lines(src, 0, 10, 11)
+        self.assertTrue(assignment["ok"], assignment)
+        self.assertEqual(assignment["stdout"], "")
+        self.assertEqual(assignment["value"], "1")
+        self.assertEqual(self.k.evaluate(src, 12)["value"], "0")
+
+    def test_an_augmented_assignment_calls_the_getter_exactly_once(self):
+        # `+=` genuinely reads, and that read is the user's. The second one is
+        # what must not happen: the counter used to read 2 for a line written
+        # once, so the extension was reporting its own footprint as state.
+        src = PROPERTY + "acct.balance += 5\nacct.reads\n"
+        augmented = self.k.evaluate_lines(src, 0, 12, 13)
+        self.assertTrue(augmented["ok"], augmented)
+        self.assertEqual(augmented["stdout"], "GETTER RAN\n")
+        self.assertEqual(self.k.evaluate(src, 14)["value"], "1")
+
+    def test_an_augmented_assignment_to_a_property_shows_no_value(self):
+        # Nothing safe is left to show: the sum lives inside the object and
+        # the only way to it is the getter. The line still reports the object
+        # it went through, as an ordinary name.
+        src = PROPERTY + "acct.balance += 5\n"
+        augmented = self.k.evaluate_lines(src, 0, 12, 13)
+        self.assertIsNone(augmented["display"])
+        self.assertIsNone(augmented["value"])
+        self.assertEqual([pair["name"] for pair in augmented.get("names", [])],
+                         ["acct"])
+
+    def test_a_loop_target_that_cannot_be_read_back_is_not_read_back(self):
+        # `for d[next(it)] in xs:` is deliberately left uninstrumented, and
+        # the display step then evaluated it anyway: `next(it)` advanced the
+        # user's iterator a second time, and the annotation painted the
+        # KeyError that caused beside a line that had worked.
+        src = ("it = iter([10, 20])\nd = {}\n"
+               "for d[next(it)] in [1]:\n    pass\nlist(it)\n")
+        loop = self.k.evaluate_lines(src, 0, 1, 2)
+        self.assertTrue(loop["ok"], loop)
+        self.assertIsNone(loop["value"])
+        self.assertEqual(self.k.evaluate(src, 4)["value"], "[20]")
+
+    def test_a_bare_annotation_binds_nothing_and_reports_nothing(self):
+        # `count: int` runs and binds nothing, so reading `count` back raised
+        # NameError -- the extension's own failure, painted red beside a line
+        # with nothing wrong with it.
+        annotation = self.k.evaluate("count: int\n", 0)
+        self.assertTrue(annotation["ok"], annotation)
+        self.assertIsNone(annotation["value"])
+
+    def test_the_capture_leaves_no_machinery_in_the_namespace(self):
+        src = "obj = type('T', (), {})()\nobj.x = 1\nsorted(dir())\n"
+        self.k.evaluate_lines(src, 0, 1)
+        self.assertNotIn("__evalens_assigned__",
+                         self.k.evaluate(src, 2)["value"])
+
+    def test_a_name_the_capture_would_shadow_survives(self):
+        src = ("__evalens_assigned__ = 'mine'\nobj = type('T', (), {})()\n"
+               "obj.x = 1\n__evalens_assigned__\n")
+        self.k.evaluate_lines(src, 0, 1, 2)
+        self.assertEqual(self.k.evaluate(src, 3)["value"], "'mine'")
+
+    def test_a_setter_that_raises_leaves_nothing_behind_either(self):
+        src = ("class Strict:\n"
+               "    @property\n"
+               "    def x(self):\n"
+               "        return 1\n"
+               "    @x.setter\n"
+               "    def x(self, v):\n"
+               "        raise ValueError('no')\n"
+               "s = Strict()\ns.x = 2\nsorted(dir())\n")
+        self.k.evaluate_lines(src, 0, 7)
+        failed = self.k.evaluate(src, 8)
+        self.assertFalse(failed["ok"])
+        self.assertEqual(failed["error"]["type"], "ValueError")
+        self.assertNotIn("__evalens_assigned__",
+                         self.k.evaluate(src, 9)["value"])
+
+    def test_loading_a_file_captures_the_same_way(self):
+        # The load path runs every statement through the same `_run`, and a
+        # file full of attribute assignments is what an object-oriented
+        # teaching file is.
+        src = PROPERTY + "acct.balance = 100\nacct.reads\n"
+        loaded = self.k.send(op="eval_file", source=src)
+        values = [result.get("value") for result in loaded["results"]]
+        self.assertEqual(values[-2:], ["100", "0"])
+
+
 class ChannelIsolation(KernelTest):
     def test_print_does_not_corrupt_the_framing(self):
         src = "print('hello')\nx = 1\nx\n"
