@@ -280,6 +280,16 @@ export function outputPieces(printed?: Printed): string[] {
 /**
  * A bare or dotted identifier -- something that now exists in the namespace,
  * as opposed to an expression that is already on screen.
+ *
+ * #81: this used to be the *only* answer to "is `display` a binding", tested
+ * against the display text itself, and it is wrong for exactly the targets
+ * that do not read as a name -- `led['a']` for `led['a'] = 1`, which is no
+ * less a binding than `x` is for `x = 1` and unparses with brackets rather
+ * than letters. The resolver knows the true answer from the statement's own
+ * shape (`Form.is_binding` in `resolver.py`) and the kernel now sends it, so
+ * `paintedSlots` takes it as `isBinding` and asks this regex only when a
+ * caller has not reached it yet -- see `paintedSlots` for exactly where that
+ * fallback still applies and why it is not simply gone.
  */
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/;
 
@@ -545,7 +555,10 @@ export interface Slot {
  *
  * **A binding leads; a result follows.** `lst: [1, 2, 3]` is what the line
  * did, so it goes first and the names it read follow it. An expression's
- * result is what those reads produced, so it goes last.
+ * result is what those reads produced, so it goes last. Which one a
+ * statement is comes from `isBinding` (#81) wherever a caller has it --
+ * `led['a'] = 1` is exactly as much a binding as `x = 1` is, and unparsing
+ * to `led['a']` rather than a bare name is not evidence otherwise.
  *
  * **`=>` survives only for a genuine expression.** `sum([10, 20])` stays
  * `=> 30`; labelling it `sum([10, 20]): 30` would repeat the line back at the
@@ -584,10 +597,34 @@ export interface Slot {
  * is one hover away. That decision has to be taken here, or the repeat rule
  * and the renderer would disagree about whether the line said `None`.
  */
+
+/**
+ * Whether `display` names a place the statement bound, so `paintedSlots`
+ * knows to lead with it rather than fall back to `=>` (#81).
+ *
+ * `undefined` here is not "no", it is "not asked yet" -- the wire's own
+ * `is_binding` is present only when true (`Kernel._run` in
+ * `evalens_kernel.py`), and a caller still on the identifier-shaped guess
+ * this replaces has no opinion to offer at all, rather than an opinion of
+ * `false`. `paintedSlots` therefore asks the regex only in that gap: once
+ * every caller threads the flag through, `isBinding` is always `true` or
+ * `false` and `IDENTIFIER` has nothing left to do. Until then, removing the
+ * regex outright would relabel every `led['a'] = 1` in the shipped extension
+ * as `led['a']: 1` and, the same day, every ordinary `x = 1` as `=> 1` for
+ * any caller that has not been updated to pass the flag -- trading a narrow,
+ * known bug for a total one.
+ */
+function isBoundTarget(
+  display: string | null | undefined, isBinding: boolean | undefined
+): display is string {
+  return display !== undefined && display !== null
+    && (isBinding ?? IDENTIFIER.test(display));
+}
+
 export function paintedSlots(
   value: string | null, display?: string | null, loop?: LoopTrace | null,
   names?: readonly NamedValue[], bindings?: readonly BindingTrace[],
-  printed?: Printed
+  printed?: Printed, isBinding?: boolean
 ): readonly Slot[] {
   // A body binding is part of what the statement did, so it counts as the
   // statement's own however many iterations it took.
@@ -601,10 +638,7 @@ export function paintedSlots(
   const produced = loop
     ? sequenceText(loop)
     : value === null ? null : collapseLines(value);
-  const target = display !== undefined && display !== null
-    && IDENTIFIER.test(display)
-    ? display
-    : null;
+  const target = isBoundTarget(display, isBinding) ? display : null;
   // A loop's sequence is what the statement did, whatever its target unparses
   // to, so it leads even where `(key, value)` is too much of an expression to
   // label with.
@@ -678,6 +712,14 @@ export interface Rendered {
   readonly value: string | null;
   /** The expression the value came from, for labelling. */
   readonly display?: string | null;
+  /**
+   * Whether `display` names a place this statement bound, from the wire's
+   * own `is_binding` -- present only when true, so `undefined` here means
+   * "not sent" rather than "no" (#81). `undefined` falls back to guessing
+   * from `display`'s own text, which is the whole defect this exists to
+   * retire: see `isBoundTarget`.
+   */
+  readonly isBinding?: boolean;
   /** Every value a loop's target held; displaces `value` when present. */
   readonly loop?: LoopTrace | null;
   /** What the names on the line held when it ran. */
@@ -812,12 +854,13 @@ function truncatedPiece(
  * than two computations that can drift apart.
  */
 function paintedPieces(rendered: Rendered): readonly (readonly Segment[])[] {
-  const { value, display, loop, names, bindings, printed } = rendered;
+  const { value, display, loop, names, bindings, printed, isBinding } = rendered;
   const more = rendered.more ?? 0;
   const partialFrom = rendered.partialFrom;
   const glyph = rendered.loopGlyph ?? LOOP_GLYPH;
   const limit = rendered.maxValueLength ?? DEFAULT_MAX_VALUE_LENGTH;
-  const slots = paintedSlots(value, display, loop, names, bindings, printed);
+  const slots = paintedSlots(
+    value, display, loop, names, bindings, printed, isBinding);
   // Cut here, once every piece has its final shape, rather than inside
   // `slotSegments` or `streamPiece`: those are shared with `announce.ts` (via
   // `paintedSlots` and `outputPieces`), which already caps what it says on

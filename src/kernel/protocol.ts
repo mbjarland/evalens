@@ -554,6 +554,19 @@ export interface Evaluated {
   /** The untouched `repr()`, present only when `value` describes it instead. */
   readonly repr?: string;
   readonly display: string | null;
+  /**
+   * Whether `display` names a place this statement bound -- an assignment
+   * target, a loop variable, a `with ... as`, the name a `def` or `import`
+   * introduces -- rather than the value of a bare expression statement.
+   * Present only when true, the same as `loop`'s own `constant` (#81).
+   *
+   * `display`'s own text says nothing about this: `led['a']` for
+   * `led['a'] = 1` is exactly as much a binding as `x` is for `x = 1`, and a
+   * consumer that guessed from whether `display` reads as a bare or dotted
+   * identifier got that one wrong. `resolver.Form.is_binding` decides it
+   * from the statement itself.
+   */
+  readonly is_binding?: boolean;
   readonly kind: string;
   readonly range: Range;
   /**
@@ -668,6 +681,8 @@ export type StatementOutcome =
       readonly value: string | null;
       readonly repr?: string;
       readonly display: string | null;
+      /** See `Evaluated.is_binding` (#81); the same fact, the same shape. */
+      readonly is_binding?: boolean;
       readonly kind: string;
       readonly range: Range;
       readonly anchor?: number;

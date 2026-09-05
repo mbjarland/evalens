@@ -114,6 +114,42 @@ test('an expression keeps the arrow instead of being echoed', () => {
     preserveSpacing("=> 'k'"));
 });
 
+test('a subscript target is labelled once the wire says it is a binding', () => {
+  // #81. `led['a'] = 1` is exactly as much a binding as `x = 1` is; the old
+  // regex called it an expression only because `led['a']` does not read as
+  // a bare name, which is a fact about the target's syntax and not about
+  // whether the statement bound anything.
+  assert.equal(
+    resultText({ value: '1', display: "led['a']", isBinding: true }),
+    preserveSpacing("led['a']: 1"));
+});
+
+test('an attribute target is labelled the same way', () => {
+  assert.equal(
+    resultText({ value: '5', display: 'o.attr', isBinding: true }),
+    preserveSpacing('o.attr: 5'));
+});
+
+test('without the flag, a subscript still falls back to the old guess', () => {
+  // The regex this replaces stays as a fallback for a caller that has not
+  // reached the wire flag yet (`isBinding` left `undefined`) -- see
+  // `isBoundTarget`. Documented here because it is the one case #81 is not
+  // yet fixed for: whoever wires `is_binding` into the object this is built
+  // from removes the gap this test pins down.
+  assert.equal(resultText({ value: '1', display: "led['a']" }),
+    preserveSpacing("=> 1"));
+});
+
+test('an explicit false is trusted over a name-shaped display', () => {
+  // The false positive the naive fix would have introduced: `x` alone on a
+  // line is a bare expression statement reading an existing value, not a
+  // binding, even though `x` reads exactly like one. `isBinding: false`
+  // (the resolver's actual answer for an `ast.Expr`) overrides the guess a
+  // bare identifier would otherwise pass.
+  assert.equal(resultText({ value: '5', display: 'x', isBinding: false }),
+    preserveSpacing('=> 5'));
+});
+
 test('no display at all falls back to the arrow', () => {
   assert.equal(resultText({ value: '42' }), preserveSpacing('=> 42'));
   assert.equal(resultText({ value: '42', display: null }),

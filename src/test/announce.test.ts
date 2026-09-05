@@ -44,6 +44,14 @@ test('a value the painted line would truncate is still spoken in full', () => {
   assert.equal(spokenText({ value: long, display: 'nums' }), `nums is ${long}`);
 });
 
+test('a subscript binding is spoken with its name, once the wire says so', () => {
+  // #81, the spoken half. `paintedSlots` is the shared function this reads
+  // through, so the fix reaches speech on the same evidence as the line.
+  assert.equal(
+    spokenText({ value: '1', display: "led['a']", isBinding: true }),
+    "led['a'] is 1");
+});
+
 test('a bare expression is spoken as its value, without the arrow', () => {
   // `=>` is punctuation: skipped at the default verbosity, spelled out as
   // "equals greater than" above it, and never the word "result".

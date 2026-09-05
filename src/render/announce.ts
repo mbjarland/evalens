@@ -73,6 +73,14 @@ import { markerFor } from './registry';
 export interface Announceable {
   readonly value?: string | null;
   readonly display?: string | null;
+  /**
+   * Whether `display` names a place this statement bound (#81), on the same
+   * "present only when true" terms as the wire's own `is_binding` -- see
+   * `format.Rendered.isBinding`. Read by `paintedSlots`, the shared half, so
+   * `led['a'] = 1` is spoken as a binding on exactly the evidence the line is
+   * painted from.
+   */
+  readonly isBinding?: boolean;
   readonly loop?: LoopTrace;
   readonly bindings?: readonly BindingTrace[];
   readonly names?: readonly NamedValue[];
@@ -229,7 +237,8 @@ function spokenValue(
 function spokenSlots(annotation: Announceable): string[] {
   const slots = paintedSlots(
     annotation.value ?? null, annotation.display, annotation.loop,
-    annotation.names, annotation.bindings, annotation.printed);
+    annotation.names, annotation.bindings, annotation.printed,
+    annotation.isBinding);
   const said = slots.map((slot) => {
     const value = spokenValue(slot);
     return slot.name === null ? value : `${slot.name} is ${value}`;
