@@ -1912,6 +1912,51 @@ class RunFileAsScript(KernelTest):
                 "import sys\nsys.path[0]\n", as_script=True, filename=init)
             self.assertEqual(result["results"][1]["value"], repr(pkg_dir))
 
+    def test_a_spawned_worker_still_cannot_find_a_script_runs_function(self):
+        """#80, pinned rather than fixed: multiprocessing stays broken here.
+
+        The question, before any fix was written: does making `__name__`
+        `"__main__"` for a script run -- everything `as_script` already
+        does -- let a `multiprocessing` worker actually find a function
+        this run defined? A spike outside this suite answered it
+        empirically, against both start methods and against the real
+        `10_concurrency.py` this bug was filed against, by additionally
+        registering the run's own namespace as `sys.modules["__main__"]`
+        for the duration (a change this ticket does not make, precisely
+        because of what follows).
+
+        `fork` says yes: a forked worker is the parent's whole memory,
+        `sys.modules["__main__"]` included, so the registration finds the
+        function every time. `spawn` -- what this audience's Python has
+        defaulted to since 3.8, and what `ctx` below forces regardless of
+        which platform runs this test -- says no on both branches of the
+        registration. With no `__file__` on the namespace (the kernel does
+        not set one for a script run; see `_as_module`), `spawn`'s
+        bootstrap has no path to re-import and the worker's `__main__`
+        stays empty. Given one, the only way `spawn` can rebuild the
+        function is by re-running the *file on disk* in the worker, which
+        silently diverges from whatever buffer this run actually evaluated
+        the moment the two disagree -- an unsaved edit, or no file at all
+        -- trading today's clear `PicklingError` for a wrong answer nobody
+        asked to see, exactly the failure design rule 1 exists to rule
+        out. So the registration was not made, and this pins the plain
+        failure instead: the same one Jupyter and IPython hit for the
+        identical reason, kept clear rather than made silently wrong.
+        """
+        source = (
+            "import multiprocessing\n"
+            "def square(n):\n"
+            "    return n * n\n"
+            "ctx = multiprocessing.get_context('spawn')\n"
+            "with ctx.Pool(1) as pool:\n"
+            "    pool.map(square, [1, 2, 3])\n"
+        )
+        result = self.load(source, as_script=True)
+        self.assertTrue(result["ok"], result)
+        failure = result["results"][-1]
+        self.assertFalse(failure["ok"], failure)
+        self.assertEqual(failure["error"]["type"], "PicklingError")
+
 
 class LoadSelection(KernelTest):
     """A load narrowed to the lines a selection touches.
