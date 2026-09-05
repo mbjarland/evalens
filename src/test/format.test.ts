@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 
 import { BindingTrace, LoopTrace, NamedValue } from '../kernel/protocol';
 import {
-  GAP, SEPARATOR, alignmentGap, bindingText, collapseLines, columnWidth,
-  errorText, hasOutput, hoverText, outputSegments, partialNote,
-  preserveSpacing, printedFrom, restatesLine, resultText, sequenceText,
+  GAP, Rendered, SEPARATOR, alignmentGap, bindingText, collapseLines,
+  columnWidth, errorText, hasOutput, hoverText, joinSegments, outputPieces,
+  partialNote, preserveSpacing, printedFrom, restatesLine, resultSegments,
+  resultText, sequenceText,
 } from '../render/format';
 
 function trace(
@@ -519,7 +520,7 @@ test('the label is a word in the grammar already on the line', () => {
   // Bare `hello` would invite the reader to conclude the expression evaluated
   // to `hello`. `printed: hello` is the same `<label>: <value>` shape as
   // `x: [1, 2, 3]`, so there is nothing new to learn.
-  assert.ok(outputSegments({ stdout: 'hello\n' })[0]!.startsWith('printed: '));
+  assert.ok(outputPieces({ stdout: 'hello\n' })[0]!.startsWith('printed: '));
 });
 
 test('several lines show the first and say how many there were', () => {
@@ -534,17 +535,17 @@ test('several lines show the first and say how many there were', () => {
 
 test('the newline that ends a print is not a line of its own', () => {
   // Counting it would report every one-line print as two.
-  assert.deepEqual(outputSegments({ stdout: 'hello\n' }), ['printed: hello']);
-  assert.deepEqual(outputSegments({ stdout: 'hello' }), ['printed: hello']);
-  assert.deepEqual(outputSegments({ stdout: 'hello\r\n' }), ['printed: hello']);
-  assert.deepEqual(outputSegments({ stdout: 'a\nb\n' }),
+  assert.deepEqual(outputPieces({ stdout: 'hello\n' }), ['printed: hello']);
+  assert.deepEqual(outputPieces({ stdout: 'hello' }), ['printed: hello']);
+  assert.deepEqual(outputPieces({ stdout: 'hello\r\n' }), ['printed: hello']);
+  assert.deepEqual(outputPieces({ stdout: 'a\nb\n' }),
     ['printed: a …(2 lines)']);
 });
 
 test('a blank line is named rather than left as an empty label', () => {
   // `print()` on its own is a thing beginners write, and `printed:` followed
   // by nothing reads as a bug in the extension rather than as the answer.
-  assert.deepEqual(outputSegments({ stdout: '\n' }),
+  assert.deepEqual(outputPieces({ stdout: '\n' }),
     ['printed: (blank line)']);
 });
 
@@ -569,10 +570,10 @@ test('stderr keeps its own name whatever stdout is called', () => {
   // Writing to stderr is not a beginner action, and anyone doing it knows the
   // term. It is also not a failure -- this is a label, never a colour.
   assert.deepEqual(
-    outputSegments({ stdout: 'fine\n', stderr: 'careful\n' }),
+    outputPieces({ stdout: 'fine\n', stderr: 'careful\n' }),
     ['printed: fine', 'stderr: careful']);
   assert.deepEqual(
-    outputSegments({ stderr: 'careful\n', label: '»' }),
+    outputPieces({ stderr: 'careful\n', label: '»' }),
     ['stderr: careful']);
 });
 
@@ -587,7 +588,7 @@ test('a stderr-only line still suppresses the None it returned', () => {
 
 test('a terse marker drops the colon rather than stacking punctuation', () => {
   // `»: hello` is punctuation on punctuation for no gain.
-  assert.deepEqual(outputSegments({ stdout: 'hello\n', label: '»' }),
+  assert.deepEqual(outputPieces({ stdout: 'hello\n', label: '»' }),
     ['» hello']);
 });
 
@@ -691,4 +692,214 @@ test('the hover explains what the line only hints at', () => {
       partial: { truncated_at: 18, message: 'unterminated string literal' } }),
     'answer = 42\nevaluated without line 19 onwards'
     + '\nSyntaxError: unterminated string literal');
+});
+
+/** Segments as `role "text"`, with the non-breaking spaces read back. */
+function coloured(rendered: Rendered): string[] {
+  return resultSegments(rendered).map(
+    (segment) => `${segment.role} ${JSON.stringify(
+      segment.text.split(NBSP).join(' '))}`);
+}
+
+/**
+ * One of every shape a line can take, for the claims that hold across all of
+ * them: that the segments join back into the string, and that splitting the
+ * line does not change how wide it is.
+ */
+const SHAPES: readonly [string, Rendered][] = [
+  ['a bare expression', { value: '30', display: 'sum([10, 20])' }],
+  ['a binding', { value: '[1, 2, 3]', display: 'lst' }],
+  ['a dropped label', { value: 'def greet(name)', display: 'greet' }],
+  ['several names', {
+    value: null, display: null, names: pairs(['tier', "'large'"],
+      ['budget', '525']),
+  }],
+  ['a loop and its reads', {
+    value: '16', display: 'p', loop: trace(['1', '4', '9', '16'], null),
+    names: pairs(['squares', '[1, 4, 9, 16]']),
+  }],
+  ['a loop with body bindings', {
+    value: '3', display: 'v', loop: trace(['1', '2', '3'], null),
+    names: pairs(['x', '[1, 2, 3]']), bindings: [bound('u', ['4', '8', '12'])],
+  }],
+  ['an elided loop', {
+    value: '10000', display: 'p', loop: trace(['1'], '10000', 10000),
+  }],
+  ['a loop that ran zero times', {
+    value: '', display: 'p', loop: trace([], null, 0),
+  }],
+  ['output alone', {
+    value: 'None', display: 'print("hello")', printed: { stdout: 'hello\n' },
+  }],
+  ['output over several lines', {
+    value: 'None', display: 'print("a")', printed: { stdout: 'a\nb\nc\n' },
+  }],
+  ['a blank line printed', {
+    value: 'None', display: 'print()', printed: { stdout: '\n' },
+  }],
+  ['a terse marker', {
+    value: 'None', display: 'print("hi")',
+    printed: { stdout: 'hi\n', label: '»' },
+  }],
+  ['both streams', {
+    value: 'None', display: 'run()',
+    printed: { stdout: 'fine\n', stderr: 'careful\n' },
+  }],
+  ['a binding and its output', {
+    value: '42', display: 'x', printed: { stdout: 'warming up\n' },
+  }],
+  ['the cap footnote', {
+    value: null, display: null,
+    names: pairs(['a', '1'], ['b', '2']), more: 3,
+  }],
+  ['the reduced-context caveat', {
+    value: '42', display: 'answer', partialFrom: 18,
+  }],
+  ['everything at once', {
+    value: '12', display: 'total', names: pairs(['x', '3'], ['y', '9']),
+    printed: { stdout: 'adding\n', stderr: 'careful\n' }, more: 2,
+    partialFrom: 4,
+  }],
+];
+
+test('the segments join back into exactly the line that was painted', () => {
+  // The fallback, and the reason it is safe to leave in place: painting one
+  // string is painting the same characters in the same order. Several `after`
+  // attachments at one position is not a documented VS Code behaviour, so the
+  // single-colour path has to stay correct rather than merely still compile.
+  for (const [shape, rendered] of SHAPES) {
+    assert.equal(joinSegments(resultSegments(rendered)),
+      resultText(rendered), shape);
+  }
+});
+
+test('splitting the line does not change how wide it is', () => {
+  // The alignment column is measured off the code, but every segment lands
+  // after it, so the widths have to add up to what one string would have been
+  // or the annotation stops ending where it used to.
+  for (const [shape, rendered] of SHAPES) {
+    const segments = resultSegments(rendered);
+    const apart = segments.reduce(
+      (total, segment) => total + columnWidth(segment.text, 4), 0);
+    assert.equal(apart, columnWidth(resultText(rendered), 4), shape);
+  }
+});
+
+test('every space in a segment is non-breaking, gaps included', () => {
+  // Each segment is its own inline-block, which trims its own leading and
+  // trailing spaces -- so an ordinary space at a segment boundary is a column
+  // that silently disappears. The substitution has to happen per segment, and
+  // a gap has to belong to one segment rather than straddle two.
+  for (const [shape, rendered] of SHAPES) {
+    for (const segment of resultSegments(rendered)) {
+      assert.ok(!segment.text.includes(' '),
+        `${shape}: ${JSON.stringify(segment.text)} carries an ordinary space`);
+    }
+  }
+});
+
+test('labels are chrome and values are content', () => {
+  // The rule in one line of a real file: `total = x + y` that also printed.
+  assert.deepEqual(
+    coloured({
+      value: '12', display: 'total', names: pairs(['x', '3'], ['y', '9']),
+      printed: { stdout: 'adding\n' },
+    }),
+    ['nameLabel "total: "', 'value "12"',
+      'nameLabel "   "',
+      'nameLabel "x: "', 'value "3"',
+      'nameLabel "   "',
+      'nameLabel "y: "', 'value "9"',
+      'nameLabel "   "',
+      'streamLabel "printed: "', 'value "adding"']);
+});
+
+test('the text a statement printed is a value, not a label', () => {
+  // The decision the ticket turns on. `printed:` is the extension's word and
+  // `hello` is the program's, so a reader scanning for what their code
+  // produced finds one colour everywhere -- output included.
+  assert.deepEqual(
+    coloured({ value: 'None', display: 'print("hello")',
+      printed: { stdout: 'hello\n' } }),
+    ['streamLabel "printed: "', 'value "hello"']);
+});
+
+test('the arrow is a label and the value after it is not', () => {
+  assert.deepEqual(coloured({ value: '30', display: 'sum([10, 20])' }),
+    ['nameLabel "=> "', 'value "30"']);
+});
+
+test('both stream labels are stream labels, and neither is an error', () => {
+  // `stderr` keeps its own word and its own colour: a library logging a
+  // warning has not failed, and painting it red would teach a student to fear
+  // a line that worked.
+  assert.deepEqual(
+    coloured({ value: 'None', display: 'run()',
+      printed: { stdout: 'fine\n', stderr: 'careful\n' } }),
+    ['streamLabel "printed: "', 'value "fine"',
+      'nameLabel "   "',
+      'streamLabel "stderr: "', 'value "careful"']);
+});
+
+test('a terse marker is still the stream label, colon or no colon', () => {
+  assert.deepEqual(
+    coloured({ value: 'None', display: 'print("hi")',
+      printed: { stdout: 'hi\n', label: '»' } }),
+    ['streamLabel "» "', 'value "hi"']);
+});
+
+test('a dropped label leaves the value on its own', () => {
+  // There is no chrome left in front of it to colour, and what is on the line
+  // is entirely what the statement produced.
+  assert.deepEqual(coloured({ value: 'def greet(name)', display: 'greet' }),
+    ['value "def greet(name)"']);
+});
+
+test('an elision stays inside the value it shortens', () => {
+  // `…(3 lines)` and `… (+9,994 more) …` describe the shape of what the
+  // program produced rather than label it, so the split falls in the same
+  // place every time: the punctuation this extension wrote, then what ran.
+  assert.deepEqual(
+    coloured({ value: 'None', display: 'print("a")',
+      printed: { stdout: 'warming up\nstill going\ndone\n' } }),
+    ['streamLabel "printed: "', 'value "warming up …(3 lines)"']);
+  assert.deepEqual(
+    coloured({ value: '10000', display: 'p',
+      loop: trace(['1'], '10000', 10000) }),
+    ['nameLabel "p: "', 'value "1, … (+9,998 more) … 10000"']);
+});
+
+test('the footnote and the caveat are remarks, not values', () => {
+  // Both are this extension talking about the line rather than reporting what
+  // ran on it, which is exactly what the label colour is for.
+  assert.deepEqual(
+    coloured({ value: '42', display: 'answer', names: pairs(['a', '1']),
+      more: 2, partialFrom: 18 }),
+    ['nameLabel "answer: "', 'value "42"',
+      'nameLabel "   "',
+      'nameLabel "a: "', 'value "1"',
+      'nameLabel "   "',
+      'nameLabel "…+2 more"',
+      'nameLabel "   "',
+      'nameLabel "(partial: line 19)"']);
+});
+
+test('a loop sequence is one value however many iterations it holds', () => {
+  // The commas belong to the sequence, not to the annotation: they are how a
+  // Python value of several parts is written, so colouring them as chrome
+  // would claim this extension put them there.
+  assert.deepEqual(
+    coloured({ value: '3', display: 'v', loop: trace(['1', '2', '3'], null),
+      bindings: [bound('u', ['4', '8', '12'])] }),
+    ['nameLabel "v: "', 'value "1, 2, 3"',
+      'nameLabel "   "',
+      'nameLabel "u: "', 'value "4, 8, 12"']);
+});
+
+test('a line with nothing on it has no segments at all', () => {
+  // `resultText` has always returned an empty string here, and an empty list
+  // is the same claim: there is nothing to paint, so there is nothing to
+  // colour.
+  assert.deepEqual(resultSegments({ value: null, display: null }), []);
+  assert.equal(resultText({ value: null, display: null }), '');
 });
