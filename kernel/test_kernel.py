@@ -194,6 +194,10 @@ class KernelProcess:
     def evaluate(self, source, line, **extra):
         return self.send(op="eval", source=source, line=line, **extra)
 
+    def watch(self, source, line, expr, **extra):
+        return self.send(op="eval_watch", source=source, line=line,
+                         watch=expr, **extra)
+
     def evaluate_lines(self, source, *lines, **extra):
         """Evaluate several lines in order, returning the last response.
 
@@ -3632,6 +3636,139 @@ class Limits(KernelTest):
             op="eval_file", source="y = [1, 2]\nprint('y:', y)\n",
             filename="/tmp/module.py", limits={"names": 0})
         self.assertNotIn("names", result["results"][1])
+
+
+class Watches(KernelTest):
+    """`eval_watch` -- #48. A nominated expression, traced across a loop the
+    same way its target and its body's own bindings already are.
+
+    **This is a trace, not a watch, whatever the op is called on the wire.**
+    Every result below is read once, during the one loop this request ran;
+    nothing is kept between requests, and a later plain `eval` of the same
+    loop -- see `test_a_plain_eval_of_the_same_loop_carries_no_watch` -- shows
+    none of it. See `loops.py`'s module docstring for the fuller argument.
+    """
+
+    def test_a_target_expression_is_traced_alongside_the_loop(self):
+        source = "squares = [0, 1, 4, 9, 16]\nfor p in squares:\n    pass\n"
+        self.k.evaluate(source, 0)
+        result = self.k.watch(source, 1, "p+6")
+        self.assertTrue(result["ok"], result)
+        watch = next(b for b in result["bindings"] if b["name"] == "p+6")
+        self.assertEqual(watch["values"], ["6", "7", "10", "15", "22"])
+        # The loop's own sequence is untouched by nominating something else.
+        self.assertEqual(result["loop"]["values"],
+                         ["0", "1", "4", "9", "16"])
+
+    def test_an_accumulator_is_traced_after_the_body_updates_it(self):
+        source = "total = 0\nfor x in [1, 2, 3, 4]:\n    total += x\n"
+        self.k.evaluate(source, 0)
+        result = self.k.watch(source, 1, "total")
+        watch = next(b for b in result["bindings"] if b["name"] == "total")
+        self.assertEqual(watch["values"], ["1", "3", "6", "10"])
+
+    def test_nominating_an_already_bound_name_does_not_paint_it_twice(self):
+        # `total` is already a body binding (#75) on this loop: nominating
+        # it too must not print `total: ... total: ...` on one line, since
+        # both read the same name at the same point in the same iteration
+        # and would say the identical sequence twice.
+        source = "total = 0\nfor x in [1, 2, 3, 4]:\n    total += x\n"
+        self.k.evaluate(source, 0)
+        result = self.k.watch(source, 1, "total")
+        names = [b["name"] for b in result["bindings"]]
+        self.assertEqual(names.count("total"), 1, result["bindings"])
+
+    def test_a_raising_expression_is_reported_once_and_the_loop_finishes(self):
+        result = self.k.watch("for p in [1, 0, 2, 0, 3]:\n    pass\n", 0,
+                              "1/p")
+        self.assertTrue(result["ok"], result)
+        # The loop itself completed and shows every iteration.
+        self.assertEqual(result["loop"]["count"], 5)
+        watch = next(b for b in result["bindings"] if b["name"] == "1/p")
+        self.assertEqual(watch["values"], ["1.0", "0.5", "0.3333333333333333"])
+        self.assertEqual(watch["error"]["type"], "ZeroDivisionError")
+        self.assertEqual(watch["failed"], 1)
+        # Reported once, on stderr, not once per failing iteration: two
+        # zeroes raised and the message names the type exactly once.
+        self.assertEqual(result["stderr"].count("ZeroDivisionError"), 1)
+        self.assertIn("watching '1/p'", result["stderr"])
+
+    def test_ten_thousand_iterations_stays_bounded_and_correct(self):
+        source = "acc = 0\nfor i in range(10000):\n    acc += i\n"
+        self.k.evaluate(source, 0)
+        result = self.k.watch(source, 1, "acc * 2")
+        watch = next(b for b in result["bindings"] if b["name"] == "acc * 2")
+        self.assertEqual(watch["count"], 10000)
+        self.assertEqual(watch["last"], str(sum(range(10000)) * 2))
+        self.assertEqual(len(watch["values"]), 5)
+
+    def test_loop_values_zero_disables_the_watch_entirely(self):
+        # The same off switch #75 already answers to for a comprehension
+        # trace: an off switch that still instrumented would stop showing
+        # the sequence and keep charging one repr() per iteration for it.
+        source = "total = 0\nfor x in [1, 2, 3, 4]:\n    total += x\n"
+        self.k.evaluate(source, 0)
+        result = self.k.watch(source, 1, "total",
+                              limits={"loop_values": 0, "names": 12})
+        self.assertTrue(result["ok"], result)
+        self.assertNotIn("loop", result)
+        self.assertNotIn("bindings", result)
+
+    def test_a_plain_eval_of_the_same_loop_carries_no_watch(self):
+        # Design rule 4: a nomination is data on one request, not a standing
+        # instruction the kernel remembers. Nothing about `eval_watch` having
+        # run once changes what a later, ordinary `eval` of the same loop
+        # reports.
+        source = "for p in [1, 2, 3]:\n    pass\n"
+        self.k.watch(source, 0, "p * 2")
+        plain = self.k.evaluate(source, 0)
+        self.assertTrue(plain["ok"], plain)
+        for binding in plain.get("bindings", []):
+            self.assertNotEqual(binding["name"], "p * 2")
+
+    def test_the_statement_under_the_cursor_must_be_a_loop(self):
+        result = self.k.watch("x = 1\n", 0, "x")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["type"], "NoLoop")
+
+    def test_an_unparsable_expression_is_a_syntax_error_not_a_crash(self):
+        result = self.k.watch("for p in [1]:\n    pass\n", 0, "p +")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["type"], "SyntaxError")
+        # The loop is untouched by a nomination that never parsed: a second,
+        # ordinary evaluation still works.
+        self.assertTrue(self.k.evaluate("for p in [1]:\n    pass\n", 0)["ok"])
+
+    def test_an_empty_expression_is_reported_rather_than_run(self):
+        result = self.k.watch("for p in [1]:\n    pass\n", 0, "   ")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["type"], "NoExpression")
+
+    def test_a_blank_cursor_line_resolves_to_nothing(self):
+        result = self.k.watch("a = 1\n\nb = 2\n", 1, "a")
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["resolved"])
+
+    def test_a_watch_nested_inside_an_outer_loop_attaches_to_the_inner_one(self):
+        source = "for i in range(2):\n    for j in range(3):\n        pass\n"
+        # `character=8` lands inside the inner loop's own header ("    for j
+        # in range(3):"), which is what tells `innermost_loop_at` apart from
+        # the outer loop that also contains this line.
+        result = self.k.watch(source, 1, "i * 10 + j", character=8)
+        self.assertTrue(result["ok"], result)
+        # The outer loop's own sequence is unaffected by a watch nested
+        # inside it.
+        self.assertEqual(result["loop"]["values"], ["0", "1"])
+        watch = next(b for b in result["bindings"]
+                    if b["name"] == "i * 10 + j")
+        self.assertEqual(watch["count"], 6)
+
+    def test_the_namespace_carries_no_watch_machinery_afterwards(self):
+        self.k.watch("for p in [1, 0]:\n    pass\n", 0, "1/p")
+        names = eval(self.k.evaluate("sorted(dir())", 0)["value"])
+        self.assertFalse(
+            [n for n in names if "evalens" in n or "watch" in n.lower()],
+            names)
 
 
 class Docstrings(KernelTest):

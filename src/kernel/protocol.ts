@@ -82,6 +82,40 @@ export interface EvalRequest {
   readonly limits?: DisplayLimits;
 }
 
+/**
+ * Run the loop under `line`/`character`, tracing `watch` across it -- #48.
+ *
+ * A separate op from `eval` rather than an optional field on it, because the
+ * two answer different questions: `eval` reports whatever the statement under
+ * the cursor already does, and this one nominates something extra to look at
+ * *this once*. Sending it is itself the trigger -- design rule 5's "explicitly
+ * triggered, never continuous" applies to a nomination exactly as it does to
+ * an ordinary evaluation. Nothing about `watch` is remembered between
+ * requests: a plain `eval` sent afterwards, for the same loop, carries no
+ * trace of it, which is what keeps this a trace in the sense of design rule 4
+ * rather than a watch in the sense the rule forbids -- see `loops.py`'s
+ * module docstring for the full argument.
+ *
+ * `line`/`character` resolve two things at once, exactly as they do for
+ * `eval`: which top-level statement to run -- it must itself be a `for` or
+ * `async for`, `NoLoop` otherwise -- and, within it, which of its own loops
+ * (nested ones included) `watch` attaches to, by innermost enclosure.
+ * Pointing at a selection's start is the intended use: the reader selected
+ * the expression, and that selection's own position is what the loop is
+ * resolved from too.
+ */
+export interface EvalWatchRequest {
+  readonly op: 'eval_watch';
+  readonly source: string;
+  readonly line: number;
+  readonly character: number;
+  readonly filename: string;
+  readonly allow_stdin: boolean;
+  readonly limits?: DisplayLimits;
+  /** The expression's own source text, exactly as the reader selected it. */
+  readonly watch: string;
+}
+
 export interface EvalFileRequest {
   readonly op: 'eval_file';
   readonly source: string;
@@ -212,6 +246,7 @@ export interface InspectRequest {
 
 export type Request =
   | EvalRequest
+  | EvalWatchRequest
   | EvalFileRequest
   | EvalAboveRequest
   | OutlineRequest
@@ -428,7 +463,7 @@ export interface LoopTrace {
  * A named sequence appended beside a statement's own value, iteration by
  * iteration.
  *
- * Two different statements fill this array, on the same shape because the
+ * Three different sources fill this array, on the same shape because the
  * rendering they want is the same one.
  *
  * **What a `for` loop's *body* bound.** The target is usually the input being
@@ -446,8 +481,15 @@ export interface LoopTrace {
  * `squares = [x**2 for x in range(10)]`. `name` is then the clause's target
  * pattern, unparsed -- `"x"`, or `"(k, v)"` for one that unpacks.
  *
+ * **What a reader nominated for `eval_watch` to trace -- #48.** `name` here
+ * is the expression's own source text (`"p+6"`, `"acct.balance"`), not an
+ * identifier, and it is never parsed back into anything on this side: an
+ * opaque label like any other, painted the same way. `error`/`failed`, both
+ * optional, are its own addition -- present only when the expression raised
+ * during at least one iteration; see `EvalWatchRequest`.
+ *
  * Bounded on the same terms as the target's own trace, which is why this
- * extends it rather than repeating it. Two things are its own:
+ * extends it rather than repeating it. A few things are its own:
  *
  * **`count` need not match the loop's.** An iteration that hit `continue` or
  * `break` left the body before the recorder and computed no result, so it
@@ -465,6 +507,16 @@ export interface LoopTrace {
 export interface BindingTrace extends LoopTrace {
   readonly name: string;
   readonly constant?: boolean;
+  /**
+   * The first exception a nominated expression raised, if it ever did --
+   * #48. Never set for a body binding or a comprehension clause, both of
+   * which only ever read a name rather than evaluate one. `values`/`last`
+   * on the same object stay whatever it managed to produce beforehand and
+   * afterwards; a failure does not stop the loop or the trace.
+   */
+  readonly error?: { readonly type: string; readonly message: string };
+  /** How many further iterations raised, beyond the one `error` describes. */
+  readonly failed?: number;
 }
 
 /**

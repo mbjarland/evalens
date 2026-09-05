@@ -1094,6 +1094,99 @@ export class Evaluator {
   }
 
   /**
+   * Nominate the current selection as an expression to trace across the
+   * loop that encloses it -- #48.
+   *
+   * **This is a trace, not a watch,** whatever the command is named for the
+   * palette. Design rule 4 forbids re-reading a value later: an annotation
+   * asserts what a statement produced, and a value fetched afterwards was
+   * not produced by anything on screen. What this sends is `eval_watch`,
+   * which runs the loop **once, right now** and captures the nominated
+   * expression's value at each iteration exactly as `loops.py` already
+   * captures the target's -- during the iteration that produces it, never
+   * afterwards. Nothing about the nomination outlives this one request: an
+   * ordinary `evalens.evaluateAtCursor` on the same loop afterwards carries
+   * none of it, because nothing on this side or the kernel's remembers it.
+   * Nominate again to see it move.
+   *
+   * **A selection is required.** Resolving "the expression under the
+   * cursor" with nothing selected needs the same kind of `ast` reach
+   * `resolver.py` already owns for a whole statement, and #48 is scoped to
+   * the kernel and this command rather than a second cursor-resolution path
+   * living here. Selecting the expression and pressing a key is the same
+   * first move #49 already asks for.
+   *
+   * The response is the same shape `evaluateAtCursor` already paints from --
+   * `eval_watch` answers with an ordinary `Evaluated`/`Failed`, its nominated
+   * expression's sequence riding in `bindings` alongside whatever the loop's
+   * body already bound -- so `annotationFor` is reused rather than
+   * duplicated, and a watch renders exactly the way a body binding does:
+   * "another `name: value` pair on the loop's header line."
+   */
+  async addInlineWatch(editor: vscode.TextEditor): Promise<void> {
+    const document = editor.document;
+    const selection = editor.selection;
+    const expr = document.getText(selection).trim();
+    if (!expr) {
+      vscode.window.setStatusBarMessage(
+        'Evalens: select an expression to watch', STATUS_ACK_MS);
+      return;
+    }
+
+    let response: EvalResponse;
+    try {
+      const client = await this.client();
+      response = (await this.watch(
+        client.request({
+          op: 'eval_watch',
+          source: document.getText(),
+          line: selection.start.line,
+          character: selection.start.character,
+          filename: document.uri.fsPath,
+          // A key was just pressed for this specific nomination; the same
+          // reasoning `evaluateAtCursor` gives applies unchanged.
+          allow_stdin: true,
+          limits: displayLimits(),
+          watch: expr,
+        }),
+        'Evalens: watching'
+      )) as EvalResponse;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.output.appendLine(message);
+      void vscode.window.showErrorMessage(`Evalens: ${message}`);
+      return;
+    }
+
+    if (!response.ok) {
+      // `annotationFor` paints this when there is a range to paint it on --
+      // an ordinary failure of the loop itself, exactly as `evaluateAtCursor`
+      // shows one. A nomination-level problem -- not a loop, an expression
+      // that will not parse -- carries none, and is said instead rather than
+      // painted nowhere.
+      const annotation = annotationFor(document, response);
+      if (annotation) {
+        this.annotations.settle(document, annotation);
+      } else {
+        void vscode.window.showErrorMessage(
+          `Evalens: ${response.error.type}: ${response.error.message}`);
+      }
+      return;
+    }
+    if (!response.resolved) {
+      // A cursor on a blank line, or a file that no longer parses at all.
+      vscode.window.setStatusBarMessage(
+        'Evalens: nothing to watch here', STATUS_ACK_MS);
+      return;
+    }
+
+    const annotation = annotationFor(document, response);
+    if (annotation) {
+      this.annotations.settle(document, annotation);
+    }
+  }
+
+  /**
    * Evaluate the statement under the cursor, then step to the next one.
    *
    * The second of two commands rather than a change to the first, because both

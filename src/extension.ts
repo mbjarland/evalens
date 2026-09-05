@@ -140,6 +140,22 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    // #48: nominate the current selection and trace it across the loop that
+    // encloses it, once, right now -- see `Evaluator.addInlineWatch` for why
+    // this is a trace rather than the re-read design rule 4 forbids. No
+    // default keybinding, on the same reasoning `runFileAsScript` gives:
+    // this is a deliberate, occasional act, not a reflex worth a reserved
+    // key.
+    vscode.commands.registerCommand('evalens.addInlineWatch', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        return;
+      }
+      await evaluator?.addInlineWatch(editor);
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand('evalens.evaluateFile', async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {

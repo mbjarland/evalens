@@ -55,6 +55,41 @@ The rewrite is additive: it inserts statements and changes nothing else, so
 the namespace a loop leaves behind is identical instrumented or not.
 `test_loops` pins that by running both and comparing.
 
+**A nominated expression is a trace, not a watch (#48), and the ticket's own
+title is the trap.** "Watch" in this project has one settled meaning --
+re-read the current value later, forbidden since #40 because it asserts
+something the statement did not produce. That is not what `instrument_watching`
+adds. It captures a *second* expression the same way this module already
+captures the target and the body's bindings: read at capture time, once per
+iteration, as the loop runs -- `p+6`'s value the moment `p` held that
+iteration's item, never afterwards. It is the same claim `record` already
+makes, about a name the user chose instead of one the loop bound for itself.
+
+**Evaluating it at all is design rule 3's hard case, not an exception to
+it.** Reading a bare name is a lookup; `p+6`, `acct.balance`, `f(x)` are not,
+and running one once per iteration is code the extension decided to execute
+that the statement on screen does not call for -- exactly what #68 was filed
+over, one level up. What makes it acceptable here and nowhere else in the
+kernel is that the user nominated *this* expression, explicitly, once, by
+name -- the same act of pointing that licenses evaluating the statement
+itself. It does not license evaluating it more than that one nomination
+asked for: a watch is data threaded through a single `eval_watch` request
+in `evalens_kernel.py`, attached to the loop it was resolved against and
+nowhere else, gone the moment that response is sent. Nothing here keeps a
+nomination alive to re-run against a *later* evaluation on its own account --
+that would be continuous evaluation by another name, which #5 already ruled
+out, and it is why this module has no notion of a watch outliving one
+`instrument_watching` call.
+
+**A nominated expression that raises must not cost the loop its answer.**
+The user chose the expression, not its behaviour on iteration 300 of 1000 --
+`1/p` over a sequence containing one zero is #48's own example. `_watch_call`
+wraps the evaluation in a `try`/`except Exception` written into the loop's
+own body, so a raise is caught where it happens, in the user's frame, and
+recorded once through `LoopTrace.fail` rather than propagated: the loop
+keeps running, later iterations keep being attempted, and the reader is told
+once rather than shown the same traceback for every remaining zero.
+
 Requires Python 3.9 or later, in line with the rest of the kernel.
 """
 
@@ -63,12 +98,27 @@ from __future__ import annotations
 import ast
 import copy
 import sys
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 #: The name the rewritten code reaches the recorders through. Installed in the
 #: namespace for the duration of one execution and removed afterwards, so a
 #: loop leaves no trace of the machinery that watched it.
 RECORDERS = "__evalens_loops__"
+
+#: The name a watch's injected `except` clause binds its exception to. Kept
+#: out of reach of the nominated expression the same way `RECORDERS` is kept
+#: out of reach of the loop body: a user expression that happens to read a
+#: name this ugly would have to go looking for it, and one that assigns to it
+#: only shadows a name nothing downstream reads again. See `_watch_call`.
+WATCH_EXC = "__evalens_watch_exc__"
+
+#: A loop's own position, as `ast` reports it: 1-based `lineno`, 0-based
+#: `col_offset`, both ends. What a nominated watch is filed under in
+#: `instrument_watching`'s `watches` mapping, because the loop node itself
+#: does not survive the `copy.deepcopy` `instrument` takes before rewriting
+#: -- position does, byte for byte, so it is what the copy and the original
+#: agree on. See `loop_key`.
+LoopKey = Tuple[int, int, int, int]
 
 #: How many leading values a summary keeps before it starts counting. Small on
 #: purpose: this ends up on one line beside the code, and the first few values
@@ -134,10 +184,10 @@ class LoopTrace:
     """
 
     __slots__ = ("_repr", "_limit", "_before", "head", "last", "count",
-                 "varied", "bindings")
+                 "varied", "bindings", "watches", "error", "failed")
 
     def __init__(self, repr_fn: Callable[[Any], str], limit: int = HEAD_LIMIT,
-                 names: Tuple[str, ...] = ()):
+                 names: Tuple[str, ...] = (), watches: Tuple[str, ...] = ()):
         self._repr = repr_fn
         self._limit = limit
         #: What the watched names held before this loop ran. See `bind`.
@@ -151,6 +201,20 @@ class LoopTrace:
         #: One trace per name the body binds, in the order they are written.
         self.bindings: Dict[str, "LoopTrace"] = {
             name: LoopTrace(repr_fn, limit) for name in names}
+        #: One trace per nominated expression attached to this loop, keyed by
+        #: the expression's own source text -- #48. A dict for the same
+        #: reason `bindings` is one: an expression is not interchangeable
+        #: with the next one, and the key is what the injected call in
+        #: `_watch_call` addresses at runtime.
+        self.watches: Dict[str, "LoopTrace"] = {
+            expr: LoopTrace(repr_fn, limit) for expr in watches}
+        #: The first exception a watched expression raised, or None while
+        #: every attempt has succeeded. Only ever set on a trace reached
+        #: through `watches` -- see `fail`.
+        self.error: Optional[Dict[str, str]] = None
+        #: How many further iterations raised after the first. Kept apart
+        #: from `count`, which `fail` never advances -- see there.
+        self.failed = 0
 
     def record(self, value: Any) -> None:
         """Called once per iteration, from inside the user's loop.
@@ -180,6 +244,42 @@ class LoopTrace:
             # Only the newest survives past the head, so memory is flat no
             # matter how long the loop runs.
             self.last = text
+
+    def fail(self, exc: Exception) -> None:
+        """Called once per iteration in place of `record`, when evaluating a
+        nominated expression raised instead of producing a value -- #48.
+
+        Runs in the user's frame exactly as `record` does, from inside the
+        `except` clause `_watch_call` builds, and is held to the same
+        standard: total, never able to raise into the loop that calls it.
+        `str(exc)` is itself the user's own code by way of `__str__`, and is
+        read defensively for that reason.
+
+        **Never advances `count`.** A raised expression produced nothing to
+        show, which is the same "not parallel" fact `record`'s docstring
+        already states for a `continue`d iteration -- the sequence beside the
+        loop is honestly shorter, not padded with an invented reading, and a
+        binding's existing note for "bound on fewer iterations than the loop
+        ran" reads correctly here without this module or the renderer
+        learning anything new.
+
+        **Only the first exception is kept.** #48's own example is `1/p`
+        nominated over a sequence containing one zero: every later zero
+        raises the identical `ZeroDivisionError`, and reporting each would
+        bury the expression's real values -- the whole reason to nominate it
+        -- under one repeated fact instead of adding information. Later
+        iterations keep being *attempted*, because a value after the bad one
+        is still true and still worth the sequence; only reporting the
+        failure is capped, in `failed` rather than repeated in `error`.
+        """
+        if self.error is not None:
+            self.failed += 1
+            return
+        try:
+            message = str(exc)
+        except Exception:  # noqa: BLE001 - the exception's own __str__
+            message = "<error formatting exception>"
+        self.error = {"type": type(exc).__name__, "message": message}
 
     def trace(self, iterable: Any) -> Any:
         """Yield `iterable` unchanged, recording each item as it is drawn.
@@ -297,6 +397,18 @@ class LoopTrace:
         return [trace.named_wire(name)
                 for name, trace in self.bindings.items() if trace.count]
 
+    def watches_wire(self) -> List[Dict[str, Any]]:
+        """What each nominated expression produced, one entry per watch, in
+        the order they were requested -- #48.
+
+        Unlike `bindings_wire`, an expression that never once produced a
+        value is not left out. A name nobody's body bound is nothing to
+        report; an expression the user explicitly nominated failing on every
+        iteration *is* the report -- see `error` on the payload, set by
+        `named_wire` below whenever `fail` was ever called.
+        """
+        return [trace.named_wire(expr) for expr, trace in self.watches.items()]
+
     def named_wire(self, name: str) -> Dict[str, Any]:
         """This trace as JSON under `name`, collapsed if it never changed.
 
@@ -311,6 +423,17 @@ class LoopTrace:
             payload["values"] = self.head[:1]
             payload["last"] = None
             payload["constant"] = True
+        if self.error is not None:
+            # Only ever set through `fail`, so only a watch's own trace ever
+            # carries this -- the target's and an ordinary binding's `error`
+            # stay None for the life of the object. `evaluate_watch` is what
+            # turns this into something the reader actually sees: it prints
+            # one line to the statement's own stderr, which is how "reported
+            # once" reaches the annotation without this module or the wire
+            # format knowing anything about rendering.
+            payload["error"] = dict(self.error)
+            if self.failed:
+                payload["failed"] = self.failed
         return payload
 
 
@@ -454,13 +577,28 @@ def _body_names(node) -> Tuple[str, ...]:
 
 
 class _Instrumenter(ast.NodeTransformer):
-    """Inserts the recorder calls around every loop body in scope."""
+    """Inserts the recorder calls around every loop body in scope.
 
-    def __init__(self) -> None:
+    `watches` is empty for every call `instrument` makes and is the whole of
+    what `instrument_watching` adds -- see there for why this stays one class
+    rather than two. Keyed by `loop_key`, because the loops this class visits
+    are on a *copy* of the caller's tree (`instrument` takes one before
+    rewriting), and identity does not survive that; position does.
+    """
+
+    def __init__(
+        self, watches: Optional[Dict[LoopKey, List[Tuple[str, ast.expr]]]] = None
+    ) -> None:
         #: One entry per instrumented loop, in allocation order, holding the
         #: body names that loop's recorder watches. Its length is the number
         #: of recorders the rewritten tree expects.
         self.plan: List[Tuple[str, ...]] = []
+        #: One entry per instrumented loop, in the same order and the same
+        #: length as `plan`: the source text of every nominated expression
+        #: attached to it. Empty for every loop `instrument` visits, since it
+        #: never passes `watches` at all -- see `instrument_watching`.
+        self.watch_plan: List[Tuple[str, ...]] = []
+        self._watches = watches or {}
 
     # A nested `def`, `class` or `lambda` is a different execution scope and,
     # more to the point, a different *time*: its loops run when it is called,
@@ -494,6 +632,7 @@ class _Instrumenter(ast.NodeTransformer):
     def _instrument(self, node):
         readable = _load_copy(node.target)
         index = None
+        attached: Tuple[Tuple[str, ast.expr], ...] = ()
         if readable is not None:
             # Allocated before descending, so the loop the user pointed at is
             # index 0 however deeply the ones inside it nest. The body names
@@ -501,18 +640,35 @@ class _Instrumenter(ast.NodeTransformer):
             # puts anything of its own in there.
             index = len(self.plan)
             self.plan.append(_body_names(node))
+            # Read by this loop's own position rather than anything the
+            # caller allocated ahead of time: a watch is filed under the
+            # *loop's* key, not this walk's index, precisely so a nested
+            # loop can be the one addressed without the caller having to
+            # predict where in allocation order it falls.
+            attached = tuple(self._watches.get(loop_key(node), ()))
+            self.watch_plan.append(tuple(expr for expr, _ in attached))
 
         self.generic_visit(node)
 
         if index is not None:
             node.body.insert(0, _recorder_call(index, "record", [readable],
                                                node))
+            trailing: List[ast.stmt] = []
             if self.plan[index]:
-                # Last, so it sees what the iteration computed -- and appended
-                # after the rewrite of any nested loop, which changes nothing
-                # about the order it runs in but keeps this statement the last
-                # thing in the body it belongs to.
-                node.body.append(_recorder_call(index, "bind", [], node))
+                # Before any watch, and for the same reason it goes last in
+                # the body: a nominated expression may read a name this
+                # iteration's body just bound, e.g. an accumulator, and
+                # needs the recorder for it to have already run.
+                trailing.append(_recorder_call(index, "bind", [], node))
+            for expr_source, expr_node in attached:
+                trailing.append(_watch_call(index, expr_source, expr_node,
+                                            node))
+            if trailing:
+                # Last, so every recorder sees what the iteration computed --
+                # and appended after the rewrite of any nested loop, which
+                # changes nothing about the order it runs in but keeps this
+                # statement the last thing in the body it belongs to.
+                node.body.extend(trailing)
         return node
 
 
@@ -545,6 +701,86 @@ def _recorder_call(index: int, method: str, args: List[ast.expr],
     return ast.fix_missing_locations(call)
 
 
+def loop_key(node: ast.stmt) -> LoopKey:
+    """`node`'s own span, as `instrument_watching`'s `watches` mapping keys
+    it under -- see `LoopKey`."""
+    return (node.lineno, node.col_offset, node.end_lineno, node.end_col_offset)
+
+
+def _watch_call(index: int, expr_source: str, expr: ast.expr,
+                at: ast.stmt) -> ast.stmt:
+    """A nominated expression, evaluated once and never let raise -- #48.
+
+    ::
+
+        try:
+            __evalens_loops__[index].watches[expr_source].record(expr)
+        except Exception as __evalens_watch_exc__:
+            __evalens_loops__[index].watches[expr_source].fail(
+                __evalens_watch_exc__)
+
+    **Why this must be a `try`/`except` in the rewritten tree, and cannot be
+    handled inside `LoopTrace.record`.** `record`'s argument is evaluated by
+    the interpreter *before* the call happens -- Python evaluates `f(x)` by
+    evaluating `x` first -- so a raising expression never reaches `record` at
+    all; the exception is already propagating out of the user's loop by
+    then. Catching it has to sit around the evaluation itself, which is
+    exactly what only the rewritten tree, and not the trace object, can do.
+    This is design rule 3's hard case: `p+6` is a dictionary lookup and an
+    addition and cannot fail in a way worth stopping for, but the user may
+    nominate anything -- `1/p`, `acct.balance`, `f(x)` -- and #48 requires
+    that a bad one report once and let the loop finish, which only a guard
+    written into the loop's own body can guarantee.
+
+    `except Exception`, deliberately narrower than `installed`'s
+    `BaseException`. `KeyboardInterrupt` is how Cancel reaches a running
+    evaluation (see `_run` in `evalens_kernel.py`), raised asynchronously at
+    whatever bytecode happens to be executing -- which could be *this*
+    `try`. Catching it here would make nominating a watch capable of
+    swallowing Cancel on a slow loop, trading a real stop button for a
+    feature nobody asked to affect it. `SystemExit` gets the same
+    deliberate miss, for the same reason `installed` does catch it one
+    level up: it is the user's own decision to end the process, and a watch
+    evaluated as a side detail must not be the thing standing in its way.
+
+    Every synthesised node here takes `at`'s position, `expr` included --
+    unlike `_trace_call`'s `iterable`, which keeps the position the parser
+    gave it because that position is real: it is where the clause's own
+    iterable sits in the file being evaluated. `expr` was parsed from a
+    standalone string the user typed into a command, `ast.parse(expr_source,
+    mode="eval")`, whose line 1 means nothing about this file -- keeping it
+    would misattribute the very expression this call exists to describe.
+    Harmless either way, since `fail` catches whatever this raises and
+    nothing here is ever allowed to reach a traceback the user sees; done
+    for hygiene, and so a future reader is not left wondering why one
+    synthesised node disagreed with the rest about where it lives.
+    """
+    watch_ref = ast.Subscript(
+        value=ast.Attribute(
+            value=ast.Subscript(
+                value=ast.Name(id=RECORDERS, ctx=ast.Load()),
+                slice=ast.Constant(value=index),
+                ctx=ast.Load()),
+            attr="watches",
+            ctx=ast.Load()),
+        slice=ast.Constant(value=expr_source),
+        ctx=ast.Load())
+    success = ast.Expr(value=ast.Call(
+        func=ast.Attribute(value=watch_ref, attr="record", ctx=ast.Load()),
+        args=[expr], keywords=[]))
+    failure = ast.Expr(value=ast.Call(
+        func=ast.Attribute(value=watch_ref, attr="fail", ctx=ast.Load()),
+        args=[ast.Name(id=WATCH_EXC, ctx=ast.Load())], keywords=[]))
+    handler = ast.ExceptHandler(
+        type=ast.Name(id="Exception", ctx=ast.Load()),
+        name=WATCH_EXC, body=[failure])
+    guarded = ast.Try(body=[success], handlers=[handler], orelse=[],
+                      finalbody=[])
+    for node in ast.walk(guarded):
+        ast.copy_location(node, at)
+    return ast.fix_missing_locations(guarded)
+
+
 def instrument(node: ast.stmt) -> Tuple[ast.stmt, List[Tuple[str, ...]]]:
     """A rewritten copy of `node`, and what each of its recorders watches.
 
@@ -559,6 +795,89 @@ def instrument(node: ast.stmt) -> Tuple[ast.stmt, List[Tuple[str, ...]]]:
     instrumenter = _Instrumenter()
     rewritten = instrumenter.visit(copy.deepcopy(node))
     return ast.fix_missing_locations(rewritten), instrumenter.plan
+
+
+def instrument_watching(
+    node: ast.stmt, watches: Dict[LoopKey, List[Tuple[str, ast.expr]]]
+) -> Tuple[ast.stmt, List[Tuple[str, ...]], List[Tuple[str, ...]]]:
+    """Like `instrument`, and additionally attaches nominated expressions to
+    the loops `watches` addresses them to -- #48.
+
+    A second function rather than an optional parameter on `instrument`,
+    because every existing caller of `instrument` unpacks a two-element
+    tuple, and a `watches=None` default would still leave "what is the third
+    element when nobody asked for one" with no good answer. Splitting the
+    signature is the same call `instrument_comprehensions` already made:
+    plain loop instrumentation has one settled shape, and everything
+    watch-related is additive, optional, and kept out of its way.
+
+    `watches` is keyed by `loop_key` rather than by an index the caller
+    allocates, because the caller -- `evaluate_watch` in `evalens_kernel.py`
+    -- resolves the *target loop*, by position, before this rewrite ever
+    runs, and does not and should not know the allocation order
+    `_Instrumenter`'s traversal is about to produce. Position is the one
+    thing both sides agree on: `instrument` deep-copies `node` before
+    visiting it, so identity does not survive to the loops this rewrites,
+    and position does, byte for byte.
+    """
+    instrumenter = _Instrumenter(watches)
+    rewritten = instrumenter.visit(copy.deepcopy(node))
+    return (ast.fix_missing_locations(rewritten), instrumenter.plan,
+            instrumenter.watch_plan)
+
+
+def innermost_loop_at(
+    node: ast.stmt, line: int, character: int
+) -> Optional[Union[ast.For, ast.AsyncFor]]:
+    """The most tightly nested `for`/`async for` inside `node` whose own span
+    contains 0-based (`line`, `character`), or None -- #48.
+
+    Where a nominated expression's watch attaches. Innermost, because
+    nominating an expression written inside a nested loop is a claim about
+    *that* loop's iterations, not the outer one's: an outer loop of 3
+    wrapping an inner loop of 1000 would otherwise report the watch's own
+    1000-entry sequence as though it belonged to the loop that ran 3 times.
+
+    `node` itself is a candidate -- `ast.walk` yields the root first -- so a
+    position inside an unnested loop resolves to the loop itself, which is
+    the common case #48's own examples exercise.
+
+    Coordinates in are VS Code's, like every other position the kernel takes
+    off the wire; `resolver.py` documents the same 1-based/0-based line
+    conversion for the same reason, and this module stays out of that file
+    by restating the two-line rule here rather than importing it.
+    """
+    best: Optional[Union[ast.For, ast.AsyncFor]] = None
+    best_span: Optional[int] = None
+    for candidate in ast.walk(node):
+        if not isinstance(candidate, (ast.For, ast.AsyncFor)):
+            continue
+        if not _contains(candidate, line, character):
+            continue
+        span = (candidate.end_lineno or candidate.lineno) - candidate.lineno
+        if best is None or span < best_span:  # type: ignore[operator]
+            best, best_span = candidate, span
+    return best
+
+
+def _contains(node: ast.stmt, line: int, character: int) -> bool:
+    """Whether 0-based (`line`, `character`) falls within `node`'s own span.
+
+    `node.end_lineno`/`end_col_offset` are only ever `None` on a parser that
+    predates Python 3.8, below this kernel's floor -- checked defensively
+    anyway, on the same rule `_load_copy` follows: declining is always the
+    safe answer to an assumption that turns out not to hold.
+    """
+    start_line, start_col = node.lineno - 1, node.col_offset
+    end_line = (node.end_lineno or node.lineno) - 1
+    end_col = node.end_col_offset if node.end_col_offset is not None else start_col
+    if line < start_line or line > end_line:
+        return False
+    if line == start_line and character < start_col:
+        return False
+    if line == end_line and character > end_col:
+        return False
+    return True
 
 
 def _trace_call(index: int, iterable: ast.expr, at: ast.expr) -> ast.expr:
@@ -723,6 +1042,24 @@ def traces(plan: List[Tuple[str, ...]], repr_fn: Callable[[Any], str],
     off at the same iteration instead of drifting apart on one line.
     """
     return [LoopTrace(repr_fn, limit, names) for names in plan]
+
+
+def watching_traces(
+    plan: List[Tuple[str, ...]], watch_plan: List[Tuple[str, ...]],
+    repr_fn: Callable[[Any], str], limit: int = HEAD_LIMIT
+) -> List[LoopTrace]:
+    """Like `traces`, and additionally gives each loop's trace a `watches`
+    dict pre-populated for the expressions `instrument_watching` wired into
+    it -- #48. Without this, the injected call in `_watch_call` would find
+    an empty dict and raise `KeyError` on its very first iteration.
+
+    `plan` and `watch_plan` are `instrument_watching`'s two returned plans,
+    always the same length because `_Instrumenter` appends to both in the
+    same call to `_instrument`; `zip` is what keeps that pairing rather than
+    an index into two lists that could drift apart under a future edit.
+    """
+    return [LoopTrace(repr_fn, limit, names, watches)
+            for names, watches in zip(plan, watch_plan)]
 
 
 class installed:  # noqa: N801 - reads as a context manager, and is one

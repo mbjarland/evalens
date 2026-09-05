@@ -444,7 +444,9 @@ import threading
 import tokenize
 import traceback
 import types
-from typing import Any, Dict, Iterable, Iterator, List, Optional, TextIO, Tuple
+from typing import (
+    Any, Dict, Iterable, Iterator, List, Optional, TextIO, Tuple, Union,
+)
 
 import loops
 import tabular
@@ -2494,7 +2496,8 @@ def _unwatched(names: Iterable[str], recorders: list) -> list:
 
 
 def _instrumented(
-    node: ast.stmt, head_limit: int = loops.HEAD_LIMIT
+    node: ast.stmt, head_limit: int = loops.HEAD_LIMIT,
+    watches: Optional[Dict[loops.LoopKey, List[Tuple[str, ast.expr]]]] = None,
 ) -> tuple[ast.stmt, list, list]:
     """`node` rewritten to announce its iterations, plus its recorders.
 
@@ -2527,16 +2530,57 @@ def _instrumented(
     `repr()` per iteration for it. #75 asked for a comprehension trace to obey
     the same switch, which is what sharing this one guard guarantees rather
     than states.
+
+    `watches` is `Kernel.evaluate_watch`'s addition -- #48 -- and it obeys the
+    exact same switch. A watch costs one more `repr()` per iteration than the
+    loop already pays, and `evalens.loopValues: 0` is the reader saying that
+    price is not worth it for *any* per-iteration value; a watch is not a
+    special case that keeps running underneath an instrumentation the reader
+    turned off. Left empty (the default) for every ordinary `eval`, which is
+    the only caller `head_limit <= 0` was ever guarding before this existed.
     """
     if head_limit <= 0:
         return node, [], []
     repr_fn = lambda value: safe_repr(value, loops.ITEM_LIMIT)  # noqa: E731
     if isinstance(node, (ast.For, ast.AsyncFor)):
+        if watches:
+            rewritten, plan, watch_plan = loops.instrument_watching(
+                node, watches)
+            return (rewritten,
+                     loops.watching_traces(plan, watch_plan, repr_fn,
+                                           head_limit),
+                     [])
         rewritten, plan = loops.instrument(node)
         return rewritten, loops.traces(plan, repr_fn, head_limit), []
     rewritten, labels = loops.instrument_comprehensions(node)
     return rewritten, [], loops.comprehension_traces(
         labels, repr_fn, head_limit)
+
+
+def _report_watch_failures(loop_trace: "loops.LoopTrace",
+                           err: "io.StringIO") -> None:
+    """Print one line per nominated expression that ever raised -- #48.
+
+    `LoopTrace.fail` deliberately keeps no more than the first exception and
+    a count of how many more there were; this is the other half of "reported
+    once, not per iteration" -- the half that makes it something the reader
+    actually sees. It goes to the statement's own `stderr`, exactly where a
+    `print()` inside the loop body would have landed, so it reaches the
+    annotation through the existing `printed` field and asks nothing of
+    `format.ts` or `decorations.ts`, neither of which #48 owns.
+
+    Called only when the statement ran to completion -- a loop that raised
+    outright never reaches this, and correctly: an annotation for a
+    statement that failed shows the failure, not a footnote about a watch
+    that never got to matter.
+    """
+    for expr_source, trace in loop_trace.watches.items():
+        if trace.error is None:
+            continue
+        more = f" ({trace.failed} more)" if trace.failed else ""
+        print(f"evalens: watching {expr_source!r} raised "
+              f"{trace.error['type']}: {trace.error['message']}{more}",
+              file=err)
 
 
 #: What one request asks its annotations to look like. The kernel holds no
@@ -3361,6 +3405,8 @@ class Kernel:
             return {"ok": True}
         if op == "eval":
             return self.evaluate(request)
+        if op == "eval_watch":
+            return self.evaluate_watch(request)
         if op == "eval_file":
             return self.evaluate_file(request)
         if op == "outline":
@@ -3436,6 +3482,138 @@ class Kernel:
             outcome = self._run(form, filename,
                                 allow_stdin=bool(request.get("allow_stdin")),
                                 limits=_limits(request))
+        outcome.update(partial)
+        return outcome
+
+    def evaluate_watch(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Run the loop enclosing a nominated expression, tracing that
+        expression alongside the loop's own target -- #48.
+
+        **This is a trace, not a watch, whatever the ticket is titled.** A
+        "watch" in this project is a forbidden thing: the *current* value of
+        something, re-read later, which asserts more than any statement
+        produced (#40, design rule 4). What this op adds is the same claim
+        `loops.py` already makes for a loop's target and for what its body
+        binds -- a value read **during** the iteration that produced it,
+        recorded once and never re-read -- for one more expression the
+        reader chose. `request["watch"]` names it; nothing about the result
+        can be asked for again without sending another request.
+
+        **Evaluating `request["watch"]` at all is design rule 3's hard case.**
+        A nominated expression is arbitrary -- `acct.balance`, `f(x)`, `d[k]`
+        -- and running it once per iteration is exactly the unbidden
+        execution #68 was filed over, one level up: nobody asked this line
+        to call `f`, they asked to watch what it returns. What licenses it
+        here and nowhere else in the kernel is that the request names one
+        specific expression, chosen and typed by the reader for this one
+        call; it is not run because the kernel guessed it might be
+        interesting; it is not kept running after this response is sent, and
+        nothing in this module remembers it once `_run` returns. A future
+        `eval` of the same loop, with no `watches` in its request, installs
+        no watch at all -- see `_instrumented`'s `watches` parameter, which
+        defaults to none, and `loops.py`'s module docstring for the fuller
+        argument against letting a nomination outlive its own request.
+
+        **A failing expression is reported once and does not stop the
+        loop.** `loops._watch_call` wraps the evaluation in the rewritten
+        tree's own `try`/`except Exception`, so a raise on iteration 300 of
+        1000 is caught where it happens, in the user's frame, recorded
+        through `LoopTrace.fail`, and the loop keeps going; `_run` prints one
+        line about it to the statement's own stderr (`_report_watch_failures`)
+        rather than one per iteration.
+
+        The rest of the resolution mirrors `evaluate`: the same parse, the
+        same fallback for a file that does not parse whole, and the same
+        `resolved: False` for a request that lands nowhere. What is new is
+        narrower and specific to a watch:
+
+        * the statement under `line`/`character` must itself be a `for` or
+          `async for` -- a watch on an expression inside an `if` or `try`
+          wrapping a loop is out of scope for the same reason plain
+          `eval` never shows *that* loop's sequence either, and reported as
+          `NoLoop` rather than silently doing nothing;
+        * `loops.innermost_loop_at` then finds the most tightly nested loop
+          actually enclosing the expression's own position, so a watch
+          nominated inside a nested loop is filed against that loop and not
+          the outer one;
+        * `request["watch"]` must parse as a single expression -- a
+          statement, or unparsable text, is `SyntaxError` rather than a
+          silently empty trace.
+        """
+        source: str = request.get("source", "")
+        line: int = request.get("line", 0)
+        character: int = request.get("character", 0)
+        filename: str = request.get("filename") or "<evalens>"
+        expr_source = request.get("watch")
+        if not isinstance(expr_source, str) or not expr_source.strip():
+            return {
+                "ok": False,
+                "error": {"type": "NoExpression",
+                          "message": "no expression to watch",
+                          "traceback": ""},
+            }
+
+        linecache.cache[filename] = (
+            len(source), None, source.splitlines(keepends=True), filename,
+        )
+
+        try:
+            parsed = parse_prefix(source, filename=filename)
+        except SyntaxError as exc:
+            return self._syntax_error(exc)
+
+        if parsed.truncated_at is not None and parsed.truncated_at <= line:
+            return self._syntax_error(parsed.error)
+
+        partial = {} if parsed.truncated_at is None else {
+            "partial": _partial_of(parsed)}
+
+        form = form_at(parsed.tree, line, character)
+        if form is None:
+            return {"ok": True, "resolved": False, **partial}
+
+        if not isinstance(form.node, (ast.For, ast.AsyncFor)):
+            # Matches `_instrumented`'s own gate for the plain loop display:
+            # a watch on an expression the statement under the cursor does
+            # not itself iterate has nothing established to attach to.
+            return {
+                "ok": False,
+                "error": {"type": "NoLoop",
+                          "message": "the statement under the cursor is not "
+                                     "a loop",
+                          "traceback": ""},
+            }
+
+        loop_node = loops.innermost_loop_at(form.node, line, character)
+        if loop_node is None:
+            # Reachable only if the position `form_at` resolved the
+            # statement from falls outside that very statement's own span --
+            # not expected, and answered the same honest way rather than
+            # guessed at.
+            return {
+                "ok": False,
+                "error": {"type": "NoLoop",
+                          "message": "no loop encloses this expression",
+                          "traceback": ""},
+            }
+
+        try:
+            expr_node = ast.parse(
+                expr_source, filename=filename, mode="eval").body
+        except SyntaxError as exc:
+            return {
+                "ok": False,
+                "error": {"type": "SyntaxError",
+                          "message": f"cannot watch {expr_source!r}: {exc}",
+                          "traceback": ""},
+            }
+
+        watches = {loops.loop_key(loop_node): [(expr_source, expr_node)]}
+
+        with self._as_module(filename):
+            outcome = self._run(form, filename,
+                                allow_stdin=bool(request.get("allow_stdin")),
+                                limits=_limits(request), watches=watches)
         outcome.update(partial)
         return outcome
 
@@ -3938,10 +4116,13 @@ class Kernel:
 
     def _run(self, form: Form, filename: str,
              allow_stdin: bool = False,
-             limits: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
+             limits: Optional[Dict[str, int]] = None,
+             watches: Optional[
+                 Dict[loops.LoopKey, List[Tuple[str, ast.expr]]]] = None
+             ) -> Dict[str, Any]:
         limits = _DEFAULT_LIMITS if limits is None else limits
         node, recorders, comp_recorders = _instrumented(
-            form.node, limits["loop_values"])
+            form.node, limits["loop_values"], watches)
         if form.captured:
             # An assignment to an attribute or a subscript. The value has to
             # come from the statement, because the only other way to it is
@@ -4036,6 +4217,51 @@ class Kernel:
                         # is usually the result, which is the half the reader
                         # came for.
                         bindings = recorders[0].bindings_wire()
+                        # #48. `recorders` holds one trace per instrumented
+                        # loop, outer first, and a watch may be filed against
+                        # any of them -- `evaluate_watch` attaches it to
+                        # whichever loop `loops.innermost_loop_at` found, not
+                        # necessarily the outermost one `recorders[0]` is.
+                        # Every recorder is checked for that reason, even
+                        # though only `recorders[0]`'s own target and body
+                        # bindings are ever shown above: the user pointed at
+                        # this expression specifically, wherever it was
+                        # nested, and losing it silently would be #48's
+                        # entire mechanism built for nothing.
+                        shown_names = {b["name"] for b in bindings}
+                        for trace in recorders:
+                            if not trace.watches:
+                                continue
+                            # Sent under the same shape a body binding
+                            # already uses -- `{name, values, last, count}`
+                            # -- because a nominated expression's sequence is
+                            # the exact rendering #48 asks for: "another
+                            # name: value pair on the loop's header line".
+                            # `name` here is the expression's own source text
+                            # rather than an identifier, which the wire
+                            # already allows: it is an opaque label to every
+                            # consumer of this array, never parsed back into
+                            # anything.
+                            #
+                            # A nomination that spells exactly the name of a
+                            # body binding already on the line -- `total`,
+                            # say, when `total += x` already reports one --
+                            # is not a second fact: both read the same name
+                            # at the same point in the same iteration, so the
+                            # two sequences are identical, and painting them
+                            # side by side would be the "value repeated on
+                            # consecutive lines" design rule 2 already rules
+                            # out, one line narrower. The existing binding
+                            # already answers what was nominated, so the
+                            # watch adds nothing and is left out; it is not
+                            # lost, since `evaluate_watch`'s caller nominated
+                            # a name that was already going to be shown.
+                            for entry in trace.watches_wire():
+                                if entry["name"] in shown_names:
+                                    continue
+                                bindings.append(entry)
+                                shown_names.add(entry["name"])
+                            _report_watch_failures(trace, err)
                     elif kept.value is not _NOTHING:
                         # What the assignment stored, taken as it stored it.
                         # `acct.balance` is never read: the annotation reports
