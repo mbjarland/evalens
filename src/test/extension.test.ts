@@ -403,6 +403,82 @@ test('a whole-file load flashes each statement as its outcome lands (#102)',
   }
 });
 
+// -- #88: bulk-work summaries reach a screen reader too ----------------------
+
+test('a whole-file load is announced, not only shown in the status bar ' +
+  '(#88)', async () => {
+  const fake = createFakeVscode();
+  fake.config.set('evalens', 'announceResults', 'always');
+  const editor = createEditor('1 + 1\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateFile = fake.commands.registered.get('evalens.evaluateFile');
+    await (evaluateFile as () => Promise<void>)();
+
+    const expected = 'Evalens: loaded 1 statement';
+    assert.equal(fake.statusBarMessages.at(-1), expected,
+      'setup: the sighted status-bar summary is unchanged');
+    assert.ok(
+      fake.messages.information.some((m) => m.message === expected),
+      'the load summary never reached showInformationMessage, so a screen ' +
+      'reader hears nothing when a file loads');
+    const item = fake.statusBarItems.at(-1);
+    assert.equal(item?.accessibilityInformation?.label, expected,
+      'the held status-bar item does not carry the load summary as its ' +
+      'accessibility label');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('"nothing to evaluate here" is announced, not only shown (#88)',
+  async () => {
+  const fake = createFakeVscode();
+  fake.config.set('evalens', 'announceResults', 'always');
+  const editor = createEditor('\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateAtCursor =
+      fake.commands.registered.get('evalens.evaluateAtCursor');
+    await (evaluateAtCursor as () => Promise<void>)();
+
+    const expected = 'Evalens: nothing to evaluate here';
+    assert.equal(fake.statusBarMessages.at(-1), expected);
+    assert.ok(
+      fake.messages.information.some((m) => m.message === expected),
+      'a blank line under the cursor is silent to a screen reader, ' +
+      'indistinguishable from a dead keybinding');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('a load summary is not announced when announceResults is never (#88)',
+  async () => {
+  const fake = createFakeVscode();
+  fake.config.set('evalens', 'announceResults', 'never');
+  const editor = createEditor('1 + 1\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateFile = fake.commands.registered.get('evalens.evaluateFile');
+    await (evaluateFile as () => Promise<void>)();
+
+    assert.equal(fake.messages.information.length, 0,
+      'the setting says never, so nothing should reach a notification');
+  } finally {
+    extension.deactivate();
+  }
+});
+
 // -- an edit invalidates what it touched, and nothing else -------------------
 
 test('a document edit clears only the statement it touched', async () => {

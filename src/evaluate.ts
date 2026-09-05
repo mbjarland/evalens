@@ -14,6 +14,7 @@ import {
 } from './kernel/protocol';
 import { InOrder } from './load';
 import { askForInput } from './prompt';
+import { Announcer } from './render/announcer';
 import { Annotations } from './render/annotations';
 import { Annotation, sourceAt, toVsCodeRange } from './render/decorations';
 import { Flash, SETTLED, SNAP } from './render/flash';
@@ -360,7 +361,18 @@ export class Evaluator {
     private readonly kernel: () => Promise<KernelClient>,
     private readonly annotations: Annotations,
     private readonly output: vscode.OutputChannel,
-    private readonly flash: Flash
+    private readonly flash: Flash,
+    /**
+     * #88: the same channel `Annotations.settle` already reaches for a
+     * single evaluation, handed here as well so a bulk-work summary --
+     * `describeLoad`, `describeRun`, "nothing to evaluate here" -- can be
+     * announced too. All of them go through `setStatusBarMessage`, which is
+     * backed by a shared status bar item that never sets
+     * `accessibilityInformation`, so without this a screen-reader user
+     * loading a file, running a selection, or pressing the evaluate key on a
+     * blank line hears nothing at all -- indistinguishable from a hang.
+     */
+    private readonly announcer: Announcer
   ) {}
 
   /** What the kernel last said it was doing, or nothing if there is none. */
@@ -708,9 +720,13 @@ export class Evaluator {
       // place, and reaching for the nearest statement instead would run code
       // nobody pointed at. Nor is it a reason to fall back to the prefix,
       // which is code nobody pointed at with a tempting amount of it.
-      vscode.window.setStatusBarMessage(
-        describeRun(0, 0, 0, false, response.partial?.truncated_at),
-        STATUS_ACK_MS);
+      const nothingToRun =
+        describeRun(0, 0, 0, false, response.partial?.truncated_at);
+      vscode.window.setStatusBarMessage(nothingToRun, STATUS_ACK_MS);
+      // #88: this is bulk work's own "nothing to evaluate here" -- a
+      // selection with no complete statement in it -- and was as silent to
+      // a screen reader as the single-statement case already fixed.
+      this.announcer.announceSummary(nothingToRun);
       return;
     }
 
@@ -734,9 +750,13 @@ export class Evaluator {
         // longer: one mechanism, so the two cannot expire on each other.
         this.flash.show([editor], [toVsCodeRange(executed)], SNAP);
       }
-      vscode.window.setStatusBarMessage(
-        describeRun(response.ran, response.statements, load.failed, widened,
-          response.partial?.truncated_at), STATUS_OUTCOME_MS);
+      const ranSelection = describeRun(response.ran, response.statements,
+        load.failed, widened, response.partial?.truncated_at);
+      vscode.window.setStatusBarMessage(ranSelection, STATUS_OUTCOME_MS);
+      // #88: describeRun's summary is bulk work's own report, the same
+      // granularity #55 already settled on for a load -- one utterance for
+      // the whole run rather than one per statement.
+      this.announcer.announceSummary(ranSelection);
       return;
     }
 
@@ -754,6 +774,9 @@ export class Evaluator {
       ? `${summary}; ${describeResidue(response.residue)}`
       : summary;
     vscode.window.setStatusBarMessage(message, STATUS_OUTCOME_MS);
+    // #88: describeLoad's summary, announced the same way -- see the doc
+    // comment on the constructor's `announcer` parameter.
+    this.announcer.announceSummary(message);
   }
 
   /**
@@ -966,6 +989,12 @@ export class Evaluator {
       // A blank line. Nothing is going to replace the mark, so it goes.
       run.waiting.withdraw();
       vscode.window.setStatusBarMessage(evaluated.message, STATUS_ACK_MS);
+      // #88: a sighted reader sees this in the status bar; a screen-reader
+      // user got nothing at all and could not tell it apart from a hang.
+      // `setStatusBarMessage`'s shared item never sets
+      // `accessibilityInformation`, so this is the only way this ever
+      // reaches one.
+      this.announcer.announceSummary(evaluated.message);
       return;
     }
     // The kernel's own cap is a transport bound now, generous enough that a
