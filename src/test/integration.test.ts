@@ -4,6 +4,8 @@ import * as path from 'node:path';
 
 import { KernelClient } from '../kernel/client';
 import { Evaluated, EvalResponse, Failed } from '../kernel/protocol';
+import { errorText, resultText } from '../render/format';
+import { present } from '../render/present';
 
 /**
  * The only test that checks the TypeScript and the Python agree.
@@ -84,4 +86,41 @@ test('printed output survives the protocol channel', async (t) => {
   const result = await evaluate(client, "print('hi')\n", 0) as Evaluated;
   assert.equal(result.ok, true);
   assert.equal(result.stdout, 'hi\n');
+});
+
+test('the whole pipeline produces the annotation IDEA.md promises', async (t) => {
+  // Kernel -> resolver -> client -> present -> format, i.e. everything except
+  // the call to setDecorations. This is the acceptance clip, minus the pixels.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'lst = [1, 2, 3]\ny = lst\ny.append(4)\nlst\n';
+  const painted: string[] = [];
+
+  for (const line of [0, 1, 2, 3]) {
+    const response = await evaluate(client, source, line);
+    const shown = present(response, line);
+    if (shown.kind === 'value' && shown.value !== null) {
+      painted.push(resultText(shown.value));
+    }
+  }
+
+  assert.deepEqual(painted.map((p) => p.replace(/ /g, ' ')), [
+    '=> [1, 2, 3]',
+    '=> [1, 2, 3]',
+    '=> None',
+    '=> [1, 2, 3, 4]',
+  ]);
+});
+
+test('an undefined name paints as an error, not as a crash', async (t) => {
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const shown = present(await evaluate(client, 'nope\n', 0), 0);
+  assert.equal(shown.kind, 'error');
+  assert.equal(
+    errorText((shown as { type: string }).type,
+      (shown as { message: string }).message).replace(/ /g, ' '),
+    "=> NameError: name 'nope' is not defined");
 });

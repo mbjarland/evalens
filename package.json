@@ -92,6 +92,12 @@
     ],
     "keybindings": [
       {
+        "command": "evalens.evaluateAtCursor",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "editorTextFocus && editorLangId == python && !findWidgetVisible"
+      },
+      {
         "command": "evalens.clearResults",
         "key": "escape",
         "when": "editorTextFocus && evalens.hasAnnotations"

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 
+import { Evaluator } from './evaluate';
 import { resolvePythonPath } from './config';
 import { KernelClient } from './kernel/client';
 import { Annotations } from './render/annotations';
@@ -7,6 +8,7 @@ import { Annotations } from './render/annotations';
 let client: KernelClient | undefined;
 let output: vscode.OutputChannel | undefined;
 let annotations: Annotations | undefined;
+let evaluator: Evaluator | undefined;
 
 /**
  * Activation is `onLanguage:python`, so a window with no Python in it pays
@@ -27,13 +29,16 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
+  evaluator = new Evaluator(
+    () => ensureClient(context), annotations, output);
+
   context.subscriptions.push(
     vscode.commands.registerCommand('evalens.evaluateAtCursor', async () => {
-      // Placeholder: the renderer (#7, #8) and the wiring (#9) land here.
-      const kernel = await ensureClient(context);
-      const result = await kernel.request({ op: 'ping' });
-      output?.appendLine(`kernel ping: ${JSON.stringify(result)}`);
-      vscode.window.setStatusBarMessage('Evalens: kernel reachable', 2000);
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        return;
+      }
+      await evaluator?.evaluateAtCursor(editor);
     })
   );
 
