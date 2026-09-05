@@ -293,6 +293,18 @@ export interface Evaluated {
   readonly bindings?: readonly BindingTrace[];
   /** Present only when the line mentions names worth reporting. */
   readonly names?: readonly NamedValue[];
+  /**
+   * The module-level names this statement wrote, and the ones it consulted.
+   *
+   * The only fields here that say nothing about this statement's own answer.
+   * They are how the extension works out which *other* annotations this
+   * evaluation just put out of date: one that reads a name this one binds, and
+   * sits below it in the file. Marking, and never running -- that is #40's
+   * decision and this must not become reactivity by increments. Absent when
+   * empty.
+   */
+  readonly binds?: readonly string[];
+  readonly reads?: readonly string[];
 }
 
 export interface Failed {
@@ -305,6 +317,13 @@ export interface Failed {
   readonly kind?: string;
   readonly stdout?: string;
   readonly stderr?: string;
+  /**
+   * Sent on this path too. A statement that raised may have bound something
+   * before it did, and marking a dependant that did not need it costs a grey
+   * pixel where missing one costs the thing the marker is for.
+   */
+  readonly binds?: readonly string[];
+  readonly reads?: readonly string[];
   /** How many statements ran before the failure, for `eval_file`. */
   readonly statements?: number;
 }
@@ -325,6 +344,8 @@ export type StatementOutcome =
       readonly loop?: LoopTrace;
       readonly bindings?: readonly BindingTrace[];
       readonly names?: readonly NamedValue[];
+      readonly binds?: readonly string[];
+      readonly reads?: readonly string[];
     }
   | {
       readonly ok: false;
@@ -334,6 +355,8 @@ export type StatementOutcome =
       readonly anchor?: number;
       readonly stdout?: string;
       readonly stderr?: string;
+      readonly binds?: readonly string[];
+      readonly reads?: readonly string[];
     };
 
 /**

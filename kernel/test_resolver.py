@@ -232,6 +232,115 @@ class AnnotatedNames(unittest.TestCase):
         self.assertEqual(self.names('"""The module."""\n'), ())
 
 
+class DefsAndUses(unittest.TestCase):
+    """Which names a statement wrote, and which it consulted.
+
+    The same walk as `AnnotatedNames` above, asked the other question. That one
+    decides what to *show* beside a line; this one decides which *other*
+    annotations an evaluation has just put out of date. Nothing here is ever
+    looked up, and nothing here is ever re-run.
+    """
+
+    def defs(self, src, line=0):
+        return resolve(src, line).binds
+
+    def uses(self, src, line=0):
+        return resolve(src, line).reads
+
+    def test_the_two_line_example(self):
+        # Evaluate both, edit and re-evaluate the first, and the second is
+        # describing a world that no longer exists. This pair is what makes
+        # that decidable.
+        self.assertEqual(self.defs("x = 1\ny = x + 1\n"), ("x",))
+        self.assertEqual(self.uses("x = 1\ny = x + 1\n"), ())
+        self.assertEqual(self.defs("x = 1\ny = x + 1\n", 1), ("y",))
+        self.assertEqual(self.uses("x = 1\ny = x + 1\n", 1), ("x",))
+
+    def test_a_name_both_bound_and_read_appears_in_both(self):
+        # Where the display wants one entry -- `n += 1` has one thing to say
+        # about `n` -- this wants both halves: a statement that reads `n` goes
+        # out of date when `n` is rebound, whether or not it rebinds it too.
+        self.assertEqual(self.defs("x = x + 1\n"), ("x",))
+        self.assertEqual(self.uses("x = x + 1\n"), ("x",))
+        self.assertEqual(self.defs("n += 1\n"), ("n",))
+        self.assertEqual(self.uses("n += 1\n"), ("n",))
+
+    def test_a_definition_binds_its_name_and_reads_nothing_from_its_body(self):
+        # The body runs when the function is called, which is a moment this
+        # evaluation knows nothing about. `f` is still the same object after
+        # `secret` is rebound, so nothing about `f` went out of date.
+        self.assertEqual(self.defs("def f():\n    return secret\n"), ("f",))
+        self.assertEqual(self.uses("def f():\n    return secret\n"), ())
+
+    def test_a_definition_reads_its_decorators_and_defaults(self):
+        # These are evaluated where the `def` is written, so re-running the
+        # decorator really does leave the decorated function out of date.
+        self.assertEqual(self.uses("@shout\ndef g():\n    return 'ok'\n"),
+                         ("shout",))
+        self.assertEqual(self.uses("def g(n=limit):\n    return n\n"),
+                         ("limit",))
+        self.assertEqual(self.uses("def g(n: Size) -> Size:\n    return n\n"),
+                         ("Size",))
+        self.assertEqual(self.defs("def g(n=limit):\n    return n\n"), ("g",))
+
+    def test_a_class_reads_its_bases_and_not_its_body(self):
+        self.assertEqual(self.uses("class C(Base):\n    x = hidden\n"),
+                         ("Base",))
+        self.assertEqual(self.defs("class C(Base):\n    x = hidden\n"), ("C",))
+
+    def test_a_loop_body_runs_now_and_counts(self):
+        # `p` lands in both: the statement introduces it and the body reads it
+        # back. That is an over-mark -- re-running something above that also
+        # binds `p` will mark this loop, which rebinds `p` itself and did not
+        # need marking. Deliberately left in. Telling it apart from `x = x + 1`,
+        # where the read genuinely happens before the binding, needs scope and
+        # ordering analysis, and the cost of getting this wrong is one extra
+        # marker where the cost of the opposite error is the whole feature.
+        self.assertEqual(self.defs("for p in xs:\n    total += p\n"),
+                         ("p", "total"))
+        self.assertEqual(self.uses("for p in xs:\n    total += p\n"),
+                         ("xs", "total", "p"))
+
+    def test_an_import_binds_the_name_it_actually_binds(self):
+        self.assertEqual(self.defs("import os.path\n"), ("os",))
+        self.assertEqual(self.defs("import json as encoder\n"), ("encoder",))
+        self.assertEqual(self.defs("from decimal import Decimal\n"),
+                         ("Decimal",))
+
+    def test_an_expression_reads_and_binds_nothing(self):
+        self.assertEqual(self.defs("print('hi', y)\n"), ())
+        self.assertEqual(self.uses("print('hi', y)\n"), ("print", "y"))
+
+    def test_mutation_through_an_alias_is_a_known_miss(self):
+        # `y = lst` then `lst.append(4)`: `y` shows something different
+        # afterwards and no statement bound `y`, so nothing here can see it.
+        #
+        # Left as a miss ON PURPOSE. Catching it needs runtime lineage
+        # tracking -- nbsafety measured its tracer at a 1.44x median slowdown
+        # -- and the output here is only a marker, so a missed mark costs what
+        # the tool cost before any of this existed. Do not "fix" this by adding
+        # a tracer without a decision ticket: the same limit is why every
+        # reactive notebook gets this case wrong, and marimo's own
+        # documentation says tracking mutations reliably is impossible in
+        # Python.
+        self.assertEqual(self.defs("lst.append(4)\n"), ())
+        self.assertEqual(self.uses("lst.append(4)\n"), ("lst",))
+
+    def test_a_call_that_rebinds_a_global_is_a_known_miss(self):
+        # `bump()`, where `bump` declares `global tally` and increments it.
+        # The call site binds nothing as far as a parser can see. Same trade
+        # as above, and the same instruction: leave it missed.
+        self.assertEqual(self.defs("bump()\n"), ())
+
+    def test_the_display_walk_is_unchanged_by_all_of_this(self):
+        # The two questions share a walk, and the display's answers are the
+        # ones a user actually sees. Pinned here as well as in AnnotatedNames
+        # so a change made for the dependency side cannot quietly move them.
+        self.assertEqual(resolve("x = x + 1\n", 0).names, ())
+        self.assertEqual(resolve("@shout\ndef g():\n    pass\n", 0).names, ())
+        self.assertEqual(resolve("a = a + b\n", 0).names, ("b",))
+
+
 class HeaderAnchors(unittest.TestCase):
     """Where the value is written, as distinct from how much code ran.
 

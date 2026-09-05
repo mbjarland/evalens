@@ -155,6 +155,25 @@ reindent, a formatter on save, a trailing space — do not mark anything, and an
 edit that adds or removes lines inside a statement removes its annotation
 outright, because there is then no statement for the value to sit beside.
 
+**A value also goes stale when something it was computed from changes.**
+
+```python
+x = 1        x: 1
+y = x + 1    y: 2
+```
+
+Edit the first line and re-run it, and the second is out of date without its
+own text having changed at all. So Evalens marks it: re-evaluating a statement
+marks every annotation *below it in the file* that reads a name it just bound.
+
+**Nothing is ever re-run to resolve any of this.** Evalens marks and stops —
+it is not a reactive notebook, and it does not decide when your code executes.
+The consequence worth knowing is that the analysis is a parse, not a trace: it
+reads the names each statement writes and consults, so it cannot see a value
+change through an alias — `y = lst` followed by `lst.append(4)` leaves `y`
+looking current. Marking that too would mean running your code to find out,
+which is the one thing this extension does not do behind your back.
+
 ## Settings
 
 | Setting | Default | What it does |

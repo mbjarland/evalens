@@ -52,6 +52,14 @@ from types import SimpleNamespace as Record
 #    `y.append(4)` is also the shape every mutating method in Python has: it
 #    changed `y` and returned nothing.  It annotates `y: [1, 2, 3, 4]` rather
 #    than `=> None`, and the None it produced is on the hover.
+#
+#    It is also the one case the stale markers cannot see, and it is here on
+#    purpose.  Evaluating it leaves the `lst = [1, 2, 3]` annotation above
+#    still reading `[1, 2, 3]` with an unbroken marker, because no statement
+#    bound `lst` -- the list was mutated through another name.  Catching that
+#    needs a runtime tracer rather than a parse, and a tracer is a 1.4x
+#    slowdown on everything to fix a marker.  See case 10 for the half of
+#    staleness that does work.
 lst = [1, 2, 3]
 y = lst
 y.append(4)
@@ -185,6 +193,13 @@ if __name__ != "__main__":
 #     Reindent the line instead of editing it, or leave a trailing space, and
 #     nothing changes -- a marker that goes amber for a formatter is a marker
 #     nobody reads.
+#
+#     The other half of it is in case 2 and needs no editing at all: with all
+#     four of those lines annotated, evaluate `lst = [1, 2, 3]` again.  The
+#     `y = lst` line below it breaks its marker without its own text changing,
+#     because it reads a name that line just rebound.  Nothing re-runs; the
+#     value stays exactly as it was.  Case 2's third line is the case this
+#     cannot see, and case 2 says why.
 
 
 # ----------------------------------------------------------------- bindings --

@@ -24,6 +24,17 @@ export interface Traced extends Anchored {
    */
   readonly source?: string;
   /**
+   * The module-level names this statement bound, and the ones it read.
+   *
+   * From the kernel's parse of the file. They are what makes the second half
+   * of staleness decidable: an annotation goes out of date when its own code
+   * changes, and also when something it was computed from does. Absent means
+   * unknown, which here means unmarkable rather than unmarked -- a statement
+   * with no recorded reads is simply never a dependant of anything.
+   */
+  readonly binds?: readonly string[];
+  readonly reads?: readonly string[];
+  /**
    * The value no longer describes the code beside it.
    *
    * Set by an edit, cleared only by evaluating the statement again -- which
@@ -103,6 +114,60 @@ export function afterEdit<T extends Traced>(annotation: T, current: string): T {
     return annotation;
   }
   return { ...annotation, stale: true };
+}
+
+/**
+ * Mark every annotation below `evaluated` that reads a name it just bound.
+ *
+ * The half that marking an annotation's own edited text cannot reach, and the
+ * more common half of the two:
+ *
+ *     x = 1        x: 1
+ *     y = x + 1    y: 2
+ *
+ * Edit the first line to `x = 5` and re-evaluate it. Line 1 reads `x: 5`; line
+ * 2 still reads `y: 2`, untouched by the edit, correctly positioned, marked
+ * current, and describing a world that no longer exists. Line 2's own text
+ * never changed, so nothing about line 2 can catch it.
+ *
+ * **Below in the file, not later in time.** File order is the only ordering a
+ * reader can see, and marking upwards would mark things the reader has no way
+ * to act on -- the statement above did not depend on the one below it, whatever
+ * order they happened to be run in.
+ *
+ * **The same mark, not a second kind of amber.** A stale annotation is stale;
+ * the reader does not need to know which of the two reasons produced it, and
+ * two shades would be worse than one.
+ *
+ * **Nothing is re-run, scheduled or ordered.** This marks and stops. The
+ * temptation is to re-evaluate the dependant, and that is a different product:
+ * a reactive notebook, which #40 ruled out and which cannot be made reliable in
+ * Python anyway. If this function ever grows a call to the kernel, it has
+ * become the thing the project exists not to be.
+ */
+export function markDependents<T extends Traced>(
+  annotations: readonly T[], evaluated: Traced
+): readonly T[] {
+  if (evaluated.binds === undefined || evaluated.binds.length === 0) {
+    return annotations;
+  }
+  const bound = new Set(evaluated.binds);
+  const below = evaluated.range.end.line;
+
+  let changed = false;
+  const marked = annotations.map((annotation) => {
+    if (annotation.stale || annotation.range.start.line <= below) {
+      return annotation;
+    }
+    if (!annotation.reads?.some((name) => bound.has(name))) {
+      return annotation;
+    }
+    changed = true;
+    return { ...annotation, stale: true };
+  });
+  // Identity when nothing was marked, so the common case -- a statement whose
+  // names nothing below it reads -- costs no repaint.
+  return changed ? marked : annotations;
 }
 
 /** Do these two annotations cover any of the same lines? */

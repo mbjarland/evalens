@@ -47,6 +47,8 @@ function annotationFor(
           range: toVsCodeRange(outcome.range),
           ...(outcome.anchor === undefined ? {} : { anchor: outcome.anchor }),
           source: sourceAt(document, toVsCodeRange(outcome.range)),
+          ...(outcome.binds === undefined ? {} : { binds: outcome.binds }),
+          ...(outcome.reads === undefined ? {} : { reads: outcome.reads }),
           error: { type: outcome.error.type, message: outcome.error.message },
           hover: outcome.error.traceback || outcome.error.message,
         }
@@ -68,6 +70,8 @@ function annotationFor(
     ...(outcome.loop === undefined ? {} : { loop: outcome.loop }),
     ...(outcome.bindings === undefined ? {} : { bindings: outcome.bindings }),
     ...(outcome.names === undefined ? {} : { names: outcome.names }),
+    ...(outcome.binds === undefined ? {} : { binds: outcome.binds }),
+    ...(outcome.reads === undefined ? {} : { reads: outcome.reads }),
     hover: hoverFor(
       outcome.display, outcome.value, outcome.repr, outcome.loop,
       outcome.names, outcome.bindings
@@ -317,6 +321,12 @@ export class Evaluator {
             // Taken now, beside the value, so an edit can be judged against
             // the code that actually ran rather than against the buffer.
             source: sourceAt(document, toVsCodeRange(presentation.range)),
+            ...(presentation.binds === undefined
+              ? {}
+              : { binds: presentation.binds }),
+            ...(presentation.reads === undefined
+              ? {}
+              : { reads: presentation.reads }),
             error: { type: presentation.type, message: presentation.message },
             hover: presentation.hover,
           }
@@ -342,6 +352,12 @@ export class Evaluator {
             ...(presentation.names === undefined
               ? {}
               : { names: presentation.names }),
+            ...(presentation.binds === undefined
+              ? {}
+              : { binds: presentation.binds }),
+            ...(presentation.reads === undefined
+              ? {}
+              : { reads: presentation.reads }),
             ...(presentation.hover ? { hover: presentation.hover } : {}),
           };
 

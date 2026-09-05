@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  AnnotationRegistry, afterEdit, lineDelta, markerFor, merge, normalizeSource,
-  overlaps, reanchor,
+  AnnotationRegistry, afterEdit, lineDelta, markDependents, markerFor, merge,
+  normalizeSource, overlaps, reanchor,
 } from '../render/registry';
 
 test('annotations belong to a document, not to the window', () => {
@@ -403,6 +403,107 @@ test('a mark is decided after every change, not while they are applied', () => {
 
   assert.deepEqual(placed(after), ['top@0-0', 'bottom@3-3']);
   assert.deepEqual(markers(after), [false, false]);
+});
+
+// -- staleness by dependency --------------------------------------------------
+
+/** An annotation carrying what its statement bound and what it read. */
+interface Dependent extends Valued {
+  readonly binds?: readonly string[];
+  readonly reads?: readonly string[];
+}
+
+function on(
+  line: number, id: string,
+  binds: readonly string[], reads: readonly string[]
+): Dependent {
+  return {
+    range: { start: { line }, end: { line } },
+    id, value: `v${line}`, source: id, binds, reads,
+  };
+}
+
+test('re-evaluating a binding marks the line below that reads it', () => {
+  // The ticket's own two lines. Line 2's text never changed, so nothing about
+  // line 2 can catch this -- and line 2 is the one describing a world that no
+  // longer exists.
+  const before = [on(0, 'x', ['x'], []), on(1, 'y', ['y'], ['x'])];
+  const after = markDependents(before, before[0]!);
+
+  assert.deepEqual(markers(after), [false, true]);
+  assert.deepEqual(after.map((a) => a.value), ['v0', 'v1'],
+    'nothing is re-read and nothing is re-run, so no value moves');
+});
+
+test('marking reaches down the file and skips what does not read the name', () => {
+  // Line 40 reads a name bound on line 1, and the thirty-eight lines between
+  // that never mention it stay green.
+  const bound = on(0, 'source', ['limit'], []);
+  const between = Array.from({ length: 38 },
+    (_, i) => on(i + 1, `mid${i}`, [`m${i}`], ['unrelated']));
+  const reader = on(40, 'reader', ['report'], ['limit']);
+  const after = markDependents([bound, ...between, reader], bound);
+
+  assert.deepEqual(after.filter((a) => a.stale).map((a) => a.id), ['reader']);
+});
+
+test('marking never goes backwards up the file', () => {
+  // File order is the only ordering a reader can see. An annotation above the
+  // statement just evaluated did not depend on it, whatever order the two
+  // happened to be run in -- and marking it would be marking something the
+  // reader has no way to act on.
+  const evaluated = on(5, 'evaluated', ['x'], []);
+  const before = [on(0, 'above', ['a'], ['x']), evaluated];
+  const after = markDependents(before, evaluated);
+
+  assert.equal(after, before, 'the array comes back untouched, by identity');
+  assert.deepEqual(markers(after), [false, false]);
+});
+
+test('a statement whose names nothing reads marks nothing at all', () => {
+  const before = [on(0, 'lonely', ['unused'], []), on(1, 'other', ['b'], ['c'])];
+  const after = markDependents(before, before[0]!);
+
+  assert.equal(after, before, 'identity, so the common case costs no repaint');
+});
+
+test('a statement that binds nothing marks nothing', () => {
+  const before = [on(0, 'call', [], ['lst']), on(1, 'reader', ['z'], ['lst'])];
+  assert.equal(markDependents(before, before[0]!), before);
+  assert.equal(markDependents(before, { range: before[0]!.range }), before,
+    'an annotation from before these fields existed must be inert');
+});
+
+test('mutation through an alias is a known miss, and stays one', () => {
+  // `y = lst` then `lst.append(4)`: `y` shows something different afterwards
+  // and no statement bound `y`. Catching this needs runtime lineage tracking,
+  // which nbsafety measured at a 1.44x median slowdown -- and the output here
+  // is a marker, so a missed mark costs what the tool cost before this
+  // existed. Do not "fix" it by adding a tracer.
+  const alias = on(0, 'alias', ['y'], ['lst']);
+  const mutate = on(1, 'mutate', [], ['lst']);
+  const after = markDependents([alias, mutate], mutate);
+
+  assert.deepEqual(markers(after), [false, false]);
+});
+
+test('an annotation already stale is left exactly as it was', () => {
+  const evaluated = on(0, 'x', ['x'], []);
+  const dependant = { ...on(1, 'y', ['y'], ['x']), stale: true };
+  const after = markDependents([evaluated, dependant], evaluated);
+
+  assert.equal(after[1], dependant, 'no churn, and one mark not two');
+});
+
+test('re-evaluating the dependant is what clears its mark', () => {
+  const evaluated = on(0, 'x', ['x'], []);
+  const [, marked] = markDependents(
+    [evaluated, on(1, 'y', ['y'], ['x'])], evaluated);
+  assert.equal(marked?.stale, true);
+
+  const rerun = on(1, 'y', ['y'], ['x']);
+  assert.deepEqual(merge([evaluated, marked!], rerun).map((a) => a.stale),
+    [undefined, undefined]);
 });
 
 test('the three states are told apart, and stale outranks error', () => {

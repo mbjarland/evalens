@@ -63,6 +63,12 @@ class Form:
     #: them, minus the ones `display` already accounts for. What they hold is
     #: the namespace's business, not the parser's.
     names: Tuple[str, ...] = ()
+    #: The module-level names this statement binds, and the ones it reads.
+    #: Nothing is displayed from these and nothing is looked up: they exist so
+    #: the extension can decide which *other* annotations an evaluation just
+    #: put out of date. See `defs_and_uses`.
+    binds: Tuple[str, ...] = ()
+    reads: Tuple[str, ...] = ()
 
 
 #: Statements whose value belongs on the line that introduces them rather than
@@ -187,9 +193,24 @@ class _Names(ast.NodeVisitor):
     again, and #40 settles that an annotation never re-runs either.
 
     A `del`eted name is neither: it is gone, and reading it back would raise.
+
+    Two callers ask two questions of this walk, and `for_display` is which.
+
+    **What is worth showing beside the line** wants each name once across both
+    lists, because `n += 1` has one thing to say about `n` and the binding is
+    the more informative half; and it wants nothing from a definition but the
+    name it binds, because `shout: <function shout>` beside `def greeting():`
+    is noise.
+
+    **What the statement actually touched at module level** wants both halves
+    of `x = x + 1`, since a statement that reads `x` goes out of date when `x`
+    is rebound whether or not it also binds it; and it wants a definition's
+    decorators, defaults and annotations, because those are evaluated where the
+    `def` is written rather than when the function is called.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, for_display: bool = True) -> None:
+        self.for_display = for_display
         self.bound: List[str] = []
         self.read: List[str] = []
 
@@ -205,6 +226,17 @@ class _Names(ast.NodeVisitor):
 
     visit_ImportFrom = visit_Import
 
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        # `n += 1` consults `n` and then rebinds it, but the AST marks the
+        # target Store and leaves the read implicit -- there is no Load node to
+        # find. The display is content with the binding alone, which is the
+        # more informative half of a pair; the dependency walk is not, because
+        # an accumulator really does go out of date when what it accumulates
+        # into is rebound above it.
+        if not self.for_display and isinstance(node.target, ast.Name):
+            self._record(self.read, node.target.id)
+        self.generic_visit(node)
+
     def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
         if node.name:
             # Python deletes it again at the end of the block, so it is
@@ -214,26 +246,55 @@ class _Names(ast.NodeVisitor):
             self._record(self.bound, node.name)
         self.generic_visit(node)
 
-    # A definition binds its name now and runs its body at some other time --
+    # A definition binds its name now and runs its BODY at some other time --
     # when it is called, which may be long after this evaluation. Descending
-    # would report names that do not exist yet, or that belong to a scope
-    # nothing here can see. `loops` refuses the same three nodes for the same
-    # reason, and it is spelled out per type rather than left to a comment.
+    # into the body would report names that do not exist yet, or that belong
+    # to a scope nothing here can see. `loops` refuses the same three nodes for
+    # the same reason, and it is spelled out per type rather than left to a
+    # comment.
+    #
+    # Its header is a different matter, and only the dependency walk cares:
+    # decorators, default arguments and annotations are ordinary expressions
+    # evaluated where the `def` is written, so `@register` really does read
+    # `register` at the moment this statement runs.
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._record(self.bound, node.name)
+        if self.for_display:
+            return
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        # `ast.arguments` holds the defaults and, through each `arg`, the
+        # annotations. A parameter's own name is a plain string rather than a
+        # Name node, so descending here cannot mistake one for a binding.
+        self.visit(node.args)
+        if node.returns is not None:
+            self.visit(node.returns)
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self._record(self.bound, node.name)
+        if self.for_display:
+            return
+        for expression in (*node.decorator_list, *node.bases, *node.keywords):
+            self.visit(expression)
+        # Not the body, which does run now: every name it binds is a class
+        # attribute rather than a module global, and recording those would
+        # claim the statement rebound something at module level. The reads it
+        # makes are missed as a consequence, which is the safe half to lose.
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
+        # Body and defaults both skipped, in both modes. The body genuinely
+        # runs later; the defaults do not, and are a small deliberate miss
+        # rather than a case worth a branch.
         return
 
     def _record(self, into: List[str], name: str) -> None:
-        # A name that is both bound and read -- `n += 1`, `x = x + 1` -- is
-        # one pair, and the binding is the more informative half.
-        if name not in self.bound and name not in self.read:
+        if self.for_display and (name in self.bound or name in self.read):
+            # A name that is both bound and read -- `n += 1`, `x = x + 1` -- is
+            # one pair, and the binding is the more informative half.
+            return
+        if name not in into:
             into.append(name)
 
 
@@ -279,6 +340,34 @@ def annotated_names(node: ast.stmt, first_in_body: bool = False) -> Tuple[str, .
     shown = _already_shown(node, first_in_body)
     return tuple(name for name in (*collector.bound, *collector.read)
                  if name not in shown)
+
+
+def defs_and_uses(node: ast.stmt) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
+    """The module-level names this statement binds, and the ones it reads.
+
+    Def and use over the module already being parsed, and it is used to *mark*
+    and never to run. Re-evaluating a statement that binds `x` puts every later
+    annotation that reads `x` out of date; saying so is a claim about time,
+    which costs a walk of one statement, while fixing it would mean running the
+    user's code unbidden, which #40 rules out.
+
+    Deliberately unsound, and in the safe direction. Aliasing and mutation
+    defeat it outright -- `y = lst` and then `lst.append(4)` changes what `y`
+    shows without any statement binding `y` -- and so does a call whose body
+    rebinds a global. Those go unmarked. That is affordable precisely because
+    the output is a marker: a missed mark costs what the tool cost before this
+    existed, and a spurious mark costs one grey pixel. It would not be
+    affordable if the output were an execution, which is why reactive notebooks
+    cannot do this reliably; marimo's own documentation says tracking mutations
+    reliably is impossible in Python. Runtime lineage tracking is what catches
+    them, and nbsafety measured its tracer at a 1.44x median slowdown.
+
+    Read as a pair with `annotated_names`, which asks the other question of the
+    same walk: that one is what to *show*, this one is what to *mark*.
+    """
+    collector = _Names(for_display=False)
+    collector.visit(node)
+    return tuple(collector.bound), tuple(collector.read)
 
 
 def _start_line(node: ast.stmt) -> int:
@@ -327,6 +416,7 @@ def form_of(node: ast.stmt, first_in_body: bool = False) -> Form:
     """
     start = _start_line(node) - 1
     end = (node.end_lineno or node.lineno) - 1
+    binds, reads = defs_and_uses(node)
     return Form(
         node=node,
         kind=type(node).__name__,
@@ -337,6 +427,8 @@ def form_of(node: ast.stmt, first_in_body: bool = False) -> Form:
         end_char=node.end_col_offset or 0,
         anchor_line=_anchor_line(node, end),
         names=annotated_names(node, first_in_body),
+        binds=binds,
+        reads=reads,
     )
 
 

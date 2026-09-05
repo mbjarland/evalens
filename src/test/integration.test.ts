@@ -10,6 +10,7 @@ import {
 } from '../kernel/protocol';
 import { errorText, resultText } from '../render/format';
 import { describeRun, present } from '../render/present';
+import { markDependents } from '../render/registry';
 import { LineRange, selectedLines, widenedBeyond } from '../selection';
 
 /**
@@ -335,6 +336,45 @@ test('loading a file paints what walking down it would have', async (t) => {
     [['lst', '[1, 2, 3]'], ['y', '[1, 2, 3]'],
      ['y.append(4)', 'None'], ['lst', '[1, 2, 3, 4]']],
     'one keystroke should produce the same four values as four keystrokes');
+});
+
+test('a dependency crosses the wire and reaches the marking rule', async (t) => {
+  // The two-line example, end to end. The kernel says what each statement
+  // bound and read; `markDependents` turns that into one mark and nothing
+  // else. A renamed field on either side passes both suites and fails only in
+  // a real editor, which is what this whole file exists for.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'x = 1\ny = x + 1\n';
+  const first = await evaluate(client, source, 0) as Evaluated;
+  const second = await evaluate(client, source, 1) as Evaluated;
+
+  assert.deepEqual(first.binds, ['x']);
+  assert.deepEqual(second.reads, ['x']);
+
+  const annotations = [first, second].map((response) => {
+    const painted = present(response, response.range.start.line);
+    assert.equal(painted.kind, 'value');
+    const value = painted as Extract<typeof painted, { kind: 'value' }>;
+    return {
+      range: {
+        start: { line: value.range.start.line },
+        end: { line: value.range.end.line },
+      },
+      value: value.value,
+      ...(value.binds === undefined ? {} : { binds: value.binds }),
+      ...(value.reads === undefined ? {} : { reads: value.reads }),
+      stale: false,
+    };
+  });
+
+  // Re-evaluating line 1 is what the user does after editing it, and line 2
+  // is the one describing a world that has moved on.
+  const marked = markDependents(annotations, annotations[0]!);
+  assert.deepEqual(marked.map((a) => a.stale === true), [false, true]);
+  assert.deepEqual(marked.map((a) => a.value), ['1', '2'],
+    'and nothing was re-run, so neither value moved');
 });
 
 test('a broken line does not stop the rest of the file loading', async (t) => {

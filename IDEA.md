@@ -229,6 +229,31 @@ Well-documented, well-trodden.
   included — the buffer can be put back, the kernel cannot, and only an
   evaluation is entitled to say the two agree again.
 
+  Marking an annotation when its own text changes catches the obvious
+  case and misses the common one. `x = 1` / `y = x + 1`: edit and re-run
+  the first line and the second still reads `y: 2`, untouched by the
+  edit, correctly positioned, and describing a world that no longer
+  exists. Its own text never changed, so nothing about it can catch this.
+  So the kernel also reports, per statement, the module-level names it
+  bound and the ones it read — the same `ast` walk that resolves the
+  form, asked a second question — and re-evaluating a statement that
+  binds `x` marks every annotation *below it in the file* that reads `x`.
+  Same marker, same vocabulary; the reader does not need to know which of
+  the two reasons produced it.
+
+  **It marks and it never runs anything.** That boundary is the whole
+  design and it is one increment from being lost: a marker plus "and
+  re-run the dependant" is a reactive notebook, which #40 ruled out and
+  which cannot be made reliable in Python anyway. The analysis is
+  deliberately unsound in the safe direction — aliasing and mutation
+  defeat it, and `lst = [1, 2, 3]` / `y = lst` / `lst.append(4)`, this
+  document's own opening example, is precisely the case it cannot see.
+  That is affordable because the output is one grey pixel. It would not
+  be if the output were an execution, which is exactly why marimo's
+  documentation says tracking mutations reliably is impossible in Python,
+  and why nbsafety pays a 1.44× median slowdown for the version that
+  catches them.
+
 ## Prior art: take the display approach from Calva
 
 **Calva is the reference implementation for the rendering, and we should

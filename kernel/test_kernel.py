@@ -1425,6 +1425,57 @@ class Anchors(KernelTest):
         self.assertEqual(result["results"][1]["anchor"], 1)
 
 
+class Dependencies(KernelTest):
+    """`binds` and `reads` over the wire.
+
+    The only fields in a response that say nothing about the statement's own
+    answer. They exist so the extension can mark which *other* annotations an
+    evaluation has just put out of date -- and marking is the whole of it. The
+    kernel never re-runs a dependant, never queues one, and has no idea what
+    the extension has on screen.
+    """
+
+    def test_the_two_line_example_carries_its_dependency(self):
+        src = "x = 1\ny = x + 1\n"
+        first = self.k.evaluate(src, 0)
+        self.assertEqual(first["binds"], ["x"])
+        self.assertNotIn("reads", first)
+
+        second = self.k.evaluate(src, 1)
+        self.assertEqual(second["binds"], ["y"])
+        self.assertEqual(second["reads"], ["x"])
+        # And the value is still the value: nothing about this changed what a
+        # statement reports about itself.
+        self.assertEqual(second["value"], "2")
+
+    def test_a_statement_that_touches_nothing_carries_neither_field(self):
+        result = self.k.evaluate("pass\n", 0)
+        self.assertNotIn("binds", result)
+        self.assertNotIn("reads", result)
+
+    def test_a_failure_still_reports_what_it_would_have_touched(self):
+        # A statement that raised may have bound something before it did, and
+        # a dependant marked that did not need it costs one grey pixel.
+        result = self.k.evaluate("y = undefined_name\n", 0)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["binds"], ["y"])
+        self.assertEqual(result["reads"], ["undefined_name"])
+
+    def test_loading_a_file_reports_them_per_statement(self):
+        result = self.k.send(op="eval_file", source="x = 1\ny = x + 1\n",
+                             filename="/tmp/module.py")
+        self.assertEqual(result["results"][0]["binds"], ["x"])
+        self.assertEqual(result["results"][1]["reads"], ["x"])
+
+    def test_a_definition_reports_its_decorator_as_a_read(self):
+        src = ("def shout(fn):\n    return fn\n\n\n"
+               "@shout\ndef greeting():\n    return 'ok'\n")
+        self.k.evaluate(src, 0)
+        result = self.k.evaluate(src, 5)
+        self.assertEqual(result["binds"], ["greeting"])
+        self.assertEqual(result["reads"], ["shout"])
+
+
 class Protocol(KernelTest):
     def test_responses_carry_the_request_id(self):
         self.assertEqual(self.k.send(op="ping", id=77)["id"], 77)

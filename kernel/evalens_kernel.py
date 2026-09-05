@@ -98,6 +98,18 @@ A compound statement -- a ``def``, a loop, an ``if`` -- answers with an
 much code ran; ``anchor`` is where the answer is written. The field is absent
 whenever the two agree, which is every statement that is not compound.
 
+``binds`` and ``reads`` are the module-level names the statement wrote and the
+ones it consulted, and they are the only fields on the wire that say nothing
+about this statement's own answer::
+
+    -> {"id":3,"op":"eval","source":"x = 1\\ny = x + 1\\n","line":1,...}
+    <- {"id":3,...,"display":"y","value":"2","reads":["x"],"binds":["y"]}
+
+They exist so the extension can decide which *other* annotations this
+evaluation has just put out of date -- an annotation that reads ``x`` and sits
+below one that binds it. Nothing is re-run on the strength of them; see
+``defs_and_uses``. Either is absent when empty.
+
 Coordinates are VS Code's: 0-based line, 0-based character.
 
 ``eval_file`` takes the whole buffer and, optionally, ``start_line`` and
@@ -865,6 +877,24 @@ def _anchor_of(form: Form) -> Dict[str, Any]:
     return {"anchor": form.anchor_line}
 
 
+def _dependencies_of(form: Form) -> Dict[str, Any]:
+    """The `binds` and `reads` fields, each present only when it has content.
+
+    What the extension does with them is mark, never run: re-evaluating a
+    statement that binds `x` puts every *later* annotation that reads `x` out
+    of date, and saying so is the whole of it. Sent on the failure path too --
+    a statement that raised may have bound something before it did, and a
+    marker that is wrong costs a grey pixel where a missing one costs the thing
+    this is for.
+    """
+    fields: Dict[str, Any] = {}
+    if form.binds:
+        fields["binds"] = list(form.binds)
+    if form.reads:
+        fields["reads"] = list(form.reads)
+    return fields
+
+
 def _error(exc: BaseException, tb_skip: int = 0) -> Dict[str, Any]:
     """Format an exception for the wire, without the kernel's own frames.
 
@@ -1196,6 +1226,7 @@ class Kernel:
                     "kind": form.kind,
                     "range": _range_of(form),
                     **_anchor_of(form),
+                    **_dependencies_of(form),
                     "stdout": out.getvalue(),
                     "stderr": err.getvalue(),
                 }
@@ -1208,6 +1239,7 @@ class Kernel:
             "kind": form.kind,
             "range": _range_of(form),
             **_anchor_of(form),
+            **_dependencies_of(form),
             "stdout": out.getvalue(),
             "stderr": err.getvalue(),
         }

@@ -38,6 +38,15 @@ export type Presentation =
       readonly bindings?: readonly BindingTrace[];
       /** What the names on the line held when it ran. */
       readonly names?: readonly NamedValue[];
+      /**
+       * The module-level names the statement bound and read.
+       *
+       * Carried through unchanged and unread by anything here: they say
+       * nothing about what to show, only about which *other* annotations this
+       * one has just put out of date.
+       */
+      readonly binds?: readonly string[];
+      readonly reads?: readonly string[];
       readonly hover?: string;
     }
   | {
@@ -46,6 +55,8 @@ export type Presentation =
       readonly anchor?: number;
       readonly type: string;
       readonly message: string;
+      readonly binds?: readonly string[];
+      readonly reads?: readonly string[];
       readonly hover: string;
     };
 
@@ -61,6 +72,8 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
       // was looking rather than dropping it silently.
       range: response.range ?? atLine(cursorLine),
       ...(response.anchor === undefined ? {} : { anchor: response.anchor }),
+      ...(response.binds === undefined ? {} : { binds: response.binds }),
+      ...(response.reads === undefined ? {} : { reads: response.reads }),
       type: response.error.type,
       message: response.error.message,
       hover: response.error.traceback || response.error.message,
@@ -92,6 +105,8 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
       ? {}
       : { bindings: response.bindings }),
     ...(response.names === undefined ? {} : { names: response.names }),
+    ...(response.binds === undefined ? {} : { binds: response.binds }),
+    ...(response.reads === undefined ? {} : { reads: response.reads }),
     ...(speaks
       ? {
           hover: hoverFor(

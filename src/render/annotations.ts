@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 
 import { Annotation, Decorator, sourceAt } from './decorations';
-import { AnnotationRegistry, afterEdit, merge, reanchor } from './registry';
+import {
+  AnnotationRegistry, afterEdit, markDependents, merge, reanchor,
+} from './registry';
 
 /**
  * Move an annotation `lines` further down the file, keeping its columns.
@@ -117,10 +119,17 @@ export class Annotations implements vscode.Disposable {
    * `merge` puts it where the marked one was. Nothing anywhere unsets the
    * flag, which is what keeps "the kernel agrees" from ever being asserted by
    * something other than asking the kernel.
+   *
+   * And it is where an evaluation marks what it invalidated. Binding `x` again
+   * does not change the annotation on the line below that reads `x`, but it
+   * does make it a description of a world that has moved on -- so that one gets
+   * the mark too. Marked, and nothing more: no dependant is re-run, queued or
+   * ordered here, and adding that would be building a different product.
    */
   add(document: vscode.TextDocument, annotation: Annotation): void {
     const uri = document.uri.toString();
-    this.show(document, merge(this.registry.get(uri), annotation));
+    this.show(document, markDependents(
+      merge(this.registry.get(uri), annotation), annotation));
   }
 
   clear(document: vscode.TextDocument): void {
