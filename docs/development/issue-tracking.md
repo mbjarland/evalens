@@ -98,10 +98,31 @@ given and will not infer this.
 
 ## Keeping the board true
 
-- **Move a ticket to `status:in-progress` when work on it starts**, and clear
-  the label when it lands. The board is how a reader — human or agent — sees
-  what is happening without reading a transcript, and a board that lags is
-  worse than no board because it is believed.
+**There are two boards, and updating one does not update the other.** The
+`status:in-progress` label is visible in `gh issue list` and the plain
+issues list on github.com. The actual project board — the kanban view at
+github.com/users/mbjarland/projects/5, what "the board" means when the
+maintainer says it — is a GitHub Projects (v2) item with its own Status
+single-select field (`Todo` / `In progress` / `Done`), set through `gh
+project item-edit`, not through labels. Keeping the label in sync was
+believed to be "keeping the board true" for a full session before anyone
+checked the actual kanban view and found every card still sitting in Todo.
+
+- **Move a ticket to `status:in-progress` (the label) and to `In progress`
+  (the project's Status field) when work on it starts**, and clear the label
+  and set the field to `Todo` or `Done` when it lands. Do both, every time;
+  neither on its own is what a reader means by "the board".
+  ```bash
+  gh issue edit <N> --add-label status:in-progress
+  gh project item-edit --project-id PVT_kwHN4y7OAYovMA --id <item-id> \
+    --field-id PVTSSF_lAHN4y7OAYovMM4YWpzE --single-select-option-id 47fc9ee4
+  ```
+  Find `<item-id>` with `gh project item-list 5 --owner mbjarland --format
+  json`, matching `content.number`. Status option ids on this project:
+  `Todo` = `f75ad846`, `In progress` = `47fc9ee4`, `Done` = `98236657`.
+- The board is how a reader — human or agent — sees what is happening without
+  reading a transcript, and a board that lags is worse than no board because
+  it is believed.
 - **Push after every merge.** A `fixes #NNN` trailer closes its issue when it
   reaches the default branch and not before, so a batch of unpushed merges
   leaves a queue of tickets that look open and are not. Twelve accumulated
