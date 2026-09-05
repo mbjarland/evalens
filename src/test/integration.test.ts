@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import { nextStop } from '../advance';
 import { LoadPrompts } from '../input';
 import { KernelClient } from '../kernel/client';
+import { InOrder } from '../load';
 import {
   Evaluated, EvalResponse, Failed, FileLoaded, LoopTrace, Outlined,
   StatementOutcome,
@@ -215,26 +216,31 @@ async function paintLoad(
   assert.equal(loaded.ok, true);
 
   const above = new PaintedAbove();
-  return loaded.results.map((outcome) => {
-    if (!outcome.ok) {
-      return `!! ${outcome.error.type}`;
-    }
-    // The streams become a `Printed` here, exactly as `annotationFor` does it
-    // on the real path: a statement that only printed still has something to
-    // say, and a helper that dropped it would be testing a pipeline the
-    // extension does not have.
-    const printed = printedFrom(outcome.stdout, outcome.stderr);
-    if (outcome.value === null && outcome.loop === undefined
-        && !outcome.names?.length && !hasOutput(printed)) {
-      return null;
-    }
-    const kept = above.keep({ ...outcome, printed });
-    return kept === undefined
-      ? null
-      : resultText(kept.value, kept.display, kept.loop, kept.names,
-        kept.bindings, kept.printed, kept.more_names)
-        .replace(/ /g, ' ');
-  });
+  return loaded.results.map((outcome) => paintOutcome(above, outcome));
+}
+
+/** One statement's annotation, through the repeat rule standing above it. */
+function paintOutcome(
+  above: PaintedAbove, outcome: StatementOutcome
+): string | null {
+  if (!outcome.ok) {
+    return `!! ${outcome.error.type}`;
+  }
+  // The streams become a `Printed` here, exactly as `annotationFor` does it
+  // on the real path: a statement that only printed still has something to
+  // say, and a helper that dropped it would be testing a pipeline the
+  // extension does not have.
+  const printed = printedFrom(outcome.stdout, outcome.stderr);
+  if (outcome.value === null && outcome.loop === undefined
+      && !outcome.names?.length && !hasOutput(printed)) {
+    return null;
+  }
+  const kept = above.keep({ ...outcome, printed });
+  return kept === undefined
+    ? null
+    : resultText(kept.value, kept.display, kept.loop, kept.names,
+      kept.bindings, kept.printed, kept.more_names)
+      .replace(/ /g, ' ');
 }
 
 test('the whole pipeline produces the annotation IDEA.md promises', async (t) => {
@@ -1777,4 +1783,171 @@ test('late output reaches the user, saying it belongs to no line', async (t) => 
   const late = streamed.find((frame) => frame.text.includes('LATE THREAD PRINT'));
   assert.equal(late?.unattributed, true,
     'which statement started the thread is not knowable, and is not guessed');
+});
+
+/**
+ * A file loaded through the real kernel, painted as each statement finishes.
+ *
+ * The counterpart to `paintLoad`, and the difference between them is the whole
+ * of #82: that one waits for the response and paints the file at the end, this
+ * one paints on the frames as they come off the control channel. Same kernel,
+ * same formatter, same repeat rule -- only the moment differs, which is what
+ * the reader is complaining about.
+ *
+ * `onAsk` is called when the running code stops for input, and is handed what
+ * is on screen *at that moment*. That snapshot is the assertion this whole
+ * file exists to make: it is taken inside the client's control-channel
+ * handler, so nothing about the test's own scheduling can make it look better
+ * than it is.
+ */
+async function streamLoad(
+  source: string, filename: string,
+  onAsk: (paintedSoFar: readonly (string | null)[]) => string | null
+): Promise<{
+  painted: (string | null)[];
+  loaded: FileLoaded;
+  order: InOrder<StatementOutcome>;
+}> {
+  const painted: (string | null)[] = [];
+  const above = new PaintedAbove();
+  const order = new InOrder<StatementOutcome>((outcome) => {
+    painted.push(paintOutcome(above, outcome));
+  });
+
+  const client = new KernelClient({
+    resolvePython: async () => 'python3',
+    kernelPath: KERNEL,
+    onInput: async () => onAsk([...painted]),
+  });
+  try {
+    const loaded = await client.request(
+      { op: 'eval_file', source, filename, allow_stdin: true },
+      (frame) => order.offer(frame.index, frame.outcome)
+    ) as FileLoaded;
+    // Whatever the frames did not deliver, exactly as `evaluateFile` does it.
+    order.settle(loaded.results);
+    return { painted, loaded, order };
+  } finally {
+    client.dispose();
+  }
+}
+
+test('the lines above a prompt are already painted when the box opens', async () => {
+  // The ticket, end to end, through the real kernel over both real pipes.
+  //
+  // The maintainer's report: *"the lines before that line which were evaled
+  // should already have their inline values displayed"*. Before this they were
+  // not -- every outcome was collected and returned in one response, so a load
+  // that stopped on `input()` had run everything above it and shown none of
+  // it. The reader was asked to type a value into a program whose behaviour so
+  // far was invisible, which is also why marking the blocked line harder was
+  // never the fix: prominence is contrast, and there was nothing on screen to
+  // contrast against.
+  let whenAsked: readonly (string | null)[] | undefined;
+
+  const source = [
+    "greeting = 'hello'",
+    'count = 3',
+    'print(greeting * count)',
+    "name = input('who? ')",
+    'shouted = name.upper()',
+  ].join('\n') + '\n';
+
+  const { painted, loaded } = await streamLoad(
+    source, '/tmp/evalens-streamed.py',
+    (paintedSoFar) => {
+      whenAsked = paintedSoFar;
+      return 'Ada';
+    });
+
+  assert.deepEqual(whenAsked, [
+    "greeting: 'hello'",
+    'count: 3',
+    'printed: hellohellohello',
+  ], 'every statement above the prompt, in file order, before it was asked');
+
+  assert.deepEqual(painted, [
+    "greeting: 'hello'",
+    'count: 3',
+    'printed: hellohellohello',
+    // The prompt itself is what the statement printed, so it is on the line
+    // beside the answer -- which is right: `who?` is code output like any
+    // other, and the reader sees the question next to what they said to it.
+    `name: 'Ada'${GAP}printed: who?`,
+    "shouted: 'ADA'",
+  ], 'and the two below it once the answer let them run');
+  assert.equal(loaded.ran, 5);
+});
+
+test('a statement below the prompt is painted only once it has run', async () => {
+  // Design rule 1, in the shape it takes here: an absent annotation is the
+  // only honest thing to put beside a line that has not run. The failure to
+  // avoid is a line below the prompt looking as though it produced nothing.
+  let whenAsked: readonly (string | null)[] | undefined;
+
+  const source = [
+    'first = 1',
+    "answer = input('? ')",
+    'second = 2',
+    'third = 3',
+  ].join('\n') + '\n';
+
+  await streamLoad(source, '/tmp/evalens-below.py', (paintedSoFar) => {
+    whenAsked = paintedSoFar;
+    return 'x';
+  });
+
+  assert.deepEqual(whenAsked, ['first: 1'],
+    'nothing at all for the three statements that had not finished');
+});
+
+test('a streamed load paints exactly what the batched one did', async () => {
+  // The regression that would be invisible otherwise. Repeat suppression reads
+  // what is painted above, so it is a function of the order the statements
+  // reach it -- and painting them as they arrive is a new order. If the two
+  // paths ever disagreed, the difference would be a *missing* annotation,
+  // which looks exactly like a statement that had nothing to say.
+  const client = connect();
+  const source = [
+    'inventory = {"apples": 3, "pears": 5}',
+    'print(inventory.get("bananas", 0))',
+    'print(list(inventory.items()))',
+    'inventory["apples"] = 4',
+    'print("apples" in inventory)',
+    'total = sum(inventory.values())',
+  ].join('\n') + '\n';
+
+  const batched = await paintLoad(client, source, '/tmp/evalens-batch.py');
+  client.dispose();
+
+  const { painted } = await streamLoad(
+    source, '/tmp/evalens-batch.py', () => null);
+
+  assert.deepEqual(painted, batched);
+});
+
+test('a load with no control channel still paints the whole file', async (t) => {
+  // A kernel spawned with three pipes hears nothing and says nothing on the
+  // channel that does not exist, so every statement arrives in `results` and
+  // the gate paints all of them, in order. This is the behaviour the streaming
+  // path is an addition to rather than a replacement for -- and it is the
+  // fallback a lost frame degrades to.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'a = 1\nb = a + 1\nc = b + 1\n';
+  const painted: (string | null)[] = [];
+  const above = new PaintedAbove();
+  const order = new InOrder<StatementOutcome>((outcome) => {
+    painted.push(paintOutcome(above, outcome));
+  });
+
+  const loaded = await client.request({
+    op: 'eval_file', source, filename: '/tmp/evalens-batchonly.py',
+    allow_stdin: false,
+  }) as FileLoaded;
+  order.settle(loaded.results);
+
+  assert.deepEqual(painted, ['a: 1', 'b: 2', 'c: 3']);
+  assert.equal(order.interrupted, false);
 });

@@ -184,6 +184,42 @@ export interface InputRequest {
 }
 
 /**
+ * One statement of a file load, reported the moment it finished.
+ *
+ * A load is sequential in the kernel and used to be atomic on screen: every
+ * outcome was collected and sent back in one response, so a file that blocks
+ * on `input()` at line 47 had run lines 1-46 with nothing whatsoever painted.
+ * The prompt then arrived with no context, and #61's mark on the waiting line
+ * had nothing around it to be prominent against.
+ *
+ * It is on the control channel for the reason the channel exists: a response
+ * settles a request and nothing else is written where a response is written,
+ * so a not-yet-a-response there would have to be told apart by inspecting it.
+ * This channel is also the one already proven to reach the extension *during*
+ * an evaluation -- printed output does it today.
+ *
+ * `outcome` is the same object that will appear in `FileLoaded.results`, not a
+ * summary of it, so painting from a frame and painting from the response
+ * cannot drift.
+ */
+export interface StatementFrame {
+  readonly op: 'statement';
+  /** Which load this belongs to; the id of the `eval_file` request. */
+  readonly id?: number | null;
+  /**
+   * Where the statement sits in file order, 0-based, indexing `results`.
+   *
+   * Carried rather than inferred from arrival order, because arrival order is
+   * only trustworthy while nothing goes missing. A consumer that counted
+   * arrivals would shift every annotation below a lost frame by one line and
+   * have no way to notice; with the index it can refuse instead, and let the
+   * response's `results` finish the job in order. See `InOrder`.
+   */
+  readonly index: number;
+  readonly outcome: StatementOutcome;
+}
+
+/**
  * What the kernel says on the control channel, unprompted.
  *
  * `status` reports what the kernel is doing, so the extension's progress and
@@ -203,6 +239,7 @@ export type ControlMessage =
     }
   | { readonly op: 'interrupt_ack' }
   | InputRequest
+  | StatementFrame
   | {
       /**
        * Something the evaluated code printed, as it printed it.
@@ -420,7 +457,15 @@ export interface Failed {
   readonly partial?: PartialParse;
 }
 
-/** What one statement produced while a file was being loaded. */
+/**
+ * What one statement produced while a file was being loaded.
+ *
+ * Travels twice, deliberately: once as a `StatementFrame` the moment the
+ * statement finished, and once in `FileLoaded.results` when the load is over.
+ * The two are the same object rather than two renderings of it, which is what
+ * makes it safe to paint whichever arrives first -- see `InOrder`, which is
+ * where "whichever arrives first, exactly once, in file order" is enforced.
+ */
 export type StatementOutcome =
   | {
       readonly ok: true;
@@ -480,6 +525,19 @@ export interface FileLoaded {
    */
   readonly statements: number;
   readonly ran: number;
+  /**
+   * Every outcome, in file order, and still the authoritative record.
+   *
+   * Each of these was also announced as a `StatementFrame` while the load was
+   * running, so a consumer painting progressively has usually seen them all by
+   * the time this arrives. It is kept whole rather than trimmed to what the
+   * frames did not cover, for two reasons: a caller with no control channel --
+   * a test harness, an unattended script -- still gets everything in one
+   * place, and a caller that does stream has something to reconcile against
+   * when a frame is lost or when the response wins the race between the two
+   * pipes. Painting both without reconciling is the mistake this shape makes
+   * possible; `InOrder` is where it is refused.
+   */
   readonly results: readonly StatementOutcome[];
   /**
    * The span actually executed, present only for a narrowed load that found

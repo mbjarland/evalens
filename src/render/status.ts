@@ -128,6 +128,46 @@ export interface Waiting {
   withdraw(): void;
 }
 
+/**
+ * The mark standing on the one statement of a file load that has stopped.
+ *
+ * It exists because the mark has to outlive the box. A prompt withdrew its
+ * mark the instant the user pressed Enter, which left the statement still
+ * running -- opening a file, calling a service, doing whatever it wanted the
+ * value for -- with nothing on screen saying so, and the reader looking at a
+ * line that had gone quiet without producing anything.
+ *
+ * Held until that statement's own outcome arrives, it is the prominence half
+ * of #82. Everything above the blocked line carries a value and everything
+ * below is bare, so the one line with a mark on it is the only unfinished
+ * thing on screen. Prominence is contrast, and there was none to be had while
+ * the screen was empty: a louder colour on line 47 of a blank file is not
+ * prominent, it is alone.
+ *
+ * One at a time, because the kernel runs one statement at a time -- so the
+ * next outcome to be painted is necessarily the marked statement's own, and
+ * "release on the next outcome" needs no correlation to be exact.
+ */
+export class BlockedMark {
+  private standing?: Waiting;
+
+  /** Keep this mark up now that its prompt has been answered. */
+  hold(marker: Waiting): void {
+    // A statement can ask twice -- `input() + input()` is one statement -- and
+    // the second mark replaces the first rather than standing beside it.
+    this.release();
+    this.standing = marker;
+    // Back to the bare mark. The question is over; the statement is not.
+    marker.say();
+  }
+
+  /** Nothing is waiting any more, so nothing on screen may say it is. */
+  release(): void {
+    this.standing?.withdraw();
+    this.standing = undefined;
+  }
+}
+
 /** The two thresholds, overridable so a test need not wait 1.5 seconds. */
 export interface Timing {
   readonly busyDelay?: number;

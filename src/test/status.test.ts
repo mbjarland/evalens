@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  BUSY_DELAY, FLASH, MARK, MINIMUM_BUSY, Waiting, holdFor, pendingText,
-  runningMessage, whileRunning,
+  BUSY_DELAY, BlockedMark, FLASH, MARK, MINIMUM_BUSY, Waiting, holdFor,
+  pendingText, runningMessage, whileRunning,
 } from '../render/status';
 
 /** A marker that writes down everything it was told, in order. */
@@ -198,4 +198,62 @@ test('re-evaluating an identical value still shows a transition', async () => {
     'pending', 'cleared', 'settled',
     'pending', 'cleared', 'settled',
   ], 'the second keypress must change the screen as much as the first');
+});
+
+test('a load\'s mark outlives the box it was put up for', () => {
+  // The half of #82 that is not about painting values. Answering a prompt used
+  // to take the mark away, leaving the statement that asked still running --
+  // opening a file, calling a service, doing whatever it wanted the value for
+  // -- with nothing on screen saying so. What the reader saw was a line that
+  // went quiet without producing anything.
+  const { waiting, said } = recorder();
+  const blocked = new BlockedMark();
+
+  waiting.say('who? ');
+  blocked.hold(waiting);
+
+  assert.deepEqual(said, ['who? ', '(mark)'],
+    'the question is over, so the wording goes; the statement is not, so the '
+    + 'mark stays');
+});
+
+test('the mark is taken back when its statement reports', () => {
+  const { waiting, said } = recorder();
+  const blocked = new BlockedMark();
+
+  blocked.hold(waiting);
+  blocked.release();
+
+  assert.deepEqual(said, ['(mark)', '(withdrawn)']);
+});
+
+test('releasing twice withdraws once', () => {
+  // A load releases on the next outcome and again when the load ends, and
+  // those are the same mark whenever the prompting statement was the last one
+  // in the file. A second withdrawal would be a second repaint of a document
+  // nothing changed about.
+  const { waiting, said } = recorder();
+  const blocked = new BlockedMark();
+
+  blocked.hold(waiting);
+  blocked.release();
+  blocked.release();
+
+  assert.deepEqual(said, ['(mark)', '(withdrawn)']);
+});
+
+test('a second prompt from one statement replaces the first mark', () => {
+  // `answer = input() + input()` is one statement and two questions. Two marks
+  // held at once would leave the first behind when the second is released,
+  // which is a line claiming to be running something that finished.
+  const first = recorder();
+  const second = recorder();
+  const blocked = new BlockedMark();
+
+  blocked.hold(first.waiting);
+  blocked.hold(second.waiting);
+  blocked.release();
+
+  assert.deepEqual(first.said, ['(mark)', '(withdrawn)']);
+  assert.deepEqual(second.said, ['(mark)', '(withdrawn)']);
 });

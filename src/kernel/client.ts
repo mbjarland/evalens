@@ -8,6 +8,7 @@ import {
   LineDecoder,
   Request,
   Response,
+  StatementFrame,
   salvageResponse,
 } from './protocol';
 
@@ -133,6 +134,20 @@ export class KernelClient {
   /** In-flight spawn, so two fast keypresses do not start two interpreters. */
   private starting?: Promise<KernelProcess>;
   private readonly pending = new Map<number, Deferred<Response>>();
+  /**
+   * Who wants the statement frames of a load still in flight, by request id.
+   *
+   * Keyed rather than a single slot, and the id is not decoration. Statement
+   * frames travel on the control channel while the response travels on the
+   * request channel, and nothing orders two pipes against each other -- so the
+   * last frame of one load can be delivered after that load's response, which
+   * is after the next load has already started. Without the id that frame
+   * would be painted as the *new* load's statement of the same index: a value
+   * beside code it did not come from, which is the failure this project treats
+   * as worse than showing nothing.
+   */
+  private readonly watchers =
+    new Map<number, (frame: StatementFrame) => void>();
   private readonly decoder = new LineDecoder();
   /** The control channel is framed separately: it is a separate stream. */
   private readonly controlDecoder = new LineDecoder();
@@ -186,7 +201,23 @@ export class KernelClient {
     return this.executing;
   }
 
-  async request(message: Request): Promise<Response> {
+  /**
+   * Send one request and wait for its answer.
+   *
+   * `onStatement` is for `eval_file` and is how a load is painted while it
+   * runs rather than when it ends. It is passed here, rather than registered
+   * separately, because only this method knows the id the request is about to
+   * be given -- and the id is the whole of what keeps a late frame from one
+   * load out of the next one. It is called synchronously, from the control
+   * channel's reader, in the order the kernel wrote the frames.
+   *
+   * It stops being called the moment the response settles: after that the
+   * caller has `results` and reconciles against it, and a frame that lost the
+   * race between the two pipes has nothing left to say.
+   */
+  async request(
+    message: Request, onStatement?: (frame: StatementFrame) => void
+  ): Promise<Response> {
     if (this.disposed) {
       throw new Error('the Evalens kernel client has been disposed');
     }
@@ -194,10 +225,14 @@ export class KernelClient {
     const id = this.nextId++;
     const deferred = new Deferred<Response>();
     this.pending.set(id, deferred);
+    if (onStatement) {
+      this.watchers.set(id, onStatement);
+    }
     try {
       process.stdin.write(`${JSON.stringify({ ...message, id })}\n`);
     } catch (error) {
       this.pending.delete(id);
+      this.watchers.delete(id);
       throw error;
     }
     return deferred.promise;
@@ -360,6 +395,9 @@ export class KernelClient {
       return;
     }
     this.pending.delete(response.id);
+    // Before the promise is resolved, so the caller cannot be woken into a
+    // world where a frame it has already reconciled away could still arrive.
+    this.watchers.delete(response.id);
     deferred.resolve(response);
   }
 
@@ -402,6 +440,7 @@ export class KernelClient {
           continue;
         }
         this.pending.delete(id);
+        this.watchers.delete(id);
         deferred.reject(new Error(
           'this evaluation was lost: something that is not a response was ' +
           `written on the kernel's protocol channel ("${quoted}"). ` +
@@ -440,6 +479,14 @@ export class KernelClient {
       case 'stream':
         this.options.onStream?.(
           message.name, message.text, message.unattributed === true);
+        return;
+      case 'statement':
+        // Synchronously, and that is the requirement rather than an
+        // implementation detail: one reader, one pipe, no await between
+        // arriving and being handed on, so the order the kernel wrote these in
+        // is the order the painter sees them in. An id with no watcher is a
+        // load that has already settled, or one abandoned by a restart.
+        this.watchers.get(message.id ?? -1)?.(message);
         return;
       case 'input_request':
         void this.answerInput(message);
@@ -510,6 +557,9 @@ export class KernelClient {
     this.doomed.clear();
     // Reject before killing: a pending promise that never settles is a
     // spinner that never stops, and the caller cannot tell it from slow code.
+    // Cleared before the rejections, so a watcher cannot outlive the kernel it
+    // was watching and take the next one's frames.
+    this.watchers.clear();
     for (const deferred of this.pending.values()) {
       deferred.reject(reason);
     }
