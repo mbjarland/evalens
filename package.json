@@ -42,6 +42,10 @@
       {
         "command": "evalens.restartKernel",
         "title": "Evalens: Restart Kernel"
+      },
+      {
+        "command": "evalens.clearResults",
+        "title": "Evalens: Clear Inline Results"
       }
     ],
     "configuration": {
@@ -84,6 +88,13 @@
           "highContrast": "#4a9c8c44",
           "highContrastLight": "#2a7d6d33"
         }
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "evalens.clearResults",
+        "key": "escape",
+        "when": "editorTextFocus && evalens.hasAnnotations"
       }
     ]
   },

@@ -2,9 +2,11 @@ import * as vscode from 'vscode';
 
 import { resolvePythonPath } from './config';
 import { KernelClient } from './kernel/client';
+import { Annotations } from './render/annotations';
 
 let client: KernelClient | undefined;
 let output: vscode.OutputChannel | undefined;
+let annotations: Annotations | undefined;
 
 /**
  * Activation is `onLanguage:python`, so a window with no Python in it pays
@@ -15,6 +17,15 @@ let output: vscode.OutputChannel | undefined;
 export function activate(context: vscode.ExtensionContext): void {
   output = vscode.window.createOutputChannel('Evalens');
   context.subscriptions.push(output);
+
+  annotations = new Annotations();
+  context.subscriptions.push(annotations);
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('evalens.clearResults', () => {
+      annotations?.clearAll();
+    })
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('evalens.evaluateAtCursor', async () => {
