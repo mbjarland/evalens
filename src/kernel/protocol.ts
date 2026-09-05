@@ -451,6 +451,40 @@ export interface NamedValue {
   readonly value: string;
   /** The untouched `repr()`, present only when `value` describes it instead. */
   readonly repr?: string;
+  /** A bounded table description of this name's value; see `TableWire`. */
+  readonly table?: TableWire;
+}
+
+/**
+ * A bounded description of a value that duck-types as a table -- #24.
+ *
+ * A DataFrame's `repr()` is a grid, and squashing it onto one line destroys
+ * the only thing that made it readable; the same is true of a list of dicts
+ * with consistent keys, a list of same-length lists, and a sequence of
+ * `namedtuple`s. `kernel/tabular.py`'s `describe` recognises exactly those
+ * four shapes and answers with this, computed from the same value at the
+ * same moment `value`/`repr` above already are -- never a second lookup.
+ *
+ * `row_count`/`col_count` are the value's real totals; `shown_rows` and
+ * `shown_cols` are how many made it into `rows`/`columns`, bounded to a
+ * head-and-tail sample so a million-row value is never walked whole.
+ * `more_rows`/`more_cols` say how many were left out and are absent when
+ * nothing was, on the same terms `more_names` already uses.
+ *
+ * Absent from `NamedValue`/`Evaluated` entirely for every value that does
+ * not duck-type as one of the four shapes -- which is every value in a
+ * session with no pandas installed, the default this was built against.
+ */
+export interface TableWire {
+  readonly kind: 'dataframe' | 'records' | 'namedtuples' | 'rows';
+  readonly columns: readonly string[];
+  readonly rows: readonly (readonly string[])[];
+  readonly row_count: number;
+  readonly shown_rows: number;
+  readonly col_count: number;
+  readonly shown_cols: number;
+  readonly more_rows?: number;
+  readonly more_cols?: number;
 }
 
 /**
@@ -524,6 +558,8 @@ export interface Evaluated {
    * when the cap did not bite, which is nearly every line.
    */
   readonly more_names?: number;
+  /** A bounded table description of `value`; see `TableWire`. */
+  readonly table?: TableWire;
   /**
    * The module-level names this statement wrote, and the ones it consulted.
    *
@@ -608,6 +644,7 @@ export type StatementOutcome =
       readonly bindings?: readonly BindingTrace[];
       readonly names?: readonly NamedValue[];
       readonly more_names?: number;
+      readonly table?: TableWire;
       readonly binds?: readonly string[];
       readonly reads?: readonly string[];
       readonly stdin?: readonly InputAnswer[];

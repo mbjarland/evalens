@@ -1061,6 +1061,12 @@ export class Evaluator {
             ...(presentation.more === undefined
               ? {}
               : { more: presentation.more }),
+            // #24. Carried the same way as every other optional field above,
+            // so a value that duck-types as a table reaches the hover from a
+            // live keypress rather than only from a test.
+            ...(presentation.table === undefined
+              ? {}
+              : { table: presentation.table }),
             ...(presentation.binds === undefined
               ? {}
               : { binds: presentation.binds }),

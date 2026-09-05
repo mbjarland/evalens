@@ -21,6 +21,7 @@ import {
 } from '../render/present';
 import { PaintedAbove, capNames } from '../render/repeats';
 import { markDependents } from '../render/registry';
+import { tableMarkdown } from '../render/table';
 import { LineRange, selectedLines, widenedBeyond } from '../selection';
 
 /**
@@ -2215,4 +2216,41 @@ test('a load with no control channel still paints the whole file', async (t) => 
 
   assert.deepEqual(painted, ['a: 1', 'b: 2', 'c: 3']);
   assert.equal(order.interrupted, false);
+});
+
+test('a table description round-trips through the real kernel (#24)', async (t) => {
+  // The same protocol-drift risk the file's own opening comment names, now
+  // for `table`: a field the kernel renamed or shaped differently would pass
+  // `test_tabular.py` and `table.test.ts` alike and only disagree here.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = "rows = [{'name': 'Ada', 'age': 36}, "
+    + "{'name': 'Alan', 'age': 41}]\n";
+  const response = await evaluate(client, source, 0) as Evaluated;
+  assert.equal(response.ok, true);
+  assert.equal(response.table?.kind, 'records');
+  assert.deepEqual(response.table?.columns, ['name', 'age']);
+  assert.equal(response.table?.row_count, 2);
+
+  const presentation = present(response, 0) as { table?: { kind: string } };
+  assert.equal(presentation.table?.kind, 'records');
+
+  const markdown = tableMarkdown(response.table!);
+  assert.match(markdown, /\*records — 2 rows\*/);
+  assert.match(markdown, /\| name \| age \|/);
+  // Cells carry the kernel's own repr() -- quoted, exactly as the value's
+  // inline annotation shows a string -- never a stringified-and-dequoted
+  // approximation of it.
+  assert.match(markdown, /\| 'Ada' \| 36 \|/);
+});
+
+test('a value with no tabular shape carries no table field, over a real '
+  + 'kernel', async (t) => {
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const response = await evaluate(client, 'x = 1\n', 0) as Evaluated;
+  assert.equal(response.ok, true);
+  assert.equal(response.table, undefined);
 });

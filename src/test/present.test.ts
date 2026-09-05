@@ -256,6 +256,34 @@ test("what a loop's body bound reaches the presentation and the hover", () => {
     'v = 1, 2, 3\n3 iterations\nu = 4, 12 (bound on 2 of 3 iterations)');
 });
 
+test('a table description reaches the presentation, unrendered', () => {
+  // present.ts passes `table` through as data, the same as `loop` and
+  // `bindings` above -- rendering it into markdown is `render/table.ts`'s
+  // job, reached from wherever ends up showing one, not this one's.
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: "[{'a': 1}, {'a': 2}]",
+    display: 'rows', kind: 'Assign', range, stdout: '', stderr: '',
+    table: {
+      kind: 'records', columns: ['a'], rows: [['1'], ['2']],
+      row_count: 2, shown_rows: 2, col_count: 1, shown_cols: 1,
+    },
+  };
+  const result = present(response, 3) as {
+    table?: { kind: string; row_count: number };
+  };
+  assert.equal(result.table?.kind, 'records');
+  assert.equal(result.table?.row_count, 2);
+});
+
+test('an ordinary value carries no table field at all', () => {
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: '3', display: 'x',
+    kind: 'Assign', range, stdout: '', stderr: '',
+  };
+  const result = present(response, 3) as { table?: unknown };
+  assert.equal(result.table, undefined);
+});
+
 test('a loop that ran zero times is still something to paint', () => {
   // value is null, as it is for an `if` -- but unlike an `if`, this has an
   // answer, and skipping it leaves the previous run's value on screen.

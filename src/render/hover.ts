@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { Annotations } from './annotations';
 import { SHOW_OUTPUT } from './decorations';
 import { hasOutput } from './format';
+import { tableMarkdown } from './table';
 
 /**
  * The full answer, reachable by hovering the statement it came from.
@@ -32,6 +33,12 @@ import { hasOutput } from './format';
  * a trace (#40), and hovering must show what the statement produced when it
  * ran, not read the name again -- rereading could run a property or a
  * `__getattr__` because the mouse moved, which design rule 3 forbids outright.
+ *
+ * #24's whole hook into this class: `annotation.table`, present only when
+ * the value duck-typed as one of the shapes `kernel/tabular.py` recognises,
+ * is rendered by `render/table.ts`'s `tableMarkdown` and appended after the
+ * fenced value -- an elaboration of the same trace, never a replacement for
+ * it, and the inline annotation beside the code is unchanged either way.
  */
 export class ValueHoverProvider implements vscode.HoverProvider {
   constructor(private readonly annotations: Annotations) {}
@@ -50,10 +57,14 @@ export class ValueHoverProvider implements vscode.HoverProvider {
     }
 
     // Same wrapping `decorations.ts` used to build: a fenced block for the
-    // value, plus the one link to the channel holding what does not fit here
-    // either, and only where there is something in it to reach.
+    // value, the table when there is one, plus the one link to the channel
+    // holding what does not fit here either, and only where there is
+    // something in it to reach.
     const message = new vscode.MarkdownString(
       ['```', annotation.hover, '```',
+        ...(annotation.table
+          ? ['', tableMarkdown(annotation.table)]
+          : []),
         ...(hasOutput(annotation.printed)
           ? [`[Show all output](command:${SHOW_OUTPUT})`]
           : [])].join('\n'));
