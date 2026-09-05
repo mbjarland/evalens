@@ -1,8 +1,13 @@
 name: CI
 
-# Only the commit/issue gate for now. The build and test jobs land with the
-# extension scaffold; adding empty jobs ahead of them would make CI green mean
-# nothing, which is worse than CI being small.
+# Three gates: every commit names an issue, the extension compiles and its
+# tests pass, and the kernel's tests pass on every Python version the
+# extension claims to support.
+#
+# The kernel is checked across versions because it is the piece most likely to
+# break across them -- `ast` node shapes and attributes move between releases,
+# and a resolver that silently stops recognising a statement kind on 3.9 is
+# exactly the bug nobody finds locally on 3.14.
 
 on:
   push:
@@ -49,3 +54,44 @@ jobs:
             exit 1
           fi
           echo "every commit in range names an issue"
+
+  build:
+    name: Compile and test the extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # Needed by the integration tests, which drive the real kernel over a
+      # real pipe -- the only check that the TypeScript and the Python agree.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: npm ci
+      - run: npm run compile
+      - run: npm test
+
+  kernel:
+    name: Kernel tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Floor, middle, current. `ast.unparse` sets the floor at 3.9, and
+        # the suite was run against 3.9 through 3.14 locally before this
+        # claim was made. If the floor moves, move it here and in the README
+        # together, or the claim and the check drift apart.
+        python: ['3.9', '3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - run: python -m unittest discover -s kernel -t kernel -v
