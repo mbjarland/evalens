@@ -190,6 +190,53 @@ class StatementFrames(KernelTest):
         self.assertTrue(self.k.read()["ok"])
 
 
+@unittest.skipUnless(CAN_OPEN_CONTROL, "no control channel on this platform")
+class EvaluateAboveFrames(KernelTest):
+    """`eval_above` (#13) streams exactly like `eval_file`, with one twist:
+    the frames stop the moment a statement fails, because the op itself
+    stops there -- there is no third frame to wait for.
+    """
+
+    def test_each_attempted_statement_is_announced_before_the_answer(self):
+        request_id = self.k.send_async(
+            op="eval_above", allow_stdin=False,
+            source="a = 1\nb = a + 1\nc = b + 1\n",
+            filename="/tmp/above_three.py", line=99)
+
+        frames = statements(self.k, 3)
+        self.assertEqual([f["index"] for f in frames], [0, 1, 2],
+                         "announced in file order")
+        self.assertEqual([f["id"] for f in frames],
+                         [request_id, request_id, request_id])
+        self.assertEqual([f["outcome"]["value"] for f in frames],
+                         ["1", "2", "3"])
+
+        result = self.k.read()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["ran"], 3)
+
+    def test_a_failure_ends_the_stream_rather_than_only_the_run(self):
+        # Above the cursor are three statements and the second one fails.
+        # `eval_file` would still announce the third; `eval_above` must not,
+        # because it never runs it.
+        self.k.send_async(
+            op="eval_above", allow_stdin=False,
+            source="a = 1\nnope\nb = 2\nc = 3\n",
+            filename="/tmp/above_broken.py", line=3)  # cursor on `c = 3`
+
+        frames = statements(self.k, 2)
+        self.assertEqual([f["index"] for f in frames], [0, 1])
+        self.assertTrue(frames[0]["outcome"]["ok"])
+        self.assertFalse(frames[1]["outcome"]["ok"])
+
+        result = self.k.read()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual((result["statements"], result["ran"]), (3, 1))
+        self.assertEqual(len(result["results"]), 2,
+                         "no third frame was coming, because `b = 2` never"
+                         " ran")
+
+
 class WithoutTheControlChannel(unittest.TestCase):
     """A kernel spawned with three pipes, which is what it was before #26.
 

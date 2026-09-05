@@ -3853,14 +3853,135 @@ class Protocol(KernelTest):
         self.assertLess(len(value), 9000)
         self.assertIn("more chars)", value)
 
-    def test_eval_above_is_reserved_not_silently_wrong(self):
-        result = self.k.send(op="eval_above", source="a = 1\n", line=0)
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["error"]["type"], "NotImplemented")
-
     def test_an_unknown_op_is_reported(self):
         self.assertEqual(
             self.k.send(op="nonsense")["error"]["type"], "UnknownOp")
+
+
+class EvaluateAbove(KernelTest):
+    """Everything above the statement the cursor is in (#13).
+
+    `eval_above` is not `eval_file` with a different range: it resets the
+    namespace first, unconditionally, and it stops at the first failure
+    rather than running through the rest of the file. Both are asserted
+    here rather than assumed, because they are exactly the two ways this op
+    would be wrong in a way that a naive copy of `eval_file` would not catch.
+    """
+
+    #: 0: a = 1  1: b = 2  2-4: def f  5: c = f(a, b)  6: c
+    SOURCE = ("a = 1\n"
+              "b = 2\n"
+              "def f(x, y):\n"
+              "    z = x + y\n"
+              "    return z\n"
+              "c = f(a, b)\n"
+              "c\n")
+
+    def above(self, line, source=None):
+        return self.k.send(op="eval_above",
+                            source=self.SOURCE if source is None else source,
+                            line=line, filename="/tmp/above.py")
+
+    def bound(self, name):
+        """What the namespace holds for `name`, or the error type instead."""
+        result = self.k.evaluate(name + "\n", 0)
+        return result["value"] if result["ok"] else result["error"]["type"]
+
+    def test_everything_above_the_cursor_runs_and_binds(self):
+        result = self.above(5)  # cursor on `c = f(a, b)`
+        self.assertTrue(result["ok"], result)
+        # `a`, `b` and `def f` are above line 5; `c = f(a, b)` is the
+        # boundary statement itself and is not one of them.
+        self.assertEqual((result["statements"], result["ran"]), (3, 3))
+        self.assertEqual(self.bound("a"), "1")
+        self.assertEqual(self.bound("b"), "2")
+        self.assertEqual(self.bound("f"), "def f(x, y)")
+
+    def test_the_statement_the_cursor_is_in_does_not_run(self):
+        # Line 5 is `c = f(a, b)`. Above it means `a`, `b` and `f` -- not `c`.
+        self.above(5)
+        self.assertEqual(self.bound("c"), "NameError",
+                         "the statement at the cursor is not this command's job")
+
+    def test_a_cursor_inside_a_multiline_statement_excludes_it_whole(self):
+        # Line 3 is `z = x + y`, the middle of `def f`'s body. The whole `def`
+        # is the boundary regardless of which of its lines the cursor sits on
+        # -- a statement never runs partway.
+        result = self.above(3)
+        self.assertEqual(result["statements"], 2)
+        self.assertEqual(self.bound("a"), "1")
+        self.assertEqual(self.bound("b"), "2")
+        self.assertEqual(self.bound("f"), "NameError",
+                         "the def the cursor is inside must not have run")
+
+    def test_a_cursor_on_a_blank_line_runs_everything_above_it(self):
+        source = "a = 1\n\nb = 2\n"
+        result = self.above(1, source=source)  # the blank line
+        self.assertEqual(result["statements"], 1)
+        self.assertEqual(self.bound("a"), "1")
+        self.assertEqual(self.bound("b"), "NameError",
+                         "below the blank line, not above it")
+
+    def test_a_cursor_on_line_zero_runs_nothing(self):
+        result = self.above(0)
+        self.assertTrue(result["ok"], "nothing to run is an outcome")
+        self.assertEqual(result["statements"], 0)
+        self.assertEqual(result["results"], [])
+        self.assertNotIn("range", result)
+
+    def test_a_cursor_past_the_last_statement_runs_the_whole_file(self):
+        result = self.above(99)
+        self.assertEqual((result["statements"], result["ran"]), (5, 5))
+        self.assertEqual(self.bound("c"), "3")
+
+    def test_a_failure_stops_the_run_and_nothing_after_it_is_attempted(self):
+        source = "a = 1\nundefined_name\nb = 2\nc = 3\n"
+        result = self.above(3, source=source)  # cursor on `c = 3`
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["statements"], 3,
+                         "three statements are above the cursor: `a`, the"
+                         " failing line, and `b`")
+        self.assertEqual(result["ran"], 1)
+        self.assertEqual(len(result["results"]), 2,
+                         "the failure itself is attempted and reported, but"
+                         " `b` after it is not")
+        self.assertFalse(result["results"][-1]["ok"])
+        self.assertEqual(self.bound("a"), "1")
+        self.assertEqual(self.bound("b"), "NameError",
+                         "never attempted -- the run stopped before it")
+
+    def test_the_namespace_is_reset_before_the_run(self):
+        # Bind something unrelated first, the way an earlier keypress would.
+        self.k.evaluate("stale = 'leftover'\n", 0)
+        self.assertEqual(self.bound("stale"), "'leftover'")
+        self.above(1, source="fresh = 1\n\n")
+        self.assertEqual(self.bound("stale"), "NameError",
+                         "a partial run's namespace must match the file, not"
+                         " whatever an earlier keypress left behind")
+        self.assertEqual(self.bound("fresh"), "1")
+
+    def test_a_cursor_below_a_syntax_error_runs_the_valid_prefix(self):
+        source = ("a = 1\n"
+                   "b = 2\n"
+                   's = "half-typed\n'
+                   "c = 3\n")
+        result = self.above(3, source=source)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual((result["statements"], result["ran"]), (2, 2))
+        self.assertEqual(self.bound("a"), "1")
+        self.assertEqual(self.bound("b"), "2")
+        self.assertEqual(result["partial"]["truncated_at"], 2)
+
+    def test_a_response_over_a_file_that_parsed_whole_says_nothing_about_partial(
+        self
+    ):
+        self.assertNotIn("partial", self.above(5))
+
+    def test_the_range_covers_what_was_attempted_not_the_whole_boundary(self):
+        source = "a = 1\nundefined_name\nb = 2\nc = 3\n"
+        result = self.above(3, source=source)
+        self.assertEqual(result["range"]["start"], {"line": 0, "character": 0})
+        self.assertEqual(result["range"]["end"]["line"], 1)
 
 
 if __name__ == "__main__":

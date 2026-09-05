@@ -18,7 +18,8 @@ import { Annotation, sourceAt, toVsCodeRange } from './render/decorations';
 import { Flash, SNAP } from './render/flash';
 import { printedFrom } from './render/format';
 import {
-  describeLoad, describeRun, hoverFor, partialCause, partialOf, present,
+  describeAbove, describeLoad, describeRun, hoverFor, partialCause,
+  partialOf, present,
 } from './render/present';
 import { capNames, PaintedAbove } from './render/repeats';
 import {
@@ -683,6 +684,109 @@ export class Evaluator {
     vscode.window.setStatusBarMessage(
       describeLoad(response.ran, response.statements, load.failed,
         response.partial?.truncated_at, asScript), STATUS_OUTCOME_MS);
+  }
+
+  /**
+   * Run everything above the cursor into the namespace, and stop there (#13).
+   *
+   * Evaluating a line needs whatever names it uses to already be bound, and
+   * getting there one statement at a time is the tedium this removes. It is
+   * deliberately not what Evaluate File is for: a load runs the *whole*
+   * file, including the statement the cursor is sitting in and everything
+   * below it, and it keeps going after a broken line because a file being
+   * explored is expected to have one. Neither is true of what this command
+   * is for -- getting the namespace ready for one specific statement -- so
+   * it stops exactly at that statement's boundary and stops for good the
+   * moment anything above it fails, rather than building a namespace on top
+   * of a line nobody can vouch for.
+   *
+   * "Above the cursor" is resolved on the kernel side, in `evaluate_above`:
+   * the boundary is the top-level statement the cursor is in, or would be in
+   * -- see that method's docstring for why a cursor inside a multi-line
+   * statement is exactly what forces that choice. The statement at the
+   * boundary is never run here; it is what Evaluate at Cursor answers for.
+   *
+   * The namespace is reset first, unconditionally, on the kernel side. This
+   * command's entire premise is that the namespace afterward matches what
+   * running the file from the top through the cursor would have produced,
+   * and a binding left over from an earlier keypress would quietly break
+   * that premise -- see `evaluate_above`'s docstring for the full argument
+   * and its relationship to #99.
+   *
+   * Painted exactly like a load: each statement's value appears as it
+   * finishes (`LoadPainting`, `InOrder`), which is what lets the reader see
+   * lines 1-11 settle before line 12 turns out to be the one that fails.
+   */
+  async evaluateAbove(editor: vscode.TextEditor): Promise<void> {
+    const document = editor.document;
+    const line = editor.selection.active.line;
+    let response: FileResponse;
+    // Built before the request, for the same reason `evaluateFile` builds
+    // its painting state first: the first statement can report before the
+    // `await` below has yielded even once.
+    const load = new LoadPainting(document, this.annotations);
+    const blocked = new BlockedMark();
+    this.asking = { document, load: new LoadPrompts(), blocked };
+    try {
+      const client = await this.client();
+      const running = client.request(
+        {
+          op: 'eval_above',
+          source: document.getText(),
+          filename: document.uri.fsPath,
+          line,
+          // Same reasoning as Evaluate File: somebody pressed a key and is
+          // watching, so refusing to prompt only trades a visible question
+          // for a red `EOFError` and the cascade of `NameError` beneath it.
+          allow_stdin: true,
+          limits: displayLimits(),
+        },
+        (frame) => {
+          blocked.release();
+          load.order.offer(frame.index, frame.outcome);
+        }
+      );
+      response = (await this.watch(
+        running, 'Evalens: running everything above the cursor'
+      )) as FileResponse;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.output.appendLine(message);
+      void vscode.window.showErrorMessage(`Evalens: ${message}`);
+      return;
+    } finally {
+      this.asking = undefined;
+      blocked.release();
+    }
+
+    if (!response.ok) {
+      // Only a syntax error reaches here: nothing could even be resolved
+      // against the tree, so there is nothing partial to report either.
+      void vscode.window.showErrorMessage(
+        `Evalens: ${response.error.type}: ${response.error.message}`);
+      if (response.range) {
+        this.annotations.add(document, {
+          range: toVsCodeRange(response.range),
+          source: sourceAt(document, toVsCodeRange(response.range)),
+          error: { type: response.error.type, message: response.error.message },
+          hover: response.error.traceback || response.error.message,
+        });
+      }
+      return;
+    }
+
+    if (response.partial) {
+      // A break below the boundary the cursor implied: the prefix above it
+      // still ran, and this is why the reader may see fewer statements than
+      // the file appears to have.
+      this.annotations.add(document, causeAnnotation(response.partial));
+    }
+
+    load.order.settle(response.results);
+
+    vscode.window.setStatusBarMessage(
+      describeAbove(response.ran, response.statements, load.failed,
+        response.partial?.truncated_at), STATUS_OUTCOME_MS);
   }
 
   /**

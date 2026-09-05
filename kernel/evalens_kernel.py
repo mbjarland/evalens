@@ -226,9 +226,40 @@ answers ``statements: 0`` with ``partial`` set and no ``range`` -- nothing ran,
 and the reason is on the wire. It is emphatically not answered by running the
 prefix instead, which would execute code nobody selected.
 
-Ops: ``ping``, ``reset``, ``eval``, ``eval_file``, ``outline``.
-``eval_above`` is reserved and answers with an explicit not-implemented
-error until #13 lands.
+``eval_above`` runs everything strictly above the top-level statement a
+0-based cursor ``line`` is in, so that a line further down can be evaluated
+against the state the rest of the file would have given it::
+
+    -> {"id":6,"op":"eval_above","source":"a = 1\\nb = 2\\nc = a + b\\n",
+        "line":2,"filename":"/abs/path.py","allow_stdin":true}
+    <- {"id":6,"ok":true,"statements":2,"ran":2,"results":[...],
+        "range":{"start":{"line":0,...},"end":{"line":1,...}}}
+
+The boundary is the first top-level statement, in file order, whose own last
+line reaches ``line`` -- the statement the cursor sits in, or would sit in.
+Everything before it runs; that statement itself never does, because it is
+what ``eval`` answers for, not this op. A cursor at or before the first
+statement finds it as the boundary and runs nothing; a cursor past the last
+statement, or beneath a break ``parse_prefix`` cut the tree around, matches
+no boundary at all, so every parsed form counts as "above" and ``partial``
+says what was left out, the same way a broken file answers ``eval_file``.
+
+The namespace is reset before anything runs, unconditionally and with no
+setting to skip it -- unlike ``eval_file``, which never resets. A partial
+run's whole value is that the namespace afterward matches what running the
+file from the top through the cursor would have produced, which a stale
+binding from an earlier keypress would quietly falsify.
+
+Failures stop the run, which is the one place this differs from
+``eval_file``'s own loop: a load runs through a broken line on purpose, but
+``eval_above`` is building a namespace on the way to a specific line, and a
+namespace built past a failure is one nobody can reason about. ``results``
+holds only the outcomes actually attempted -- through the failure, if there
+was one -- so a caller cannot assume ``ran + failed`` equals ``statements``
+here the way it can for ``eval_file``.
+
+Ops: ``ping``, ``reset``, ``eval``, ``eval_file``, ``eval_above``,
+``outline``.
 
 Interrupting
 ------------
@@ -2701,6 +2732,34 @@ def _was_interrupted(outcome: Dict[str, Any]) -> bool:
     return outcome.get("error", {}).get("type") == "KeyboardInterrupt"
 
 
+def _above_boundary(forms: List[Form], line: int) -> int:
+    """Index into `forms` of the boundary form for 0-based cursor `line`.
+
+    The boundary is the top-level statement the cursor sits in, or would sit
+    in if one reached that far: the first form, in file order, whose own last
+    line is at or past the cursor. Everything before it in `forms` is what
+    "above the cursor" means for `eval_above`; the boundary form itself is
+    never run here, because it is the statement Evaluate at Cursor answers
+    for, not this command -- run-above sets up context, it does not also
+    perform the evaluation the cursor is pointing at.
+
+    Three cases fall out of the one rule rather than needing a case each. A
+    cursor inside a multi-line statement finds that whole statement as the
+    boundary, so it is excluded intact -- a statement never runs partially.
+    A cursor on a blank line between two statements finds the *next* one,
+    because the previous statement's last line is already behind the cursor
+    and the next one's is not, so "above" ends exactly at the blank line.
+    A cursor with nothing at or after it -- past the last statement, or
+    beneath a break `parse_prefix` already cut the tree around -- matches no
+    form, and `len(forms)` says so: every parsed form is "above" and none is
+    excluded, because there is nothing left for a boundary to be.
+    """
+    for index, form in enumerate(forms):
+        if form.end_line >= line:
+            return index
+    return len(forms)
+
+
 class Kernel:
     """The namespace and the operations that act on it."""
 
@@ -2802,15 +2861,7 @@ class Kernel:
         if op == "outline":
             return self.outline(request)
         if op == "eval_above":
-            # Reserved so the protocol shape is settled; the feature is #13.
-            return {
-                "ok": False,
-                "error": {
-                    "type": "NotImplemented",
-                    "message": "eval_above is reserved; see issue #13",
-                    "traceback": "",
-                },
-            }
+            return self.evaluate_above(request)
         return {
             "ok": False,
             "error": {
@@ -3090,6 +3141,141 @@ class Kernel:
             response["range"] = {
                 "start": _position(forms[0].start_line, forms[0].start_char),
                 "end": _position(forms[-1].end_line, forms[-1].end_char),
+            }
+        return response
+
+    def evaluate_above(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Run everything strictly above the statement the cursor is in.
+
+        Evaluating line 40 needs lines 1-39 to have run, and the only way to
+        get there one statement at a time is to evaluate them one at a time.
+        This is the command that does it in one press -- and it is a command
+        rather than something `evaluate` falls back to automatically, because
+        nothing here runs that the user did not explicitly ask this specific
+        key to run. See issue #13.
+
+        **Where "above" stops.** `forms_in(parsed.tree, None)` is the whole
+        parsed module body in source order, the same call `evaluate_file`
+        makes with no selection, and `_above_boundary` finds the first form
+        in it whose own last line reaches the cursor -- the boundary form,
+        which is the statement the cursor sits in or would sit in. Everything
+        strictly before it runs; the boundary form itself never does, because
+        it is what Evaluate at Cursor is for, not this command. Run-above
+        sets up context; it does not also perform the evaluation the cursor
+        is pointing at. A cursor on or before the first statement finds that
+        statement as the boundary and runs nothing. A cursor past the last
+        statement, or sitting below a break `parse_prefix` already cut the
+        tree around, matches no boundary at all, and every parsed form counts
+        as "above" -- which is the same answer `evaluate_file` gives a broken
+        file: run what parsed, report the rest through `partial`.
+
+        `character` is not read from the request. A top-level form's span
+        already decides the boundary; see `form_at`'s own comment for why
+        sub-expression resolution is the only thing that would need it.
+
+        **The namespace is reset first, unconditionally.** A partial run's
+        entire value is that the namespace afterward matches what running the
+        file from the top through the cursor would produce -- the same
+        requirement `docs/development/namespace-reset.md` (#56) settles for a
+        full-file run, which #99 is implementing separately for `Evaluate
+        File` and which `Run File as Script`'s own code has not yet caught up
+        to (its docstring above still says it does not reset). `eval_above`
+        does not wait on either: it is a new command with no prior "don't
+        reset" behaviour to preserve, so it resets unconditionally and with
+        no setting to skip it. Without the reset, a binding left over from an
+        earlier keypress could masquerade as something this run of the file
+        itself defined, which is exactly the ordering-and-state confusion
+        this command exists to remove.
+
+        **Failures stop the run, unlike `evaluate_file`.** A load runs
+        through failures on purpose, because a file being explored is
+        expected to contain broken lines. `eval_above` is building a
+        namespace on the way to a specific line, and continuing past a
+        failure would build one whose contents nobody can reason about -- so
+        the loop stops at the first outcome that is not ok, whether that is
+        an ordinary exception or an interrupt, and nothing after it is
+        attempted. `results` therefore holds only the outcomes actually
+        attempted -- up to and including the failure, if there was one --
+        never a placeholder for what came after. `statements` is still the
+        total number of forms found to be above the cursor, matching
+        `evaluate_file`'s `len(forms)` convention, so a caller can tell a
+        stopped-early run from a completed one by comparing it against
+        `len(results)`; unlike `evaluate_file`, `ran + failed` need not equal
+        `statements` here.
+
+        **Streaming is identical to `evaluate_file`'s.** Each attempted
+        outcome is announced on the control channel as `{"op": "statement",
+        "id": request_id, "index": index, "outcome": outcome}` before the loop
+        decides whether to stop, so the extension can paint line 1's value
+        before line 30 is even attempted, and can tell a load apart from a
+        run-above only by which request the frame's `id` answers.
+        """
+        source: str = request.get("source", "")
+        filename: str = request.get("filename") or "<evalens>"
+        line: int = request.get("line", 0)
+        allow_stdin = bool(request.get("allow_stdin"))
+        request_id = request.get("id")
+
+        linecache.cache[filename] = (
+            len(source), None, source.splitlines(keepends=True), filename,
+        )
+
+        try:
+            parsed = parse_prefix(source, filename=filename)
+        except SyntaxError as exc:
+            return self._syntax_error(exc)
+
+        partial = {} if parsed.truncated_at is None else {
+            "partial": _partial_of(parsed)}
+
+        forms = forms_in(parsed.tree, None)
+        above = forms[:_above_boundary(forms, line)]
+
+        # A partial run's whole premise is a namespace matching a run from
+        # the top through the cursor -- see the docstring above. That premise
+        # fails quietly if whatever an earlier keypress bound is still here.
+        self.reset()
+
+        results = []
+        ran = 0
+        limits = _limits(request)
+        with self._as_module(filename):
+            for index, form in enumerate(above):
+                outcome = self._run(form, filename, allow_stdin=allow_stdin,
+                                    limits=limits)
+                results.append(outcome)
+                control({
+                    "op": "statement",
+                    "id": request_id,
+                    "index": index,
+                    "outcome": outcome,
+                })
+                if outcome["ok"]:
+                    ran += 1
+                else:
+                    # Unlike `evaluate_file`: any failure stops the run here,
+                    # not only an interrupt, because a namespace built past a
+                    # failure is one nobody can reason about. `_was_interrupted`
+                    # would also be true for a Cancel, but it is not what
+                    # decides this branch -- an ordinary exception stops the
+                    # run exactly the same way.
+                    break
+
+        response: Dict[str, Any] = {
+            "ok": True,
+            "statements": len(above),
+            "ran": ran,
+            "results": results,
+            **partial,
+        }
+        if above:
+            # The span of what was actually attempted, not of `above` as a
+            # whole -- a stopped-early run's last attempt is `results[-1]`,
+            # which may be well short of `above[-1]` when it stopped.
+            last = above[len(results) - 1]
+            response["range"] = {
+                "start": _position(above[0].start_line, above[0].start_char),
+                "end": _position(last.end_line, last.end_char),
             }
         return response
 

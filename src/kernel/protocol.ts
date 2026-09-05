@@ -153,9 +153,35 @@ export interface OutlineRequest {
   readonly filename: string;
 }
 
+/**
+ * Run everything above the statement a 0-based cursor `line` is in, so that
+ * statement's own state matches what running the file from the top through
+ * it would have produced (#13).
+ *
+ * Unlike `EvalFileRequest`, there is no `start_line`/`end_line`: the range to
+ * run is not something the caller narrows, it is derived on the kernel side
+ * from where the cursor sits, and the boundary is the statement itself
+ * rather than a line the caller already knows. There is also no `as_script`
+ * -- run-above is always a load, never a script run, because its whole job
+ * is preparing state for the statement at the cursor, not imitating
+ * `python3 <file>`.
+ */
+export interface EvalAboveRequest {
+  readonly op: 'eval_above';
+  readonly source: string;
+  readonly filename: string;
+  /** 0-based line the cursor is on. Everything above its statement runs. */
+  readonly line: number;
+  /** Same reasoning as `EvalFileRequest.allow_stdin`: a person is watching. */
+  readonly allow_stdin: boolean;
+  /** The same preferences apply to a run-above; see `DisplayLimits`. */
+  readonly limits?: DisplayLimits;
+}
+
 export type Request =
   | EvalRequest
   | EvalFileRequest
+  | EvalAboveRequest
   | OutlineRequest
   | { readonly op: 'ping' }
   | { readonly op: 'reset' }

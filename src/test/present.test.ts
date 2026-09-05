@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { EvalResponse, PartialParse } from '../kernel/protocol';
 import {
-  describeLoad, describeRun, partialCause, present,
+  describeAbove, describeLoad, describeRun, partialCause, present,
 } from '../render/present';
 
 const range = {
@@ -410,4 +410,34 @@ test('a run over a file that parsed whole says nothing extra', () => {
   assert.equal(describeRun(3, 3, 0, false), 'Evalens: ran 3 statements');
   assert.equal(describeRun(0, 0, 0, false),
     'Evalens: nothing to run in the selection');
+});
+
+test('a run above the cursor that fully succeeded says so plainly', () => {
+  assert.equal(describeAbove(3, 3, 0),
+    'Evalens: ran 3 statements above the cursor');
+  assert.equal(describeAbove(1, 1, 0),
+    'Evalens: ran 1 statement above the cursor');
+});
+
+test('a run above the cursor that stopped at a failure says it stopped', () => {
+  // Unlike `describeLoad`/`describeRun`, this must never claim "X of Y, Z
+  // failed" -- that shape implies every one of Y was attempted, and a
+  // run-above stops at the first failure rather than running through the
+  // rest of the file, so anything past it was never attempted at all.
+  assert.equal(describeAbove(2, 3, 1),
+    'Evalens: ran 2 of 3 statements above the cursor, stopped at a failure');
+});
+
+test('nothing above the cursor is not an error', () => {
+  // The cursor sits on or before the first statement in the file -- the same
+  // non-error a blank line under the cursor, or an empty selection, gets.
+  assert.equal(describeAbove(0, 0, 0), 'Evalens: nothing above the cursor');
+});
+
+test('a run above the cursor in a broken file keeps the caveat', () => {
+  assert.equal(describeAbove(2, 2, 0, 18),
+    'Evalens: ran 2 statements above the cursor; line 19 onwards did not'
+    + ' parse');
+  assert.equal(describeAbove(0, 0, 0, 18),
+    'Evalens: nothing above the cursor; line 19 onwards did not parse');
 });
