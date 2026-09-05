@@ -64,6 +64,37 @@ def bindings_of(source):
     return trace_of(source).bindings_wire()
 
 
+def watching(source, expr, loop=-1, watches=None):
+    """Run every statement in `source`, nominating `expr` against the
+    `loop`-th top-level statement -- #48.
+
+    Mirrors `run`, but only the target statement is rewritten: the loops this
+    ticket cares about are always the last (or only) statement in a small
+    program, exactly as `trace_of` already assumes, and everything above it
+    runs unwatched and uninstrumented so a test can set up an accumulator
+    without that setup showing up as a second recorder.
+
+    `watches` overrides the single-expression default when a test needs more
+    than one nomination or a nomination that misses every loop on purpose.
+    """
+    tree = ast.parse(source)
+    target = tree.body[loop]
+    if watches is None:
+        watches = {loops.loop_key(target): [(expr, ast.parse(
+            expr, mode="eval").body)]}
+    namespace = fresh_namespace()
+    recorders = []
+    for statement in tree.body:
+        if statement is target:
+            rewritten, plan, watch_plan = loops.instrument_watching(
+                statement, watches)
+            recorders = loops.watching_traces(plan, watch_plan, repr)
+            statement = rewritten
+        with loops.installed(namespace, recorders):
+            exec(compiled(statement), namespace)
+    return namespace, recorders
+
+
 async def stream(values):
     for value in values:
         yield value
@@ -727,6 +758,193 @@ class ComprehensionPositions(unittest.TestCase):
         original_iter = original.value.generators[0].iter
         wrapped_call = instrumented.value.generators[0].iter
         self.assertEqual(wrapped_call.args[0].lineno, original_iter.lineno)
+
+
+class NominatedWatches(unittest.TestCase):
+    """`instrument_watching`, `LoopTrace.watches` and `LoopTrace.fail` --
+    #48's mechanism for a reader-chosen expression, captured the same way
+    the target and the body's own bindings already are: once per iteration,
+    as it happens, never re-read afterwards.
+    """
+
+    def test_a_watch_on_the_target_is_recorded_once_per_iteration(self):
+        _, recorders = watching("for p in [0, 1, 4, 9, 16]:\n    pass\n",
+                                "p+6")
+        self.assertEqual(
+            recorders[0].watches["p+6"].wire(),
+            {"values": ["6", "7", "10", "15", "22"], "last": None,
+             "count": 5})
+
+    def test_a_watch_may_read_what_the_body_just_bound(self):
+        # The accumulator #48 was filed over: `total` is only meaningful
+        # after `total += x` has run, which is why `_watch_call` is appended
+        # after `bind()` rather than before it.
+        _, recorders = watching(
+            "total = 0\nfor x in [1, 2, 3, 4]:\n    total += x\n",
+            "total", loop=1)
+        self.assertEqual(recorders[0].watches["total"].head,
+                         ["1", "3", "6", "10"])
+
+    def test_repr_is_taken_at_capture_time_like_every_other_trace(self):
+        # Unlike the target -- recorded as the iteration *begins*, before
+        # the body runs -- a watch fires last, after `r.append` has already
+        # mutated `row` for this pass. `["[]", "[0]", "[0, 1]"]` is the
+        # target's own sequence (see `WhatIsRecorded`); the watch's is one
+        # append ahead of it at every step, which is the honest answer for
+        # a value the body just changed.
+        _, recorders = watching(
+            "row = []\nfor r in [row, row, row]:\n    r.append(len(r))\n",
+            "row", loop=1)
+        self.assertEqual(recorders[0].watches["row"].head,
+                         ["[0]", "[0, 1]", "[0, 1, 2]"])
+
+    def test_a_raising_watch_is_recorded_once_and_the_loop_completes(self):
+        namespace, recorders = watching(
+            "for p in [1, 0, 2, 0, 3]:\n    pass\n", "1/p")
+        trace = recorders[0].watches["1/p"]
+        self.assertEqual(trace.head, ["1.0", "0.5", "0.3333333333333333"])
+        self.assertEqual(trace.error,
+                         {"type": "ZeroDivisionError",
+                          "message": "division by zero"})
+        # One more zero after the one that set `error`.
+        self.assertEqual(trace.failed, 1)
+        # The loop itself -- and its own target trace -- are untouched by a
+        # watch that raised: this is #48's whole point.
+        self.assertEqual(namespace["p"], 3)
+        self.assertEqual(recorders[0].count, 5)
+
+    def test_only_the_first_exception_is_kept(self):
+        _, recorders = watching("for p in [0, 0, 0]:\n    pass\n", "1/p")
+        trace = recorders[0].watches["1/p"]
+        self.assertEqual(trace.count, 0)
+        self.assertEqual(trace.head, [])
+        self.assertEqual(trace.error["type"], "ZeroDivisionError")
+        self.assertEqual(trace.failed, 2)
+
+    def test_a_watch_that_always_raises_still_reports_on_the_wire(self):
+        # Unlike a binding nobody bound: the user asked for this expression
+        # by name, and a complete failure is itself the answer, not nothing.
+        _, recorders = watching("for p in [0, 0]:\n    pass\n", "1/p")
+        [wire] = recorders[0].watches_wire()
+        self.assertEqual(wire["name"], "1/p")
+        self.assertEqual(wire["values"], [])
+        self.assertEqual(wire["count"], 0)
+        self.assertEqual(wire["error"]["type"], "ZeroDivisionError")
+        self.assertEqual(wire["failed"], 1)
+
+    def test_a_watch_never_advances_the_loops_own_count(self):
+        # `fail` must not make a raising watch look like it kept pace with
+        # the loop: `count` on the watch's own trace is successes only, on
+        # the same "not parallel" terms a `continue`d binding already gets.
+        _, recorders = watching("for p in [1, 0, 2]:\n    pass\n", "1/p")
+        self.assertEqual(recorders[0].watches["1/p"].count, 2)
+        self.assertEqual(recorders[0].count, 3)
+
+    def test_the_watch_exception_name_does_not_survive_the_run(self):
+        namespace, _ = watching("for p in [1, 0]:\n    pass\n", "1/p")
+        self.assertNotIn(loops.WATCH_EXC, namespace)
+
+    def test_the_rewrite_stays_additive_with_a_watch_attached(self):
+        source = "total = 0\nfor x in [1, 2, 3]:\n    total += x\n"
+        plain, _ = run(source, instrument=False)
+        watched, _ = watching(source, "total", loop=1)
+        self.assertEqual(visible(plain), visible(watched))
+
+    def test_a_watch_is_filed_under_its_own_loops_key_when_nested(self):
+        # `evaluate_watch` resolves the *innermost* enclosing loop by
+        # position before this rewrite ever runs, so the watch must land on
+        # the inner loop's own trace, not the outer loop's.
+        outer = ast.parse(
+            "for i in range(2):\n    for j in range(3):\n        pass\n"
+        ).body[0]
+        inner = outer.body[0]
+        expr = ast.parse("i * 10 + j", mode="eval").body
+        rewritten, plan, watch_plan = loops.instrument_watching(
+            outer, {loops.loop_key(inner): [("i * 10 + j", expr)]})
+        recorders = loops.watching_traces(plan, watch_plan, repr)
+        namespace = fresh_namespace()
+        with loops.installed(namespace, recorders):
+            exec(compiled(rewritten), namespace)
+        self.assertEqual(len(recorders), 2)
+        self.assertEqual(recorders[0].watches, {})
+        self.assertIn("i * 10 + j", recorders[1].watches)
+        self.assertEqual(recorders[1].watches["i * 10 + j"].head,
+                         ["0", "1", "2", "10", "11"])
+
+    def test_a_key_matching_no_loop_attaches_nothing(self):
+        # Not expected in practice -- `evaluate_watch` resolves the key from
+        # the same tree it instruments -- but declining is the safe answer
+        # to a key that does not match, on the rule every other unrecognised
+        # shape in this module already follows.
+        node = ast.parse("for p in [1, 2]:\n    pass\n").body[0]
+        bogus_key = (999, 0, 999, 4)
+        expr = ast.parse("p", mode="eval").body
+        _, plan, watch_plan = loops.instrument_watching(
+            node, {bogus_key: [("p", expr)]})
+        self.assertEqual(watch_plan, [()])
+        recorders = loops.watching_traces(plan, watch_plan, repr)
+        self.assertEqual(recorders[0].watches, {})
+
+    def test_instrument_without_watches_is_unaffected(self):
+        # `instrument` (no watches) and `instrument_watching` (empty
+        # watches) must produce the same rewrite: #48 is additive to the
+        # existing feature, never a second code path for it.
+        node = ast.parse("for p in [1, 2]:\n    pass\n").body[0]
+        plain, plan = loops.instrument(node)
+        watched, plan2, watch_plan = loops.instrument_watching(node, {})
+        self.assertEqual(ast.dump(plain), ast.dump(watched))
+        self.assertEqual(plan, plan2)
+        self.assertEqual(watch_plan, [()])
+
+
+class InnermostLoopAt(unittest.TestCase):
+    """`loops.innermost_loop_at` -- where a nominated expression's position
+    resolves to the loop #48 attaches its watch to."""
+
+    def test_an_unnested_position_resolves_to_the_loop_itself(self):
+        node = ast.parse("for p in [1]:\n    pass\n").body[0]
+        self.assertIs(loops.innermost_loop_at(node, 1, 4), node)
+
+    def test_a_position_on_the_header_also_resolves_to_the_loop(self):
+        node = ast.parse("for p in [1]:\n    pass\n").body[0]
+        self.assertIs(loops.innermost_loop_at(node, 0, 5), node)
+
+    def test_a_nested_position_resolves_to_the_inner_loop(self):
+        node = ast.parse(
+            "for i in range(2):\n    for j in range(3):\n        pass\n"
+        ).body[0]
+        inner = node.body[0]
+        self.assertIs(loops.innermost_loop_at(node, 2, 8), inner)
+
+    def test_a_position_on_the_outer_header_stays_the_outer_loop(self):
+        node = ast.parse(
+            "for i in range(2):\n    for j in range(3):\n        pass\n"
+        ).body[0]
+        self.assertIs(loops.innermost_loop_at(node, 0, 5), node)
+
+    def test_a_position_after_the_nested_loop_is_the_outer_loop(self):
+        node = ast.parse(
+            "for i in range(2):\n    for j in range(3):\n        pass\n"
+            "    total = i\n"
+        ).body[0]
+        self.assertIs(loops.innermost_loop_at(node, 3, 4), node)
+
+    def test_a_position_outside_the_loop_entirely_is_none(self):
+        node = ast.parse("for p in [1]:\n    pass\n").body[0]
+        self.assertIsNone(loops.innermost_loop_at(node, 10, 0))
+
+    def test_a_while_loop_is_never_a_candidate(self):
+        # #48 is scoped to `for`/`async for`, matching every other rewrite in
+        # this module; a `while` is never instrumented at all.
+        node = ast.parse("while True:\n    break\n").body[0]
+        self.assertIsNone(loops.innermost_loop_at(node, 0, 0))
+
+    def test_an_async_for_is_a_candidate(self):
+        node = ast.parse(
+            "async def f():\n    async for p in xs:\n        pass\n"
+        ).body[0]
+        async_for = node.body[0]
+        self.assertIs(loops.innermost_loop_at(node, 1, 10), async_for)
 
 
 if __name__ == "__main__":
