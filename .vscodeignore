@@ -3,6 +3,7 @@
 docs/**
 bin/**
 prototype/**
+kernel/test_*.py
 src/**
 out/test/**
 node_modules/**

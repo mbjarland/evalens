@@ -1,6 +1,6 @@
 {
   "name": "python-inline-values",
-  "displayName": "Evalens — Inline Python Values",
+  "displayName": "Evalens \u2014 Inline Python Values",
   "description": "See values inline as you type. No print(), no debugger, no notebook.",
   "version": "0.0.1",
   "publisher": "mbjarland",
@@ -38,8 +38,22 @@
       {
         "command": "evalens.evaluateAtCursor",
         "title": "Evalens: Evaluate at Cursor"
+      },
+      {
+        "command": "evalens.restartKernel",
+        "title": "Evalens: Restart Kernel"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Evalens",
+      "properties": {
+        "evalens.pythonPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Interpreter used to run the evaluation kernel. Empty means use the interpreter selected by the Python extension, falling back to `python3`."
+        }
+      }
+    }
   },
   "scripts": {
     "compile": "tsc -p .",
