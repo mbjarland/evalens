@@ -692,6 +692,65 @@ test('the __main__ guard does not run on load', async (t) => {
   assert.equal(name.value, "'evalens-main'");
 });
 
+test('as_script is what makes the two commands differ, and only that',
+  async (t) => {
+    // #78, end to end: Evaluate File and Run File as Script send the same
+    // request with one field different, and the guard's fate is the only
+    // thing that follows from it.
+    const client = connect();
+    t.after(() => client.dispose());
+
+    const source = "if __name__ == '__main__':\n    ran = True\n";
+
+    const loaded = await client.request({
+      op: 'eval_file', allow_stdin: false, source,
+      filename: '/tmp/evalens-script.py',
+    }) as FileLoaded;
+    assert.equal(loaded.ok, true);
+    const notRun = await evaluate(client, 'ran\n', 0) as Failed;
+    assert.equal(notRun.error.type, 'NameError',
+      'Evaluate File must not run the guarded block');
+
+    const script = await client.request({
+      op: 'eval_file', allow_stdin: false, source, as_script: true,
+      filename: '/tmp/evalens-script.py',
+    }) as FileLoaded;
+    assert.equal(script.ok, true);
+    const bound = await evaluate(client, 'ran\n', 0) as Evaluated;
+    assert.equal(bound.value, 'True',
+      'Run File as Script must run the guarded block');
+  });
+
+test('a script run reports the same __name__ python3 file.py would', async (t) => {
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const script = await client.request({
+    op: 'eval_file', allow_stdin: false, source: '__name__\n',
+    as_script: true, filename: '/tmp/evalens-script.py',
+  }) as FileLoaded;
+  assert.equal(script.ok, true);
+  assert.equal((script.results[0] as Evaluated).value, "'__main__'");
+});
+
+test('a script run does not reset what an earlier load bound', async (t) => {
+  // The namespace decision this ticket had to write down: a script run is
+  // Load File with one bit flipped, not a second command with its own
+  // notion of a fresh start.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  await client.request({
+    op: 'eval_file', allow_stdin: false, source: "kept = 'from before'\n",
+    filename: '/tmp/evalens-script.py',
+  });
+  const script = await client.request({
+    op: 'eval_file', allow_stdin: false, source: 'kept\n', as_script: true,
+    filename: '/tmp/evalens-script.py',
+  }) as FileLoaded;
+  assert.equal((script.results[0] as Evaluated).value, "'from before'");
+});
+
 test('loading a file paints what walking down it would have', async (t) => {
   const client = connect();
   t.after(() => client.dispose());

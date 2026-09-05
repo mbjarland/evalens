@@ -1535,6 +1535,125 @@ class ImportPath(KernelTest):
         self.assertEqual(answer["value"], "True")
 
 
+class PackageContext(KernelTest):
+    """``__package__`` and the ``sys.path`` a real package member needs.
+
+    Found while #92 was covering import shapes: opening a real package's own
+    file directly -- ``demo_pkg/__init__.py``, or a plain submodule beside it
+    -- and evaluating it hit ``from .geometry import area`` with no
+    ``__package__`` in the namespace to resolve the dot against. `_as_module`
+    already gave a load the file's own name (#70) and the file's own
+    directory on ``sys.path`` (#69); this is the third thing a real ``import``
+    would give it, verified against a real interpreter throughout rather than
+    assumed, because `__name__` and `__package__` turn out to disagree by
+    exactly one segment and it is easy to get that wrong from memory.
+
+    A script run answers differently, on purpose: see
+    `RunFileAsScript.test_a_script_run_over_a_package_member_gets_no_package_context`.
+    """
+
+    def setUp(self):
+        super().setUp()
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.dir = os.path.realpath(directory.name)
+
+    def write(self, name, source):
+        path = os.path.join(self.dir, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(source)
+        return path
+
+    def load(self, filename, as_script=False):
+        with open(filename, encoding="utf-8") as handle:
+            source = handle.read()
+        request = {"op": "eval_file", "source": source, "filename": filename}
+        if as_script:
+            request["as_script"] = True
+        return self.k.send(**request)
+
+    def test_a_packages_own_file_resolves_its_relative_imports(self):
+        # The bug exactly as #92 found it: opening demo_pkg/__init__.py
+        # itself, not importing it from a file beside it.
+        init = self.write("demo_pkg/__init__.py",
+                          "from .geometry import area\n")
+        self.write("demo_pkg/geometry.py",
+                   "def area(r):\n    return 3 * r * r\n")
+        result = self.load(init)
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(all(r["ok"] for r in result["results"]), result)
+        answer = self.k.evaluate("area(2)\n", 0)
+        self.assertEqual(answer["value"], "12")
+
+    def test_a_plain_submodule_resolves_a_relative_import_to_a_sibling(self):
+        self.write("demo_pkg/__init__.py", "")
+        self.write("demo_pkg/geometry.py",
+                   "def area(r):\n    return 3 * r * r\n")
+        text = self.write(
+            "demo_pkg/text.py",
+            "from .geometry import area\ndescribed = area(2)\n")
+        result = self.load(text)
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(all(r["ok"] for r in result["results"]), result)
+
+    def test_name_is_dotted_for_a_package_member(self):
+        init = self.write("demo_pkg/__init__.py", "__name__\n")
+        text = self.write("demo_pkg/text.py", "__name__\n")
+        self.assertEqual(self.load(init)["results"][0]["value"], "'demo_pkg'")
+        self.assertEqual(
+            self.load(text)["results"][0]["value"], "'demo_pkg.text'")
+
+    def test_package_matches_what_a_real_import_would_give(self):
+        # Verified against a real `import demo_pkg` and `import
+        # demo_pkg.geometry` before being written down here: a package's own
+        # file is its own package, and a submodule's package stops one
+        # segment short of its own name.
+        init = self.write("demo_pkg/__init__.py", "__package__\n")
+        geometry = self.write("demo_pkg/geometry.py", "__package__\n")
+        self.assertEqual(self.load(init)["results"][0]["value"], "'demo_pkg'")
+        self.assertEqual(
+            self.load(geometry)["results"][0]["value"], "'demo_pkg'")
+
+    def test_a_plain_top_level_file_has_no_package(self):
+        # No real __init__.py beside it, so nothing above it was ever
+        # consulted: `__package__` is `""`, on the same terms a real
+        # top-level `import` gives one.
+        main = self.write("main.py", "__package__\n")
+        self.assertEqual(self.load(main)["results"][0]["value"], "''")
+
+    def test_a_sibling_packages_init_does_not_leak_into_a_plain_file(self):
+        # main.py sits beside demo_pkg/, not inside it: a package elsewhere
+        # in the same directory must not be mistaken for one main.py is a
+        # member of.
+        self.write("demo_pkg/__init__.py", "")
+        main = self.write("main.py", "__name__\n__package__\n")
+        result = self.load(main)
+        self.assertEqual(result["results"][0]["value"], "'main'")
+        self.assertEqual(result["results"][1]["value"], "''")
+
+    def test_multi_level_nesting_resolves_a_grandparent_relative_import(self):
+        self.write("outer/__init__.py", "OUTER = 'outer'\n")
+        leaf = self.write(
+            "outer/inner/leaf.py",
+            "from .. import OUTER\nVALUE = 42\n__name__\n__package__\n")
+        self.write("outer/inner/__init__.py", "")
+        result = self.load(leaf)
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(all(r["ok"] for r in result["results"]), result)
+        self.assertEqual(result["results"][-2]["value"], "'outer.inner.leaf'")
+        self.assertEqual(result["results"][-1]["value"], "'outer.inner'")
+
+    def test_a_normal_loads_path_is_the_package_root(self):
+        # Not the file's own directory: `demo_pkg/` itself has no
+        # `demo_pkg/demo_pkg/` inside it for a real `import demo_pkg` to
+        # find, which is the ModuleNotFoundError this answers instead of
+        # producing.
+        init = self.write("demo_pkg/__init__.py", "import sys\nsys.path[0]\n")
+        result = self.load(init)
+        self.assertEqual(result["results"][1]["value"], repr(self.dir))
+
+
 class ModuleName(KernelTest):
     """What ``__name__`` is, and everywhere the answer shows up.
 
@@ -1617,6 +1736,181 @@ class ModuleName(KernelTest):
         self.assertEqual(
             self.value("class Version:\n    pass\nVersion.__module__\n"),
             "'01_basics'")
+
+
+class RunFileAsScript(KernelTest):
+    """``eval_file`` with ``as_script: true`` -- issue #78.
+
+    The one flag that decides whether ``__name__`` is the file's own name (a
+    load, and every ``eval_file`` before this ticket) or ``"__main__"`` (a
+    script run), which is the one thing that decides whether an
+    ``if __name__ == "__main__":`` guard fires. Everything else about the
+    request is `LoadFile`'s behaviour, unchanged.
+    """
+
+    GUARD = "if __name__ == '__main__':\n    ran = True\n"
+
+    def load(self, source, as_script=False, filename="/tmp/course/10_demo.py"):
+        request = {"op": "eval_file", "source": source, "filename": filename}
+        if as_script:
+            request["as_script"] = True
+        return self.k.send(**request)
+
+    def test_the_guard_fires_only_when_asked_to_run_as_a_script(self):
+        # The ticket's own acceptance test: one source, one flag, and the
+        # namespace either has `ran` or it does not.
+        loaded = self.load(self.GUARD)
+        self.assertTrue(loaded["ok"], loaded)
+        missing = self.k.evaluate("ran\n", 0)
+        self.assertFalse(missing["ok"], missing)
+        self.assertEqual(missing["error"]["type"], "NameError")
+
+        ran = self.load(self.GUARD, as_script=True)
+        self.assertTrue(ran["ok"], ran)
+        bound = self.k.evaluate("ran\n", 0)
+        self.assertTrue(bound["ok"], bound)
+        self.assertEqual(bound["value"], "True")
+
+    def test_name_is_dunder_main_for_a_script_run(self):
+        self.assertEqual(
+            self.load("__name__\n", as_script=True)["results"][-1]["value"],
+            "'__main__'")
+
+    def test_name_is_still_the_files_own_name_otherwise(self):
+        # Pinned beside the case above: the two requests differ in exactly
+        # one field, so the two answers had better differ in exactly the one
+        # way that field explains.
+        self.assertEqual(
+            self.load("__name__\n")["results"][-1]["value"], "'10_demo'")
+
+    def test_argv_is_the_file_for_a_script_run(self):
+        result = self.load(
+            "import sys\nsys.argv\n", as_script=True,
+            filename="/tmp/course/10_demo.py")
+        self.assertEqual(
+            result["results"][-1]["value"], "['/tmp/course/10_demo.py']")
+
+    def test_argv_is_untouched_by_an_ordinary_load(self):
+        before = self.k.evaluate("import sys\nlist(sys.argv)\n", 0)
+        self.load("import sys\n")
+        after = self.k.evaluate("import sys\nlist(sys.argv)\n", 0)
+        self.assertEqual(after["value"], before["value"])
+
+    def test_argv_is_restored_once_the_script_run_is_over(self):
+        before = self.k.evaluate("import sys\nlist(sys.argv)\n", 0)
+        self.load("import sys\n", as_script=True)
+        after = self.k.evaluate("import sys\nlist(sys.argv)\n", 0)
+        self.assertEqual(after["value"], before["value"])
+
+    def test_a_script_run_does_not_reset_the_namespace(self):
+        # Whatever an earlier load or evaluation bound is still there going
+        # into a script run: this is Load File with one bit flipped, not a
+        # second command with its own rules about what survives.
+        self.k.evaluate("kept = 'from an earlier load'\n", 0)
+        result = self.load("kept\n", as_script=True)
+        self.assertEqual(result["results"][-1]["value"],
+                         "'from an earlier load'")
+
+    def test_running_as_a_script_twice_just_runs_the_file_twice(self):
+        # No special-casing a second run: the guard's body re-executes, the
+        # same way pressing Evaluate File twice re-runs an ordinary load.
+        source = "counter = globals().get('counter', 0) + 1\n" + self.GUARD
+        self.load(source, as_script=True)
+        self.load(source, as_script=True)
+        self.assertEqual(self.k.evaluate("counter\n", 0)["value"], "2")
+
+    def test_a_script_run_after_an_ordinary_load_still_fires_the_guard(self):
+        self.load(self.GUARD)
+        missing = self.k.evaluate("ran\n", 0)
+        self.assertFalse(missing["ok"])
+
+        self.load(self.GUARD, as_script=True)
+        bound = self.k.evaluate("ran\n", 0)
+        self.assertTrue(bound["ok"], bound)
+
+    def test_the_dead_guard_says_so_on_an_ordinary_load(self):
+        # #78's minimum: the fact costs nothing to say and is said regardless
+        # of whether the full command is ever reached for.
+        result = self.load(self.GUARD)
+        guard = result["results"][0]
+        self.assertTrue(guard["ok"])
+        self.assertEqual(
+            guard["value"],
+            "False -- not run as a script (Evalens: Run File as Script)")
+
+    def test_the_dead_guard_annotation_is_silent_once_the_guard_runs(self):
+        # The override only ever applies to a guard that cannot fire; once it
+        # can and does, the ordinary "no value" answer for an `If` applies,
+        # exactly as it would for any other compound statement.
+        result = self.load(self.GUARD, as_script=True)
+        guard = result["results"][0]
+        self.assertTrue(guard["ok"])
+        self.assertIsNone(guard["value"])
+
+    def test_the_dead_guard_annotation_is_silent_for_a_dunder_main_file(self):
+        # The one case an ordinary load's guard is not dead: `_module_name`
+        # answers "__main__" on its own for a file literally named
+        # `__main__.py`, the same way `python -m thatpackage` would. The
+        # override checks `self.namespace["__name__"]` as it actually stands
+        # rather than assuming the guard is always False on a load, and this
+        # is the case that assumption would have gotten wrong.
+        result = self.load(self.GUARD, filename="/tmp/course/pkg/__main__.py")
+        guard = result["results"][0]
+        self.assertTrue(guard["ok"])
+        self.assertIsNone(guard["value"])
+        bound = self.k.evaluate("ran\n", 0)
+        self.assertTrue(bound["ok"], bound)
+
+    def test_a_guard_that_is_not_the_idiom_is_left_alone(self):
+        # Deliberately narrow: a `!=` guard is a different statement with a
+        # different truth value, and must not be relabelled as the dead one.
+        result = self.load(
+            "if __name__ != '__main__':\n    ran = True\n")
+        guard = result["results"][0]
+        self.assertTrue(guard["ok"])
+        self.assertIsNone(guard["value"])
+
+    def test_a_script_run_over_a_package_member_gets_no_package_context(self):
+        # `python3 pkg/mod.py` gives __package__ None -- verified against a
+        # real interpreter -- never the enclosing package `PackageContext`
+        # gives an ordinary load, however many real __init__.py files
+        # surround the file. Imitating `python3 <file>` means imitating this
+        # too, relative import failure and all: see #78's design note on
+        # which of `python -m` and `python file.py` a script run stands in
+        # for.
+        with tempfile.TemporaryDirectory() as directory:
+            real_dir = os.path.realpath(directory)
+            os.makedirs(os.path.join(real_dir, "demo_pkg"))
+            init = os.path.join(real_dir, "demo_pkg", "__init__.py")
+            with open(init, "w", encoding="utf-8") as handle:
+                handle.write("from .geometry import area\n")
+            with open(os.path.join(real_dir, "demo_pkg", "geometry.py"),
+                      "w", encoding="utf-8") as handle:
+                handle.write("def area(r):\n    return 3 * r * r\n")
+
+            result = self.load(
+                "from .geometry import area\n", as_script=True, filename=init)
+            self.assertFalse(result["ok"] and result["results"][0]["ok"],
+                             result)
+            failure = result["results"][0]
+            self.assertEqual(failure["error"]["type"], "ImportError")
+
+    def test_a_script_runs_path_is_the_files_own_directory(self):
+        # Not the package root a load would use: `python3 <file>` puts the
+        # file's own directory at sys.path[0] regardless of any package
+        # around it, verified against a real interpreter, and a script run
+        # answers the same way on purpose.
+        with tempfile.TemporaryDirectory() as directory:
+            real_dir = os.path.realpath(directory)
+            pkg_dir = os.path.join(real_dir, "demo_pkg")
+            os.makedirs(pkg_dir)
+            init = os.path.join(pkg_dir, "__init__.py")
+            with open(init, "w", encoding="utf-8") as handle:
+                handle.write("")
+
+            result = self.load(
+                "import sys\nsys.path[0]\n", as_script=True, filename=init)
+            self.assertEqual(result["results"][1]["value"], repr(pkg_dir))
 
 
 class LoadSelection(KernelTest):

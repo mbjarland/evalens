@@ -724,10 +724,19 @@ describe('the tour')
 #     and the body is skipped.  The proof is here rather than only in a unit
 #     test because a banner that never appears in the annotations is something
 #     a human can check in one look -- and because a SystemExit that did run
-#     would be a loud, obvious failure rather than a quiet one.
+#     would be a loud, obvious failure rather than a quiet one.  The line's own
+#     annotation says so too, now: `=> False -- not run as a script (Evalens:
+#     Run File as Script)`, so the silence is not the only evidence (#78).
 #
-#     Running the file as a script is the other half of the proof: then the
-#     block does run, prints, and exits 0.
+#     Running the file as a script is the other half of the proof, and inside
+#     the editor that no longer means leaving it for a terminal: run "Evalens:
+#     Run File as Script" and `__name__` is `"__main__"` for that one command,
+#     exactly as it would be for `python3 examples/tour.py`, so this block
+#     runs and prints both lines.  What it does NOT do is exit quietly the way
+#     the terminal run does: `sys.exit(0)` still raises `SystemExit`, and
+#     Evalens reports every `SystemExit` as a failure regardless of its code,
+#     because the kernel has no process to end -- so the annotation on the
+#     line below is red, which is correct and not a bug in either command.
 if __name__ == "__main__":
     print("THIS SHOULD NEVER APPEAR ON LOAD")
     print("(as a script it should, and the exit below is the same idea)")

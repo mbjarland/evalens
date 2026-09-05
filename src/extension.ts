@@ -124,6 +124,22 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    // The separate, deliberate act #78 exists for: `__name__` is `"__main__"`
+    // for this one run, so an `if __name__ == "__main__":` guard fires and
+    // its body runs -- which Evaluate File must never do on its own, on every
+    // keypress, for a file whose author marked that block "only when run
+    // directly". No default keybinding: the point of a second command here is
+    // that reaching for it is a choice, not a reflex.
+    vscode.commands.registerCommand('evalens.runFileAsScript', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        return;
+      }
+      await evaluator?.evaluateFile(editor, { asScript: true });
+    })
+  );
+
+  context.subscriptions.push(
     // In the palette as well as on the progress notification's Cancel button.
     // The notification can be dismissed; the infinite loop behind it cannot,
     // and a stop button that exists only on a thing you have closed is not a

@@ -294,6 +294,20 @@ test('a failure inside a selection is reported the way a load reports one', () =
     'Evalens: loaded 2 of 3 statements, 1 failed');
 });
 
+test('a script run says "ran", not "loaded", and says it is a script', () => {
+  // #78: the status line is the one place left that always tells a script
+  // run apart from an ordinary load, since the annotations the two leave
+  // behind can otherwise look the same.
+  assert.equal(describeLoad(3, 3, 0, undefined, true),
+    'Evalens: ran 3 statements as a script');
+  assert.equal(describeLoad(2, 3, 1, undefined, true),
+    'Evalens: ran 2 of 3 statements as a script, 1 failed');
+});
+
+test('a plain load still says "loaded" when asScript is left out', () => {
+  assert.equal(describeLoad(3, 3, 0), 'Evalens: loaded 3 statements');
+});
+
 test('a selection with no complete statement in it is not an error', () => {
   // Selecting a comment. The same answer a blank line under the cursor gets,
   // and said in the same place rather than in an error box.

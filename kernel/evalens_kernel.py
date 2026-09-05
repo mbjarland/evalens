@@ -158,6 +158,22 @@ the user is looking at. ``statements`` counts what the request covered, and
 the response's ``range`` is what actually ran -- wider than the selection
 whenever a statement was only partly inside it, and absent when nothing was.
 
+``eval_file`` may also carry ``as_script: true``, which runs the file the way
+``python3 <file>`` would rather than the way ``import`` would::
+
+    -> {"id":5,"op":"eval_file","source":"...","as_script":true,
+        "filename":"/abs/path.py","allow_stdin":true}
+
+``__name__`` is ``"__main__"`` for that request instead of the file's own
+name, so an ``if __name__ == "__main__":`` guard fires and its body runs;
+``sys.argv`` is ``[filename]`` for the same reason a real script run gives it
+that. Everything else is unchanged: the whole buffer runs top to bottom, into
+the same persistent namespace a load would use, and a second script run -- or
+a script run after an ordinary load -- simply runs the file again, exactly as
+pressing Load File twice does. There is no reset and no second namespace,
+because the one this kernel already keeps is the thing a session cannot get
+back. See ``Kernel._as_module`` and issue #78.
+
 ``outline`` answers with the same ranges and anchors for every top-level
 statement in a file, and runs none of them::
 
@@ -2296,6 +2312,43 @@ def _seal_kernel_directory() -> None:
                    if not _resolves_to_kernel_dir(entry)]
 
 
+def _package_chain(directory: str) -> Tuple[str, Tuple[str, ...]]:
+    """Walk up from `directory` through every real, on-disk package.
+
+    A directory counts as a package exactly when it has its own
+    ``__init__.py`` sitting in it -- the same fact Python's own import system
+    checks. The walk climbs while that keeps being true and stops at the
+    first ancestor where it is not, which is the directory a real ``import``
+    of the innermost one would need on ``sys.path`` to find it. The answer is
+    that directory, and the package names passed on the way up, outermost
+    first: ``demo_pkg/geometry.py``'s directory answers
+    ``(".../python-walkthrough", ("demo_pkg",))``.
+
+    Filesystem-based, deliberately, and that is what keeps this safe to call
+    on every request rather than only real ones. Nothing about a *filename*
+    says whether the directory beside it is a package -- unlike ``__init__.py``,
+    which says so about itself -- so the only honest answer comes from looking.
+    ``os.path.isfile`` on a path that is not there answers False rather than
+    raising, so a notional path with nothing on disk (``/tmp/course/...``, the
+    whole of the kernel test suite's fixtures) fails the very first check and
+    the walk goes nowhere: `directory` itself comes back with no package names,
+    exactly the answer this kernel has always given a file with no
+    ``__init__.py`` really beside it.
+    """
+    segments: List[str] = []
+    current = directory
+    while os.path.isfile(os.path.join(current, "__init__.py")):
+        parent = os.path.dirname(current)
+        if parent == current:
+            # The filesystem root has no parent, so there is nowhere further
+            # to climb -- reached only by a package with no floor under it,
+            # which is not a shape a real project has.
+            break
+        segments.insert(0, os.path.basename(current))
+        current = parent
+    return current, tuple(segments)
+
+
 def _module_name(filename: str) -> str:
     """What Python would call this file's module.
 
@@ -2317,20 +2370,70 @@ def _module_name(filename: str) -> str:
     module ``__main__`` instead would have fixed the same two leaks and made
     every load run the guarded block -- code the author marked as "only when
     run directly", executed because someone asked to load a file. Running it
-    deliberately is a separate command; see issue #78 run-file-as-script.
+    deliberately is a separate command, Evalens: Run File as Script (#78),
+    which is why this function still never returns ``"__main__"`` for a named
+    file: `_as_module` overrides its answer for that one request instead of
+    changing what a load is named.
 
     ``__init__.py`` is named after its directory, because that is a package's
-    name and the file is only how it opens. Anything with no name to take --
-    the ``<evalens>`` placeholder a source with no path gets -- keeps
-    ``__evalens__``, which is now the honest answer rather than the universal
-    one: there is no module, so there is no name for it.
+    name and the file is only how it opens. **Real packages nest**, and a
+    dotted name says so: ``demo_pkg/geometry.py``, sitting beside a real
+    ``demo_pkg/__init__.py``, answers ``demo_pkg.geometry`` -- what
+    ``import demo_pkg.geometry`` actually names it, verified against a real
+    interpreter rather than assumed. `_package_chain` is the walk that finds
+    the ancestors; this only asks it and joins the answer on. A file with no
+    real ``__init__.py`` above it gets back an empty chain and answers exactly
+    as it always has -- its own bare stem -- which is also every notional
+    path the kernel test suite uses, since nothing at ``/tmp/course/...`` is
+    ever written to disk for `_package_chain` to find.
+
+    Anything with no name to take -- the ``<evalens>`` placeholder a source
+    with no path gets -- keeps ``__evalens__``, which is now the honest answer
+    rather than the universal one: there is no module, so there is no name
+    for it.
     """
     stem = os.path.splitext(os.path.basename(filename or ""))[0]
+    directory = os.path.dirname(os.path.abspath(filename)) if filename else ""
     if stem == "__init__":
-        stem = os.path.basename(os.path.dirname(os.path.abspath(filename)))
+        stem = os.path.basename(directory)
+        directory = os.path.dirname(directory)
     if not stem or stem.startswith("<"):
         return NO_MODULE_NAME
-    return stem
+    if not filename or not os.path.isabs(filename):
+        return stem
+    _, ancestors = _package_chain(directory)
+    return ".".join(ancestors + (stem,)) if ancestors else stem
+
+
+def _module_package(filename: str) -> str:
+    """``__package__`` for a load of `filename`, on `_module_name`'s terms.
+
+    Verified against a real interpreter rather than assumed, because the two
+    dunders everyone quotes from memory turn out to disagree by one segment:
+    ``import demo_pkg`` gives its own ``__init__.py`` ``__package__ ==
+    "demo_pkg"`` -- the same as its ``__name__``, since a package *is* its own
+    package -- while ``import demo_pkg.geometry`` gives the submodule
+    ``__package__ == "demo_pkg"`` with no ``.geometry`` on it. Both are
+    `_module_name`'s answer with the file's own segment removed, except the
+    package's own file has no segment to remove; `_package_chain` already
+    drew that line once and this reuses it rather than redoing the walk to
+    reach a different amount of it.
+
+    A plain top-level module -- no real ``__init__.py`` anywhere above it --
+    answers ``""``, which is what a genuine ``import`` gives one too, and
+    exactly why a relative import in a file with no package around it fails
+    on a load precisely as it would under a real one.
+    """
+    stem = os.path.splitext(os.path.basename(filename or ""))[0]
+    directory = os.path.dirname(os.path.abspath(filename)) if filename else ""
+    if stem == "__init__":
+        return _module_name(filename)
+    if not stem or stem.startswith("<"):
+        return ""
+    if not filename or not os.path.isabs(filename):
+        return ""
+    _, ancestors = _package_chain(directory)
+    return ".".join(ancestors)
 
 
 def _script_directory(filename: str) -> Optional[str]:
@@ -2341,6 +2444,13 @@ def _script_directory(filename: str) -> Optional[str]:
     than a location. Falling back to the working directory there would import
     from wherever the editor happened to be launched, which is nobody's intent
     and differs between two windows opened the same way.
+
+    This is deliberately *not* package-aware, because ``python3`` is not
+    either: running ``python3 demo_pkg/geometry.py`` puts ``demo_pkg/`` itself
+    at ``sys.path[0]`` -- verified against a real interpreter -- never the
+    directory above it, however many real packages sit between the file and
+    the filesystem root. See `_package_root` for the answer a load needs
+    instead, and `_script_path` for where the two are chosen between.
     """
     if not filename or not os.path.isabs(filename):
         return None
@@ -2348,16 +2458,58 @@ def _script_directory(filename: str) -> Optional[str]:
     return directory if os.path.isdir(directory) else None
 
 
-@contextlib.contextmanager
-def _script_path(filename: str) -> Iterator[None]:
-    """Run with the evaluated file's own directory first on ``sys.path``.
+def _package_root(filename: str) -> Optional[str]:
+    """Where a real ``import`` of this file would need ``sys.path`` to start.
 
-    This is the half of the import path the user is entitled to. ``python3
-    myfile.py`` puts ``myfile.py``'s directory at ``sys.path[0]``, and that is
-    how a file imports the package sitting beside it; the kernel is a different
-    script in a different directory, so without this an ``import demo_pkg``
-    fails with ``demo_pkg/`` in the same folder as the file being loaded, and
-    every statement that names anything from it fails after it.
+    `_script_directory`'s answer, generalised the way `_module_name`'s is: a
+    file with no real ``__init__.py`` above it is answered exactly as
+    `_script_directory` always has -- its own directory -- and a file that is,
+    or sits inside, one or more real packages walks up through all of them and
+    answers with the first ancestor that is not one. That is where
+    ``import demo_pkg`` would need to look to find ``demo_pkg/`` at all;
+    leaving ``sys.path[0]`` at ``demo_pkg/`` itself, which is what a plain
+    top-level file gets, was the reason ``from .geometry import area`` failed
+    with ``ModuleNotFoundError: No module named 'demo_pkg'`` even once
+    ``__package__`` was set -- reproduced and fixed together, because setting
+    one without the other still fails, only later and with a different
+    traceback.
+
+    ``None`` on `_script_directory`'s own terms: nothing here re-decides when
+    there is no directory to speak of.
+    """
+    directory = _script_directory(filename)
+    if directory is None:
+        return None
+    stem = os.path.splitext(os.path.basename(filename))[0]
+    start = os.path.dirname(directory) if stem == "__init__" else directory
+    root, _ = _package_chain(start)
+    return root
+
+
+@contextlib.contextmanager
+def _script_path(filename: str, as_script: bool = False) -> Iterator[None]:
+    """Run with the right directory first on ``sys.path``.
+
+    Two different answers, on purpose, and `as_script` is what picks between
+    them -- the same split `_as_module` makes for ``__name__``. A load means
+    *import this module*, so it is entitled to `_package_root`: the directory
+    a real ``import`` would need, which reaches above the file's own directory
+    exactly when the file is, or sits inside, a real package. A script run
+    means ``python3 <file>``, and `_script_directory` is what that command
+    actually gives ``sys.path[0]`` -- verified against a real interpreter --
+    which is the file's own directory *regardless* of any package around it.
+    They agree, and both reduce to the one directory this always inserted,
+    whenever the file has no real ``__init__.py`` anywhere above it; the
+    split is only visible on a package member, and only there because the two
+    commands are answering different questions about the same file.
+
+    This is the other half of the import path the user is entitled to.
+    ``python3 myfile.py`` puts ``myfile.py``'s directory at ``sys.path[0]``,
+    and that is how a file imports the package sitting beside it; the kernel
+    is a different script in a different directory, so without this an
+    ``import demo_pkg`` fails with ``demo_pkg/`` in the same folder as the
+    file being loaded, and every statement that names anything from it fails
+    after it.
 
     Scoped to the request rather than left in place. One session evaluates many
     files, and a path that grows an entry per file makes each file's imports
@@ -2371,7 +2523,8 @@ def _script_path(filename: str) -> Iterator[None]:
     added; deleting index 0 would take theirs, and removing by equality would
     take a duplicate they inserted deliberately.
     """
-    directory = _script_directory(filename)
+    directory = (
+        _script_directory(filename) if as_script else _package_root(filename))
     if directory is None:
         yield
         return
@@ -2383,6 +2536,75 @@ def _script_path(filename: str) -> Iterator[None]:
             if entry is directory:
                 del sys.path[index]
                 break
+
+
+@contextlib.contextmanager
+def _script_argv(filename: str, as_script: bool) -> Iterator[None]:
+    """``sys.argv`` the way ``python3 <filename>`` sets it, for a script run.
+
+    ``python3 myfile.py`` gives the running program ``sys.argv ==
+    [myfile.py]``; the kernel's own argv is its own command line, e.g.
+    ``["evalens_kernel.py", "--control-in", "3", ...]``, and code that reads
+    ``sys.argv[0]`` expecting its own name gets the kernel's instead. That is
+    only worth fixing for a request explicitly asking to be run as a script:
+    an ordinary load or a single evaluation makes no such claim, and replacing
+    ``sys.argv`` under either would be a promise about the namespace nobody
+    asked for -- the same reasoning `_script_path` is scoped by.
+
+    A no-op, not merely a narrower one, when ``as_script`` is false: this is
+    called on every ``eval_file``, and a context manager that is sometimes a
+    context and sometimes nothing is easier to get wrong at the call site than
+    one that is always entered and does nothing when there is nothing to do.
+
+    Scoped to the request and restored after, on the same terms as
+    `_script_path`: a session evaluates many files, and ``sys.argv`` left
+    pointing at whichever ran last would make the next file's ``sys.argv[0]``
+    depend on what happened to run before it.
+    """
+    if not as_script:
+        yield
+        return
+    previous = sys.argv
+    sys.argv = [filename]
+    try:
+        yield
+    finally:
+        sys.argv = previous
+
+
+def _is_main_guard(node: ast.stmt) -> bool:
+    """Whether `node` is the canonical ``if __name__ == "__main__":`` guard.
+
+    Deliberately narrow: it matches the one idiom every first-year course
+    teaches, in either operand order, and nothing looser. A ``!=`` guard, an
+    ``elif``, or a comparison folded into a larger boolean expression falls
+    through and gets no special treatment -- guessing at author intent for a
+    shape nobody actually writes would risk mislabelling a statement that has
+    nothing to do with the problem #78 is about.
+
+    Used only to decide whether a *load*'s dead guard is worth saying so
+    about; see the call in `Kernel._run`. It is never used to decide what
+    runs -- that is `__name__`'s job, set once in `_as_module`, and this
+    function does not change it.
+    """
+    if not isinstance(node, ast.If):
+        return False
+    test = node.test
+    if not isinstance(test, ast.Compare) or len(test.ops) != 1:
+        return False
+    if not isinstance(test.ops[0], ast.Eq):
+        return False
+    left, right = test.left, test.comparators[0]
+
+    def is_dunder_name(candidate: ast.expr) -> bool:
+        return isinstance(candidate, ast.Name) and candidate.id == "__name__"
+
+    def is_main_literal(candidate: ast.expr) -> bool:
+        return (isinstance(candidate, ast.Constant)
+                and candidate.value == "__main__")
+
+    return ((is_dunder_name(left) and is_main_literal(right))
+            or (is_dunder_name(right) and is_main_literal(left)))
 
 
 def _selected_lines(request: Dict[str, Any]) -> Optional[Tuple[int, int]]:
@@ -2470,11 +2692,13 @@ class Kernel:
     def reset(self) -> None:
         self.namespace.clear()
         self.namespace.update(
-            # Replaced per request by `_as_module`, which knows which file is
-            # being evaluated and can therefore say what the module is called.
-            # This is what an empty session is called before anything has been
-            # evaluated into it.
-            {"__name__": NO_MODULE_NAME, "__builtins__": __builtins__}
+            # Both replaced per request by `_as_module`, which knows which
+            # file is being evaluated and can therefore say what the module
+            # is called and what package it belongs to. This is what an
+            # empty session is called, and belongs to, before anything has
+            # been evaluated into it.
+            {"__name__": NO_MODULE_NAME, "__package__": "",
+             "__builtins__": __builtins__}
         )
         # A fresh session has no statement it has already asked, so it has
         # nothing to replay either -- see `clear_input_replay` for the lighter
@@ -2482,27 +2706,57 @@ class Kernel:
         _REPLAY_ANSWERS.clear()
 
     @contextlib.contextmanager
-    def _as_module(self, filename: str) -> Iterator[None]:
+    def _as_module(
+        self, filename: str, as_script: bool = False
+    ) -> Iterator[None]:
         """Set the namespace up the way Python sets a module up.
 
-        Two things, and they are the same thing: the module's name, and the
-        import path a module of that name would have. Both were the kernel's
-        rather than the user's, and each was visible in the buffer -- a local
-        import that could not resolve, and a module name that appeared in
-        annotations and reprs while appearing nowhere in the source.
+        Four things, in two pairs that answer the same question on two
+        different terms. The module's name and the import path a module of
+        that name would have are one pair; both were the kernel's rather than
+        the user's, and each was visible in the buffer -- a local import that
+        could not resolve, and a module name that appeared in annotations and
+        reprs while appearing nowhere in the source. ``__package__`` and
+        *which* import path -- `_package_root`'s or `_script_directory`'s --
+        are the second pair, added for the same reason: a relative import
+        inside a real package member is a third way the kernel's own
+        omissions were visible in the buffer, this time as an ``ImportError``
+        a real ``import`` of the same file would not raise.
 
         Per request rather than per session, because a session evaluates
         whichever file the cursor is in and the answer is a property of that
-        file. The name is set and left: nothing between requests reads it, and
-        the next evaluation says what it is again. The path is scoped, for the
-        reasons in `_script_path`.
+        file. The name and the package are set and left: nothing between
+        requests reads them, and the next evaluation says what they are
+        again. The path is scoped, for the reasons in `_script_path`.
 
-        `__file__` is the third thing Python sets and is deliberately not here;
-        it is a promise about the namespace with its own consequences and its
-        own ticket.
+        ``as_script`` is what picks between the two terms, and the one place
+        Evalens: Run File as Script (#78) touches. True imitates ``python3
+        <file>``, verified against a real interpreter rather than assumed:
+        the module is named ``__main__``, ``__package__`` is ``None`` --
+        Python's own answer, not an empty string -- and `_script_directory`
+        decides the path, which is the file's own directory whatever package
+        surrounds it. That is also why a relative import inside a package
+        member fails under a script run precisely as it would under a real
+        ``python3 pkg/mod.py``: running a file directly never establishes
+        package context, in Evalens or anywhere else, and pretending
+        otherwise would be a load-bearing difference from what this command
+        promises to imitate. False, the only way `evaluate` ever calls this,
+        is every load and every single evaluation exactly as before -- naming
+        the module after its file *is* what stops the guard firing, on
+        purpose -- with `__package__` and `_package_root` now completing the
+        promise `_module_name` already made: a load is *import this module*,
+        including the relative imports a real one would resolve.
+
+        `__file__` is the fifth thing Python sets and is deliberately not
+        here; it is a promise about the namespace with its own consequences
+        and its own ticket.
         """
-        self.namespace["__name__"] = _module_name(filename)
-        with _script_path(filename):
+        self.namespace["__name__"] = (
+            "__main__" if as_script else _module_name(filename))
+        self.namespace["__package__"] = (
+            None if as_script else _module_package(filename))
+        with _script_path(filename, as_script), \
+                _script_argv(filename, as_script):
             yield
 
     # -- operations ---------------------------------------------------------
@@ -2627,8 +2881,24 @@ class Kernel:
 
         A file whose whole program is inside that guard therefore loads and
         runs none of it, which is correct and is also not what its reader
-        wants. Running it is a separate, explicit command rather than a thing
-        a load starts doing; see issue #78 run-file-as-script.
+        wants. Running it is a separate, explicit act rather than a thing a
+        load starts doing on its own: ``as_script: true`` asks for exactly
+        that, and only that -- everything above this paragraph is still true
+        of it. ``__name__`` becomes ``"__main__"`` for the request instead of
+        the file's own name, the guard evaluates the way ``python3 file.py``
+        would, and its body runs like every other statement in the file:
+        through this same method, in the same namespace, with its own
+        outcome in ``results``. See `_as_module`.
+
+        A script run does not reset the namespace, and running one twice does
+        not either -- it is Load File with one bit flipped, not a second
+        command with its own rules. Whatever was bound before the request
+        stays bound going into it, exactly as a second ordinary load leaves
+        the first load's namespace in place and simply runs the file again on
+        top of it. The alternative -- resetting first -- would make a script
+        run silently discard whatever the session had built, on a command
+        whose entire premise is running *more* of the file the reader is
+        already looking at.
 
         Every statement goes through the same ``_run`` a single evaluation
         uses. That is deliberate rather than incidental: a bare ``exec`` loop
@@ -2715,6 +2985,9 @@ class Kernel:
         source: str = request.get("source", "")
         filename: str = request.get("filename") or "<evalens>"
         allow_stdin = bool(request.get("allow_stdin"))
+        # Evalens: Run File as Script (#78). Absent or false is every load
+        # there has ever been; see `_as_module` for what true changes.
+        as_script = bool(request.get("as_script"))
         # The id the response will carry, so a frame can say which load it
         # belongs to. Without it, a frame that lost the race between two pipes
         # could be read as belonging to the load that started next.
@@ -2748,7 +3021,7 @@ class Kernel:
         # Once for the whole load rather than once per statement: the imports
         # at the top of a file and the function bodies further down that import
         # lazily are the same file, and get the same name and the same path.
-        with self._as_module(filename):
+        with self._as_module(filename, as_script=as_script):
             for index, form in enumerate(forms):
                 # Prompts if the caller allowed it, exactly as a single
                 # evaluation does. The flag is the caller's decision either
@@ -3089,6 +3362,25 @@ class Kernel:
                 # Only alongside the names it is a footnote to, and only when
                 # the cap actually bit -- which is nearly no line at all.
                 outcome["more_names"] = more_names
+        if (outcome["value"] is None and form.kind == "If"
+                and self.namespace.get("__name__") != "__main__"
+                and _is_main_guard(form.node)):
+            # #78's minimum, done regardless of whether the rest of the ticket
+            # landed. The guard is checked against `self.namespace["__name__"]`
+            # as it actually stands, not assumed False, because it is not
+            # always False: `_module_name` answers `"__main__"` on its own for
+            # a file literally named `__main__.py`, and there this branch
+            # correctly stays quiet -- the guard already fires, exactly as
+            # `python -m thatpackage` would make it. Everywhere else it is
+            # dead, and its body ran nothing, and until now nothing on the
+            # wire said so. The line looked exactly like an `If` with nothing
+            # to report, which is what every other empty `If` looks like, and
+            # a first-year reader has no way to tell "ran and had nothing to
+            # show" from "did not run" apart. Same shape `_star_import`
+            # already uses for a statement with a fact to report and no
+            # target to hang it on.
+            outcome["value"] = (
+                "False -- not run as a script (Evalens: Run File as Script)")
         return outcome
 
     def _read_back(self, form: Form,

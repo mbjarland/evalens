@@ -239,13 +239,23 @@ export function hoverFor(
  * "load stopped after 13 statements" described the abort, and was read as
  * "nothing loaded" -- when in fact thirteen statements' bindings were sitting
  * in the namespace, ready to use.
+ *
+ * `asScript` says which of the two commands this was. The annotations a
+ * script run and a load leave behind can look nearly identical -- a
+ * `__main__` guard that used to sit there quietly now has a body that ran,
+ * but a file with no guard at all produces the same values either way -- so
+ * this status line is the one place that always says which one just
+ * happened. See issue #78.
  */
 export function describeLoad(
-  ran: number, total: number, failed: number, partialFrom?: number
+  ran: number, total: number, failed: number, partialFrom?: number,
+  asScript = false
 ): string {
+  const verb = asScript ? 'ran' : 'loaded';
+  const suffix = asScript ? ' as a script' : '';
   const counted = failed === 0
-    ? `Evalens: loaded ${total} statement${total === 1 ? '' : 's'}`
-    : `Evalens: loaded ${ran} of ${total} statements, ${failed} failed`;
+    ? `Evalens: ${verb} ${total} statement${total === 1 ? '' : 's'}${suffix}`
+    : `Evalens: ${verb} ${ran} of ${total} statements${suffix}, ${failed} failed`;
   if (partialFrom === undefined) {
     return counted;
   }
