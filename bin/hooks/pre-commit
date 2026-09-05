@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Refuse a commit that stages a git conflict marker.
+#
+# #103: markers reached master inside README.md and were packaged into a
+# .vsix handed to a real user. They got there because an integrating session
+# resolved the conflicts it was shown, ran `git add -A`, and committed --
+# without noticing that truncated rebase output had listed more conflicted
+# files than it read. Every test suite passed, because nothing read Markdown.
+#
+# The commit-msg hook already refuses a commit with no issue reference. This
+# is the same shape of guard for the same reason: the check that failed was a
+# human remembering to look.
+set -euo pipefail
+
+marked=$(git diff --cached --name-only --diff-filter=ACM | while read -r f; do
+  case "$f" in
+    *.md|*.ts|*.js|*.py|*.json|*.jsonc|*.yml|*.yaml|*.sh|*.txt)
+      if git show ":$f" 2>/dev/null | grep -qE '^(<{7}|>{7})( |$)'; then
+        echo "$f"
+      fi
+      ;;
+  esac
+done)
+
+if [ -n "$marked" ]; then
+  echo "commit refused: git conflict markers are staged in" >&2
+  echo "$marked" | sed 's/^/  /' >&2
+  echo >&2
+  echo "Resolve them, restage, and commit again. To bypass deliberately:" >&2
+  echo "  git commit --no-verify" >&2
+  exit 1
+fi

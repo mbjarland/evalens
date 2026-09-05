@@ -609,15 +609,11 @@ without the extension offering a setting of its own:
   "evalens.evaluatedRegionBackground": "#4a9c8c22",
   "evalens.pendingForeground": "#8c8c8c",
   "evalens.pendingRegionBackground": "#8c8c8c26",
-<<<<<<< HEAD
+  "evalens.askingForeground": "#e8963c",
+  "evalens.askingRegionBackground": "#e8963c66",
   "evalens.flashRegionBackground": "#4a9c8c66",
   "evalens.annotationBorder": "#e0a3ff",
   "evalens.annotationTint": "#d1a35c1a"
-=======
-  "evalens.askingForeground": "#e8963c",
-  "evalens.askingRegionBackground": "#e8963c66",
-  "evalens.flashRegionBackground": "#4a9c8c66"
->>>>>>> f71414c (Paint a blocked prompt as the opposite of a slow statement)
 }
 ```
 
