@@ -526,7 +526,7 @@ without the extension offering a setting of its own:
   "evalens.pendingRegionBackground": "#8c8c8c26",
   "evalens.flashRegionBackground": "#4a9c8c66",
   "evalens.annotationBorder": "#e0a3ff",
-  "evalens.annotationTint": "#ffffff0d"
+  "evalens.annotationTint": "#d1a35c1a"
 }
 ```
 
@@ -552,19 +552,21 @@ distinguishable where a red-green split would collapse.
 
 Two more things mark an annotation as a distinct surface, rather than a
 second comment sitting next to one you typed. A faint `annotationTint` washes
-behind the whole annotation, gaps between segments included, so it reads as
-one continuous panel — a tint is what a glyph cannot have, which is what
-makes it read as structure rather than as a stray character. On its leading
-edge, a 3px `annotationBorder` bar, corners squared rather than rounded so it
-cannot be mistaken for a parenthesis, with roughly ten pixels of breathing
-room on both sides so the tint does not hug the text it introduces. The bar
-is a saturated violet of its own rather than the dim `labelForeground`, which
-exists to recede and would make it the quietest thing on the row; the tint is
-one faint colour for every state, computed to stay clear of the contrast
-floors above. The bar takes on the colour of whatever state the annotation is
-actually in: `pendingForeground` while stale or still running,
-`errorForeground` on a raised statement. A bare line with no annotation never
-gets either.
+behind each *chip* of it — a label and the value it introduces, or
+`printed:` and its text — with the gap between two chips left untinted, so
+the line still reads as several facts rather than one blur; a tint is what a
+glyph cannot have, which is what makes each chip read as structure rather
+than as a stray character. On the leading edge of the first chip, a 3px
+`annotationBorder` bar, corners squared rather than rounded so it cannot be
+mistaken for a parenthesis, with 8px of breathing room inside every chip's
+own edges so the tint does not hug the text it introduces. The bar is a
+saturated violet of its own rather than the dim `labelForeground`, which
+exists to recede and would make it the quietest thing on the row; the tint
+takes `resultForeground`'s own hue at low opacity, one shade for every
+state, computed to stay clear of the contrast floors above. The bar takes on
+the colour of whatever state the annotation is actually in:
+`pendingForeground` while stale or still running, `errorForeground` on a
+raised statement. A bare line with no annotation never gets either.
 
 ## License
 

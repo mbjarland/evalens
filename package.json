@@ -277,12 +277,12 @@
       },
       {
         "id": "evalens.annotationTint",
-        "description": "Background wash behind an entire annotation, gaps between segments included, so it reads as one continuous surface rather than as punctuation. One colour for every state — evaluated, stale, pending or error — because the accent bar already carries that distinction. Computed at 5% opacity: a white wash on a dark background, a black wash on a light one, chosen so no foreground colour this extension paints drops below the contrast ratios already asserted for it, however faint the result looks by itself.",
+        "description": "Background wash behind one chip of an annotation — a label and the value it introduces, or `printed:` and its text — so each chip reads as a surface rather than as punctuation. The gap between two chips is left untinted on purpose, so the line still parses into distinct facts. One colour for every state, because the accent bar already carries that distinction. Computed at 10% opacity of `evalens.resultForeground`'s own hue per theme, so the surface reads as part of the same palette as the text rather than a neutral, unrelated wash, chosen so no foreground colour this extension paints drops below the contrast ratios already asserted for it.",
         "defaults": {
-          "dark": "#ffffff0d",
-          "light": "#0000000d",
-          "highContrast": "#ffffff0d",
-          "highContrastLight": "#0000000d"
+          "dark": "#d1a35c1a",
+          "light": "#8a6a2b1a",
+          "highContrast": "#f0c6741a",
+          "highContrastLight": "#6b4a101a"
         }
       }
     ],

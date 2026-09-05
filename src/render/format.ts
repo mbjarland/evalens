@@ -657,7 +657,15 @@ export interface Rendered {
  * checked without an editor -- which matters more than usual, because the
  * painting side rests on behaviour VS Code does not document.
  */
-export function resultSegments(rendered: Rendered): readonly Segment[] {
+/**
+ * The pieces `resultSegments` joins with a gap between each two, before that
+ * gap goes in. A label and the value it introduces are one piece; `printed:`
+ * and its text are one piece; the `…+N more` footnote and the reduced-context
+ * caveat are each a piece of one segment. Factored out so `resultSegments`
+ * and `resultGroups` (#95) are the same computation read two ways, rather
+ * than two computations that can drift apart.
+ */
+function paintedPieces(rendered: Rendered): readonly (readonly Segment[])[] {
   const { value, display, loop, names, bindings, printed } = rendered;
   const more = rendered.more ?? 0;
   const partialFrom = rendered.partialFrom;
@@ -685,11 +693,55 @@ export function resultSegments(rendered: Rendered): readonly Segment[] {
   if (partialFrom !== undefined) {
     painted.push([asLabel(partialNote(partialFrom))]);
   }
+  return painted;
+}
+
+/**
+ * The painted annotation for a successful evaluation, in the pieces that take
+ * different colours.
+ *
+ * What the statement printed follows every value on the line, and `more` --
+ * how many names the kernel's per-line cap left off -- follows that. Saying
+ * so is the difference between an annotation that looks wrong and one that is
+ * honest: a reader who counts five names on the line and four beside it
+ * cannot otherwise tell whether the fifth was omitted, unreadable, or somehow
+ * not a name. It is last of all, because it is a footnote about the line
+ * rather than another thing on it.
+ *
+ * Segments rather than one string because CSS cannot colour part of a text
+ * node, and one `after` attachment is one text node. Splitting the decision
+ * from the painting keeps the decision here, where it is pure and can be
+ * checked without an editor -- which matters more than usual, because the
+ * painting side rests on behaviour VS Code does not document.
+ */
+export function resultSegments(rendered: Rendered): readonly Segment[] {
   // Applied per segment rather than to the joined line, which comes to the
   // same string: it is a per-character substitution, and doing it here means
   // no caller can paint a segment that lost its spacing.
-  return spaced(painted).map(
+  return spaced(paintedPieces(rendered)).map(
     (segment) => ({ ...segment, text: preserveSpacing(segment.text) }));
+}
+
+/**
+ * The same pieces `resultSegments` joins, kept apart (#95).
+ *
+ * `resultSegments` is `joinSegments(resultGroups(r).flat())` with a `GAP`
+ * segment inserted between every two groups; this is that computation with
+ * the gap not yet inserted. It exists because the #95 chip paints one group
+ * as one tinted box and the gap between two groups as neither box -- a
+ * boundary a caller needs before the gap is joined in, not one it can recover
+ * afterwards. `coalesce` (`layers.ts`) merges a gap into whichever
+ * same-role segment sits next to it for economy, which is correct for a
+ * single continuous run and wrong for a run of separately tinted chips: it
+ * would paint the gap in the label it merged into. Every segment already
+ * carries its non-breaking spacing, the same as `resultSegments`, and each
+ * group should still be passed through `coalesce` on its own before it is
+ * painted -- merging within a group is still the economy it always was, only
+ * merging a gap into a group is not.
+ */
+export function resultGroups(rendered: Rendered): readonly (readonly Segment[])[] {
+  return paintedPieces(rendered).map((piece) => piece.map(
+    (segment) => ({ ...segment, text: preserveSpacing(segment.text) })));
 }
 
 /** The same annotation as the one string it used to be. */

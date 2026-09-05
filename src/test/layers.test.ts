@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Segment, resultSegments, resultText } from '../render/format';
 import {
-  SEGMENT_SLOTS, afterClassName, coalesce, paintOrder,
+  Segment, resultGroups, resultSegments, resultText,
+} from '../render/format';
+import {
+  SEGMENT_SLOTS, afterClassName, chipSlots, coalesce, paintOrder,
 } from '../render/layers';
 
 /** Decoration types as the renderer sees them: a key and nothing else. */
@@ -131,4 +133,60 @@ test('the widest line the renderer can produce still fits the pool', () => {
   assert.ok(widest.length <= SEGMENT_SLOTS,
     `the widest line takes ${widest.length} segments and the pool holds `
     + `${SEGMENT_SLOTS}`);
+});
+
+test('the widest line still fits the pool painted as #95 chips, gaps included', () => {
+  // The same worst case as above, but counted the way #95 actually paints
+  // it: one slot per gap between groups as well as per content segment,
+  // since a gap can no longer merge into a neighbouring chip to save one.
+  const groups = resultGroups({
+    value: '12',
+    display: 'total',
+    loop: { values: ['1', '2', '3', '4', '5'], last: '99', count: 40 },
+    names: [1, 2, 3, 4].map((n) => ({ name: `name${n}`, value: `v${n}` })),
+    bindings: [1, 2, 3].map((n) => ({
+      name: `b${n}`, values: ['1', '2'], last: null, count: 2,
+    })),
+    printed: { stdout: 'out\n', stderr: 'err\n' },
+    more: 9,
+    partialFrom: 18,
+  }).map(coalesce).filter((group) => group.length > 0);
+  const content = groups.reduce((total, group) => total + group.length, 0);
+  const gaps = Math.max(0, groups.length - 1);
+  assert.ok(content + gaps <= SEGMENT_SLOTS,
+    `the widest #95 line takes ${content} segments and ${gaps} gaps, `
+    + `${content + gaps} slots total, and the pool holds ${SEGMENT_SLOTS}`);
+});
+
+test('chipSlots: a lone segment is its own whole chip', () => {
+  assert.deepEqual(chipSlots(1, true), [{ edge: 'single', leading: true }]);
+  assert.deepEqual(chipSlots(1, false), [{ edge: 'single', leading: false }]);
+});
+
+test('chipSlots: a two-segment group is a leading and a trailing edge', () => {
+  assert.deepEqual(chipSlots(2, true), [
+    { edge: 'first', leading: true },
+    { edge: 'last', leading: false },
+  ]);
+  assert.deepEqual(chipSlots(2, false), [
+    { edge: 'first', leading: false },
+    { edge: 'last', leading: false },
+  ]);
+});
+
+test('chipSlots: only the first segment of the first group ever leads', () => {
+  // `leading` is what earns the #95 accent bar, and it must land on exactly
+  // one segment across a whole annotation -- never on a later group's first
+  // segment, whatever its own edge is.
+  for (const size of [1, 2, 3, 4]) {
+    const slots = chipSlots(size, false);
+    assert.ok(slots.every((slot) => !slot.leading),
+      `a non-first group of size ${size} produced a leading segment`);
+  }
+});
+
+test('chipSlots: the middle of a longer group carries neither edge', () => {
+  const slots = chipSlots(3, true);
+  assert.deepEqual(slots.map((slot) => slot.edge), ['first', 'middle', 'last']);
+  assert.deepEqual(slots.map((slot) => slot.leading), [true, false, false]);
 });
