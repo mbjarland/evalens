@@ -266,9 +266,10 @@ function evaluatedLines(lines: readonly string[]): Valued[] {
  * covers out of the document, and decide from those.
  */
 function against(lines: readonly string[]) {
-  return (annotation: Valued): Valued => afterEdit(annotation, normalizeSource(
-    lines.slice(annotation.range.start.line, annotation.range.end.line + 1)
-      .join('\n')));
+  return (annotation: Valued): Valued | undefined => afterEdit(
+    annotation, normalizeSource(
+      lines.slice(annotation.range.start.line, annotation.range.end.line + 1)
+        .join('\n')));
 }
 
 function markers(annotations: readonly Valued[]): boolean[] {
@@ -403,6 +404,84 @@ test('a mark is decided after every change, not while they are applied', () => {
 
   assert.deepEqual(placed(after), ['top@0-0', 'bottom@3-3']);
   assert.deepEqual(markers(after), [false, false]);
+});
+
+// -- orphaned annotations (#96) -----------------------------------------------
+
+test('commenting out a statement drops the annotation instead of marking it stale', () => {
+  // The bug's own screenshot: `x = input(...)` becomes `# x = input(...)`.
+  // The line count does not change, so this lands in the same branch as an
+  // ordinary edit -- the one that used to always answer "stale". Stale would
+  // claim a statement is there to be out of sync with the kernel; a comment
+  // is not a statement, so there is nothing left to be stale.
+  const before = evaluatedLines(['x = 1', 'y = 2']);
+  const after = reanchor(
+    before, [edit(0, 0, '# ')], shift, against(['# x = 1', 'y = 2']));
+
+  assert.deepEqual(placed(after), ['line1@1-1'],
+    'the commented-out statement is gone; the untouched line stays put');
+  assert.equal(after[0], before[1],
+    'the surviving annotation was not even rebuilt');
+});
+
+test("emptying a statement's line drops the annotation, not marks it stale", () => {
+  // Selecting the statement's text and deleting it, leaving the blank line
+  // behind, is the same shape as commenting it out: the edit does not change
+  // the line count, but there is no statement left on that line either.
+  const before = evaluatedLines(['x = 1', 'y = 2']);
+  const after = reanchor(before, [edit(0, 0, '')], shift, against(['', 'y = 2']));
+
+  assert.deepEqual(placed(after), ['line1@1-1']);
+});
+
+test('a fully commented multi-line statement is dropped, not marked stale', () => {
+  const before: Valued[] = [{
+    range: { start: { line: 0 }, end: { line: 1 } },
+    id: 'def', value: '<function f>',
+    source: normalizeSource('def f():\n    return 1'),
+  }];
+  const after = reanchor(
+    before, [edit(0, 1, '# def f():\n    # return 1')], shift,
+    against(['# def f():', '    # return 1']));
+
+  assert.deepEqual(after, []);
+});
+
+test('only part of a multi-line statement commented out still marks it stale', () => {
+  // Something is still there -- an unindented `def` with no body is not
+  // nothing -- and dropping it would be a bigger guess than this module can
+  // make without a parser. Marking it is the safe side of the same guess
+  // `normalizeSource` already makes: over-marking over over-dropping.
+  const before: Valued[] = [{
+    range: { start: { line: 0 }, end: { line: 1 } },
+    id: 'def', value: '<function f>',
+    source: normalizeSource('def f():\n    return 1'),
+  }];
+  const after = reanchor(
+    before, [edit(0, 1, 'def f():\n    # return 1')], shift,
+    against(['def f():', '    # return 1']));
+
+  assert.equal(after.length, 1);
+  assert.deepEqual(markers(after), [true]);
+});
+
+test('a statement already stale is still dropped once it is commented out', () => {
+  // The undo protection that keeps an already-stale mark from clearing itself
+  // must not stand in the way of this: going from "the kernel disagrees with
+  // this code" to "there is no code" is a stronger claim, and it wins.
+  const already: Valued = {
+    range: { start: { line: 0 }, end: { line: 0 } },
+    id: 'a', value: 'v', source: 'x = 1', stale: true,
+  };
+  assert.equal(afterEdit(already, '# x = 5'), undefined);
+});
+
+test('afterEdit drops when the covered lines are only whitespace', () => {
+  const annotation: Valued = {
+    range: { start: { line: 0 }, end: { line: 0 } },
+    id: 'a', value: 'v', source: 'x = 1',
+  };
+  assert.equal(afterEdit(annotation, ''), undefined);
 });
 
 // -- staleness by dependency --------------------------------------------------

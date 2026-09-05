@@ -50,6 +50,11 @@ export const HAS_ANNOTATIONS = 'evalens.hasAnnotations';
  * was the second, and it hid the divergence by hiding the evidence of it.
  * What is left on screen now is the value, the code that no longer matches it,
  * and an amber marker in the gutter saying exactly that.
+ *
+ * That is the answer for an edit that leaves a statement there to disagree
+ * with. When it does not -- the line commented out, its text deleted -- there
+ * is no code left to be out of sync with anything, so amber would be its own
+ * kind of over-claiming, and `afterEdit` drops the annotation instead (#96).
  */
 export class Annotations implements vscode.Disposable {
   private readonly registry = new AnnotationRegistry<Annotation>();
