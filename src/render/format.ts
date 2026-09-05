@@ -35,9 +35,29 @@ export function collapseLines(text: string): string {
   return text.replace(/\r?\n/g, ' ').replace(/\s{2,}/g, ' ').trim();
 }
 
-/** The painted annotation for a successful evaluation. */
-export function resultText(value: string): string {
-  return preserveSpacing(`${SEPARATOR} ${collapseLines(value)}`);
+/**
+ * A bare or dotted identifier -- something that now exists in the namespace,
+ * as opposed to an expression that is already on screen.
+ */
+const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/;
+
+/**
+ * The painted annotation for a successful evaluation.
+ *
+ * Names the binding when there is one, following Rider's inline values:
+ * `lst: [1, 2, 3]` rather than `=> [1, 2, 3]`. The name is information the
+ * arrow throws away, and it matters most exactly where the line does not
+ * make it obvious -- a `for` target, a `with` variable, an import alias.
+ *
+ * An expression is not a binding, so `sum([10, 20])` keeps the arrow.
+ * Labelling it `sum([10, 20]): 30` would repeat the line back at the reader
+ * and crowd out the only new information on it.
+ */
+export function resultText(value: string, display?: string | null): string {
+  const label = display && IDENTIFIER.test(display)
+    ? `${display}:`
+    : SEPARATOR;
+  return preserveSpacing(`${label} ${collapseLines(value)}`);
 }
 
 /**

@@ -34,6 +34,8 @@ export interface Annotation {
   readonly range: vscode.Range;
   /** The value's `repr()`, or the error to show in its place. */
   readonly value?: string;
+  /** The expression whose value this is, when it names a binding. */
+  readonly display?: string | null;
   readonly error?: { readonly type: string; readonly message: string };
   readonly hover?: string;
 }
@@ -134,7 +136,10 @@ export class Decorator implements vscode.Disposable {
           range: at,
           hoverMessage,
           renderOptions: {
-            after: { margin, contentText: resultText(annotation.value) },
+            after: {
+              margin,
+              contentText: resultText(annotation.value, annotation.display),
+            },
           },
         });
       }

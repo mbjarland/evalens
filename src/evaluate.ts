@@ -124,7 +124,7 @@ export class Evaluator {
             range: toVsCodeRange(presentation.range),
             ...(presentation.value === null
               ? {}
-              : { value: presentation.value }),
+              : { value: presentation.value, display: presentation.display }),
             ...(presentation.hover ? { hover: presentation.hover } : {}),
           };
 

@@ -70,3 +70,26 @@ test('a line past the target column degrades to a gap', () => {
 test('alignment can be switched off without losing the gap', () => {
   assert.equal(alignmentGap(15, 0, 2), 2);
 });
+
+test('a binding is named, Rider-style', () => {
+  assert.equal(resultText('[1, 2, 3]', 'lst'),
+    preserveSpacing('lst: [1, 2, 3]'));
+});
+
+test('a dotted name is still a binding', () => {
+  assert.equal(resultText('7', 'self.count'),
+    preserveSpacing('self.count: 7'));
+});
+
+test('an expression keeps the arrow instead of being echoed', () => {
+  // `sum([10, 20]): 30` repeats the line back at the reader and crowds out
+  // the only new information on it.
+  assert.equal(resultText('30', 'sum([10, 20])'), preserveSpacing('=> 30'));
+  assert.equal(resultText('12', 'area(3, 4)'), preserveSpacing('=> 12'));
+  assert.equal(resultText("'k'", "d['k']"), preserveSpacing("=> 'k'"));
+});
+
+test('no display at all falls back to the arrow', () => {
+  assert.equal(resultText('42'), preserveSpacing('=> 42'));
+  assert.equal(resultText('42', null), preserveSpacing('=> 42'));
+});

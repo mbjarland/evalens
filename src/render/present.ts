@@ -16,6 +16,8 @@ export type Presentation =
       readonly range: Range;
       /** null when the statement ran but has nothing to display. */
       readonly value: string | null;
+      /** The expression the value came from, for labelling. */
+      readonly display: string | null;
       readonly hover?: string;
     }
   | {
@@ -53,6 +55,7 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
     kind: 'value',
     range: response.range,
     value: response.value,
+    display: response.display,
     ...(response.value === null
       ? {}
       : { hover: hoverFor(response.display, response.value) }),
