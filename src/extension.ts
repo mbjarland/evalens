@@ -6,6 +6,7 @@ import { resolveInterpreter } from './config';
 import { KernelClient } from './kernel/client';
 import { askForInput } from './prompt';
 import { Annotations } from './render/annotations';
+import { Flash } from './render/flash';
 
 let client: KernelClient | undefined;
 let output: vscode.OutputChannel | undefined;
@@ -31,8 +32,11 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
+  const flash = new Flash();
+  context.subscriptions.push(flash);
+
   evaluator = new Evaluator(
-    () => ensureClient(context), annotations, output);
+    () => ensureClient(context), annotations, output, flash);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('evalens.evaluateAtCursor', async () => {

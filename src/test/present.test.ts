@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { EvalResponse } from '../kernel/protocol';
-import { present } from '../render/present';
+import { describeLoad, describeRun, present } from '../render/present';
 
 const range = {
   start: { line: 3, character: 0 },
@@ -180,4 +180,36 @@ test('a loop that ran zero times is still something to paint', () => {
   assert.equal(result.kind, 'value');
   assert.equal((result as { hover?: string }).hover,
     'p = (no iterations)\n0 iterations');
+});
+
+test('running a selection says how many statements ran, not how many loaded', () => {
+  // "loaded 3 statements" beside a run of three selected lines is a true
+  // sentence about the wrong thing: it reads as a whole file that happened to
+  // be short.
+  assert.equal(describeRun(3, 3, 0, false), 'Evalens: ran 3 statements');
+  assert.equal(describeRun(1, 1, 0, false), 'Evalens: ran 1 statement');
+});
+
+test('a widened run says that it widened', () => {
+  // A statement runs whole or not at all, so a selection starting inside a
+  // `def` executed the entire `def`. A count with no word about that is a
+  // count the reader will attribute to the lines they highlighted.
+  assert.equal(describeRun(2, 2, 0, true),
+    'Evalens: ran 2 statements, widened to whole statements');
+});
+
+test('a failure inside a selection is reported the way a load reports one', () => {
+  // Failures do not stop the run, so the count has to distinguish what ran
+  // from what was attempted -- the same distinction, said the same way.
+  assert.equal(describeRun(2, 3, 1, false),
+    'Evalens: ran 2 of 3 statements, 1 failed');
+  assert.equal(describeLoad(2, 3, 1),
+    'Evalens: loaded 2 of 3 statements, 1 failed');
+});
+
+test('a selection with no complete statement in it is not an error', () => {
+  // Selecting a comment. The same answer a blank line under the cursor gets,
+  // and said in the same place rather than in an error box.
+  assert.equal(describeRun(0, 0, 0, false),
+    'Evalens: nothing to run in the selection');
 });

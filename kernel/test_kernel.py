@@ -708,6 +708,130 @@ class LoadFile(KernelTest):
         self.assertEqual(result["statements"], 0)
 
 
+class LoadSelection(KernelTest):
+    """A load narrowed to the lines a selection touches.
+
+    Everything a full load does, over less of the file. The narrowing is a
+    line range over the whole buffer rather than a slice of the source, and
+    most of what is pinned here is a consequence of that: the file the kernel
+    parses is the file the user is looking at, so the numbers it answers with
+    are that file's numbers and not an offset into a fragment.
+    """
+
+    #: 0: a = 1  1: b = 2  2-4: def f  5: c = f(1)
+    SOURCE = ("a = 1\n"
+              "b = 2\n"
+              "def f(x):\n"
+              "    y = x + 1\n"
+              "    return y\n"
+              "c = f(1)\n")
+
+    def load(self, source, start=None, end=None):
+        request = {"op": "eval_file", "source": source,
+                   "filename": "/tmp/module.py"}
+        if start is not None:
+            request["start_line"] = start
+        if end is not None:
+            request["end_line"] = end
+        return self.k.send(**request)
+
+    def bound(self, name):
+        """What the namespace holds for `name`, or the error type instead."""
+        result = self.k.evaluate(name + "\n", 0)
+        return result["value"] if result["ok"] else result["error"]["type"]
+
+    def test_only_the_selected_statements_run(self):
+        result = self.load(self.SOURCE, 0, 1)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["ran"], 2)
+        self.assertEqual(self.bound("a"), "1")
+        self.assertEqual(self.bound("b"), "2")
+        self.assertEqual(self.bound("f"), "NameError",
+                         "nothing below the selection may have run")
+
+    def test_the_statement_count_is_the_selections_not_the_files(self):
+        # The status message quotes this number, and a count of the whole file
+        # beside a run of two lines is a sentence about the wrong thing.
+        self.assertEqual(self.load(self.SOURCE, 0, 1)["statements"], 2)
+
+    def test_a_selection_starting_mid_statement_runs_it_whole(self):
+        # Lines 3-5 as written are a stray assignment, a `return` outside a
+        # function, and an assignment calling something undefined. Snapping
+        # outward is what makes them a `def` and a call.
+        result = self.load(self.SOURCE, 3, 5)
+        self.assertEqual(result["ran"], 2)
+        self.assertEqual(self.bound("c"), "2")
+
+    def test_the_span_that_ran_is_reported_when_it_widened(self):
+        # The extension has the selection and cannot work out how far the
+        # kernel reached; the side that widened says so.
+        result = self.load(self.SOURCE, 3, 5)
+        self.assertEqual(result["range"]["start"], {"line": 2, "character": 0})
+        self.assertEqual(result["range"]["end"]["line"], 5)
+
+    def test_a_selection_of_whole_statements_reports_its_own_span(self):
+        result = self.load(self.SOURCE, 0, 1)
+        self.assertEqual(result["range"]["start"], {"line": 0, "character": 0})
+        self.assertEqual(result["range"]["end"], {"line": 1, "character": 5})
+
+    def test_a_selection_with_no_statement_in_it_is_not_an_error(self):
+        result = self.load("a = 1\n\n# a comment\n\nb = 2\n", 1, 3)
+        self.assertTrue(result["ok"], "nothing to run is an outcome")
+        self.assertEqual(result["statements"], 0)
+        self.assertEqual(result["results"], [])
+        self.assertNotIn("range", result)
+        self.assertEqual(self.bound("a"), "NameError",
+                         "and nothing near it ran instead")
+
+    def test_a_whole_file_load_says_nothing_about_a_span(self):
+        # Absent means "you did not narrow this", which is what keeps the
+        # extension from reporting a widening nobody asked about.
+        self.assertNotIn("range", self.load(self.SOURCE))
+
+    def test_annotations_carry_real_file_line_numbers(self):
+        # The reason for a line range rather than a sliced source. Line 5 of
+        # the file is line 0 of any slice starting at 5, and an annotation
+        # painted on line 0 is beside somebody else's code.
+        result = self.load(self.SOURCE, 5, 5)
+        self.assertEqual(result["results"][0]["range"]["start"]["line"], 5)
+
+    def test_a_traceback_quotes_the_real_line_of_the_real_file(self):
+        source = "a = 1\nb = 2\nc = undefined_name\n"
+        result = self.load(source, 2, 2)
+        failure = result["results"][0]
+        self.assertFalse(failure["ok"])
+        self.assertIn("line 3", failure["error"]["traceback"])
+        self.assertIn("c = undefined_name", failure["error"]["traceback"])
+
+    def test_a_failure_does_not_stop_the_rest_of_the_selection(self):
+        source = "a = 1\nundefined_one\nb = 2\nc = 3\n"
+        result = self.load(source, 1, 2)
+        self.assertTrue(result["ok"])
+        self.assertEqual((result["statements"], result["ran"]), (2, 1))
+        self.assertEqual(self.bound("b"), "2")
+
+    def test_a_selected_string_that_is_not_a_docstring_still_answers(self):
+        source = '"""doc"""\nx = 1\n"hello"\n'
+        result = self.load(source, 2, 2)
+        self.assertEqual(result["results"][0]["value"], "'hello'")
+
+    def test_a_selection_still_refuses_to_prompt(self):
+        # A selection is the same command over less code, and the reason a
+        # load does not stop to ask is unchanged by how much of the file it
+        # covers.
+        result = self.load("x = 1\nname = input('Your name? ')\n", 0, 1)
+        self.assertEqual(result["ran"], 1)
+        self.assertEqual(result["results"][1]["error"]["type"], "EOFError")
+
+    def test_a_half_stated_range_runs_nothing_rather_than_everything(self):
+        # A client bug must not answer "run part of this" by running all of
+        # it. This is the one shape where guessing has an irreversible cost.
+        result = self.load(self.SOURCE, start=0)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["statements"], 0)
+        self.assertEqual(self.bound("a"), "NameError")
+
+
 class Descriptions(KernelTest):
     """What a value shows when its repr is a memory address.
 

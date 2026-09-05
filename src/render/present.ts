@@ -125,3 +125,32 @@ export function describeLoad(
   }
   return `Evalens: loaded ${ran} of ${total} statements, ${failed} failed`;
 }
+
+/**
+ * What running a selection did, including whether it ran more than was asked.
+ *
+ * "ran" rather than "loaded", because a selection is not the command that
+ * sets a session up -- and because the count is of the selection, so a load
+ * that says the same number about a different thing would be indistinguishable
+ * from a whole file that happened to be short.
+ *
+ * `widened` is the part that cannot be left out. A statement runs whole or not
+ * at all, so a selection starting inside a `def` executed the entire `def`;
+ * a reader who is not told that has been shown a count they will attribute to
+ * the lines they highlighted.
+ */
+export function describeRun(
+  ran: number, total: number, failed: number, widened: boolean
+): string {
+  if (total === 0) {
+    // Not an error. A selection holding only comments is the same answer as a
+    // blank line under the cursor: there was nothing there to run.
+    return 'Evalens: nothing to run in the selection';
+  }
+  const counted = failed === 0
+    ? `ran ${total} statement${total === 1 ? '' : 's'}`
+    : `ran ${ran} of ${total} statements, ${failed} failed`;
+  return widened
+    ? `Evalens: ${counted}, widened to whole statements`
+    : `Evalens: ${counted}`;
+}

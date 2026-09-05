@@ -9,7 +9,8 @@ import {
   Evaluated, EvalResponse, Failed, FileLoaded, LoopTrace,
 } from '../kernel/protocol';
 import { errorText, resultText } from '../render/format';
-import { present } from '../render/present';
+import { describeRun, present } from '../render/present';
+import { LineRange, selectedLines, widenedBeyond } from '../selection';
 
 /**
  * The only test that checks the TypeScript and the Python agree.
@@ -353,6 +354,137 @@ test('a broken line does not stop the rest of the file loading', async (t) => {
   // The statement below BOTH failures is usable.
   const c = await evaluate(client, source, 4) as Evaluated;
   assert.equal(c.value, '3');
+});
+
+/** `eval_file`, narrowed to a 0-based inclusive line range when one is given. */
+async function load(
+  client: KernelClient, source: string, lines?: LineRange, filename?: string
+): Promise<FileLoaded> {
+  return (await client.request({
+    op: 'eval_file',
+    allow_stdin: false,
+    source,
+    filename: filename ?? '/tmp/evalens-selection.py',
+    ...(lines ?? {}),
+  })) as FileLoaded;
+}
+
+/** 0: a = 1  1: b = 2  2-4: def f  5: c = f(1) */
+const SELECTABLE = 'a = 1\nb = 2\ndef f(x):\n    y = x + 1\n    return y\nc = f(1)\n';
+
+test('a selection runs its statements and nothing below them', async (t) => {
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const ran = await load(client, SELECTABLE, selectedLines({
+    start: { line: 0, character: 0 }, end: { line: 1, character: 5 },
+  }));
+
+  assert.equal(ran.ok, true);
+  assert.equal(ran.statements, 2, 'the count is the selection, not the file');
+  assert.equal(ran.ran, 2);
+  assert.equal((await evaluate(client, 'b\n', 0) as Evaluated).value, '2');
+  assert.equal((await evaluate(client, 'f\n', 0) as Failed).error.type,
+    'NameError', 'the def below the selection must not have run');
+});
+
+test('a selection starting mid-statement runs it whole and says it widened',
+  async (t) => {
+    // The whole path: a selection inside a `def` body, over the wire, back
+    // through the two pieces the status message is built from. Lines 3-5 run
+    // as written are a stray assignment and a `return` at module level.
+    const client = connect();
+    t.after(() => client.dispose());
+
+    const selection = {
+      start: { line: 3, character: 4 }, end: { line: 5, character: 8 },
+    };
+    const ran = await load(client, SELECTABLE, selectedLines(selection));
+
+    assert.equal(ran.statements, 2);
+    assert.equal(ran.ran, 2, 'the def and the call that needs it');
+    assert.notEqual(ran.range, undefined);
+    assert.deepEqual(ran.range?.start, { line: 2, character: 0 },
+      'the run reached back to the `def` line');
+    assert.equal(widenedBeyond(ran.range!, selection), true);
+    assert.equal(describeRun(ran.ran, ran.statements, 0, true),
+      'Evalens: ran 2 statements, widened to whole statements');
+    assert.equal((await evaluate(client, 'c\n', 0) as Evaluated).value, '2');
+  });
+
+test('a selection holding no complete statement reports nothing to run',
+  async (t) => {
+    const client = connect();
+    t.after(() => client.dispose());
+
+    const source = 'a = 1\n\n# a comment\n\nb = 2\n';
+    const ran = await load(client, source, selectedLines({
+      start: { line: 1, character: 0 }, end: { line: 3, character: 0 },
+    }));
+
+    assert.equal(ran.ok, true, 'nothing to run is an outcome, not an error');
+    assert.equal(ran.statements, 0);
+    assert.equal(ran.range, undefined);
+    assert.equal(describeRun(0, 0, 0, false),
+      'Evalens: nothing to run in the selection');
+    assert.equal((await evaluate(client, 'a\n', 0) as Failed).error.type,
+      'NameError', 'and nothing nearby ran in its place');
+  });
+
+test('an annotation from a selection lands on the real line of the real file',
+  async (t) => {
+    // The reason the request carries a line range and not the selected text.
+    // Line 5 of the file is line 0 of any slice that starts at 5, and both the
+    // range an annotation is painted at and the line a traceback quotes would
+    // be off by everything above the selection.
+    const client = connect();
+    t.after(() => client.dispose());
+
+    const source = 'a = 1\nb = 2\nc = undefined_name\n';
+    const ran = await load(client, source, { start_line: 2, end_line: 2 });
+
+    const failure = ran.results[0]!;
+    assert.equal(failure.ok, false);
+    assert.equal(failure.range?.start.line, 2);
+    assert.match((failure as { error: { traceback: string } }).error.traceback,
+      /line 3\b/, 'the traceback quotes the file, not the fragment');
+  });
+
+test('the tour loaded in two selections is the tour loaded whole', async (t) => {
+  // The regression check with real code behind it: 500 lines of every
+  // statement shape the project knows about, run once as a file and once as
+  // two selections meeting at whatever statement boundary the midpoint snaps
+  // to. Anything the narrowing perturbs -- a statement run twice, one
+  // skipped between the halves, a docstring suppressed because it opened a
+  // selection rather than the module -- shows up as a differing value.
+  const tour = path.resolve(__dirname, '..', '..', 'examples', 'tour.py');
+  const source = fs.readFileSync(tour, 'utf8');
+  const lastLine = source.split('\n').length - 1;
+
+  const whole = connect();
+  t.after(() => whole.dispose());
+  const together = await load(whole, source, undefined, tour);
+
+  const split = connect();
+  t.after(() => split.dispose());
+  const first = await load(
+    split, source, { start_line: 0, end_line: Math.floor(lastLine / 2) }, tour);
+  assert.notEqual(first.range, undefined);
+  // Where the first half actually stopped, which is a statement boundary
+  // wherever the midpoint happened to fall.
+  const second = await load(
+    split, source,
+    { start_line: first.range!.end.line + 1, end_line: lastLine }, tour);
+
+  const shown = (loaded: FileLoaded) => loaded.results.map(
+    (r) => (r.ok ? [r.display, r.value] : ['!', r.error.type]));
+
+  assert.ok(first.statements > 0 && second.statements > 0,
+    'a split with an empty half would pass without proving anything');
+  assert.equal(first.statements + second.statements, together.statements,
+    'every statement of the tour ran exactly once across the two halves');
+  assert.deepEqual([...shown(first), ...shown(second)], shown(together));
+  assert.equal(first.ran + second.ran, together.ran);
 });
 
 test('an instance keeps whichever repr its class actually has', async (t) => {

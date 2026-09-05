@@ -75,6 +75,20 @@ export interface EvalFileRequest {
    * than deadlocking.
    */
   readonly allow_stdin: false;
+  /**
+   * First line to run, 0-based and inclusive. Absent means the whole file.
+   *
+   * A line range over the whole buffer, and never a slice of the source. The
+   * kernel keeps `linecache` pointing at what the user is looking at so that
+   * a traceback quotes the right line and every range it answers with is a
+   * real file position; sending only the selected text would renumber both,
+   * and an annotation three lines from its statement is worse than none.
+   * Both bounds or neither -- the kernel runs nothing for a half-stated
+   * range rather than falling back to the whole file.
+   */
+  readonly start_line?: number;
+  /** Last line to run, 0-based and inclusive. */
+  readonly end_line?: number;
 }
 
 export type Request =
@@ -304,9 +318,20 @@ export type StatementOutcome =
 export interface FileLoaded {
   readonly id: number;
   readonly ok: true;
+  /** How many statements the request covered -- the selection's, when narrowed. */
   readonly statements: number;
   readonly ran: number;
   readonly results: readonly StatementOutcome[];
+  /**
+   * The span actually executed, present only for a narrowed load that found
+   * something to run.
+   *
+   * Wider than the requested lines whenever a statement was only partly
+   * inside them, because a partial statement runs whole or not at all. The
+   * kernel reports it because the extension cannot infer it: the side that
+   * decided how far to widen is the side that knows.
+   */
+  readonly range?: Range;
 }
 
 export type FileResponse = FileLoaded | Failed;

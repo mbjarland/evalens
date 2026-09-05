@@ -85,6 +85,21 @@ whenever the two agree, which is every statement that is not compound.
 
 Coordinates are VS Code's: 0-based line, 0-based character.
 
+``eval_file`` takes the whole buffer and, optionally, ``start_line`` and
+``end_line`` -- a 0-based inclusive range narrowing the load to the statements
+those lines touch, which is how a selection is run::
+
+    -> {"id":3,"op":"eval_file","source":"...","start_line":9,"end_line":12,
+        "filename":"/abs/path.py","allow_stdin":false}
+    <- {"id":3,"ok":true,"statements":2,"ran":2,"results":[...],
+        "range":{"start":{"line":8,...},"end":{"line":13,...}}}
+
+The range is over the whole source, never a slice of it: line numbers in
+tracebacks and in every range on the wire have to keep pointing at the file
+the user is looking at. ``statements`` counts what the request covered, and
+the response's ``range`` is what actually ran -- wider than the selection
+whenever a statement was only partly inside it, and absent when nothing was.
+
 Ops: ``ping``, ``reset``, ``eval``, ``eval_file``. ``eval_above`` is reserved
 and answers with an explicit not-implemented error until #13 lands.
 
@@ -150,7 +165,7 @@ import traceback
 from typing import Any, Dict, Iterable, Iterator, Optional, TextIO, Tuple
 
 import loops
-from resolver import Form, form_at, form_of
+from resolver import Form, form_at, forms_in
 
 #: Hard cap on a repr() put on the wire. This is a transport guard, not a
 #: display policy -- the extension knows the editor width and truncates for
@@ -840,6 +855,26 @@ def _error(exc: BaseException, tb_skip: int = 0) -> Dict[str, Any]:
     }
 
 
+def _selected_lines(request: Dict[str, Any]) -> Optional[Tuple[int, int]]:
+    """The 0-based inclusive line range a load was narrowed to, or None.
+
+    None means the whole file, which is what an ``eval_file`` with neither
+    bound has always meant and still does.
+
+    A request that asks to narrow and does not say how narrows to *nothing*.
+    Reading a half-stated range as "then run everything" would answer a
+    malformed request by executing every line in someone's buffer, which is
+    the one outcome this command must never arrive at by accident.
+    """
+    start = request.get("start_line")
+    end = request.get("end_line")
+    if start is None and end is None:
+        return None
+    if not isinstance(start, int) or not isinstance(end, int):
+        return (0, -1)
+    return (max(start, 0), end)
+
+
 def _was_interrupted(outcome: Dict[str, Any]) -> bool:
     """Did this outcome fail because someone pressed Cancel?
 
@@ -927,7 +962,7 @@ class Kernel:
                          allow_stdin=bool(request.get("allow_stdin")))
 
     def evaluate_file(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Run a whole module body, reporting what each statement produced.
+        """Run a module body, reporting what each statement produced.
 
         This is Calva's Load File. Its Clojure form is safe because a
         namespace is almost all definitions; a Python module body genuinely
@@ -950,6 +985,18 @@ class Kernel:
         to contain broken lines -- that is why you are poking at it -- and
         abandoning everything below the first mistake means the command that
         sets up a session refuses to set one up.
+
+        ``start_line`` and ``end_line`` narrow the load to the statements a
+        selection touches, and are a *range over the whole source* rather than
+        a slice of it for reasons the rest of this method depends on. The
+        buffer is parsed and cached entire, so a traceback quotes the line the
+        user is looking at and every range on the wire is a real file
+        position; a pre-sliced source would renumber both, and an annotation
+        painted three lines from the statement it describes is worse than no
+        annotation. Slicing also throws away what the snap needs -- the
+        statement boundaries around the selection -- and what docstring
+        suppression needs, which is whether a string opens the module or
+        merely opens the selection.
         """
         source: str = request.get("source", "")
         filename: str = request.get("filename") or "<evalens>"
@@ -963,15 +1010,17 @@ class Kernel:
         except SyntaxError as exc:
             return self._syntax_error(exc)
 
+        selection = _selected_lines(request)
+        forms = forms_in(tree, selection)
+
         results = []
         ran = 0
-        for index, statement in enumerate(tree.body):
+        for form in forms:
             # Never prompts, whatever the request says. See `_user_io`:
             # twenty prompts in a teaching file would stop the load dead
             # on the first one, and this command exists to avoid exactly
             # that kind of waiting.
-            outcome = self._run(
-                form_of(statement, first_in_body=index == 0), filename)
+            outcome = self._run(form, filename)
             results.append(outcome)
             if outcome["ok"]:
                 ran += 1
@@ -983,12 +1032,21 @@ class Kernel:
                 # answer a request to stop by running more of their code.
                 break
 
-        return {
+        response: Dict[str, Any] = {
             "ok": True,
-            "statements": len(tree.body),
+            "statements": len(forms),
             "ran": ran,
             "results": results,
         }
+        if selection is not None and forms:
+            # What actually ran, which is not what was asked for whenever the
+            # snap widened it. The extension has the selection and cannot work
+            # this out from it, so the side that did the widening says so.
+            response["range"] = {
+                "start": _position(forms[0].start_line, forms[0].start_char),
+                "end": _position(forms[-1].end_line, forms[-1].end_char),
+            }
+        return response
 
     # -- internals ----------------------------------------------------------
 

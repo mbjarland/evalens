@@ -340,6 +340,11 @@ def form_of(node: ast.stmt, first_in_body: bool = False) -> Form:
     )
 
 
+def _span(node: ast.stmt) -> Tuple[int, int]:
+    """The 0-based first and last lines `node` covers, decorators included."""
+    return _start_line(node) - 1, (node.end_lineno or node.lineno) - 1
+
+
 def form_at(tree: ast.Module, line: int, character: int = 0) -> Optional[Form]:
     """The top-level statement containing 0-based `line`, or None.
 
@@ -350,8 +355,37 @@ def form_at(tree: ast.Module, line: int, character: int = 0) -> Optional[Form]:
     del character  # reserved: sub-expression resolution needs it, top-level does not
 
     for index, node in enumerate(tree.body):
-        start = _start_line(node) - 1
-        end = (node.end_lineno or node.lineno) - 1
+        start, end = _span(node)
         if start <= line <= end:
             return form_of(node, first_in_body=index == 0)
     return None
+
+
+def forms_in(tree: ast.Module,
+             lines: Optional[Tuple[int, int]] = None) -> List[Form]:
+    """The module body, or the part of it `lines` touches, in source order.
+
+    `lines` is a 0-based inclusive line range, and a statement is in it when
+    **any** of the statement lies inside it -- so a range that begins halfway
+    through a `def` runs the whole `def`, and one that stops halfway through
+    runs it whole as well. That outward snap is the point rather than a
+    convenience. Running the highlighted lines as written is the alternative,
+    and the trouble with it is not that a fragment breaks -- it is that a
+    fragment frequently does not. The body of `if __name__ == "__main__":` is
+    ordinary code on its own, and on its own it runs the block the guard
+    exists to stop; the body of a `try` runs without its `except`, raising
+    where the file it came from handles. Code that parses into something other
+    than what the reader highlighted is the failure this refuses to have.
+
+    `first_in_body` is decided against the module's own body, not against the
+    selection, which is what keeps a range starting at statement seven from
+    turning the string it starts with into a docstring and swallowing it.
+    """
+    forms: List[Form] = []
+    for index, node in enumerate(tree.body):
+        if lines is not None:
+            start, end = _span(node)
+            if end < lines[0] or start > lines[1]:
+                continue
+        forms.append(form_of(node, first_in_body=index == 0))
+    return forms

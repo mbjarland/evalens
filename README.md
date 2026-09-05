@@ -26,11 +26,20 @@ without a way to run these.
 | Command | What it does |
 |---|---|
 | Evalens: Evaluate at Cursor | Evaluates the form the cursor is in and paints its value beside it |
-| Evalens: Evaluate File | Runs the file top to bottom, annotating each statement |
+| Evalens: Evaluate File | Runs the file top to bottom, annotating each statement — or the selected statements, when there is a selection |
 | Evalens: Clear Inline Results | Removes the annotations from the active editor |
 | Evalens: Interrupt Evaluation | Stops a running evaluation and keeps the namespace it built |
 | Evalens: Restart Kernel | Throws away the namespace and starts a fresh interpreter |
 | Evalens: Fix Keybinding Conflict | Hands you the user keybinding described below |
+
+**Evaluate File runs a selection, and runs whole statements.** Select the
+first twenty lines and press the key: those statements run, in order,
+annotated exactly as a full load annotates them. A selection that begins or
+ends halfway through a statement runs that statement whole and briefly
+highlights how far it reached — a partial statement is never executed, because
+a fragment can parse into something valid that means something else. A
+selection with no complete statement in it — a comment, a blank line — says so
+in the status bar and runs nothing.
 
 ## Keybindings
 

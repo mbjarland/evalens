@@ -8,7 +8,9 @@ import {
 } from './kernel/protocol';
 import { Annotations } from './render/annotations';
 import { Annotation, toVsCodeRange } from './render/decorations';
-import { describeLoad, hoverFor, present } from './render/present';
+import { Flash } from './render/flash';
+import { describeLoad, describeRun, hoverFor, present } from './render/present';
+import { selectedLines, widenedBeyond } from './selection';
 
 /**
  * Turns a keypress into an annotation.
@@ -66,7 +68,8 @@ export class Evaluator {
   constructor(
     private readonly kernel: () => Promise<KernelClient>,
     private readonly annotations: Annotations,
-    private readonly output: vscode.OutputChannel
+    private readonly output: vscode.OutputChannel,
+    private readonly flash: Flash
   ) {}
 
   /**
@@ -131,15 +134,25 @@ export class Evaluator {
   }
 
   /**
-   * Load the whole file into the namespace, the way a session starts.
+   * Load the file into the namespace, the way a session starts -- or, with a
+   * selection, run only the statements the selection touches.
    *
-   * This is Calva's Load File. It reports rather than annotates: loading is
-   * "get me set up", not "show me the work" -- keeping those distinct is
-   * what stops a 400-line file painting 400 annotations. #13 is the command
-   * that shows the work.
+   * This is Calva's Load File, and `eval-region` alongside it rather than in
+   * place of it: no selection keeps the whole-file behaviour exactly. What a
+   * selection changes is only *how much* runs. Every statement it does run is
+   * run and annotated identically, because the two are the same command
+   * pointed at a different amount of code, and a selection that quietly
+   * evaluated differently would be a second set of semantics to learn.
+   *
+   * A selection is not resolved to an expression here. That is
+   * `Ctrl/Cmd+Enter`'s question -- "what is this worth" -- and this key asks
+   * "run this part of my file"; blurring them would make the answer depend on
+   * which key the user happened to reach for.
    */
   async evaluateFile(editor: vscode.TextEditor): Promise<void> {
     const document = editor.document;
+    const selection = editor.selection;
+    const lines = selectedLines(selection);
     let response: FileResponse;
     try {
       const client = await this.kernel();
@@ -151,10 +164,16 @@ export class Evaluator {
           // A load never prompts. Twenty prompts in a teaching file would
           // stop it dead on the first one, and twenty modal boxes are not the
           // better version of that -- `input()` raises here, with a message
-          // saying to evaluate the line on its own to be asked.
+          // saying to evaluate the line on its own to be asked. A selection
+          // is the same command over less code and does not change that.
           allow_stdin: false,
+          // The whole buffer either way, with the selection sent as a line
+          // range rather than as the selected text: the kernel needs the file
+          // around the selection to snap outward to whole statements, and to
+          // keep every line number it reports pointing at the real file.
+          ...(lines ?? {}),
         }),
-        'Evalens: loading the file'
+        lines ? 'Evalens: running the selection' : 'Evalens: loading the file'
       )) as FileResponse;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -175,6 +194,15 @@ export class Evaluator {
           hover: response.error.traceback || response.error.message,
         });
       }
+      return;
+    }
+
+    if (lines && response.statements === 0) {
+      // A selection holding only comments, or only blank lines. Not an error:
+      // it is the same answer a blank line under the cursor gets, said in the
+      // same place, and reaching for the nearest statement instead would run
+      // code nobody pointed at.
+      vscode.window.setStatusBarMessage(describeRun(0, 0, 0, false), 2000);
       return;
     }
 
@@ -199,6 +227,23 @@ export class Evaluator {
         this.annotations.add(document, annotation);
         annotated += 1;
       }
+    }
+
+    if (lines) {
+      // A statement runs whole or not at all, so the run may have reached
+      // outside the highlight. Saying the count without saying that would let
+      // the reader attribute it to the lines they chose.
+      const executed = response.range;
+      const widened = executed !== undefined
+        && widenedBeyond(executed, selection);
+      if (widened) {
+        // Pointing at it costs a decoration and says in one look what a
+        // sentence about line numbers says slowly.
+        this.flash.show(editor, toVsCodeRange(executed));
+      }
+      vscode.window.setStatusBarMessage(
+        describeRun(response.ran, response.statements, failed, widened), 4000);
+      return;
     }
 
     vscode.window.setStatusBarMessage(

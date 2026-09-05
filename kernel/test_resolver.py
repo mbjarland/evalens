@@ -8,7 +8,7 @@ import ast
 import os
 import unittest
 
-from resolver import form_at, form_of
+from resolver import form_at, form_of, forms_in
 
 #: The manual test fixture, located relative to this file rather than to the
 #: working directory: the suite is discovered with `-t kernel`, so a relative
@@ -295,6 +295,74 @@ class HeaderAnchors(unittest.TestCase):
         self.assertEqual(f.anchor_line, 0)
 
 
+class FormsInARange(unittest.TestCase):
+    """Which statements a selection runs, and how far outward it snaps.
+
+    The rule under test is that a statement runs whole or not at all. Running
+    a selection as written is the alternative, and it is the one that quietly
+    executes something other than what the reader highlighted -- a `def` cut
+    off after its signature, a loop cut off before its body.
+    """
+
+    #: 0: a = 1  1: b = 2  2-4: def f  5: c = 3
+    SOURCE = ("a = 1\n"
+              "b = 2\n"
+              "def f(x):\n"
+              "    y = x + 1\n"
+              "    return y\n"
+              "c = 3\n")
+
+    def shown(self, lines, source=None):
+        tree = ast.parse(self.SOURCE if source is None else source)
+        return [form.display for form in forms_in(tree, lines)]
+
+    def test_no_range_at_all_is_the_whole_body(self):
+        self.assertEqual(self.shown(None), ["a", "b", "f", "c"])
+
+    def test_a_range_runs_the_statements_it_covers_and_no_others(self):
+        self.assertEqual(self.shown((0, 1)), ["a", "b"])
+
+    def test_a_range_starting_inside_a_statement_takes_it_whole(self):
+        # Line 3 is inside the body of the `def`. Running lines 3-5 as written
+        # would bind nothing and raise on the `return`.
+        self.assertEqual(self.shown((3, 5)), ["f", "c"])
+
+    def test_a_range_ending_inside_a_statement_takes_it_whole(self):
+        self.assertEqual(self.shown((1, 3)), ["b", "f"])
+
+    def test_the_span_reported_is_the_statements_own(self):
+        # What makes the widening visible: the `def` starts two lines above
+        # where the range did, and the extension says so on the strength of
+        # these numbers.
+        first = forms_in(ast.parse(self.SOURCE), (3, 5))[0]
+        self.assertEqual((first.start_line, first.end_line), (2, 4))
+
+    def test_a_range_over_no_statement_at_all_runs_nothing(self):
+        # Not an error, and emphatically not the nearest statement instead.
+        self.assertEqual(
+            self.shown((1, 3), "a = 1\n\n# a comment\n\nb = 2\n"), [])
+
+    def test_a_backwards_range_runs_nothing(self):
+        # How a malformed narrowing request reaches here. Nothing is the safe
+        # reading of it; the whole file is not.
+        self.assertEqual(self.shown((0, -1)), [])
+
+    def test_a_decorated_def_is_reached_from_its_decorator_line(self):
+        self.assertEqual(
+            self.shown((0, 0), "@deco\ndef f():\n    pass\n"), ["f"])
+
+    DOCUMENTED = '"""doc"""\nx = 1\n"hello"\n'
+
+    def test_the_module_docstring_stays_silent_when_selected_alone(self):
+        self.assertEqual(self.shown((0, 0), self.DOCUMENTED), [None])
+
+    def test_a_string_further_down_is_not_made_into_a_docstring(self):
+        # `first_in_body` is decided against the module, not against the
+        # selection. Deciding it against the selection would swallow the value
+        # of any string a range happens to start on.
+        self.assertEqual(self.shown((2, 2), self.DOCUMENTED), ["'hello'"])
+
+
 class TheTourFile(unittest.TestCase):
     """`examples/tour.py` is checked by hand; this keeps it honest.
 
@@ -338,6 +406,22 @@ class TheTourFile(unittest.TestCase):
                 form = form_of(node)
                 self.assertGreaterEqual(form.anchor_line, form.start_line)
                 self.assertLessEqual(form.anchor_line, form.end_line)
+
+    def test_every_single_line_range_snaps_to_whole_statements(self):
+        # A one-line selection is the narrowest thing a user can hand this,
+        # and every line of the tour is one: comments, blank lines, the
+        # middles of wrapped calls, decorator lines. Whatever comes back must
+        # cover the line it was asked about and start no later than it.
+        for line in range(len(self.source.splitlines())):
+            with self.subTest(line=line + 1):
+                for form in forms_in(self.tree, (line, line)):
+                    self.assertLessEqual(form.start_line, line)
+                    self.assertGreaterEqual(form.end_line, line)
+
+    def test_a_range_over_the_whole_tour_is_the_whole_tour(self):
+        last = len(self.source.splitlines())
+        self.assertEqual(len(forms_in(self.tree, (0, last))),
+                         len(self.tree.body))
 
     def test_every_statement_resolves_from_its_own_first_line(self):
         for node in self.tree.body:
