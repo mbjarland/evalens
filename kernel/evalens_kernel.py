@@ -23,6 +23,10 @@ JSON escapes newlines, so line framing is safe for arbitrary source text.
         "kind":"Assign","range":{"start":{"line":3,"character":0},
         "end":{"line":3,"character":15}},"stdout":"","stderr":""}
 
+``value`` is what to show. Usually that is ``repr()``; for the few things
+Python reprs by memory address it is a description instead, and an extra
+``repr`` field then carries the untouched original -- see ``describe``.
+
 Coordinates are VS Code's: 0-based line, 0-based character.
 
 Ops: ``ping``, ``reset``, ``eval``, ``eval_file``. ``eval_above`` is reserved
@@ -35,6 +39,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import inspect
 import io
 import json
 import linecache
@@ -85,6 +90,12 @@ def _user_io() -> Iterator[tuple[io.StringIO, io.StringIO]]:
         sys.stdin = stdin
 
 
+def _capped(text: str, limit: int) -> str:
+    if len(text) > limit:
+        return f"{text[:limit]}… <truncated from {len(text)} chars>"
+    return text
+
+
 def safe_repr(value: Any, limit: int = WIRE_REPR_LIMIT) -> str:
     """``repr(value)``, contained.
 
@@ -95,9 +106,145 @@ def safe_repr(value: Any, limit: int = WIRE_REPR_LIMIT) -> str:
         text = repr(value)
     except BaseException as exc:  # noqa: BLE001 - user code raises anything
         return f"<repr() raised {type(exc).__name__}: {exc}>"
-    if len(text) > limit:
-        return f"{text[:limit]}… <truncated from {len(text)} chars>"
-    return text
+    return _capped(text, limit)
+
+
+def _wrote_its_own_repr(value: Any, inherited: Any) -> bool:
+    """Did a human write this object's ``__repr__``?
+
+    Answered by comparing ``type(value).__repr__`` against the slot Python
+    supplies, by identity -- never by looking at the text it produces. A custom
+    ``__repr__`` is free to return anything, including something shaped exactly
+    like the default, so matching on ``<... at 0x...>`` would quietly overrule
+    deliberate ones while gaining nothing. Inheriting a ``__repr__`` from a
+    base class counts as written: somebody wrote it, for this object.
+
+    A metaclass that intercepts attribute access can make even this raise. It
+    gets the benefit of the doubt, because leaving a repr alone is the
+    recoverable mistake and rewriting one is not.
+    """
+    try:
+        return type(value).__repr__ is not inherited
+    except BaseException:  # noqa: BLE001 - attribute access runs user code
+        return True
+
+
+def _readable_name(obj: Any) -> Optional[str]:
+    """``__qualname__`` without the closure noise, or ``__name__``, or None."""
+    name = getattr(obj, "__qualname__", None) or getattr(obj, "__name__", None)
+    if not isinstance(name, str) or not name:
+        return None
+    # `outer.<locals>.inner` records where a function was written rather than
+    # what it is called; only the tail is worth the width.
+    return name.rpartition("<locals>.")[2] or name
+
+
+#: Checked in order, and only the first match is reported.
+_CALL_RESULTS = (
+    (inspect.isasyncgenfunction, "async generator"),
+    (inspect.iscoroutinefunction, "coroutine"),
+    (inspect.isgeneratorfunction, "generator"),
+)
+
+
+def _describe_callable(value: Any) -> Optional[str]:
+    """``area(w, h)``, or ``area(w: int, h: int) -> int`` when annotated.
+
+    Strictly more information than the address it replaces, in fewer
+    characters, and identical on every evaluation. Generator and coroutine
+    functions additionally say what *calling* them returns, because that is a
+    real trap and the annotation is where it can still be cheap to learn: it
+    is the explanation for why iterating the result a second time found it
+    empty, and for why awaiting was required.
+    """
+    name = _readable_name(value)
+    if name is None:
+        return None
+    try:
+        signature = inspect.signature(value)
+    except BaseException:  # noqa: BLE001 - introspection runs user code too
+        # Builtins, C extensions and some descriptors have no signature to
+        # find. Their repr carries no address either, so the fallback loses
+        # nothing: `min` reads `<built-in function min>` exactly as before.
+        return None
+    text = f"{name}{signature}"
+    produces = next(
+        (word for test, word in _CALL_RESULTS if test(value)), None)
+    if produces is None:
+        return text
+    if signature.return_annotation is inspect.Signature.empty:
+        return f"{text} -> {produces}"
+    # An annotated `async def fetch(u) -> str` declares what awaiting yields,
+    # not what calling gives you. Both halves are true, so both are kept.
+    return f"{text} ({produces})"
+
+
+def _describe_class(value: Any) -> Optional[str]:
+    """``class Config(name, port=8080)`` -- how to construct one.
+
+    ``<class 'app.config.Config'>`` is stable already, so this is not about
+    addresses. It is that the one question asked of a class in an editor is
+    what it takes, and the answer is free.
+    """
+    name = _readable_name(value)
+    if name is None:
+        return None
+    try:
+        signature = inspect.signature(value)
+    except BaseException:  # noqa: BLE001
+        return None
+    return f"class {name}{signature}"
+
+
+def describe(value: Any) -> Optional[str]:
+    """A stable description for a value Python reprs by identity, or None.
+
+    ``<function area at 0x10614a610>`` is what this exists for. The address
+    changes on every evaluation, so re-running a ``def`` -- the ordinary
+    inner-loop move, and the one top-level resolution is designed to make easy
+    -- produced a different annotation every time while nothing about the code
+    had changed. That teaches the reader to distrust the single signal this
+    extension exists to provide.
+
+    ``None`` means "show the real repr", and it is the answer for everything
+    that has one. A ``repr()`` someone wrote is a deliberate statement about
+    how the object should read, and rewriting it would be the extension
+    overruling the user's own code.
+    """
+    if inspect.isclass(value):
+        # A metaclass __repr__ is as deliberate as any other.
+        if _wrote_its_own_repr(value, type.__repr__):
+            return None
+        return _describe_class(value)
+    if inspect.isroutine(value):
+        # Functions, bound methods, builtins and method descriptors. None of
+        # those types can be subclassed, so there is never a hand-written
+        # __repr__ here to overrule.
+        return _describe_callable(value)
+    if _wrote_its_own_repr(value, object.__repr__):
+        return None
+    name = _readable_name(type(value))
+    return None if name is None else f"<{name} instance>"
+
+
+def wire_value(
+    value: Any, limit: int = WIRE_REPR_LIMIT
+) -> tuple[str, Optional[str]]:
+    """What to show, and the untouched ``repr()`` when it is not the same.
+
+    The description goes into ``value`` rather than into a field of its own so
+    that no consumer can paint the address by forgetting to look for one. The
+    real repr rides along beside it and is what the hover shows, so the
+    substitution hides nothing.
+    """
+    text = safe_repr(value, limit)
+    try:
+        description = describe(value)
+    except BaseException:  # noqa: BLE001 - introspection runs user code too
+        description = None
+    if description is None:
+        return text, None
+    return _capped(description, limit), text
 
 
 def _position(line: int, character: int) -> Dict[str, int]:
@@ -258,7 +405,8 @@ class Kernel:
 
     def _run(self, form: Form, filename: str) -> Dict[str, Any]:
         statement = ast.Module(body=[form.node], type_ignores=[])
-        value_repr: Optional[str] = None
+        shown: Optional[str] = None
+        raw_repr: Optional[str] = None
 
         with _user_io() as (out, err):
             try:
@@ -266,6 +414,14 @@ class Kernel:
                 # comprehensions and nested scopes fail to see module-level
                 # names -- the classic exec() trap, and it would surface as
                 # NameError on code that is plainly correct.
+                #
+                # `dont_inherit` on every compile below: without it, compile()
+                # applies the future statements in effect in THIS frame, and
+                # this module's own `from __future__ import annotations` turns
+                # every annotation in the user's buffer into a string. Their
+                # code would then behave differently under Evalens than under
+                # `python file.py` -- get_type_hints, dataclasses and any
+                # runtime validator see 'int' where the file says int.
                 if isinstance(form.node, ast.Expr):
                     # An expression statement must be evaluated ONCE, not
                     # exec'd and then re-evaluated for display. Running it
@@ -275,10 +431,12 @@ class Kernel:
                     # in a test that only evaluates pure expressions.
                     expression = ast.Expression(form.node.value)
                     value = eval(  # noqa: S307 - evaluating user code is the product
-                        compile(expression, filename, "eval"), self.namespace)
-                    value_repr = safe_repr(value)
+                        compile(expression, filename, "eval",
+                                dont_inherit=True), self.namespace)
+                    shown, raw_repr = wire_value(value)
                 else:
-                    exec(compile(statement, filename, "exec"), self.namespace)
+                    exec(compile(statement, filename, "exec",
+                                 dont_inherit=True), self.namespace)
                     if form.display is not None:
                         # Safe for the remaining statement kinds because every
                         # display expression they produce is a name, or a
@@ -288,9 +446,10 @@ class Kernel:
                         expression = ast.Expression(
                             ast.parse(form.display, mode="eval").body)
                         value = eval(  # noqa: S307
-                            compile(expression, filename, "eval"),
+                            compile(expression, filename, "eval",
+                                    dont_inherit=True),
                             self.namespace)
-                        value_repr = safe_repr(value)
+                        shown, raw_repr = wire_value(value)
             except BaseException as exc:  # noqa: BLE001
                 # BaseException, not Exception: user code calling exit() raises
                 # SystemExit, and taking the kernel down over it would discard
@@ -305,16 +464,22 @@ class Kernel:
                     "stderr": err.getvalue(),
                 }
 
-        return {
+        outcome: Dict[str, Any] = {
             "ok": True,
             "resolved": True,
-            "value": value_repr,
+            "value": shown,
             "display": form.display,
             "kind": form.kind,
             "range": _range_of(form),
             "stdout": out.getvalue(),
             "stderr": err.getvalue(),
         }
+        if raw_repr is not None:
+            # Only when a description replaced it: sending it unconditionally
+            # would double the width of every large value on the wire to say
+            # the same thing twice.
+            outcome["repr"] = raw_repr
+        return outcome
 
     @staticmethod
     def _syntax_error(exc: SyntaxError) -> Dict[str, Any]:

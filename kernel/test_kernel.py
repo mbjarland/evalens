@@ -9,6 +9,7 @@ those are observable in-process.
 
 import json
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -290,6 +291,149 @@ class LoadFile(KernelTest):
         result = self.load("")
         self.assertTrue(result["ok"])
         self.assertEqual(result["statements"], 0)
+
+
+class Descriptions(KernelTest):
+    """What a value shows when its repr is a memory address.
+
+    The complaint these answer is that `<function area at 0x10614a610>` changed
+    on every evaluation while the code did not, which teaches the reader to
+    distrust the annotation. The line that matters most is the last one here:
+    the same `def`, evaluated twice, reads identically.
+    """
+
+    ADDRESS = re.compile(r"0x[0-9a-fA-F]+")
+
+    def show(self, source):
+        """The last statement's response, with everything above it run."""
+        lines = range(len(source.rstrip("\n").split("\n")))
+        return self.k.evaluate_lines(source, *lines)
+
+    def test_a_function_shows_its_signature_not_its_address(self):
+        result = self.show("def area(w, h):\n    return w * h\n")
+        self.assertEqual(result["value"], "area(w, h)")
+        self.assertNotRegex(result["value"], self.ADDRESS)
+
+    def test_the_untouched_repr_is_still_available(self):
+        # Nothing is lost by describing: the extension puts this on the hover.
+        result = self.show("def area(w, h):\n    return w * h\n")
+        self.assertRegex(result["repr"], r"^<function area at 0x[0-9a-f]+>$")
+
+    def test_annotations_and_defaults_come_through(self):
+        result = self.show(
+            "def area(w: int, h: int = 2) -> int:\n    return 1\n")
+        self.assertEqual(result["value"], "area(w: int, h: int = 2) -> int")
+
+    def test_the_kernels_own_future_import_does_not_reach_user_code(self):
+        # compile() applies the future statements of the frame that calls it,
+        # so this module's `from __future__ import annotations` used to turn
+        # every annotation in the user's buffer into a string. It showed up as
+        # `area(w: 'int')`, but the real damage was wider: get_type_hints,
+        # dataclasses and any runtime validator saw 'int' where the file said
+        # int, and user code behaved differently under Evalens than under
+        # `python file.py`.
+        src = ("def area(w: int) -> int:\n"
+               "    return w\n"
+               "area.__annotations__['w'] is int\n")
+        self.assertEqual(self.k.evaluate_lines(src, 0, 2)["value"], "True")
+
+    def test_star_args_and_kwargs_come_through(self):
+        result = self.show(
+            "def call(a, *args, key=None, **kwargs):\n    pass\n")
+        self.assertEqual(result["value"], "call(a, *args, key=None, **kwargs)")
+
+    def test_a_generator_function_says_what_calling_it_returns(self):
+        # The trap worth surfacing: this is the explanation for why iterating
+        # the result a second time found it empty.
+        result = self.show("def counted(n):\n    yield n\n")
+        self.assertEqual(result["value"], "counted(n) -> generator")
+
+    def test_a_coroutine_function_says_so_too(self):
+        result = self.show("async def fetch(url):\n    return url\n")
+        self.assertEqual(result["value"], "fetch(url) -> coroutine")
+
+    def test_a_class_shows_how_to_construct_one(self):
+        result = self.show("class Config:\n"
+                           "    def __init__(self, name, port=8080):\n"
+                           "        self.name = name\n")
+        self.assertEqual(result["value"], "class Config(name, port=8080)")
+
+    def test_an_instance_with_the_default_repr_shows_its_class(self):
+        result = self.show("class Config:\n"
+                           "    def __init__(self, name):\n"
+                           "        self.name = name\n"
+                           "cfg = Config('a')\n")
+        self.assertEqual(result["value"], "<Config instance>")
+        self.assertRegex(result["repr"], self.ADDRESS)
+
+    def test_a_custom_repr_is_left_completely_alone(self):
+        # The one rule this feature must not break. A repr someone wrote is a
+        # deliberate statement about how the object should read, and rewriting
+        # it would be the extension overruling the user's own code.
+        result = self.show("class Money:\n"
+                           "    def __repr__(self):\n"
+                           "        return '$4.00'\n"
+                           "price = Money()\n")
+        self.assertEqual(result["value"], "$4.00")
+        self.assertNotIn("repr", result)
+
+    def test_an_inherited_custom_repr_is_left_alone_as_well(self):
+        # Detected by comparing type(obj).__repr__ against object.__repr__, not
+        # by looking at the text: a base class's __repr__ was written for this
+        # object just as deliberately as its own would have been.
+        result = self.show("class Money:\n"
+                           "    def __repr__(self):\n"
+                           "        return '$4.00'\n"
+                           "class Euros(Money):\n"
+                           "    pass\n"
+                           "price = Euros()\n")
+        self.assertEqual(result["value"], "$4.00")
+        self.assertNotIn("repr", result)
+
+    def test_a_metaclass_repr_is_left_alone(self):
+        result = self.show("class Shouty(type):\n"
+                           "    def __repr__(cls):\n"
+                           "        return 'THE CLASS'\n"
+                           "class Thing(metaclass=Shouty):\n"
+                           "    pass\n")
+        self.assertEqual(result["value"], "THE CLASS")
+
+    def test_a_builtin_with_no_signature_falls_back_to_its_repr(self):
+        # inspect.signature raises ValueError for min, and a raise here would
+        # take down an evaluation over a cosmetic feature.
+        result = self.show("min\n")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["value"], "<built-in function min>")
+        self.assertNotIn("repr", result)
+
+    def test_ordinary_values_are_untouched(self):
+        for source, expected in (("[1, 2, 3]\n", "[1, 2, 3]"),
+                                 ("{'a': 1}\n", "{'a': 1}"),
+                                 ("None\n", "None"),
+                                 ("42\n", "42")):
+            with self.subTest(source=source):
+                result = self.show(source)
+                self.assertEqual(result["value"], expected)
+                self.assertNotIn("repr", result)
+
+    def test_evaluating_the_same_def_twice_gives_the_same_annotation(self):
+        # The ticket's acceptance criterion. Re-running a `def` is the normal
+        # inner-loop move; with the address in the annotation it changed every
+        # time while nothing about the code had.
+        source = "def area(w, h):\n    return w * h\n"
+        first = self.k.evaluate(source, 0)["value"]
+        second = self.k.evaluate(source, 0)["value"]
+        self.assertEqual(first, second)
+        self.assertEqual(first, "area(w, h)")
+
+    def test_re_binding_an_instance_gives_the_same_annotation(self):
+        source = ("class Config:\n"
+                  "    pass\n"
+                  "cfg = Config()\n")
+        self.k.evaluate_lines(source, 0, 2)
+        for _ in range(2):
+            self.assertEqual(
+                self.k.evaluate(source, 2)["value"], "<Config instance>")
 
 
 class Protocol(KernelTest):

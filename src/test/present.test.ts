@@ -28,6 +28,30 @@ test('the hover names what was shown, not just its value', () => {
     'lst = [1, 2, 3]');
 });
 
+test('the hover keeps the untouched repr the line describes', () => {
+  // `area(w, h)` is on the line because `<function area at 0x10614a610>`
+  // changed on every evaluation. The address is not wrong, only unstable, so
+  // it stays one hover away rather than being thrown out.
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true,
+    value: 'area(w, h)', repr: '<function area at 0x10614a610>',
+    display: 'area', kind: 'FunctionDef', range, stdout: '', stderr: '',
+  };
+  const shown = present(response, 3);
+  assert.equal((shown as { value: string }).value, 'area(w, h)');
+  assert.equal((shown as { hover: string }).hover,
+    'area = <function area at 0x10614a610>');
+});
+
+test('a value the kernel did not describe hovers as itself', () => {
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: '$4.00', display: 'price',
+    kind: 'Assign', range, stdout: '', stderr: '',
+  };
+  assert.equal((present(response, 3) as { hover: string }).hover,
+    'price = $4.00');
+});
+
 test('"ran with nothing to show" is not "nothing to run"', () => {
   // Both are ok:true. Conflating them either hides that an `if` executed, or
   // claims a blank line did.

@@ -55,8 +55,18 @@ export interface Evaluated {
   readonly id: number;
   readonly ok: true;
   readonly resolved: true;
-  /** `repr()` of the value, or null when the statement has nothing to show. */
+  /**
+   * What to show, or null when the statement has nothing to show.
+   *
+   * Usually `repr()`. For the few things Python reprs by memory address --
+   * functions, classes, instances that inherited `object.__repr__` -- it is a
+   * description the kernel built instead, and `repr` then carries the
+   * original. The substitution is on this side of the wire so that a consumer
+   * cannot paint the address by forgetting to look for a description.
+   */
   readonly value: string | null;
+  /** The untouched `repr()`, present only when `value` describes it instead. */
+  readonly repr?: string;
   readonly display: string | null;
   readonly kind: string;
   readonly range: Range;
@@ -82,6 +92,7 @@ export type StatementOutcome =
       readonly ok: true;
       readonly resolved: true;
       readonly value: string | null;
+      readonly repr?: string;
       readonly display: string | null;
       readonly kind: string;
       readonly range: Range;

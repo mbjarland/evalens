@@ -6,7 +6,7 @@ import {
 } from './kernel/protocol';
 import { Annotations } from './render/annotations';
 import { Annotation, toVsCodeRange } from './render/decorations';
-import { describeLoad, present } from './render/present';
+import { describeLoad, hoverFor, present } from './render/present';
 
 /**
  * Turns a keypress into an annotation.
@@ -45,9 +45,7 @@ function annotationFor(outcome: StatementOutcome): Annotation | undefined {
     range: toVsCodeRange(outcome.range),
     value: outcome.value,
     display: outcome.display,
-    hover: outcome.display
-      ? `${outcome.display} = ${outcome.value}`
-      : outcome.value,
+    hover: hoverFor(outcome.display, outcome.value, outcome.repr),
   };
 }
 

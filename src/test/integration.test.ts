@@ -118,6 +118,38 @@ test('the whole pipeline produces the annotation IDEA.md promises', async (t) =>
   ]);
 });
 
+test('re-evaluating a def paints the same thing every time', async (t) => {
+  // The inner-loop move this project is built around. With the address in the
+  // annotation it changed on every keypress while the code did not, which
+  // teaches the reader to distrust the one signal the extension provides.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'def area(w: int, h: int = 2) -> int:\n    return w * h\n';
+  const painted: string[] = [];
+  const hovers: string[] = [];
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const shown = present(await evaluate(client, source, 0), 0);
+    assert.equal(shown.kind, 'value');
+    painted.push(resultText((shown as { value: string }).value,
+      (shown as { display: string }).display));
+    hovers.push((shown as { hover: string }).hover);
+  }
+
+  assert.deepEqual(painted.map((p) => p.replace(/ /g, ' ')), [
+    'area: area(w: int, h: int = 2) -> int',
+    'area: area(w: int, h: int = 2) -> int',
+    'area: area(w: int, h: int = 2) -> int',
+  ]);
+  // The address is not lost, only moved off the line -- and it is still the
+  // thing that differs between evaluations, which is why it cannot live there.
+  for (const hover of hovers) {
+    assert.match(hover, /^area = <function area at 0x[0-9a-f]+>$/);
+  }
+  assert.notEqual(hovers[0], hovers[1]);
+});
+
 test('an undefined name paints as an error, not as a crash', async (t) => {
   const client = connect();
   t.after(() => client.dispose());
@@ -210,4 +242,28 @@ test('a broken line does not stop the rest of the file loading', async (t) => {
   // The statement below BOTH failures is usable.
   const c = await evaluate(client, source, 4) as Evaluated;
   assert.equal(c.value, '3');
+});
+
+test('an instance keeps whichever repr its class actually has', async (t) => {
+  // The rule the description feature is subordinate to: a repr someone wrote
+  // is a deliberate statement about how the object should read, so only the
+  // inherited default is ever replaced.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const written = 'class Temp:\n'
+    + '    def __repr__(self):\n'
+    + "        return 'warm'\n"
+    + 'today = Temp()\n';
+  await evaluate(client, written, 0);
+  const kept = await evaluate(client, written, 3) as Evaluated;
+  assert.equal(kept.value, 'warm');
+  assert.equal(kept.repr, undefined,
+    'nothing was substituted, so there is nothing to keep');
+
+  const plain = 'class Temp2:\n    pass\ntoday2 = Temp2()\n';
+  await evaluate(client, plain, 0);
+  const described = await evaluate(client, plain, 2) as Evaluated;
+  assert.equal(described.value, '<Temp2 instance>');
+  assert.match(described.repr ?? '', /0x[0-9a-f]+/);
 });

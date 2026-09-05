@@ -58,14 +58,23 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
     display: response.display,
     ...(response.value === null
       ? {}
-      : { hover: hoverFor(response.display, response.value) }),
+      : { hover: hoverFor(response.display, response.value, response.repr) }),
   };
 }
 
-function hoverFor(display: string | null, value: string): string {
-  // The hover shows the full, unwrapped value; the inline annotation is a
-  // one-line summary of it.
-  return display ? `${display} = ${value}` : value;
+/**
+ * The hover text for a value.
+ *
+ * The hover shows the full, unwrapped value; the inline annotation is a
+ * one-line summary of it. `repr` is where that stays true for the values the
+ * kernel describes rather than reprs: the line reads `area(w, h)`, and the
+ * `<function area at 0x…>` it replaced is one hover away rather than gone.
+ */
+export function hoverFor(
+  display: string | null, value: string, repr?: string
+): string {
+  const full = repr ?? value;
+  return display ? `${display} = ${full}` : full;
 }
 
 /**
