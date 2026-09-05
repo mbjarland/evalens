@@ -98,6 +98,21 @@ class Form:
     #: stores it, because reading the target back would run the user's code.
     #: Exactly one of this and `readable` is ever true. See `_value_source`.
     captured: bool = False
+    #: Whether `display` names a place this statement bound -- an assignment
+    #: target, a loop variable, a `with ... as`, the name a `def` or `import`
+    #: introduces -- as opposed to the value of a bare expression statement,
+    #: which is the only case this is ever false while `display` is not None.
+    #:
+    #: A renderer that wants to lead with a binding and trail with a result
+    #: needs this fact and does not otherwise have it: `led["a"] = 1` unparses
+    #: `display` to `led['a']`, which is exactly as much a binding as `x` is
+    #: for `x = 1`, and no less one for failing to look like a bare name (#81).
+    #: Guessing from the text of `display` -- is it a bare or dotted
+    #: identifier -- is the mistake this field replaces; the resolver already
+    #: knows which statement it is looking at; a text pattern is a second,
+    #: worse way of asking the same question, and the one that missed a
+    #: subscript and an attribute target.
+    is_binding: bool = False
 
 
 #: Statements whose value belongs on the line that introduces them rather than
@@ -647,7 +662,15 @@ def _start_line(node: ast.stmt) -> int:
     return node.lineno
 
 
-def _anchor_line(node: ast.stmt, end: int) -> int:
+#: A line that contributes nothing to where a header ends: blank, or a comment
+#: with nothing else on it. `_anchor_line` walks back over these; a `#` inside
+#: a string in a wrapped header would defeat this cheap test, which is why it
+#: is a text scan rather than the tokenizer -- see the docstring below.
+_BLANK_OR_COMMENT = re.compile(r"^\s*(?:#.*)?$")
+
+
+def _anchor_line(node: ast.stmt, end: int,
+                 source_lines: Optional[List[str]] = None) -> int:
     """The 0-based line the annotation belongs on.
 
     For a compound statement that is its header: the first line through the
@@ -658,34 +681,60 @@ def _anchor_line(node: ast.stmt, end: int) -> int:
     argument is a line above it.
 
     `max` against the statement's own line keeps `if x: pass`, whose body
-    begins on the header line, from anchoring on the line above. The one shape
-    this reads a line low is a comment or blank line as the first thing in a
-    body; the annotation then sits on that instead of on the header, which is
-    still beside the statement rather than at the far end of it.
+    begins on the header line, from anchoring on the line above.
+
+    A comment or a blank line opening the body used to be the one shape this
+    read low: `_start_line(node.body[0]) - 1` counts them as part of the
+    header they merely precede, and the value came out beside a `#` instead of
+    beside the clause that produced it -- a claim about a line that holds no
+    statement at all (#93). `source_lines`, when given, is walked back from
+    that guess past every line that is blank or a bare comment, stopping at
+    the header's own last line or at `node.lineno`, whichever comes first --
+    the same clamp the docstring above already relies on for `if x: pass`.
+    This is the cheap fix the ticket accepts rather than a scan for the `:`
+    that actually closes the clause: it does not see a `#` inside a string in
+    a wrapped header, because that is still text a line starts with. Absent
+    `source_lines` -- a caller with only the tree, no buffer -- the old guess
+    stands, comments and all.
 
     The `def` line, not the first decorator: `node.lineno` already points at
     the `def`, and the decorator line is not where the name appears.
     """
     if not isinstance(node, _HEADER_ANCHORED):
         return end
-    return max(node.lineno, _start_line(node.body[0]) - 1) - 1
+    anchor = max(node.lineno, _start_line(node.body[0]) - 1) - 1
+    if source_lines is None:
+        return anchor
+    floor = node.lineno - 1
+    while (floor < anchor < len(source_lines)
+           and _BLANK_OR_COMMENT.match(source_lines[anchor])):
+        anchor -= 1
+    return anchor
 
 
-def form_of(node: ast.stmt, first_in_body: bool = False) -> Form:
+def form_of(node: ast.stmt, first_in_body: bool = False,
+            source_lines: Optional[List[str]] = None) -> Form:
     """Describe a statement: what to run, what to show, and where it is.
 
     `first_in_body` says whether `node` opens the body it belongs to, which is
     the only thing that separates a docstring from a string someone typed to
     see the value of.
+
+    `source_lines` is the buffer, split into text lines, for `_anchor_line`
+    alone -- everything else here already has what it needs from the tree.
+    Optional because a caller with only a tree, no buffer, still gets an
+    anchor; it is only wrong when the body opens with a comment, and only a
+    caller that supplies the text can be told so. See `_anchor_line`.
     """
     start = _start_line(node) - 1
     end = (node.end_lineno or node.lineno) - 1
     binds, reads = defs_and_uses(node)
     display = display_expr(node, first_in_body)
-    # Asked of the target only when there is a display to put a value beside,
-    # so a suppressed docstring cannot be reported as readable source.
-    readable, captured = _value_source(
-        node, None if display is None else _display_target(node))
+    # None only for a suppressed docstring; every other display is what
+    # `_display_target` answered, computed once and shared by the two
+    # questions below rather than asked twice.
+    target = None if display is None else _display_target(node)
+    readable, captured = _value_source(node, target)
     return Form(
         node=node,
         kind=type(node).__name__,
@@ -694,12 +743,13 @@ def form_of(node: ast.stmt, first_in_body: bool = False) -> Form:
         start_char=0 if start < node.lineno - 1 else node.col_offset,
         end_line=end,
         end_char=node.end_col_offset or 0,
-        anchor_line=_anchor_line(node, end),
+        anchor_line=_anchor_line(node, end, source_lines),
         names=annotated_names(node, first_in_body),
         binds=binds,
         reads=reads,
         readable=readable,
         captured=captured,
+        is_binding=target is not None and not isinstance(node, ast.Expr),
     )
 
 
@@ -708,24 +758,49 @@ def _span(node: ast.stmt) -> Tuple[int, int]:
     return _start_line(node) - 1, (node.end_lineno or node.lineno) - 1
 
 
-def form_at(tree: ast.Module, line: int, character: int = 0) -> Optional[Form]:
+def form_at(tree: ast.Module, line: int, character: int = 0,
+            source: Optional[str] = None) -> Optional[Form]:
     """The top-level statement containing 0-based `line`, or None.
 
     A cursor on a blank line, or past the last statement, resolves to nothing.
     Falling back to the nearest preceding statement would be the kind of
     helpfulness that runs code the user did not point at.
-    """
-    del character  # reserved: sub-expression resolution needs it, top-level does not
 
-    for index, node in enumerate(tree.body):
-        start, end = _span(node)
-        if start <= line <= end:
-            return form_of(node, first_in_body=index == 0)
-    return None
+    **`character` only matters when more than one top-level statement covers
+    `line`.** Ordinary code never has this happen -- indentation is what keeps
+    every other pair of top-level statements on disjoint lines -- so the one
+    way it does is a semicolon: `print('x'); 'the value'` is two statements,
+    both spanning column 0's line, and a resolver that used line containment
+    alone always answered the first of them regardless of where the cursor
+    actually was (#18). Preferring whichever statement's own column range
+    contains `character` answers the one the user pointed at; falling back to
+    the first when `character` lands in neither -- on the semicolon itself, or
+    past the end of the line -- keeps every existing single-statement caller,
+    which never had a reason to pass anything but the default, resolving
+    exactly as it always did.
+
+    `source` is unused here beyond being threaded to `form_of` for its own
+    optional argument; see `_anchor_line`.
+    """
+    source_lines = None if source is None else source.split("\n")
+    matches = [(index, node) for index, node in enumerate(tree.body)
+               if _span(node)[0] <= line <= _span(node)[1]]
+    if len(matches) > 1:
+        for index, node in matches:
+            if node.col_offset <= character <= (node.end_col_offset
+                                                 if node.end_col_offset is not None
+                                                 else node.col_offset):
+                return form_of(node, first_in_body=index == 0,
+                              source_lines=source_lines)
+    if not matches:
+        return None
+    index, node = matches[0]
+    return form_of(node, first_in_body=index == 0, source_lines=source_lines)
 
 
 def forms_in(tree: ast.Module,
-             lines: Optional[Tuple[int, int]] = None) -> List[Form]:
+             lines: Optional[Tuple[int, int]] = None,
+             source: Optional[str] = None) -> List[Form]:
     """The module body, or the part of it `lines` touches, in source order.
 
     `lines` is a 0-based inclusive line range, and a statement is in it when
@@ -743,14 +818,21 @@ def forms_in(tree: ast.Module,
     `first_in_body` is decided against the module's own body, not against the
     selection, which is what keeps a range starting at statement seven from
     turning the string it starts with into a docstring and swallowing it.
+
+    `source`, when given, is the same buffer `tree` was parsed from, split
+    once here rather than once per statement, and passed on so a compound
+    statement whose body opens with a comment anchors on its header instead of
+    on that comment. See `_anchor_line`.
     """
+    source_lines = None if source is None else source.split("\n")
     forms: List[Form] = []
     for index, node in enumerate(tree.body):
         if lines is not None:
             start, end = _span(node)
             if end < lines[0] or start > lines[1]:
                 continue
-        forms.append(form_of(node, first_in_body=index == 0))
+        forms.append(form_of(node, first_in_body=index == 0,
+                            source_lines=source_lines))
     return forms
 
 

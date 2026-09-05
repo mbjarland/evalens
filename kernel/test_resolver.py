@@ -18,9 +18,14 @@ TOUR = os.path.join(
     "examples", "tour.py")
 
 
-def resolve(src: str, line: int):
-    """Resolve at a 0-based line of `src`, which is written without indent."""
-    return form_at(ast.parse(src), line)
+def resolve(src: str, line: int, character: int = 0):
+    """Resolve at a 0-based line of `src`, which is written without indent.
+
+    `src` is threaded through as `source` too, on the same terms the kernel
+    always has it available: a caller here is never testing the reduced case
+    of a tree with no buffer behind it unless it calls `form_at` itself.
+    """
+    return form_at(ast.parse(src), line, character, source=src)
 
 
 class DisplayMapping(unittest.TestCase):
@@ -272,6 +277,82 @@ class WhereTheValueComesFrom(unittest.TestCase):
                     f"{form.display!r} is not a namespace lookup")
 
 
+class WhatTheDisplaySlotMeans(unittest.TestCase):
+    """Whether `display` names a place this statement bound, for #81.
+
+    `led["a"] = 1` used to annotate `=> 1`, as though the line only produced a
+    value rather than storing one -- because the renderer decided "is this a
+    binding" by testing whether `display` reads as a bare or dotted
+    identifier, and a subscript does not. `is_binding` is the resolver
+    answering the question itself, from the statement rather than from the
+    text, so a subscript or attribute target gets it right without the
+    renderer having to recognise more shapes of text.
+    """
+
+    def test_a_subscript_assignment_target_is_a_binding(self):
+        # The reported case, verbatim.
+        form = resolve("led['a'] = 1\n", 0)
+        self.assertEqual(form.display, "led['a']")
+        self.assertTrue(form.is_binding)
+
+    def test_an_attribute_assignment_target_is_a_binding(self):
+        form = resolve("acct.balance = 100\n", 0)
+        self.assertEqual(form.display, "acct.balance")
+        self.assertTrue(form.is_binding)
+
+    def test_a_bare_name_assignment_is_a_binding(self):
+        self.assertTrue(resolve("x = 1\n", 0).is_binding)
+
+    def test_a_bare_subscript_expression_is_not_a_binding(self):
+        # `xs[0]` alone reads a value; it does not store one. Widening the
+        # identifier test to admit subscripts without asking the statement
+        # would have called this a binding too, and mislabelled it.
+        form = resolve("xs = [5]\nxs[0]\n", 1)
+        self.assertEqual(form.display, "xs[0]")
+        self.assertFalse(form.is_binding)
+
+    def test_a_genuine_expression_is_not_a_binding(self):
+        self.assertFalse(resolve("sum([10, 20])\n", 0).is_binding)
+
+    def test_a_definition_or_import_is_still_a_binding(self):
+        for src in ("def f():\n    pass\n",
+                    "class C:\n    pass\n",
+                    "import os\n"):
+            with self.subTest(src=src):
+                self.assertTrue(resolve(src, 0).is_binding)
+
+    def test_a_loop_target_is_a_binding_whether_or_not_it_is_readable(self):
+        # `for box.item in xs:` is neither readable nor captured -- there is
+        # no value in the statement's hand the way an assignment has one --
+        # and it is still a binding: the loop stores through that target on
+        # every iteration, which is not what an ordinary expression does.
+        form = resolve("for box.item in [1, 2]:\n    pass\n", 0)
+        self.assertFalse(form.readable)
+        self.assertFalse(form.captured)
+        self.assertTrue(form.is_binding)
+
+    def test_nothing_with_no_display_is_a_binding(self):
+        for src in ("if x:\n    pass\n", "del x\n", "count: int\n",
+                    '"""Module."""\n'):
+            with self.subTest(src=src):
+                form = resolve(src, 0)
+                self.assertIsNone(form.display)
+                self.assertFalse(form.is_binding)
+
+    def test_is_binding_disagrees_with_the_identifier_text_test_exactly_where_it_should(self):
+        # The invariant the field exists to replace: only a bare expression
+        # statement is not a binding, and that is true regardless of whether
+        # `display` happens to look like a name.
+        for src in SHAPES:
+            with self.subTest(src=src):
+                form = resolve(src, 0)
+                if form.display is None:
+                    self.assertFalse(form.is_binding)
+                    continue
+                self.assertEqual(form.is_binding,
+                                 not isinstance(form.node, ast.Expr))
+
+
 #: One of every statement shape the display table has an answer for, plus the
 #: shapes that made the safety rule necessary. Written out rather than
 #: generated: the point is that a reader can see what is covered.
@@ -401,6 +482,41 @@ class Positions(unittest.TestCase):
 
     def test_an_empty_module_resolves_to_nothing(self):
         self.assertIsNone(resolve("", 0))
+
+    def test_semicolon_separated_statements_resolve_by_column(self):
+        # #18: several top-level statements can share one line only through a
+        # semicolon, and line containment alone cannot tell them apart --
+        # every candidate contains the same line. `character` is what
+        # distinguishes them, and a cursor "anywhere on that line" used to
+        # always answer the first regardless of where it actually was.
+        src = "a = 1; b = 2\n"
+        self.assertEqual(resolve(src, 0, 0).display, "a")
+        self.assertEqual(resolve(src, 0, 5).display, "a")
+        self.assertEqual(resolve(src, 0, 7).display, "b")
+        self.assertEqual(resolve(src, 0, 12).display, "b")
+
+    def test_a_character_that_lands_in_neither_falls_back_to_the_first(self):
+        # The semicolon itself, and past the end of the line: nowhere a
+        # statement's own column range covers, so the fallback the ticket
+        # asks for applies -- the first statement, which is also everything
+        # every caller before #18 already relied on `character` defaulting
+        # to 0 to get.
+        src = "a = 1; b = 2\n"
+        self.assertEqual(resolve(src, 0, 6).display, "a")
+        self.assertEqual(resolve(src, 0, 100).display, "a")
+
+    def test_three_statements_on_one_line_still_resolve_by_column(self):
+        src = "a = 1; b = 2; c = 3\n"
+        self.assertEqual(resolve(src, 0, 0).display, "a")
+        self.assertEqual(resolve(src, 0, 7).display, "b")
+        self.assertEqual(resolve(src, 0, 14).display, "c")
+
+    def test_a_single_statement_line_ignores_character_entirely(self):
+        # The overwhelmingly common case, and the one every existing caller
+        # of `form_at` was already relying on before `character` did
+        # anything: one statement per line, so any column resolves to it.
+        f = resolve("x = 1\n", 0, 4)
+        self.assertEqual(f.display, "x")
 
     def test_the_prototype_answers_reproduce(self):
         # The two answers IDEA.md cites from prototype/form_at_cursor.py.
@@ -745,6 +861,49 @@ class HeaderAnchors(unittest.TestCase):
         # from `lineno` alone would anchor the class on the decorator line.
         f = resolve("class C:\n    @property\n    def m(self):\n        pass\n", 0)
         self.assertEqual(f.anchor_line, 0)
+
+    def test_a_body_opening_with_one_comment_anchors_on_the_header(self):
+        # #93: `_start_line(body[0]) - 1` counts the comment as part of the
+        # header it merely precedes, and the value used to land beside it.
+        f = resolve("if x:\n    # a comment\n    y = 1\n", 0)
+        self.assertEqual(f.anchor_line, 0)
+
+    def test_a_body_opening_with_several_comments_anchors_on_the_header(self):
+        f = resolve(
+            "if x:\n    # first\n    # second\n    # third\n    y = 1\n", 0)
+        self.assertEqual(f.anchor_line, 0)
+
+    def test_a_comment_after_a_blank_line_still_anchors_on_the_header(self):
+        # A blank line and a comment are both not-a-statement, and the walk
+        # back has to clear both, in whatever order they open the body in.
+        f = resolve("if x:\n    # a comment\n\n    y = 1\n", 0)
+        self.assertEqual(f.anchor_line, 0)
+        f = resolve("if x:\n\n    # a comment\n    y = 1\n", 0)
+        self.assertEqual(f.anchor_line, 0)
+
+    def test_the_maintainers_reported_instance(self):
+        # The exact shape #93 was filed against, reproduced rather than
+        # paraphrased: a two-comment block opening the body of a guard.
+        f = resolve(
+            'if __name__ == "__main__":\n'
+            "    # this block runs when the file is executed directly\n"
+            "    # but NOT when another module does `import this`\n"
+            "    main()\n", 0)
+        self.assertEqual(f.anchor_line, 0)
+
+    def test_a_wrapped_header_with_a_comment_opened_body_anchors_on_the_close(self):
+        # The fix cannot be "always use `node.lineno`": a header spanning
+        # several lines still ends where its own last line is, comments in
+        # the body notwithstanding.
+        f = resolve(
+            "def f(\n    a,\n    b,\n):\n    # a comment\n    return a\n", 0)
+        self.assertEqual(f.anchor_line, 3)
+
+    def test_without_source_the_old_low_anchor_is_unchanged(self):
+        # `source_lines` is optional: a caller with only a tree, no buffer,
+        # gets the guess `_start_line` always made, comments included.
+        f = form_at(ast.parse("if x:\n    # a comment\n    y = 1\n"), 0)
+        self.assertEqual(f.anchor_line, 1)
 
 
 class FormsInARange(unittest.TestCase):

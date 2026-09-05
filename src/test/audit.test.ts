@@ -274,11 +274,49 @@ test('the shared fixture is not itself a false positive', () => {
 });
 
 test('an annotation anchored on the comment opening its body is caught', () => {
-  // #93, real and unfixed as of this commit: `_anchor_line` in
-  // `kernel/resolver.py` finds a compound statement's header by looking at
-  // the line above its first body statement, and a comment is invisible to
-  // that walk -- so a body that opens with one pushes the anchor down onto
-  // it. This is the minimal repro from the ticket.
+  // #93 has since been fixed: `_anchor_line` in `kernel/resolver.py` now
+  // walks back from its first guess past every line that is blank or a bare
+  // comment, so the real kernel can no longer be made to anchor a compound
+  // statement's value on a comment opening its body. The check is proved the
+  // way #92's undercount check is -- `measure` driven directly with a
+  // response built by hand, reproducing the exact annotation the unfixed
+  // resolver used to send for the ticket's own repro. A detector whose test
+  // depends on the bug still existing stops testing anything the moment the
+  // bug is fixed, which is exactly what happened to this test.
+  const response = {
+    statements: 1,
+    ran: 1,
+    results: [
+      {
+        ok: true, kind: 'If', display: null, value: null,
+        names: [{ name: 'd', value: '1' }],
+        anchor: 2,
+        range: { start: { line: 1, character: 0 }, end: { line: 3, character: 9 } },
+      },
+    ],
+  };
+  const lines = ['d = 1', 'if d:', '    # a comment', '    z = 9', ''];
+  const measured = auditCorpus.measure(response, lines, null, []);
+
+  // The specific diagnosis: a header-anchored statement (`if` has an
+  // `anchor` distinct from its `range`) whose anchor lands on the comment.
+  assert.equal(measured.tally.falsehoodBodyCommentAnchor, 1);
+  assert.equal(measured.falsehoods.bodyCommentAnchor.length, 1);
+  assert.equal(measured.falsehoods.bodyCommentAnchor[0]!.line, 2);
+  assert.equal(
+    measured.falsehoods.bodyCommentAnchor[0]!.host.trim(), '# a comment');
+
+  // The general property #96 is about -- an annotation beside a line that
+  // holds no statement at all -- is also true of this same hand-built
+  // instance, and is reported under its own count so the two tickets stay
+  // two numbers.
+  assert.equal(measured.tally.falsehoodOrphanAnchor, 1);
+  assert.equal(measured.falsehoods.orphanAnchor[0]!.line, 2);
+
+  // And the fixed resolver must not trip it: the same source, driven through
+  // the real kernel as it behaves today, anchors the `if` on its own header
+  // line instead of on the comment. This half is what would catch a
+  // regression of #93.
   const source = [
     'd = 1',
     'if d:',
@@ -286,22 +324,12 @@ test('an annotation anchored on the comment opening its body is caught', () => {
     '    z = 9',
     '',
   ].join('\n');
-  const { reading } = audit({ 'comment_body.py': source });
-  const file = reading.files[0]!;
-  assert.equal(file.failed, null);
-
-  // The specific diagnosis: a header-anchored statement (`if` has an
-  // `anchor` distinct from its `range`) whose anchor lands on the comment.
-  assert.equal(file.falsehoodBodyCommentAnchor, 1);
-  assert.equal(file.falsehoods.bodyCommentAnchor.length, 1);
-  assert.equal(file.falsehoods.bodyCommentAnchor[0]!.line, 2);
-  assert.equal(file.falsehoods.bodyCommentAnchor[0]!.host.trim(), '# a comment');
-
-  // The general property #96 is about -- an annotation beside a line that
-  // holds no statement at all -- is also true of this same instance, and is
-  // reported under its own count so the two tickets stay two numbers.
-  assert.equal(file.falsehoodOrphanAnchor, 1);
-  assert.equal(file.falsehoods.orphanAnchor[0]!.line, 2);
+  const live = audit({ 'comment_body.py': source }).reading.files[0]!;
+  assert.equal(live.failed, null);
+  assert.equal(live.falsehoodBodyCommentAnchor, 0,
+    'a compound statement anchors on its header since #93');
+  assert.equal(live.falsehoodOrphanAnchor, 0,
+    'the header line holds the `if` statement itself');
 });
 
 test('a multi-name import reporting too few names is caught', () => {
