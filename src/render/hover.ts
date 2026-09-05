@@ -1,8 +1,14 @@
 import * as vscode from 'vscode';
 
+import { KernelClient } from '../kernel/client';
+import { Inspected, isFailure } from '../kernel/protocol';
 import { Annotations } from './annotations';
 import { SHOW_OUTPUT } from './decorations';
+import { INSPECT_VALUE } from './explorer';
 import { hasOutput } from './format';
+import {
+  hasMoreToExplore, inspectionTable, isInspectableName,
+} from './inspector';
 import { tableMarkdown } from './table';
 
 /**
@@ -28,24 +34,48 @@ import { tableMarkdown } from './table';
  * same path a decoration's `hoverMessage` would have used, had it ever
  * matched anything.
  *
- * Reads `Annotations.at`, the same call the on-request announce command uses:
- * a read of what is already painted, never a re-evaluation. An annotation is
- * a trace (#40), and hovering must show what the statement produced when it
- * ran, not read the name again -- rereading could run a property or a
- * `__getattr__` because the mouse moved, which design rule 3 forbids outright.
+ * Reads `Annotations.at`, the same call the on-request announce command uses,
+ * for the value's own text: a read of what is already painted, never a
+ * re-evaluation. An annotation is a trace (#40), and hovering must show what
+ * the statement produced when it ran, not read the name again -- rereading
+ * could run a property or a `__getattr__` because the mouse moved, which
+ * design rule 3 forbids outright.
  *
- * #24's whole hook into this class: `annotation.table`, present only when
- * the value duck-typed as one of the shapes `kernel/tabular.py` recognises,
- * is rendered by `render/table.ts`'s `tableMarkdown` and appended after the
- * fenced value -- an elaboration of the same trace, never a replacement for
- * it, and the inline annotation beside the code is unchanged either way.
+ * #23 adds one further round trip to the kernel *when there is something safe
+ * to ask it*: `isInspectableName` accepts only a bare identifier, and a bare
+ * name is design rule 3's own example of the one expression that "is a
+ * dictionary lookup and cannot run anything". The kernel's `inspect` op keeps
+ * that property one level down as well -- see `Kernel.inspect_value` -- so
+ * the request this issues is exactly as safe as the read `annotations.at`
+ * already performs, not a loosening of it. What this must never become is a
+ * request built from anything *other* than a bare name: `self.x`, `d['key']`
+ * or a tuple target would have to run a getter or a `__getitem__` to answer,
+ * which is precisely the re-evaluation this file's own history warns against.
+ *
+ * #24 hooks in the same way: `annotation.table`, present only when the value
+ * duck-typed as one of the shapes `kernel/tabular.py` recognises, is
+ * rendered by `render/table.ts`'s `tableMarkdown` and appended after the
+ * fenced value. It and the inspection above are elaborations of one trace
+ * and do not compete -- the table says what the value *is*, the inspection
+ * says what is inside it -- and the inline annotation beside the code is
+ * unchanged either way.
  */
 export class ValueHoverProvider implements vscode.HoverProvider {
-  constructor(private readonly annotations: Annotations) {}
+  constructor(
+    private readonly annotations: Annotations,
+    /**
+     * A getter rather than a stored reference: the kernel client is not
+     * spawned until the first evaluation, so a hover registered at
+     * activation has to ask for whatever exists *now*. By the time there is
+     * an annotation to hover at all, an evaluation has already run and the
+     * client this returns is never undefined in practice.
+     */
+    private readonly getClient: () => KernelClient | undefined
+  ) {}
 
-  provideHover(
+  async provideHover(
     document: vscode.TextDocument, position: vscode.Position
-  ): vscode.Hover | undefined {
+  ): Promise<vscode.Hover | undefined> {
     const annotation = this.annotations.at(document, position.line);
     // Nothing while a statement is still running: `pending` carries no
     // `hover` text, only a message about what it is waiting on, and that
@@ -57,21 +87,72 @@ export class ValueHoverProvider implements vscode.HoverProvider {
     }
 
     // Same wrapping `decorations.ts` used to build: a fenced block for the
-    // value, the table when there is one, plus the one link to the channel
-    // holding what does not fit here either, and only where there is
-    // something in it to reach.
-    const message = new vscode.MarkdownString(
-      ['```', annotation.hover, '```',
-        ...(annotation.table
-          ? ['', tableMarkdown(annotation.table)]
-          : []),
-        ...(hasOutput(annotation.printed)
-          ? [`[Show all output](command:${SHOW_OUTPUT})`]
-          : [])].join('\n'));
-    // Narrow rather than a blanket `true`: a hover that can run one named
-    // command is a link, and a hover that can run anything is a hole.
-    message.isTrusted = { enabledCommands: [SHOW_OUTPUT] };
+    // value, then the elaborations, then the one link to the channel holding
+    // what does not fit here either.
+    //
+    // #24's table and #23's inspection are both elaborations of the same
+    // trace and they do not compete: the table describes the value's own
+    // shape when it duck-types as a sequence of records, while the
+    // inspection lists a value's children whatever shape it has. A value
+    // that is both a table and worth opening gets both, table first --
+    // it says what the thing *is* before the children say what is in it.
+    const lines = ['```', annotation.hover, '```'];
+
+    if (annotation.table) {
+      lines.push('', tableMarkdown(annotation.table));
+    }
+
+    const inspected = await this.inspect(annotation.display);
+    if (inspected) {
+      const table = inspectionTable(inspected);
+      if (table !== undefined) {
+        lines.push('', table);
+      }
+      if (hasMoreToExplore(inspected)) {
+        const args = encodeURIComponent(JSON.stringify([annotation.display]));
+        lines.push('', `[Explore ▸](command:${INSPECT_VALUE}?${args})`);
+      }
+    }
+
+    if (hasOutput(annotation.printed)) {
+      lines.push(`[Show all output](command:${SHOW_OUTPUT})`);
+    }
+
+    const message = new vscode.MarkdownString(lines.join('\n'));
+    // Narrow rather than a blanket `true`: a hover that can run one or two
+    // named commands is a link, and a hover that can run anything is a hole.
+    message.isTrusted = { enabledCommands: [SHOW_OUTPUT, INSPECT_VALUE] };
 
     return new vscode.Hover(message, document.lineAt(position.line).range);
+  }
+
+  /**
+   * One level of `display`'s children, or `undefined` when there is nothing
+   * to ask -- `display` is not a bare name, no kernel has been started yet,
+   * or the request failed for a reason worth showing the plain repr instead
+   * of an error about.
+   *
+   * Never throws: a hover that raised over a failed drill-down would be a
+   * worse regression than showing the value without a table, since the
+   * table is additive and the repr above it is the answer that already
+   * worked before this ticket existed.
+   */
+  private async inspect(
+    display: string | null | undefined
+  ): Promise<Inspected | undefined> {
+    if (!isInspectableName(display)) {
+      return undefined;
+    }
+    const client = this.getClient();
+    if (!client) {
+      return undefined;
+    }
+    try {
+      const response = await client.request(
+        { op: 'inspect', name: display, path: [] });
+      return isFailure(response) ? undefined : (response as Inspected);
+    } catch {
+      return undefined;
+    }
   }
 }

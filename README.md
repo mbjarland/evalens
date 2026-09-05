@@ -113,6 +113,7 @@ without a way to run these.
 | Evalens: Evaluate Above Cursor | Resets the namespace and runs everything above the statement the cursor is in, stopping at the first failure |
 | Evalens: Clear Inline Results | Removes the annotations from the active editor |
 | Evalens: Announce Result at Cursor | Puts what is painted on the cursor's line into a notification, where a screen reader reads it |
+| Evalens: Inspect Value | Opens a QuickPick over the fields of the value at the cursor, for going deeper than the hover's own table |
 | Evalens: Interrupt Evaluation | Stops a running evaluation and keeps the namespace it built |
 | Evalens: Restart Kernel | Throws away the namespace and starts a fresh interpreter |
 | Evalens: Clear Input Answers | Forgets every replayed `input()` answer, keeping the namespace |
@@ -382,6 +383,35 @@ in the error colour: a library writing a warning has not failed.
 The channel never opens itself and never takes the cursor. Output belongs
 beside the code that produced it; a panel would put the answer somewhere other
 than the code, which is the problem this extension exists to solve.
+
+## Looking inside a value
+
+An annotation is one line, which is exactly right for `[1, 2, 3]` and not
+enough for a value with fields. Hover it, and if it is a plain name — `config`
+in `config = {...}`, not `self.x` or `d['key']` — the hover adds a table of one
+level of its children, type in braces, next to the value it belongs to:
+
+```
+config: {'host': 'localhost', 'port': 8080}
+
+| Field    | Type    | Value          |
+| -------- | ------- | -------------- |
+| 'host'   | {str}   | 'localhost'    |
+| 'port'   | {int}   | 8080           |
+```
+
+Nothing here is evaluated to build the table. A `@property` shows as a row
+marked *not evaluated* rather than being read, and a field whose own class
+overrides how it is indexed is left alone rather than walked — see
+`docs/development/design-rules.md`, rule 3. Fields with their own children get
+an **Explore ▸** link, which opens **Evalens: Inspect Value** as a QuickPick:
+picking a field goes one level deeper, `$(arrow-left) Back` goes up, and
+`Escape` closes it — a keyboard-driven way to walk a nested structure without
+ever leaving the editor for a panel.
+
+Every level is fetched only when asked for and capped at 100 rows, so hovering
+a value with five million elements costs the same hundred rows a five-element
+one would.
 
 ## Answering input()
 

@@ -205,6 +205,9 @@ class KernelProcess:
             result = self.evaluate(source, line, **extra)
         return result
 
+    def inspect(self, name, path=None):
+        return self.send(op="inspect", name=name, path=path or [])
+
     def close(self):
         try:
             self.proc.stdin.close()
@@ -3884,6 +3887,212 @@ class LargeValues(KernelTest):
         self.assertTrue(value.endswith("]]"), value[-20:])
         self.assertGreater(value.count("more chars)"), 1)
         self.assertLess(elapsed, self.BUDGET)
+
+
+class Inspecting(KernelTest):
+    """#23: one level of a value's children, for the object explorer.
+
+    The property this class exists to pin above every other one: nothing
+    here ever calls anything the user's code defines. `NoExecution` proves
+    it directly, with a class built to announce the two calls design rule 3
+    forbids; the rest of this class is the ordinary shape of the feature.
+    """
+
+    def test_a_dict_lists_its_items_by_key(self):
+        self.k.evaluate("config = {'host': 'localhost', 'port': 8080}\n", 0)
+        result = self.k.inspect("config")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["type"], "dict")
+        names = [child["name"] for child in result["children"]]
+        self.assertEqual(names, ["'host'", "'port'"])
+        self.assertEqual(result["children"][0]["type"], "str")
+        self.assertEqual(result["children"][0]["value"], "'localhost'")
+        self.assertEqual(result["children"][1]["type"], "int")
+        self.assertEqual(result["children"][1]["value"], "8080")
+        self.assertEqual(result["count"], 2)
+        self.assertFalse(result["truncated"])
+
+    def test_a_plain_instance_lists_its_own_dict(self):
+        source = (
+            "class User:\n"
+            "    def __init__(self, name, age):\n"
+            "        self.name = name\n"
+            "        self.age = age\n"
+            "user = User('Jane Smith', 25)\n"
+        )
+        self.k.evaluate_lines(source, 0, 1, 2, 3, 4)
+        result = self.k.inspect("user")
+        self.assertEqual(result["type"], "User")
+        by_name = {child["name"]: child for child in result["children"]}
+        self.assertEqual(by_name["name"]["value"], "'Jane Smith'")
+        self.assertEqual(by_name["age"]["value"], "25")
+        self.assertEqual(by_name["name"]["kind"], "attr")
+        self.assertEqual(by_name["name"]["step"], {"kind": "attr", "name": "name"})
+
+    def test_a_property_is_shown_unevaluated(self):
+        source = (
+            "class Config:\n"
+            "    def __init__(self):\n"
+            "        self.host = 'localhost'\n"
+            "    @property\n"
+            "    def url(self):\n"
+            "        raise AssertionError('must not run')\n"
+            "cfg = Config()\n"
+        )
+        self.k.evaluate_lines(source, *range(7))
+        result = self.k.inspect("cfg")
+        by_name = {child["name"]: child for child in result["children"]}
+        self.assertEqual(by_name["host"]["value"], "'localhost'")
+        prop = by_name["url"]
+        self.assertEqual(prop["kind"], "property")
+        self.assertFalse(prop["expandable"])
+        self.assertFalse(prop["evaluated"])
+        self.assertNotIn("step", prop)
+        self.assertIsNone(prop["value"])
+
+    def test_a_list_of_dicts_is_addressed_by_position_not_key(self):
+        source = "rows = [{'id': 1}, {'id': 2}]\n"
+        self.k.evaluate(source, 0)
+        result = self.k.inspect("rows")
+        self.assertEqual([c["name"] for c in result["children"]],
+                         ["[0]", "[1]"])
+        first_step = result["children"][0]["step"]
+        self.assertEqual(first_step, {"kind": "item", "index": 0})
+        nested = self.k.inspect("rows", path=[first_step])
+        self.assertEqual(nested["type"], "dict")
+        self.assertEqual(nested["children"][0]["name"], "'id'")
+        self.assertEqual(nested["children"][0]["value"], "1")
+        deeper = self.k.inspect(
+            "rows", path=[first_step, nested["children"][0]["step"]])
+        self.assertEqual(deeper["value"], "1")
+        self.assertEqual(deeper["children"], [])
+
+    def test_a_set_is_addressed_by_position(self):
+        self.k.evaluate("s = {10, 20, 30}\n", 0)
+        result = self.k.inspect("s")
+        self.assertEqual(len(result["children"]), 3)
+        self.assertEqual(
+            [c["step"] for c in result["children"]],
+            [{"kind": "item", "index": i} for i in range(3)])
+
+    def test_a_dict_subclass_with_its_own_getitem_is_not_walked_as_a_dict(self):
+        # #73's rule applied to `__getitem__` instead of `__repr__`: a
+        # mapping that overrode how it is read is not a safe dict to open,
+        # whatever it inherits `__repr__` from.
+        source = (
+            "class LazyRow(dict):\n"
+            "    def __getitem__(self, key):\n"
+            "        raise AssertionError('must not run')\n"
+            "row = LazyRow(a=1, b=2)\n"
+        )
+        self.k.evaluate_lines(source, 0, 1, 2, 3)
+        result = self.k.inspect("row")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["children"], [])
+        self.assertEqual(result["count"], 0)
+
+    def test_children_are_capped_and_the_total_is_still_exact(self):
+        self.k.evaluate("nums = list(range(250))\n", 0)
+        result = self.k.inspect("nums")
+        self.assertEqual(len(result["children"]), 100)
+        self.assertEqual(result["count"], 250)
+        self.assertTrue(result["truncated"])
+
+    def test_a_huge_list_is_inspected_without_walking_all_of_it(self):
+        self.k.evaluate("big = list(range(5_000_000))\n", 0)
+        start = time.monotonic()
+        result = self.k.inspect("big")
+        elapsed = time.monotonic() - start
+        self.assertEqual(len(result["children"]), 100)
+        self.assertEqual(result["count"], 5_000_000)
+        self.assertTrue(result["truncated"])
+        self.assertLess(elapsed, 0.5, f"took {elapsed:.3f}s")
+
+    def test_a_generator_has_nothing_to_show_and_is_not_advanced(self):
+        source = "def counter():\n    yield 1\n    yield 2\ngen = counter()\n"
+        self.k.evaluate_lines(source, 0, 1, 2, 3)
+        result = self.k.inspect("gen")
+        self.assertEqual(result["children"], [])
+        # If inspecting had advanced it, the first value would be gone.
+        self.assertEqual(self.k.evaluate("next(gen)\n", 0)["value"], "1")
+
+    def test_an_unbound_name_is_reported_rather_than_raising(self):
+        result = self.k.inspect("nope")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["type"], "NotFound")
+
+    def test_a_name_that_is_not_an_identifier_is_rejected(self):
+        for bad in ["self.x", "d['k']", "a, b", "1abc", ""]:
+            result = self.k.inspect(bad)
+            self.assertFalse(result["ok"], bad)
+            self.assertEqual(result["error"]["type"], "InvalidRequest", bad)
+
+    def test_a_step_that_no_longer_resolves_is_reported_not_raised(self):
+        self.k.evaluate("xs = [1, 2, 3]\n", 0)
+        stale = {"kind": "item", "index": 9}
+        result = self.k.inspect("xs", path=[stale])
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["type"], "NotFound")
+
+    def test_inspecting_never_bumps_the_execution_counter(self):
+        # `inspect` must not count as an evaluation for anything that tracks
+        # "the last thing the user ran" -- the Jupyter `silent` contract this
+        # ticket's discussion calls for. A rebind after inspecting still
+        # lands where a plain rebind would.
+        self.k.evaluate("x = 1\n", 0)
+        self.k.inspect("x")
+        self.k.inspect("x")
+        source = "x = 2\nx\n"
+        self.k.evaluate(source, 0)
+        self.assertEqual(self.k.evaluate(source, 1)["value"], "2")
+
+
+class NoExecution(KernelTest):
+    """The proof #68 was proved with, aimed at this ticket's own walk.
+
+    One class announces both calls design rule 3 forbids -- a `@property`
+    getter and a mapping's own `__getitem__` -- by appending to a list nothing
+    else in this test touches. Driving `inspect` down through it, repeatedly
+    and from both the root and a step already handed back, and finding that
+    list still empty at the end is the whole of the guarantee: not "no
+    exception was raised", but "the call never happened".
+    """
+
+    def test_a_property_and_a_custom_getitem_are_never_called(self):
+        source = (
+            "calls = []\n"
+            "class Probe(dict):\n"
+            "    def __init__(self):\n"
+            "        super().__init__(x=1, y=2)\n"
+            "        self.plain = 'ok'\n"
+            "    @property\n"
+            "    def risky(self):\n"
+            "        calls.append('property')\n"
+            "        return 'should not run'\n"
+            "    def __getitem__(self, key):\n"
+            "        calls.append('getitem')\n"
+            "        raise AssertionError('should not run')\n"
+            "probe = Probe()\n"
+        )
+        self.k.evaluate_lines(source, *range(13))
+
+        root = self.k.inspect("probe")
+        self.assertTrue(root["ok"], root)
+        by_name = {child["name"]: child for child in root["children"]}
+        self.assertEqual(set(by_name), {"plain", "risky"})
+        self.assertEqual(by_name["plain"]["value"], "'ok'")
+        self.assertEqual(by_name["risky"]["kind"], "property")
+
+        # Asking for the property's own children -- as a client would if it
+        # ever mistakenly tried to expand one -- still must not call it: the
+        # kernel answers from the step it has, not from the name in it.
+        fabricated = {"kind": "attr", "name": "risky"}
+        blocked = self.k.inspect("probe", path=[fabricated])
+        self.assertFalse(blocked["ok"])
+
+        self.assertEqual(
+            self.k.evaluate("calls\n", 0)["value"], "[]",
+            "a property getter or a custom __getitem__ ran during inspect")
 
 
 class Protocol(KernelTest):

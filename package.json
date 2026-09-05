@@ -87,6 +87,10 @@
       {
         "command": "evalens.fixKeybindingConflict",
         "title": "Evalens: Fix Keybinding Conflict"
+      },
+      {
+        "command": "evalens.inspectValue",
+        "title": "Evalens: Inspect Value"
       }
     ],
     "configuration": {

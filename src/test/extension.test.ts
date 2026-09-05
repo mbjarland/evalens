@@ -14,8 +14,9 @@ import * as path from 'node:path';
 const childProcess = require('node:child_process') as typeof ChildProcess;
 
 import {
-  FakeRange, FakeVscode, createEditor, createExtensionContext, createFakeVscode,
-  loadCompiledExtension, paintedLineText, paintedLines,
+  FakeEditor, FakeHover, FakeMarkdownString, FakePosition, FakeRange,
+  FakeSelection, FakeVscode, createEditor, createExtensionContext,
+  createFakeVscode, loadCompiledExtension, paintedLineText, paintedLines,
 } from './harness/fakeVscode';
 
 /**
@@ -537,6 +538,176 @@ test('activation registers a hover provider for Python', async () => {
       'exactly one hover provider should be registered');
     assert.ok(fake.hoverProviders[0]!.provider,
       'a provider object, not undefined');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+// -- #23: the inline object explorer's hover table and drill-down -----------
+
+interface FakeHoverProvider {
+  provideHover(
+    document: unknown, position: FakePosition
+  ): Promise<FakeHover | undefined>;
+}
+
+function hoverProvider(fake: FakeVscode): FakeHoverProvider {
+  return fake.hoverProviders[0]!.provider as FakeHoverProvider;
+}
+
+/** The markdown a hover over `line` shows, or `undefined` for no hover at
+ * all -- driven through the real kernel, exactly as a mouse would trigger
+ * it, never by calling anything in `render/inspector.ts` directly. */
+async function hoverTextAt(
+  fake: FakeVscode, editor: FakeEditor, line: number
+): Promise<string | undefined> {
+  const hover = await hoverProvider(fake).provideHover(
+    editor.document, new FakePosition(line, 0));
+  return (hover?.contents as FakeMarkdownString | undefined)?.value;
+}
+
+test('hovering a bare dict shows its fields as a table', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor("config = {'host': 'localhost', 'port': 8080}\n");
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    await (fake.commands.registered.get('evalens.evaluateAtCursor') as
+      () => Promise<void>)();
+
+    const text = await hoverTextAt(fake, editor, 0);
+    assert.ok(text, 'expected a hover over the annotated line');
+    assert.match(text!, /\| Field \| Type \| Value \|/);
+    assert.match(text!, /'host' \| \{str\} \| 'localhost'/);
+    assert.match(text!, /'port' \| \{int\} \| 8080/);
+    // Both fields fit in the table already shown -- nothing more to open.
+    assert.doesNotMatch(text!, /Explore/);
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('hovering a value that is not a bare name adds no table', async () => {
+  // `print(...)` is design rule 3's own example of a display that would
+  // have to run something to re-resolve -- the hover must fall back to
+  // exactly what it showed before this ticket, not attempt to inspect it.
+  const fake = createFakeVscode();
+  const editor = createEditor("print('hello')\n");
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    await (fake.commands.registered.get('evalens.evaluateAtCursor') as
+      () => Promise<void>)();
+
+    const text = await hoverTextAt(fake, editor, 0);
+    assert.ok(text, 'expected the plain hover to survive');
+    assert.doesNotMatch(text!, /\| Field \| Type \| Value \|/);
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('a value with something further to open gets an Explore link', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor(
+    "data = {'user': {'name': 'Jane Smith', 'age': 25}}\n");
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    await (fake.commands.registered.get('evalens.evaluateAtCursor') as
+      () => Promise<void>)();
+
+    const text = await hoverTextAt(fake, editor, 0);
+    assert.match(text!, /'user' \| \{dict\}/);
+    assert.match(text!, /\[Explore ▸\]\(command:evalens\.inspectValue\?/);
+    assert.match(text!, /%22data%22/, // encodeURIComponent(JSON.stringify(["data"]))
+      'the link must carry the exact namespace name, not a guess at one');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('a property is shown unevaluated in the hover table, and never called', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor(
+    "class Config:\n"
+    + "    def __init__(self):\n"
+    + "        self.host = 'localhost'\n"
+    + "    @property\n"
+    + "    def url(self):\n"
+    + "        raise AssertionError('must not run')\n"
+    + "cfg = Config()\n"
+  );
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    const evaluateAtCursor =
+      fake.commands.registered.get('evalens.evaluateAtCursor') as () => Promise<void>;
+    for (let line = 0; line < 7; line += 1) {
+      editor.selection = new FakeSelection(
+        new FakePosition(line, 0), new FakePosition(line, 0));
+      await evaluateAtCursor();
+    }
+
+    const text = await hoverTextAt(fake, editor, 6);
+    assert.match(text!, /'localhost'/);
+    assert.match(text!, /\| url \| \{property\} \| \*not evaluated\* \|/);
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('Evalens: Inspect Value walks into a nested value and back out, ' +
+  'reaching only the real kernel', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor(
+    "data = {'user': {'name': 'Jane Smith', 'age': 25}}\n");
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    await (fake.commands.registered.get('evalens.evaluateAtCursor') as
+      () => Promise<void>)();
+
+    // Down into `user`, look at the list, then back out and give up --
+    // three real `inspect` round trips to the same kernel the annotation
+    // itself came from.
+    fake.quickPick.picks.push("$(chevron-right) 'user'", undefined);
+    await fake.executeCommand('evalens.inspectValue', 'data');
+
+    assert.equal(fake.quickPick.calls.length, 2,
+      'one inspect per level shown, root then one level down');
+    assert.deepEqual(fake.quickPick.calls[0]!.labels, ["$(chevron-right) 'user'"]);
+    assert.deepEqual(
+      fake.quickPick.calls[1]!.labels,
+      ['$(arrow-left) Back', "'name'", "'age'"],
+      'a deeper level offers Back first, then its own fields in their ' +
+      "dict's own insertion order");
+    assert.equal(fake.messages.warning.length, 0,
+      'no failure should have been reported for a value the kernel can walk');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('Evalens: Inspect Value with no name falls back to the cursor, ' +
+  'and says so when there is nothing there', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor("print('hi')\n");
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    await (fake.commands.registered.get('evalens.evaluateAtCursor') as
+      () => Promise<void>)();
+
+    await fake.executeCommand('evalens.inspectValue');
+
+    assert.equal(fake.quickPick.calls.length, 0, 'nothing safe to inspect here');
   } finally {
     extension.deactivate();
   }
