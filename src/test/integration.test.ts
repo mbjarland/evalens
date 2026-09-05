@@ -365,6 +365,30 @@ test('unpacking names each binding rather than echoing the line', async (t) => {
   ]);
 });
 
+test('a multi-name import names every binding rather than one signature', async (t) => {
+  // The other shape the same restatement bug took: `from math import floor,
+  // ceil, sqrt` painted `def floor(x, /)` -- the first binding, presented as
+  // though it were the statement's whole value, with `ceil` and `sqrt` bound
+  // and never mentioned. `itertools` and `sys` are true interpreter
+  // builtins, so their reprs are exact regardless of which Python this runs
+  // against.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = [
+    'import itertools, sys',
+    'from math import floor, ceil, sqrt',
+    'from math import sqrt as root, floor',
+  ].join('\n') + '\n';
+
+  assert.deepEqual(await paint(client, source, [0, 1, 2]), [
+    "itertools: <module 'itertools' (built-in)>   "
+      + "sys: <module 'sys' (built-in)>",
+    'floor: def floor(x, /)   ceil: def ceil(x, /)   sqrt: def sqrt(x, /)',
+    'root: def sqrt(x, /)   floor: def floor(x, /)',
+  ]);
+});
+
 test('an expression keeps its arrow, and a call keeps its result', async (t) => {
   // The three shapes that look alike and are not. `sum([10, 20]): 30` would
   // repeat the line back at the reader, so it keeps the arrow. `y.pop()`

@@ -2584,6 +2584,65 @@ class Names(KernelTest):
         self.assertEqual(self.pairs(result["results"][1]),
                          [("y", "[1, 2, 3]")])
 
+    def test_a_multi_name_from_import_names_every_binding(self):
+        # The ticket's case: `from math import floor, ceil, sqrt` annotated
+        # `def floor(x, /)`, reporting one of three bindings as though it
+        # were the statement's whole value, with no sign the other two
+        # existed.
+        result = self.k.evaluate("from math import floor, ceil, sqrt\n", 0)
+        self.assertIsNone(result["display"])
+        self.assertIsNone(result["value"])
+        self.assertEqual(
+            self.pairs(result),
+            [("floor", "def floor(x, /)"), ("ceil", "def ceil(x, /)"),
+             ("sqrt", "def sqrt(x, /)")])
+
+    def test_a_multi_name_plain_import_names_every_module_it_bound(self):
+        # A module is exactly what an import line means to report, and
+        # exactly the kind of value `_worth_a_pair` hides everywhere else --
+        # rightly, on a line that only *mentions* a module (see
+        # `test_a_module_is_skipped` above), wrongly on the one line whose
+        # entire effect is binding it.
+        #
+        # `itertools` and `sys` are true interpreter builtins on every Python
+        # this suite runs against, 3.9 through 3.13, so their reprs are exact
+        # and stable. The ticket's own example, `import os, sys`, is checked
+        # too, but `os` by shape rather than by exact text: its repr says
+        # `(frozen)` on a newer interpreter and names a `.py` file on an
+        # older one.
+        result = self.k.evaluate("import itertools, sys\n", 0)
+        self.assertIsNone(result["display"])
+        self.assertEqual(
+            self.pairs(result),
+            [("itertools", "<module 'itertools' (built-in)>"),
+             ("sys", "<module 'sys' (built-in)>")])
+
+        ticket = dict(self.pairs(self.k.evaluate("import os, sys\n", 0)))
+        self.assertRegex(ticket["os"], r"^<module 'os'")
+        self.assertEqual(ticket["sys"], "<module 'sys' (built-in)>")
+
+    def test_an_aliased_multi_name_import_names_every_alias(self):
+        result = self.k.evaluate("from math import sqrt as root, floor\n", 0)
+        self.assertIsNone(result["display"])
+        self.assertEqual(
+            self.pairs(result),
+            [("root", "def sqrt(x, /)"), ("floor", "def floor(x, /)")])
+
+    def test_a_line_that_merely_mentions_an_import_is_still_filtered(self):
+        # The distinction the fix has to preserve: `_worth_a_pair` skips a
+        # module only for the import statement that bound it, not for every
+        # later line that happens to name it.
+        result = self.k.evaluate_lines(
+            "import os, sys\nos.getcwd()\n", 0, 1)
+        self.assertEqual(self.pairs(result), [])
+
+    def test_a_single_name_import_is_unaffected(self):
+        # The display slot still holds the one name a single-alias import
+        # binds; only a multi-name import routes through `names`.
+        result = self.k.evaluate("import math\n", 0)
+        self.assertEqual(result["display"], "math")
+        self.assertNotIn("names", result)
+
 
 class StarImports(KernelTest):
     """`from pkg import *` ran, bound its names, and was painted as broken.

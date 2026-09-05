@@ -1560,7 +1560,17 @@ def wire_value(
     return _capped(description, limit), text
 
 
-def _worth_a_pair(value: Any) -> bool:
+#: Statement kinds where a module or a callable IS the value the line means to
+#: report, rather than machinery the line happens to mention.
+#:
+#: `import os` and `from math import floor` exist to bind exactly those
+#: things -- there is no other value an import could ever produce -- so the
+#: rule that hides `<module 'os'>` beside a line that merely *names* `os` is
+#: exactly backwards on the one line whose entire effect is creating it.
+_BINDS_MODULES_AND_CALLABLES = ("Import", "ImportFrom")
+
+
+def _worth_a_pair(value: Any, kind: str = "") -> bool:
     """Is this a value, or is it the machinery the line is written with?
 
     `print`, `type` and `isinstance` are noise beside the code that calls
@@ -1571,12 +1581,21 @@ def _worth_a_pair(value: Any) -> bool:
     A user's own function is skipped by the same rule. Its signature is worth
     showing when the `def` runs -- which is where the `def` already shows it --
     and not on every line that calls it afterwards.
+
+    `kind` is `form.kind`, the statement this value was read for. An import is
+    the exception to all of the above: `os` beside `import os, sys` is not the
+    machinery the line is written with, it is the line's whole subject, and
+    the rule cannot tell the two situations apart without being told which
+    statement it is looking at.
     """
+    if kind in _BINDS_MODULES_AND_CALLABLES:
+        return True
     return not inspect.ismodule(value) and not callable(value)
 
 
 def _named_values(
-    namespace: Dict[str, Any], names: Iterable[str], limit: int = NAME_LIMIT
+    namespace: Dict[str, Any], names: Iterable[str], limit: int = NAME_LIMIT,
+    kind: str = ""
 ) -> Tuple[list, int]:
     """What the names on a line hold, and how many the cap left out.
 
@@ -1601,6 +1620,11 @@ def _named_values(
     A `limit` of zero is the off switch for `evalens.readNames`. Nothing is
     read: every name goes to the count, which is the honest thing for a line
     that was asked to report none of them to say.
+
+    `kind` is `form.kind`, threaded through to `_worth_a_pair` unchanged: it is
+    the one thing this function knows that the value alone does not say, and
+    it is what lets an import report the module or function it just bound
+    instead of having `_worth_a_pair` mistake it for the line's machinery.
     """
     pairs = []
     more = 0
@@ -1608,7 +1632,7 @@ def _named_values(
         if name not in namespace:
             continue
         value = namespace[name]
-        if not _worth_a_pair(value):
+        if not _worth_a_pair(value, kind):
             continue
         if len(pairs) >= limit:
             # Counted, never `repr()`-ed. The cap is what keeps a line from
@@ -2636,7 +2660,7 @@ class Kernel:
                 # leaves out is counted rather than dropped in silence.
                 names, more_names = _named_values(
                     self.namespace, _unwatched(form.names, recorders),
-                    limits["names"])
+                    limits["names"], kind=form.kind)
             except BaseException as exc:  # noqa: BLE001
                 # BaseException, not Exception, and this catch carries more
                 # weight than it looks like it does.

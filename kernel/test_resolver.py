@@ -92,6 +92,26 @@ class DisplayMapping(unittest.TestCase):
         self.assertEqual(resolve("from x import y\n", 0).display, "y")
         self.assertEqual(resolve("from x import y as z\n", 0).display, "z")
 
+    def test_a_multi_name_import_leaves_the_display_slot_empty(self):
+        # `import os, sys` and `from math import floor, ceil, sqrt` bind
+        # several names, and the display slot holds one -- the same shape as
+        # `d1, d2 = ...` above. `_first_bound_name(node.names[0])` used to
+        # answer with the first binding as though it were the statement's
+        # whole value: `from math import floor, ceil, sqrt` annotated `def
+        # floor(x, /)`, and `ceil` and `sqrt` were bound and never named.
+        self.assertIsNone(resolve("import os, sys\n", 0).display)
+        self.assertIsNone(
+            resolve("from math import floor, ceil, sqrt\n", 0).display)
+        self.assertIsNone(
+            resolve("from math import sqrt as root, floor\n", 0).display)
+        # A relative import is the same shape one dot earlier; the resolver
+        # never inspects `level`. Executing one from a directly-evaluated
+        # file is its own gap -- the namespace `_as_module` builds has no
+        # `__package__` -- so this is proved at the parse level, which is
+        # where the fix lives, rather than by running it.
+        self.assertIsNone(resolve("from . import a, b\n", 0).display)
+        self.assertIsNone(resolve("from .sibling import a, b\n", 0).display)
+
     def test_a_star_import_shows_nothing(self):
         # There is no one name to show: what `*` binds is decided at runtime
         # by the exporting module. The alias's name is the literal `"*"`, and
@@ -278,7 +298,9 @@ SHAPES = (
     "async def g():\n    pass\n",
     "class C:\n    pass\n",
     "import os.path\n",
+    "import os, sys\n",
     "from x import y as z\n",
+    "from x import a, b, c\n",
     "from x import *\n",
     "for i in range(3):\n    pass\n",
     "for k, v in d.items():\n    pass\n",
@@ -523,7 +545,22 @@ class AnnotatedNames(unittest.TestCase):
         self.assertEqual(self.names("del scratch\n"), ())
 
     def test_an_import_offers_the_names_it_bound(self):
-        self.assertEqual(self.names("import os, sys\n"), ("sys",))
+        # The display slot is empty for a multi-name import, so nothing here
+        # is repeated and the bindings are the whole annotation, in source
+        # order -- the same rule an unpacking assignment follows above.
+        # Before the fix, `os` was the display and `_already_shown` dropped
+        # it here, leaving only `("sys",)` -- one name reported, one silently
+        # not.
+        self.assertEqual(self.names("import os, sys\n"), ("os", "sys"))
+        self.assertEqual(
+            self.names("from math import floor, ceil, sqrt\n"),
+            ("floor", "ceil", "sqrt"))
+        self.assertEqual(
+            self.names("from math import sqrt as root, floor\n"),
+            ("root", "floor"))
+        # `import os.path, sys` still binds `os`, not `os.path`.
+        self.assertEqual(self.names("import os.path, sys\n"), ("os", "sys"))
+        self.assertEqual(self.names("from . import a, b\n"), ("a", "b"))
 
     def test_a_docstring_offers_nothing(self):
         self.assertEqual(self.names('"""The module."""\n'), ())
@@ -603,6 +640,15 @@ class DefsAndUses(unittest.TestCase):
         self.assertEqual(self.defs("import json as encoder\n"), ("encoder",))
         self.assertEqual(self.defs("from decimal import Decimal\n"),
                          ("Decimal",))
+
+    def test_a_multi_name_import_binds_every_name(self):
+        # `visit_Import` already walked every alias for this question; only
+        # `annotated_names`, asked for what to *show*, used to lose the rest
+        # to the display slot. This walk was never the bug.
+        self.assertEqual(self.defs("import os, sys\n"), ("os", "sys"))
+        self.assertEqual(
+            self.defs("from math import floor, ceil, sqrt\n"),
+            ("floor", "ceil", "sqrt"))
 
     def test_an_expression_reads_and_binds_nothing(self):
         self.assertEqual(self.defs("print('hi', y)\n"), ())

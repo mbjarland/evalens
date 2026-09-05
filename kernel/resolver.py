@@ -276,6 +276,20 @@ def _display_target(node: ast.stmt) -> Optional[Union[ast.expr, str]]:
         # None for `from pkg import *`, which binds a set of names rather than
         # one and has nothing for the display slot. What it did bind is the
         # kernel's to report, from the module rather than from the parse.
+        if len(node.names) > 1:
+            # `import os, sys` and `from math import floor, ceil, sqrt` bind
+            # several names, and the display slot holds one -- the same shape
+            # as `d1, d2 = ...` above. Answering with `node.names[0]` reported
+            # the first binding as though it were the statement's whole
+            # value, and the ones after it went unmentioned: `from math
+            # import floor, ceil, sqrt` annotated `def floor(x, /)`, and
+            # `ceil` and `sqrt` were bound and never named.
+            #
+            # Leaving the slot empty hands the whole line to `annotated_names`
+            # the same way an unpacking assignment does: `visit_Import`
+            # already walks every alias in source order, so this is
+            # composition rather than new display.
+            return None
         return _first_bound_name(node.names[0])
     if isinstance(node, (ast.For, ast.AsyncFor)):
         # The target usually labels a sequence rather than a value: the kernel
@@ -310,7 +324,9 @@ def display_expr(node: ast.stmt, first_in_body: bool = False) -> Optional[str]:
 
     An unpacking assignment answers `None` for a different reason: it has
     several things to display rather than none, and `annotated_names` is where
-    several go. See `_display_target`.
+    several go. See `_display_target`. A multi-name import is the same shape:
+    `import os, sys` binds two names, not one, and `annotated_names` is where
+    the second one gets named at all.
 
     A docstring is the one statement whose value is real and worth nothing:
     restating a module's opening paragraph back at its author, with the
