@@ -133,8 +133,9 @@ Well-documented, well-trodden.
   for exactly this reason, on a file named `intrprog.py`.
 - **Value formatting.** Truncation limits, nesting depth, hover-for-full,
   and sensible `repr()` handling of large or cyclic structures.
-- **Decoration lifecycle.** Clear on edit, dismiss on Escape, reposition
-  as the document changes. Fiddly rather than difficult.
+- **Decoration lifecycle.** Clear what an edit touched, dismiss on Escape,
+  reposition the rest as the document changes. Fiddly rather than
+  difficult.
 
 ## Prior art: take the display approach from Calva
 

@@ -1,7 +1,23 @@
 import * as vscode from 'vscode';
 
 import { Annotation, Decorator } from './decorations';
-import { AnnotationRegistry, merge } from './registry';
+import { AnnotationRegistry, merge, reanchor } from './registry';
+
+/**
+ * Move an annotation `lines` further down the file, keeping its columns.
+ *
+ * The shell's whole share of the edit arithmetic: `registry.ts` decides which
+ * annotations move and by how much, and cannot build a `vscode.Range` to say
+ * so.
+ */
+function shifted(annotation: Annotation, lines: number): Annotation {
+  return {
+    ...annotation,
+    range: new vscode.Range(
+      annotation.range.start.line + lines, annotation.range.start.character,
+      annotation.range.end.line + lines, annotation.range.end.character),
+  };
+}
 
 /**
  * Set while the active editor has annotations, so `escape` keeps doing
@@ -15,7 +31,9 @@ export const HAS_ANNOTATIONS = 'evalens.hasAnnotations';
  * A stale value is worse than no value: an annotation left beside a line the
  * user has since edited is the extension asserting something untrue, and once
  * one annotation on screen can be wrong the user cannot trust any of them.
- * Everything here follows from that.
+ * Everything here follows from that -- but only for the lines an edit actually
+ * touched. An annotation ten lines above an edit was not made untrue by it,
+ * and taking it away costs the user the thing they were reading.
  */
 export class Annotations implements vscode.Disposable {
   private readonly registry = new AnnotationRegistry<Annotation>();
@@ -25,14 +43,27 @@ export class Annotations implements vscode.Disposable {
   constructor() {
     this.subscriptions.push(
       vscode.workspace.onDidChangeTextDocument((event) => {
-        // Deliberately blunt: any edit clears the whole document's
-        // annotations. Adjusting ranges through a change event is a source of
-        // subtle wrongness for a benefit nobody has asked for -- revisit only
-        // with a complaint attached.
-        if (this.registry.clear(event.document.uri.toString())) {
-          this.repaint(event.document);
-          this.updateContext();
+        // An edit invalidates what it touched, and nothing else. Wiping the
+        // document was the earlier reading of "a stale value is worse than no
+        // value", and it took the true values down with the stale one: change
+        // one number and the whole column you were reading goes.
+        const uri = event.document.uri.toString();
+        const before = this.registry.get(uri);
+        if (before.length === 0) {
+          return;
         }
+
+        const after = reanchor(before, event.contentChanges, shifted);
+        if (after === before) {
+          return;
+        }
+
+        // Nothing is re-evaluated here. A surviving annotation is still the
+        // value its statement produced when it last ran, which is all it ever
+        // claimed to be.
+        this.registry.set(uri, after);
+        this.repaint(event.document);
+        this.updateContext();
       }),
 
       vscode.workspace.onDidCloseTextDocument((document) => {
