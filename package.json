@@ -46,7 +46,7 @@
     "watch": "tsc -p . --watch",
     "pretest": "npm run compile",
     "test": "node --test out/test/",
-    "test:kernel": "python3 -m unittest discover -s kernel -t ."
+    "test:kernel": "python3 -m unittest discover -s kernel -t kernel"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
