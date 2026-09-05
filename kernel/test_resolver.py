@@ -182,16 +182,35 @@ class WhereTheValueComesFrom(unittest.TestCase):
         self.assertFalse(form.readable)
         self.assertFalse(form.captured)
 
-    def test_a_loop_target_is_never_read_back(self):
-        # The sequence comes from the recorders in `loops`, which is the only
-        # source that is true of every iteration rather than the last.
-        for src in ("for i in range(3):\n    pass\n",
-                    "for k, v in d.items():\n    pass\n",
-                    "for box.item in [1, 2]:\n    pass\n",
+    def test_a_loop_target_that_is_not_a_name_is_never_read_back(self):
+        # The defect #68 was actually about: `for d[next(it)] in xs:` re-runs
+        # `__getitem__` and advances the user's iterator, and `for box.item in
+        # xs:` goes through a property getter. Neither is captured either -- a
+        # `for` stores *through* its target, so there is no value in the
+        # statement's hand to hand over the way an assignment has one.
+        for src in ("for box.item in [1, 2]:\n    pass\n",
                     "for d[next(it)] in [1]:\n    pass\n"):
             with self.subTest(src=src):
                 form = resolve(src, 0)
                 self.assertFalse(form.readable)
+                self.assertFalse(form.captured)
+
+    def test_a_loop_target_that_is_a_name_may_be_read_back(self):
+        # Safety, which is all this answers. Looking `i` up is a dictionary
+        # lookup and cannot run user code, so the resolver permits it -- the
+        # same judgement it makes for every other bare name.
+        #
+        # Whether it is *worth* reading is the kernel's call, and dynamic:
+        # with recorders installed the sequence is the better answer and the
+        # read never happens, which `AnnotatingRunsNothing` and `Limits` in
+        # `test_kernel` pin from both sides. Answering it here instead left a
+        # `for` line blank whenever `evalens.loopValues` was off, and a blank
+        # line reads as "nothing happened".
+        for src in ("for i in range(3):\n    pass\n",
+                    "for k, v in d.items():\n    pass\n"):
+            with self.subTest(src=src):
+                form = resolve(src, 0)
+                self.assertTrue(form.readable)
                 self.assertFalse(form.captured)
 
     def test_a_tuple_of_names_is_a_lookup_and_survives(self):

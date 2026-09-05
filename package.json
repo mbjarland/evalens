@@ -78,28 +78,27 @@
         "evalens.pythonPath": {
           "type": "string",
           "default": "",
+          "scope": "window",
           "markdownDescription": "Interpreter used to run the evaluation kernel. Empty means try the interpreter the Python extension has selected, then `python3`, then `python`, and use the first that runs and reports Python 3.9 or later. A path set here is never quietly replaced: if it does not work, Evalens says so instead of falling back."
         },
         "evalens.progressDelay": {
           "type": "number",
           "default": 750,
           "minimum": 0,
-          "markdownDescription": "Milliseconds an evaluation must still be running before Evalens shows a cancellable progress notification. Almost every evaluation finishes in a few milliseconds, and a notification on each one would be intolerable — so the notification only appears once an evaluation has already failed to finish, which is the moment the extension otherwise looks like it ignored the keypress. `0` shows it immediately."
+          "maximum": 60000,
+          "scope": "window",
+          "markdownDescription": "Milliseconds an evaluation must still be running before Evalens shows a cancellable progress notification. Almost every evaluation finishes in a few milliseconds, and a notification on each one would be intolerable \u2014 so the notification only appears once an evaluation has already failed to finish, which is the moment the extension otherwise looks like it ignored the keypress. Raising it buys a quieter window at the cost of a longer silence before anything confirms the keypress was heard, and before there is a Cancel button to press. `0` shows it immediately."
         },
         "evalens.advanceSkipsComments": {
           "type": "boolean",
           "default": true,
+          "scope": "application",
           "markdownDescription": "Whether **Evalens: Evaluate and Advance** steps over comment lines on its way to the next statement. Leaving this on costs you the comment: in a file written to be read, the paragraph above a statement is the explanation, and the cursor goes past it without stopping. Turning it off buys that pause back at one extra keypress per comment block — and that press evaluates nothing, because a comment is not a statement. Blank lines and the body of a multi-line statement are always stepped over; only comments are a matter of taste."
-        },
-        "evalens.alignColumn": {
-          "type": "number",
-          "default": 0,
-          "minimum": 0,
-          "markdownDescription": "Column to align inline results to. `0` (the default) places each result just after the code that produced it, following Rider. Set a column to line results up instead \u2014 useful in a file of plain assignments, and less so once a line carries more than one value."
         },
         "evalens.printedLabel": {
           "type": "string",
           "default": "printed",
+          "scope": "application",
           "markdownDescription": "What the annotation calls the output a statement printed. The default word keeps the `label: value` grammar the rest of the annotation uses and says in plain English what the code did \u2014 `<stdout>` is jargon a first-year student has not met. Set `\u00bb` for a terse marker instead; it is the one that exists in every font VS Code falls back to on macOS, where `\u25b8` and `\u25b6` do not and render at a width that misaligns the lines the marker is there to clarify. `stderr` keeps its own name whatever this says."
         },
         "evalens.announceResults": {
@@ -110,12 +109,49 @@
             "never"
           ],
           "default": "auto",
+          "scope": "application",
           "enumDescriptions": [
             "Announce when `editor.accessibilitySupport` is set to `on`.",
             "Announce every result from Evaluate at Cursor and Evaluate and Advance.",
             "Never announce; **Evalens: Announce Result at Cursor** still works when you ask for it."
           ],
           "markdownDescription": "Whether an inline result is also announced, for a screen reader. An inline result is painted with a decoration, and the VS Code API gives a decoration no accessibility label of any kind \u2014 so without this, pressing the evaluate key produces silence that is indistinguishable from a dead keybinding. Announcing puts the same answer in a notification, which VS Code does read out, and keeps the last one in the status bar with an accessibility label on it. **The annotation is unchanged either way**; this adds a channel rather than moving the answer off the line.\n\n`auto` follows `editor.accessibilitySupport`, announcing when it is set to `on`. VS Code exposes no way for an extension to ask whether a screen reader is attached, and its own auto-detection leaves that setting reading `auto` whether it found one or not \u2014 so if your screen reader works without setting it, choose `always` here.\n\nA file load never announces whatever this says: two hundred annotations from one keypress would be worse than announcing nothing."
+        },
+        "evalens.resultColumn": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 200,
+          "scope": "application",
+          "markdownDescription": "Column to line inline results up on. `0` (the default) puts each result just after the code that produced it, following Rider, so nothing is pushed further right than it has to be. A fixed column makes a file of plain assignments read as two tidy columns, at the cost of a wide empty gap after every short line \u2014 and it stops helping as soon as a line carries more than one value. A line already past the column keeps its usual gap rather than being dragged out further."
+        },
+        "evalens.loopValues": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "Report every value a `for` loop's target held, rather than only the last one. On, a loop reads `p: 1, 2, 3, 4`; off, it reads `p: 4` like any other statement. The sequence is most of the reason to evaluate a loop at all, and it is also the longest thing Evalens ever paints on one line \u2014 turn it off if the loops in your files are long enough that the summary is noise. Off also stops the loop being rewritten to record itself, so it costs nothing to run."
+        },
+        "evalens.loopIterations": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 50,
+          "scope": "application",
+          "markdownDescription": "How many of a loop's iterations are listed before the rest are elided as `\u2026 (+9,994 more) \u2026`. The final value is always shown whatever this says, because for a loop stopped by `break` it is the answer you were looking for. More iterations show the shape of a run more clearly, at the cost of an annotation that pushes the code off the right of the window, and of one more `repr()` kept per loop. Ignored while **Loop Values** is off."
+        },
+        "evalens.readNames": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "Report what the names on a line held, not only what the line produced. `print('y:', y)` produced `None`, and `y` is what the line was about \u2014 this is what puts `y: [1, 2, 3]` beside it. Turning it off leaves a bare result-only annotation, at the cost of having nothing to say on every line that is not a binding, which in a real file is most of them. Reading a name cannot run your code: it is a namespace lookup and nothing else."
+        },
+        "evalens.readNamesPerLine": {
+          "type": "number",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 20,
+          "scope": "application",
+          "markdownDescription": "How many of a line's names are annotated. More names per line, at the cost of a longer annotation on busy lines: a line mentioning eight variables reports eight values and the code disappears underneath them. Names are taken in the order the line reads them, so the ones dropped are the ones furthest right. Ignored while **Read Names** is off."
         }
       }
     },

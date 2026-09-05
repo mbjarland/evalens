@@ -1099,6 +1099,30 @@ test('a loop stopped by break annotates the value it broke on', async (t) => {
     'p: 1, 2, 3');
 });
 
+test('the display limits a setting produces reach the real kernel', async (t) => {
+  // A setting is only real if the number the extension sends is the number
+  // the kernel applies. Both sides pass their own suites with a `limits`
+  // field one of them quietly ignores, and the drift then shows up as a
+  // setting that does nothing -- which reads as a broken extension.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'for p in range(20):\n    pass\n';
+  const ask = (limits: { loop_values: number; names: number }) =>
+    client.request({
+      op: 'eval', source, line: 0, character: 0,
+      filename: '/tmp/evalens-test.py', allow_stdin: false, limits,
+    }) as Promise<Evaluated>;
+
+  const wider = await ask({ loop_values: 8, names: 4 });
+  assert.equal(wider.loop?.values.length, 8,
+    'the kernel kept its own five rather than the eight it was asked for');
+
+  const off = await ask({ loop_values: 0, names: 0 });
+  assert.equal(off.loop, undefined, 'zero must leave the loop uninstrumented');
+  assert.equal(off.value, '19', 'and still report what the target ended on');
+});
+
 /**
  * A `while True:` that reports when it has actually started running.
  *

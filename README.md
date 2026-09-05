@@ -353,21 +353,104 @@ result.
 
 ## Settings
 
-| Setting | Default | What it does |
+All of these are under **Settings → Extensions → Evalens**, where each
+description says what the option *costs* rather than what it is called.
+
+| Setting | Default | What it buys, and what it costs |
 |---|---|---|
-| `evalens.pythonPath` | `""` | Interpreter to run the kernel with. Empty means the Python extension's choice, then `python3`, then `python` |
-| `evalens.alignColumn` | `0` | Column to align results to. `0` places each result just after the code that produced it |
-| `evalens.printedLabel` | `"printed"` | What the annotation calls printed output. Set `»` for a terse marker |
+| `evalens.pythonPath` | `""` | The interpreter to run the kernel with. Empty tries the Python extension's choice, then `python3`, then `python`. A path set here is never quietly replaced — if it does not work, Evalens says so instead of falling back |
+| `evalens.progressDelay` | `750` | Milliseconds before a still-running evaluation earns a cancellable notification. Higher is a quieter window, at the cost of a longer silence before anything confirms the keypress and before there is a Cancel button |
+| `evalens.resultColumn` | `0` | Column to line results up on. `0` follows the code, so nothing is pushed further right than it has to be. A fixed column tidies a file of plain assignments and wastes width after every short line |
+| `evalens.loopValues` | `true` | Whether a `for` loop reports every value its target held or only the last. **Off is how you silence loop sequences**, and it stops the loop being instrumented rather than just hiding the result |
+| `evalens.loopIterations` | `5` | Iterations listed before the rest are elided. More shows the shape of a run more clearly, at the cost of an annotation that pushes code off the right of the window |
+| `evalens.readNames` | `true` | Whether the names a line merely reads are annotated. **Off is how you silence those**, at the cost of having nothing to say on any line that is not a binding — most lines in a real file |
+| `evalens.readNamesPerLine` | `4` | Names annotated per line. More names, at the cost of a longer annotation on busy lines; the ones dropped are the ones furthest right |
+| `evalens.printedLabel` | `"printed"` | What the annotation calls the output a statement printed. The word keeps the `label: value` grammar the rest of the line uses; `»` is the terse marker, and the one that survives every font VS Code falls back to |
 | `evalens.advanceSkipsComments` | `true` | Whether Evaluate and Advance steps over comment lines. Off, it stops once per comment block — one more press each, and that press evaluates nothing |
 | `evalens.announceResults` | `"auto"` | Whether a result is announced as well as painted, for a screen reader. `auto` follows `editor.accessibilitySupport`; `always` announces every one; `never` announces none. See above |
 
-Keys are not settings here: VS Code rebinds every command in this README from
-its own keybindings editor, and a setting for the key would be a worse copy of
-something the editor already does well.
+Two of them are off switches on purpose. Loop sequences and read-name
+annotations are the two things Evalens adds that a reader might not want, and
+uninstalling is not an adjustment. Turning either off stops the work as well
+as the display: an uninstrumented loop costs nothing per iteration.
 
-Result colours are themeable: `evalens.resultForeground`,
-`evalens.errorForeground`, `evalens.evaluatedRegionBackground` and their
-background counterparts.
+Setting names are one shape: `evalens.` followed by a camelCase noun phrase
+naming the thing configured, subject first, so the alphabetical settings list
+keeps `loopIterations` beside `loopValues`. `alignColumn` was the odd one out
+and is now `resultColumn`.
+
+### What is deliberately not a setting
+
+Everything here was considered and declined. Each is a constant in the source
+with the reason written beside it, so the next person can argue with the
+reason rather than guess whether anyone thought about it.
+
+There is deliberately **no setting for the keybindings**. VS Code rebinds keys
+natively and does it better than a setting could — a user keybinding is the
+only thing that wins the load-order tie described above, and an
+`evalens.keybinding` would lose it exactly as the manifest does.
+
+Nothing hides **printed output**. `evalens.printedLabel` renames it and no
+setting suppresses it, because the output is the statement's own doing: hiding
+it would hide what your code did rather than what Evalens added. The two off
+switches above exist precisely because loop sequences and read names are the
+opposite — things Evalens says on a line that you did not ask it to say.
+
+Nothing hides the **`(partial: line 19)` caveat** a value carries when the rest
+of the file did not parse. An annotation without it claims to have been
+computed with the whole file, and a value that asserts more than we know is
+the defect this project exists to stop.
+
+**Evaluate and Advance** stops at the last statement rather than wrapping to
+the top, and centres its destination only when that destination is off screen.
+Wrapping would re-run every side effect in a file somebody has just finished
+walking; the reveal alternatives either scroll on every press or land the next
+statement on the bottom edge with none of its code visible.
+
+The numbers left over are transport guards and runaway guards rather than
+taste — how large a value may be on the wire, how long a prompt may be, how
+many annotations one file load may paint. A cap the far end is allowed to
+raise is a suggestion rather than a guard, and someone who hits the annotation
+limit does not want a bigger number: they want to know their first import
+failed.
+
+### Colours
+
+Every colour Evalens paints is a contributed theme colour, which means all of
+them are already overridable in `settings.json` — per theme, if you like —
+without the extension offering a setting of its own:
+
+```jsonc
+"workbench.colorCustomizations": {
+  "evalens.resultForeground": "#d1a35c",
+  "evalens.resultBackground": "#00000000",
+  "evalens.labelForeground": "#8d7a5a",
+  "evalens.outputLabelForeground": "#5c7fa6",
+  "evalens.errorForeground": "#f14c4c",
+  "evalens.errorBackground": "#00000000",
+  "evalens.evaluatedRegionBackground": "#4a9c8c22",
+  "evalens.pendingForeground": "#8c8c8c",
+  "evalens.pendingRegionBackground": "#8c8c8c26",
+  "evalens.flashRegionBackground": "#4a9c8c66"
+}
+```
+
+Those are the dark-theme defaults, so the block above changes nothing until
+you edit it. If you dislike the gold, the first line is the whole fix. The
+two background colours are transparent by default; give either one a colour to
+render results as a chip instead of as bare text.
+
+An annotation is painted in three colours rather than one, because it carries
+two kinds of thing. Values -- what the program produced, including the text
+after `printed:` -- take `resultForeground`. The labels that introduce them --
+`x:`, `y:`, the `=>` separator, the `…+N more` footnote -- take
+`labelForeground`, a desaturated version of the same hue, so a name and its
+value read as one unit. `printed:` and `stderr:` take
+`outputLabelForeground`, which leaves that hue family entirely because output
+is a different kind of thing from state. The two label colours sit at the same
+luminance and differ only in hue, warm against cool: that is the axis both
+common forms of colour blindness leave intact, so the two remain
+distinguishable where a red-green split would collapse.
 
 ## License
 

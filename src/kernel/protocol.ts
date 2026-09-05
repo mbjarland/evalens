@@ -43,6 +43,27 @@ export interface KernelError {
   readonly traceback: string;
 }
 
+/**
+ * How much of an answer the reader wants, sent with every request.
+ *
+ * These are user settings, and they travel on the request rather than being
+ * configured into the kernel because the only way to change a kernel's mind
+ * about anything is to restart it -- which discards the namespace, the one
+ * thing a session cannot get back. Adjusting a display preference must not
+ * cost a session, so the kernel is simply told again each time.
+ *
+ * Zero means off, and it turns off the work rather than the display: an
+ * uninstrumented loop costs nothing per iteration, and a line whose names
+ * nobody wants is a line the namespace is never read for. Snake case because
+ * this is the wire, and the wire is Python's.
+ */
+export interface DisplayLimits {
+  /** Iterations of a loop to list; 0 leaves the loop uninstrumented. */
+  readonly loop_values: number;
+  /** Names on a line to read; 0 reads none. */
+  readonly names: number;
+}
+
 export interface EvalRequest {
   readonly op: 'eval';
   readonly source: string;
@@ -57,6 +78,8 @@ export interface EvalRequest {
    * hang.
    */
   readonly allow_stdin: boolean;
+  /** Absent means the kernel's own defaults, which are the same numbers. */
+  readonly limits?: DisplayLimits;
 }
 
 export interface EvalFileRequest {
@@ -98,6 +121,8 @@ export interface EvalFileRequest {
   readonly start_line?: number;
   /** Last line to run, 0-based and inclusive. */
   readonly end_line?: number;
+  /** The same preferences apply to a load; see `DisplayLimits`. */
+  readonly limits?: DisplayLimits;
 }
 
 /**

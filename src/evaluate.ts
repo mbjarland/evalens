@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 import { nextStop } from './advance';
-import { advanceSkipsComments, progressDelay } from './config';
+import { advanceSkipsComments, displayLimits, progressDelay } from './config';
 import { LoadPrompts, waitingLabel } from './input';
 import { describeInterrupt, settlesWithin } from './interrupt';
 import { KernelClient } from './kernel/client';
@@ -37,8 +37,45 @@ import { selectedLines, widenedBeyond } from './selection';
  * One missing import at the top can fail every statement below it, and a long
  * file has a lot of statements. This is a guard against painting a thousand
  * annotations in one keystroke, not a considered display limit.
+ *
+ * Which is exactly why it is not a setting. A number offered in the settings
+ * UI reads as a considered display limit whatever its description says, and a
+ * user who hits this one does not want a bigger number -- they want to know
+ * that their first import failed, which is what the two hundred annotations
+ * above the cut already tell them. The value only has to be far past any
+ * honest file and far short of a decoration count that makes the editor
+ * stutter, and 200 is both.
  */
 const MAX_LOAD_ANNOTATIONS = 200;
+
+/**
+ * How long a status-bar message that only acknowledges a keypress stays up.
+ *
+ * "Nothing under the cursor", "last statement in the file", "kernel
+ * restarted": each says that the key was heard and that there was nothing to
+ * paint, which is a thing the reader either catches in the second after
+ * pressing it or does not need. Two seconds is long enough to be seen at the
+ * bottom of the window and short enough that walking a file with Evaluate and
+ * Advance does not leave a trail of them.
+ *
+ * Not a setting, and not for `progressDelay`'s reason. That number decides how
+ * long the user waits with no feedback, so somebody genuinely has a preference
+ * about it; this one runs *after* the answer, and nothing is pending while it
+ * shows. Offering it would be offering to configure how long to look at
+ * something that has already happened.
+ */
+export const STATUS_ACK_MS = 2000;
+
+/**
+ * The same, for a message carrying something to actually read.
+ *
+ * A load summary counts statements, failures and how much of the file parsed;
+ * an interrupt says whether the kernel confirmed the stop. Both are read
+ * rather than glimpsed, and both appear when the reader is looking at their
+ * code rather than at the status bar -- so they get double, on the same
+ * reasoning that keeps the number out of the settings UI.
+ */
+export const STATUS_OUTCOME_MS = 4000;
 
 /**
  * The annotation for one loaded statement, or none if it has nothing to say.
@@ -362,7 +399,7 @@ export class Evaluator {
       // lose the namespace -- so it goes somewhere they will read it.
       void vscode.window.showWarningMessage(message);
     } else {
-      vscode.window.setStatusBarMessage(message, 4000);
+      vscode.window.setStatusBarMessage(message, STATUS_OUTCOME_MS);
     }
   }
 
@@ -452,6 +489,10 @@ export class Evaluator {
           // around the selection to snap outward to whole statements, and to
           // keep every line number it reports pointing at the real file.
           ...(lines ?? {}),
+          // Read per request, so a setting changed between two keypresses
+          // applies to the second one without restarting the kernel -- which
+          // would take the namespace with it.
+          limits: displayLimits(),
         },
         // Each statement, the moment it finishes. It goes to the same painter
         // the response's `results` reaches, through the gate that keeps the
@@ -521,7 +562,8 @@ export class Evaluator {
       // nobody pointed at. Nor is it a reason to fall back to the prefix,
       // which is code nobody pointed at with a tempting amount of it.
       vscode.window.setStatusBarMessage(
-        describeRun(0, 0, 0, false, response.partial?.truncated_at), 2000);
+        describeRun(0, 0, 0, false, response.partial?.truncated_at),
+        STATUS_ACK_MS);
       return;
     }
 
@@ -547,13 +589,13 @@ export class Evaluator {
       }
       vscode.window.setStatusBarMessage(
         describeRun(response.ran, response.statements, load.failed, widened,
-          response.partial?.truncated_at), 4000);
+          response.partial?.truncated_at), STATUS_OUTCOME_MS);
       return;
     }
 
     vscode.window.setStatusBarMessage(
       describeLoad(response.ran, response.statements, load.failed,
-        response.partial?.truncated_at), 4000);
+        response.partial?.truncated_at), STATUS_OUTCOME_MS);
   }
 
   /**
@@ -616,6 +658,10 @@ export class Evaluator {
                 // Somebody pressed a key and is sitting there waiting for this
                 // line to answer, so `input()` is a conversation, not a hang.
                 allow_stdin: true,
+                // Read per request, so a setting changed between two
+                // keypresses applies to the second one without restarting the
+                // kernel -- which would take the namespace with it.
+                limits: displayLimits(),
               }),
               'Evalens: evaluating'
             )) as EvalResponse;
@@ -658,7 +704,7 @@ export class Evaluator {
     if (presentation.kind === 'nothing') {
       // A blank line. Nothing is going to replace the mark, so it goes.
       run.waiting.withdraw();
-      vscode.window.setStatusBarMessage(presentation.message, 2000);
+      vscode.window.setStatusBarMessage(presentation.message, STATUS_ACK_MS);
       return;
     }
 
@@ -780,13 +826,24 @@ export class Evaluator {
       // Said out loud, because "the key did nothing" and "there is nothing
       // after this" look identical from the keyboard.
       vscode.window.setStatusBarMessage(
-        'Evalens: last statement in the file', 2000);
+        'Evalens: last statement in the file', STATUS_ACK_MS);
     } else if (stop?.kind === 'move') {
       const position = new vscode.Position(
         stop.position.line, stop.position.character);
       editor.selection = new vscode.Selection(position, position);
       // Only when it is off screen, and then centred: stepping past the fold
       // has to scroll, and a statement already in view must not jump.
+      //
+      // The audit looked at making this a setting and did not, because the
+      // three alternatives VS Code offers are each wrong in a way a user would
+      // report as a bug rather than adjust. `InCenter` scrolls on every press,
+      // so a file that fits on screen jumps under the reader anyway.
+      // `Default` scrolls the minimum, which lands the next statement on the
+      // bottom edge with none of the code it is about to run visible below it.
+      // `AtTop` puts it at the top with the file just walked out of sight.
+      // This one is the only value that is right in both directions, and the
+      // same one marks where a `input()` prompt is waiting -- a setting would
+      // have to govern both or let them disagree about the same question.
       editor.revealRange(
         new vscode.Range(position, position),
         vscode.TextEditorRevealType.InCenterIfOutsideViewport);

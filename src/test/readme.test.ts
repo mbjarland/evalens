@@ -125,3 +125,61 @@ test('the install section hands over a command that installs', () => {
   assert.match(install, /npm run package/);
   assert.match(install, /code --install-extension/);
 });
+
+test('every setting is in the README with its default', () => {
+  // The settings UI is the primary place to read these and the README is the
+  // one someone browsing the repository finds first. A setting in one and not
+  // the other is a setting half the audience does not know exists.
+  const settings = section('Settings');
+  const properties = manifest.contributes?.configuration?.properties ?? {};
+  assert.ok(Object.keys(properties).length > 0, 'no settings contributed');
+
+  for (const [id, setting] of Object.entries(properties)) {
+    assert.ok(settings.includes(`\`${id}\``),
+      `${id} is not in the README settings table`);
+    const shown = JSON.stringify((setting as { default: unknown }).default);
+    assert.ok(settings.includes(`\`${shown}\``),
+      `${id}'s default (${shown}) is not shown in the README`);
+  }
+});
+
+test('every theme colour is documented as overridable', () => {
+  // Contributing a colour makes it overridable through
+  // `workbench.colorCustomizations` -- and a user who dislikes the gold has
+  // no way to discover a one-line fix nobody wrote down. Naming every id in a
+  // block they can paste is the difference between "themeable" as a fact and
+  // as something anyone acts on.
+  const settings = section('Settings');
+  assert.match(settings, /workbench\.colorCustomizations/);
+
+  for (const color of manifest.contributes?.colors ?? []) {
+    assert.ok(settings.includes(color.id),
+      `${color.id} is contributed but not documented as overridable`);
+  }
+});
+
+test('the README says the keybindings are not a setting', () => {
+  // The audit's first deliberate omission, recorded where a reader looking for
+  // it will be -- otherwise its absence reads as an oversight and the next
+  // person adds it.
+  assert.match(section('Settings'), /no setting for the keybindings/i);
+});
+
+test('the README says what else was considered and declined', () => {
+  // An audit is only worth as much as its declines, and those rot fastest:
+  // this one was written before printed output, Evaluate and Advance and the
+  // partial-parse fallback landed, and each of them added something a reader
+  // could reasonably expect a switch for. The section is what stops the next
+  // feature arriving with no opinion attached.
+  const settings = section('Settings');
+  assert.match(settings, /### What is deliberately not a setting/);
+
+  for (const [subject, pattern] of [
+    ['printed output', /printed output/i],
+    ['the partial-parse caveat', /partial: line/],
+    ['where Evaluate and Advance stops', /Evaluate and Advance\*\* stops/],
+  ] as ReadonlyArray<readonly [string, RegExp]>) {
+    assert.match(settings, pattern,
+      `the settings section has no opinion about ${subject}`);
+  }
+});

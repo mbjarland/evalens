@@ -83,10 +83,16 @@ class Form:
     #: put out of date. See `defs_and_uses`.
     binds: Tuple[str, ...] = ()
     reads: Tuple[str, ...] = ()
-    #: Whether the kernel may evaluate `display` once the statement has run.
-    #: True only where doing so is a namespace lookup. False is not "nothing
-    #: to show" -- an expression statement and a loop both display something
-    #: the statement has already produced -- it is "do not run this again".
+    #: Whether the kernel *may* evaluate `display` once the statement has run,
+    #: which is a question about safety and not about need. True only where
+    #: doing so is a namespace lookup. False is not "nothing to show" -- an
+    #: expression statement displays something the statement has already
+    #: produced -- it is "do not run this again".
+    #:
+    #: Whether the kernel *should* is its own call and stays there: a loop
+    #: whose target is a bare name is readable, and the kernel still reads it
+    #: only when it installed no recorders, because a recorded sequence is a
+    #: better answer than the value the target stopped on.
     readable: bool = False
     #: Whether the value beside `display` has to be taken as the statement
     #: stores it, because reading the target back would run the user's code.
@@ -272,15 +278,15 @@ def _display_target(node: ast.stmt) -> Optional[Union[ast.expr, str]]:
         # kernel's to report, from the module rather than from the parse.
         return _first_bound_name(node.names[0])
     if isinstance(node, (ast.For, ast.AsyncFor)):
-        # The target labels a sequence rather than a value: the kernel records
-        # what it held on each iteration and reports all of them. `p` is still
-        # the right thing to write beside the answer -- it is what the reader
-        # is watching -- but nothing evaluates it afterwards, because by then
-        # it holds only the last of the values already recorded, and for
-        # `for d[next(it)] in xs:` reading it back advanced the user's
-        # iterator a second time and then painted the KeyError that caused.
-        # See `loops`, which declines to instrument that shape for the same
-        # reason and was then undone by a read `_value_source` now refuses.
+        # The target usually labels a sequence rather than a value: the kernel
+        # records what it held on each iteration and reports all of them, and
+        # `p` is what the reader is watching. Whether anything evaluates it
+        # afterwards is `_value_source`'s answer and then the kernel's --
+        # `for d[next(it)] in xs:` may never be read back, because that
+        # advances the user's iterator a second time and then paints the
+        # KeyError it caused, while `for p in xs:` may be and is only when
+        # there is no recorded sequence to prefer to it. See `loops`, which
+        # declines to instrument the first shape for the same reason.
         return node.target
     if isinstance(node, (ast.With, ast.AsyncWith)):
         for item in node.items:
@@ -344,8 +350,18 @@ def _value_source(node: ast.stmt,
 
     *Neither* -- the value is the statement's own doing and the kernel has it
     already: an expression statement is evaluated exactly once and never
-    re-run (the first bug this project found), and a loop's target is a
-    recorded sequence rather than a value to look up.
+    re-run, which was the first bug this project found.
+
+    The question this does **not** answer is whether reading is the best
+    available answer, and a loop is where the two come apart. `for i in xs:`
+    is readable because `i` is a name, and the kernel still prefers the
+    sequence its recorders collected -- reading is what it falls back to when
+    the user turned `evalens.loopValues` off and there are no recorders. That
+    call needs to know what actually ran and belongs in the kernel; all this
+    can say is that looking `i` up would be a dictionary lookup, which is a
+    fact about the parse. `for d[next(it)] in xs:` is the shape that made the
+    distinction matter: it is not readable at all, because reading it back
+    advances the user's iterator a second time.
     """
     if target is None:
         return False, False
@@ -353,7 +369,7 @@ def _value_source(node: ast.stmt,
         # A name an import or a definition bound, and nothing else reaches
         # here as a string.
         return True, False
-    if isinstance(node, (ast.Expr, ast.For, ast.AsyncFor)):
+    if isinstance(node, ast.Expr):
         return False, False
     if _only_names(target):
         return True, False

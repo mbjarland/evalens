@@ -1,9 +1,28 @@
 import { execFile } from 'node:child_process';
 import * as vscode from 'vscode';
 
+import { DisplayLimits } from './kernel/protocol';
 import {
   Candidate, NO_INTERPRETER, ProbeResult, chooseInterpreter, describeFailure,
 } from './python';
+
+/**
+ * Every setting Evalens reads, read in one place.
+ *
+ * Not tidiness. The default written at a call site and the default declared
+ * in `package.json` are two statements of one fact with nothing making them
+ * agree, and they had already drifted: the manifest said `alignColumn` was 0
+ * and the call site in `decorations.ts` said 80. Nothing failed, because a
+ * declared setting resolves to its manifest default and the second number was
+ * dead -- it would have come alive the day somebody renamed the property, as
+ * a silent change of behaviour. Gathering the reads makes the pair checkable,
+ * and `settings.test.ts` checks it.
+ *
+ * Every read below is `getConfiguration('evalens')` with no resource, which
+ * resolves at window level. That is why nothing is contributed at `resource`
+ * scope: a per-folder value the code never asks for is a setting that does
+ * nothing in the place it was set, silently.
+ */
 
 /**
  * How long an evaluation may run before it earns a progress notification.
@@ -30,6 +49,75 @@ export function advanceSkipsComments(): boolean {
   return vscode.workspace
     .getConfiguration('evalens')
     .get<boolean>('advanceSkipsComments', true);
+}
+
+/** The column inline results line up on; 0 follows the code instead. */
+export function resultColumn(): number {
+  return vscode.workspace
+    .getConfiguration('evalens')
+    .get<number>('resultColumn', 0);
+}
+
+/**
+ * What the line calls the output a statement printed.
+ *
+ * Trimmed, and an empty setting falls back rather than painting a bare value:
+ * `  ` reads as "I want no label" and would leave `hello` on the line looking
+ * like the expression evaluated to it, which is the one reading the label
+ * exists to prevent.
+ */
+export function printedLabel(): string {
+  return vscode.workspace
+    .getConfiguration('evalens')
+    .get<string>('printedLabel', 'printed')
+    .trim() || 'printed';
+}
+
+/**
+ * Whether a result speaks for itself, for a screen reader.
+ *
+ * A closed set of three, so the manifest offers an enum and the settings UI
+ * lists them rather than asking anyone to remember the spellings. Anything
+ * else that arrives here is `auto`: a value outside the enum can only come
+ * from a hand-edited settings.json, and falling back is what every other
+ * malformed setting does rather than choosing one of the loud answers on the
+ * user's behalf.
+ *
+ * Read per announcement, like everything above it. This is the one setting
+ * somebody turns on *because* nothing is being said to them, so a value that
+ * waited for a window reload would look exactly like the silence it was meant
+ * to end.
+ */
+export function announceResults(): 'auto' | 'always' | 'never' {
+  const configured = vscode.workspace
+    .getConfiguration('evalens')
+    .get<string>('announceResults', 'auto');
+  return configured === 'always' || configured === 'never'
+    ? configured
+    : 'auto';
+}
+
+/**
+ * What the annotations may contain, in the form the kernel is told it.
+ *
+ * The two off switches collapse into the counts rather than crossing the wire
+ * as flags of their own. Off is "keep none of them", which the kernel already
+ * has to handle for a limit of zero, and a separate boolean would be a second
+ * way of saying the same thing -- with the usual consequence that one day the
+ * two disagree. The booleans exist in the settings UI because a checkbox is
+ * what somebody hunting for a way to turn something off looks for; making
+ * that a number is this function's job.
+ */
+export function displayLimits(): DisplayLimits {
+  const config = vscode.workspace.getConfiguration('evalens');
+  return {
+    loop_values: config.get<boolean>('loopValues', true)
+      ? config.get<number>('loopIterations', 5)
+      : 0,
+    names: config.get<boolean>('readNames', true)
+      ? config.get<number>('readNamesPerLine', 4)
+      : 0,
+  };
 }
 
 /** Ask an interpreter what version it is, rather than assuming. */
