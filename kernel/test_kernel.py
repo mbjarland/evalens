@@ -1393,11 +1393,14 @@ class ModuleName(KernelTest):
         self.assertEqual(loaded["results"][-1]["value"], "<Version instance>")
         self.assertIn("01_basics.Version", loaded["results"][-1]["repr"])
 
-    def test_a_container_of_instances_shows_the_same_name(self):
-        # The ticket's screenshot: a tuple has a repr of its own, so nothing
-        # is described and the members' reprs reach the screen whole.
+    def test_a_container_of_instances_is_described_like_a_top_level_one(self):
+        # #73: a tuple has a repr of its own, so the top-level substitution
+        # never reached its members and their addresses reached the screen
+        # whole. Fixed by describing each element the bounded repr walks,
+        # not by describing the tuple.
         shown = self.value("class Version:\n    pass\n(Version(),)\n")
-        self.assertIn("01_basics.Version object at", shown)
+        self.assertEqual(shown, "(<Version instance>,)")
+        self.assertNotIn("01_basics.Version object at", shown)
 
     def test_a_class_knows_which_module_defined_it(self):
         # The attribute every one of the above reads. `__module__` is captured
@@ -2073,6 +2076,103 @@ class Descriptions(KernelTest):
         for _ in range(2):
             self.assertEqual(
                 self.k.evaluate(source, 2)["value"], "<Config instance>")
+
+
+class DescriptionsInsideContainers(KernelTest):
+    """#73: the same substitution `Descriptions` proves at the top level,
+    reached for a value found *inside* a list, tuple, dict or set.
+
+    A container writes its own ``__repr__``, so nothing about it triggers
+    the top-level substitution in `wire_value` -- the fix has to happen
+    while the container's own repr is being built, for each element it
+    walks, which is what `_BoundedRepr._describe_element` is for.
+    """
+
+    ADDRESS = re.compile(r"0x[0-9a-fA-F]+")
+
+    def show(self, source):
+        lines = range(len(source.rstrip("\n").split("\n")))
+        return self.k.evaluate_lines(source, *lines)
+
+    def test_a_list_of_functions_names_each_one_instead_of_its_address(self):
+        result = self.show(
+            "def greet(name):\n    pass\ndef bye(name):\n    pass\n"
+            "[greet, bye]\n")
+        self.assertEqual(result["value"], "[def greet(name), def bye(name)]")
+        self.assertNotRegex(result["value"], self.ADDRESS)
+
+    def test_a_dict_of_plain_instances_is_described_by_value(self):
+        result = self.show(
+            "class Config:\n    pass\n"
+            "{'a': Config(), 'b': Config()}\n")
+        self.assertEqual(
+            result["value"],
+            "{'a': <Config instance>, 'b': <Config instance>}")
+        self.assertNotRegex(result["value"], self.ADDRESS)
+
+    def test_a_generator_inside_a_container_names_its_function(self):
+        result = self.show(
+            "def greet_all():\n    yield 'hi'\n[greet_all()]\n")
+        self.assertEqual(result["value"], "[<generator greet_all>]")
+        self.assertNotRegex(result["value"], self.ADDRESS)
+
+    def test_a_generator_alone_is_described_the_same_way(self):
+        # Not a container case, but the other half of #73: this reaches
+        # `describe` directly through `wire_value`, never through
+        # `_BoundedRepr` at all.
+        result = self.show(
+            "def greet_all():\n    yield 'hi'\ngreet_all()\n")
+        self.assertEqual(result["value"], "<generator greet_all>")
+
+    def test_describing_a_generator_never_advances_it(self):
+        # The sharp case #73 names: consuming a generator to describe it
+        # would destroy the value the annotation claims to be showing.
+        source = ("def counter():\n"
+                  "    yield 1\n    yield 2\n"
+                  "gen = counter()\n"
+                  "gen\n"
+                  "next(gen)\n")
+        self.k.evaluate_lines(source, 0, 3)
+        described = self.k.evaluate(source, 4)["value"]
+        self.assertEqual(described, "<generator counter>")
+        self.assertEqual(self.k.evaluate(source, 5)["value"], "1")
+
+    def test_a_coroutine_inside_a_container_names_its_function(self):
+        source = ("async def fetch(url):\n    return url\n"
+                  "coro = fetch('x')\n"
+                  "[coro]\n"
+                  "coro.close()\n")
+        result = self.k.evaluate_lines(source, 0, 2, 3)
+        self.assertEqual(result["value"], "[<coroutine fetch>]")
+        # Close it rather than leave it to the garbage collector, so the
+        # test does not print "coroutine was never awaited" of its own.
+        self.k.evaluate(source, 4)
+
+    def test_a_nested_container_describes_every_level(self):
+        result = self.show(
+            "def greet(name):\n    pass\n"
+            "[{'f': greet}]\n")
+        self.assertEqual(result["value"], "[{'f': def greet(name)}]")
+
+    def test_a_hand_written_repr_inside_a_list_is_left_untouched(self):
+        # The one rule this must not break, proven again one level down:
+        # a `__repr__` someone wrote is used exactly as it is at the top.
+        result = self.show(
+            "class Money:\n"
+            "    def __repr__(self):\n"
+            "        return '$4.00'\n"
+            "[Money(), Money()]\n")
+        self.assertEqual(result["value"], "[$4.00, $4.00]")
+
+    def test_a_list_subclass_of_instances_is_still_walked_as_a_list(self):
+        # The type-identity rule `describe` and `_BoundedRepr` both use:
+        # `Stack` keeps its own bounded repr because it never wrote a
+        # `__repr__` of its own, and its *elements* still get described.
+        result = self.show(
+            "class Stack(list):\n    pass\n"
+            "def greet(name):\n    pass\n"
+            "Stack([greet])\n")
+        self.assertEqual(result["value"], "[def greet(name)]")
 
 
 class Loops(KernelTest):

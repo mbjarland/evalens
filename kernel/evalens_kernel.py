@@ -992,6 +992,15 @@ class _BoundedRepr(reprlib.Repr):
     for ``defaultdict`` and ``Counter``, which write their own to say what they
     are. The wire limit still bounds what such a repr *sends*; nothing can
     bound what it costs to produce without overruling it.
+
+    **An element gets the same substitution the top level gets.** ``repr1``
+    is the one place every value in a walked container passes through, so it
+    is also the one place ``describe`` needed calling from -- see
+    ``_describe_element`` -- rather than a second walk over the finished
+    string or the finished structure. A function, a plain instance or a
+    generator found three levels into a list is exactly as address-shaped as
+    one bound to a name at the top, and was reaching the wire that way until
+    this hook existed.
     """
 
     def __init__(self, budget: int) -> None:
@@ -1019,6 +1028,18 @@ class _BoundedRepr(reprlib.Repr):
         return self.repr1(x, self.maxlevel)
 
     def repr1(self, x: Any, level: int) -> str:
+        if level < self.maxlevel:
+            # Only below the top: `safe_repr`'s caller, `wire_value`, already
+            # asks `describe()` about the value it was handed and keeps this
+            # method's answer as the untouched repr the hover shows. Asking
+            # again here for that same top-level call would substitute the
+            # description into the very string that promise depends on being
+            # left alone. Every element `repr_list` and friends recurse into
+            # is reached at `level - 1`, which is always less than
+            # `self.maxlevel`, so this reliably means "not the root value".
+            described = self._describe_element(x)
+            if described is not None:
+                return described
         method = self._method(type(x))
         if method is None:
             return self.repr_instance(x, level)
@@ -1028,6 +1049,34 @@ class _BoundedRepr(reprlib.Repr):
             # A container that cannot be walked is still a value, and its own
             # `repr()` is the one thing that definitely knows how to say it.
             return self.repr_instance(x, level)
+
+    def _describe_element(self, x: Any) -> Optional[str]:
+        """``describe(x)``, billed to what is left of the budget, for a value
+        found *inside* a container.
+
+        The same dispatch `describe` uses at the top -- type identity and
+        whether ``__repr__`` is inherited, never the type's name -- decides
+        here too, because it is the one already-settled answer to "is this
+        thing safe to replace", and a container holding a `Stack(list)` or a
+        user class called ``list`` needs the identical rule the top level
+        uses or it misroutes the same way `_method` would.
+
+        Nothing here is bounded by element count or depth beyond what
+        `describe` itself costs -- a handful of `isinstance`-shaped checks
+        and an attribute read -- so this adds no walk of its own. It only
+        ever runs on an element `repr_list` / `repr_dict` / `_repr_iterable`
+        already decided to visit, and those are the calls `REPR_ITEM_LIMIT`
+        and `REPR_LEVEL_LIMIT` bound; a five-million-element list still only
+        ever offers up the same one thousand-odd elements this looks at
+        whether or not they turn out to be describable.
+        """
+        try:
+            text = describe(x)
+        except BaseException:  # noqa: BLE001 - introspection runs user code
+            return None
+        if text is None:
+            return None
+        return self._charged(_capped(text, max(self._left, _LEAST_ROOM * 2)))
 
     def _method(self, kind: type) -> Any:
         """The bounded formatter for `kind`, or None to leave it alone."""
@@ -1288,14 +1337,23 @@ def _wrote_its_own_repr(value: Any, inherited: Any) -> bool:
         return True
 
 
+def _without_locals(name: str) -> str:
+    """`outer.<locals>.inner` with the closure prefix dropped.
+
+    That prefix records where a name was written rather than what it is
+    called; only the tail is worth the width. Shared by `_readable_name`,
+    which reads it off a function or class, and `_describe_iterator` below,
+    which reads the same qualifier off a code object instead.
+    """
+    return name.rpartition("<locals>.")[2] or name
+
+
 def _readable_name(obj: Any) -> Optional[str]:
     """``__qualname__`` without the closure noise, or ``__name__``, or None."""
     name = getattr(obj, "__qualname__", None) or getattr(obj, "__name__", None)
     if not isinstance(name, str) or not name:
         return None
-    # `outer.<locals>.inner` records where a function was written rather than
-    # what it is called; only the tail is worth the width.
-    return name.rpartition("<locals>.")[2] or name
+    return _without_locals(name)
 
 
 def _documented_signature(value: Any, name: str) -> Optional[str]:
@@ -1404,6 +1462,50 @@ def _describe_class(value: Any) -> Optional[str]:
     return f"class {name}{signature}"
 
 
+#: A generator, coroutine or async-generator *object* -- not the function
+#: that produces one, which `_describe_callable` already names by way of
+#: `_CALL_RESULTS`. Paired with the attribute that names the frame it is
+#: running and the word `describe` should call it. Checked in order, though
+#: the three tests are mutually exclusive.
+_ITERATOR_KINDS = (
+    (inspect.isasyncgen, "ag_code", "async generator"),
+    (inspect.iscoroutine, "cr_code", "coroutine"),
+    (inspect.isgenerator, "gi_code", "generator"),
+)
+
+
+def _describe_iterator(value: Any) -> Optional[str]:
+    """``<generator greet_all>``, or None for anything that is not one of
+    the three kinds `_ITERATOR_KINDS` lists.
+
+    None of the three writes ``object.__repr__`` -- each carries its own,
+    implemented in C -- so the test `describe` uses everywhere else,
+    "does this still use the ``__repr__`` its base supplies", answers "no"
+    for all three and would leave them alone as if a human had written that
+    repr. Nobody did; it is still ``<generator object <genexpr> at
+    0x...>`` underneath, address and all, which is exactly the shape this
+    module exists to replace. This function runs first and catches them
+    before that question is even asked.
+
+    ``gi_code`` / ``cr_code`` / ``ag_code`` name the code the frame is
+    running -- captured once, at creation, and read here the same way a
+    function's own ``__name__`` is read to describe *it*. Reading an
+    attribute off a generator cannot advance it; the sharp case this ticket
+    is about is a generator consumed in order to be described, and this
+    never iterates or resumes anything.
+    """
+    for test, attr, kind in _ITERATOR_KINDS:
+        if not test(value):
+            continue
+        code = getattr(value, attr, None)
+        name = getattr(code, "co_qualname", None) or getattr(code, "co_name",
+                                                              None)
+        if isinstance(name, str) and name:
+            return f"<{kind} {_without_locals(name)}>"
+        return f"<{kind}>"
+    return None
+
+
 def describe(value: Any) -> Optional[str]:
     """A stable description for a value Python reprs by identity, or None.
 
@@ -1429,6 +1531,9 @@ def describe(value: Any) -> Optional[str]:
         # those types can be subclassed, so there is never a hand-written
         # __repr__ here to overrule.
         return _describe_callable(value)
+    iterator = _describe_iterator(value)
+    if iterator is not None:
+        return iterator
     if _wrote_its_own_repr(value, object.__repr__):
         return None
     name = _readable_name(type(value))
