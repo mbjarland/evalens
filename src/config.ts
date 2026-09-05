@@ -1,26 +1,104 @@
+import { execFile } from 'node:child_process';
 import * as vscode from 'vscode';
 
-/**
- * Which Python to run.
- *
- * Getting this wrong is the most common way an extension like this appears
- * broken: a machine with a system Python, a Homebrew Python and three venvs
- * will happily run the kernel under one that has none of the user's packages,
- * and every evaluation then fails with ImportError on code that works in
- * their terminal.
- *
- * So the order is: what the user configured, then whatever the Microsoft
- * Python extension has selected for this workspace -- which is the
- * interpreter their status bar already claims -- and only then `python3`.
- */
-export async function resolvePythonPath(): Promise<string> {
+import {
+  Candidate, ProbeResult, chooseInterpreter, describeFailure,
+} from './python';
+
+/** Ask an interpreter what version it is, rather than assuming. */
+export function probeInterpreter(path: string): Promise<ProbeResult> {
+  return new Promise((resolve) => {
+    execFile(
+      path,
+      ['-c', 'import sys; print("%d.%d" % sys.version_info[:2])'],
+      { timeout: 5000 },
+      (error, stdout) => {
+        if (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          resolve({
+            ok: false,
+            reason: code === 'ENOENT' ? 'not found' : error.message.trim(),
+          });
+          return;
+        }
+        const match = /^(\d+)\.(\d+)/.exec(stdout.trim());
+        if (!match) {
+          resolve({ ok: false, reason: `unexpected output: ${stdout.trim()}` });
+          return;
+        }
+        resolve({ ok: true, version: [Number(match[1]), Number(match[2])] });
+      }
+    );
+  });
+}
+
+async function candidates(): Promise<Candidate[]> {
   const configured = vscode.workspace
     .getConfiguration('evalens')
-    .get<string>('pythonPath');
-  if (configured && configured.trim() !== '') {
-    return configured.trim();
+    .get<string>('pythonPath', '')
+    .trim();
+
+  const list: Candidate[] = [];
+  if (configured !== '') {
+    list.push({
+      path: configured,
+      source: 'the evalens.pythonPath setting',
+      explicit: true,
+    });
   }
-  return (await interpreterFromPythonExtension()) ?? 'python3';
+  const fromExtension = await interpreterFromPythonExtension();
+  if (fromExtension) {
+    list.push({ path: fromExtension, source: 'the Python extension' });
+  }
+  list.push({ path: 'python3', source: 'PATH' });
+  list.push({ path: 'python', source: 'PATH' });
+  return list;
+}
+
+/**
+ * The interpreter to run the kernel with.
+ *
+ * Resolved fresh on every spawn rather than once, so editing the setting
+ * takes effect on the next evaluation. Baking it in at construction meant a
+ * cached client kept trying a broken interpreter no matter what the user
+ * changed.
+ */
+export async function resolveInterpreter(
+  output: vscode.OutputChannel
+): Promise<string> {
+  const choice = await chooseInterpreter(await candidates(), probeInterpreter);
+
+  if (choice.ok) {
+    // Always logged: "which Python is this actually running?" is the first
+    // question behind every ImportError anyone will ever report.
+    output.appendLine(
+      `using ${choice.path} (Python ${choice.version[0]}.${choice.version[1]}) ` +
+      `from ${choice.source}`);
+    return choice.path;
+  }
+
+  const detail = describeFailure(choice.attempts);
+  output.appendLine(detail);
+  void offerToFix(detail);
+  throw new Error(detail);
+}
+
+async function offerToFix(detail: string): Promise<void> {
+  const SELECT = 'Select Interpreter';
+  const SETTINGS = 'Open Setting';
+  const hasPythonExtension =
+    vscode.extensions.getExtension('ms-python.python') !== undefined;
+
+  const actions = hasPythonExtension ? [SELECT, SETTINGS] : [SETTINGS];
+  const picked = await vscode.window.showErrorMessage(
+    detail, { modal: false }, ...actions);
+
+  if (picked === SELECT) {
+    await vscode.commands.executeCommand('python.setInterpreter');
+  } else if (picked === SETTINGS) {
+    await vscode.commands.executeCommand(
+      'workbench.action.openSettings', 'evalens.pythonPath');
+  }
 }
 
 async function interpreterFromPythonExtension(): Promise<string | undefined> {
@@ -33,7 +111,9 @@ async function interpreterFromPythonExtension(): Promise<string | undefined> {
       await extension.activate();
     }
     // Read defensively: this is another extension's API surface, and a shape
-    // change there must degrade to `python3` rather than break evaluation.
+    // change there must degrade to a probe of python3 rather than break
+    // evaluation. It also reports a bare "python" when it has nothing
+    // resolved, which is what made trusting it a bug.
     const environments = (extension.exports as {
       environments?: { getActiveEnvironmentPath?(): { path?: string } };
     })?.environments;

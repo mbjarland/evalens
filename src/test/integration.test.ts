@@ -21,7 +21,10 @@ import { present } from '../render/present';
 const KERNEL = path.resolve(__dirname, '..', '..', 'kernel', 'evalens_kernel.py');
 
 function connect(): KernelClient {
-  return new KernelClient({ pythonPath: 'python3', kernelPath: KERNEL });
+  return new KernelClient({
+    resolvePython: async () => 'python3',
+    kernelPath: KERNEL,
+  });
 }
 
 async function evaluate(client: KernelClient, source: string, line: number) {

@@ -58,7 +58,7 @@
         "evalens.pythonPath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Interpreter used to run the evaluation kernel. Empty means use the interpreter selected by the Python extension, falling back to `python3`."
+          "markdownDescription": "Interpreter used to run the evaluation kernel. Empty means try the interpreter the Python extension has selected, then `python3`, then `python`, and use the first that runs and reports Python 3.9 or later. A path set here is never quietly replaced: if it does not work, Evalens says so instead of falling back."
         },
         "evalens.alignColumn": {
           "type": "number",

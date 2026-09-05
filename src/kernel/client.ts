@@ -26,8 +26,14 @@ export interface KernelProcess {
 export type SpawnFn = (command: string, args: readonly string[]) => KernelProcess;
 
 export interface KernelClientOptions {
-  /** Interpreter to run. Resolved by the caller; see `resolvePythonPath`. */
-  readonly pythonPath: string;
+  /**
+   * Interpreter to run, resolved afresh on every spawn.
+   *
+   * A function rather than a string because it was a string: the path was
+   * baked in at construction, so a cached client went on trying a broken
+   * interpreter no matter what the user changed the setting to.
+   */
+  readonly resolvePython: () => Promise<string>;
   readonly kernelPath: string;
   readonly spawn?: SpawnFn;
   /** Kernel-side stderr: its own crashes, not the user's code. */
@@ -55,11 +61,15 @@ class Deferred<T> {
  */
 export class KernelClient {
   private process?: KernelProcess;
+  /** In-flight spawn, so two fast keypresses do not start two interpreters. */
+  private starting?: Promise<KernelProcess>;
   private readonly pending = new Map<number, Deferred<Response>>();
   private readonly decoder = new LineDecoder();
   private readonly spawnFn: SpawnFn;
   private nextId = 1;
   private disposed = false;
+  /** Bumped by every stop, so a spawn in flight can tell it is orphaned. */
+  private generation = 0;
 
   constructor(private readonly options: KernelClientOptions) {
     this.spawnFn =
@@ -78,7 +88,7 @@ export class KernelClient {
     if (this.disposed) {
       throw new Error('the Evalens kernel client has been disposed');
     }
-    const process = this.ensureStarted();
+    const process = await this.ensureStarted();
     const id = this.nextId++;
     const deferred = new Deferred<Response>();
     this.pending.set(id, deferred);
@@ -103,14 +113,37 @@ export class KernelClient {
 
   // -- internals ------------------------------------------------------------
 
-  private ensureStarted(): KernelProcess {
+  private async ensureStarted(): Promise<KernelProcess> {
     if (this.process) {
       return this.process;
     }
-    const { pythonPath, kernelPath } = this.options;
+    if (this.starting) {
+      return this.starting;
+    }
+    this.starting = this.start();
+    try {
+      return await this.starting;
+    } finally {
+      this.starting = undefined;
+    }
+  }
+
+  private async start(): Promise<KernelProcess> {
+    const { kernelPath } = this.options;
+    // Which stop this spawn is still ahead of. Resolving an interpreter probes
+    // candidates and that takes real time, so a restart or a dispose can land
+    // while the spawn is in flight -- and a process started after it would be
+    // one nothing holds a handle to and nothing ever kills.
+    const generation = this.generation;
+    const pythonPath = await this.options.resolvePython();
     // -u so nothing sits in a buffer waiting for a fuller write. The kernel
     // flushes explicitly too; this covers the paths that do not.
     const process = this.spawnFn(pythonPath, ['-u', kernelPath]);
+
+    if (this.generation !== generation) {
+      this.discard(process);
+      throw new Error('the Evalens kernel was stopped while it was starting');
+    }
 
     process.stdout.setEncoding?.('utf8');
     process.stderr.setEncoding?.('utf8');
@@ -131,8 +164,8 @@ export class KernelClient {
       // Python was tried.
       this.stop(
         new Error(
-          `could not start the Evalens kernel with "${pythonPath}": ` +
-            `${error.message}. Set evalens.pythonPath to a working interpreter.`
+          `the Evalens kernel could not be started with "${pythonPath}": ` +
+            `${error.message}`
         )
       );
     });
@@ -172,6 +205,7 @@ export class KernelClient {
   private stop(reason: Error): void {
     const process = this.process;
     this.process = undefined;
+    this.generation += 1;
     this.decoder.reset();
     // Reject before killing: a pending promise that never settles is a
     // spinner that never stops, and the caller cannot tell it from slow code.
@@ -180,12 +214,17 @@ export class KernelClient {
     }
     this.pending.clear();
     if (process) {
-      try {
-        process.stdin.end();
-      } catch {
-        // Already gone; killing below is what matters.
-      }
-      process.kill();
+      this.discard(process);
     }
+  }
+
+  /** Close the pipe, then kill. A kernel is never left half-attached. */
+  private discard(process: KernelProcess): void {
+    try {
+      process.stdin.end();
+    } catch {
+      // Already gone; killing below is what matters.
+    }
+    process.kill();
   }
 }

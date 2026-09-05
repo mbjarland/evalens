@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 import { Evaluator } from './evaluate';
-import { resolvePythonPath } from './config';
+import { resolveInterpreter } from './config';
 import { KernelClient } from './kernel/client';
 import { Annotations } from './render/annotations';
 
@@ -63,6 +63,17 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('evalens.pythonPath')) {
+        // Drop the running kernel so the new interpreter is picked up without
+        // the user having to know that Restart Kernel exists.
+        disposeClient();
+        output?.appendLine('evalens.pythonPath changed; kernel will restart');
+      }
+    })
+  );
+
   context.subscriptions.push({ dispose: () => disposeClient() });
 }
 
@@ -83,7 +94,9 @@ async function ensureClient(
     context.extensionUri, 'kernel', 'evalens_kernel.py'
   ).fsPath;
   client = new KernelClient({
-    pythonPath: await resolvePythonPath(),
+    // Resolved on every spawn, not captured here: editing the setting must
+    // take effect on the next evaluation.
+    resolvePython: () => resolveInterpreter(output!),
     kernelPath,
     onStderr: (text) => output?.append(text),
     onExit: (code, signal) =>
