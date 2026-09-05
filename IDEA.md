@@ -119,6 +119,18 @@ Well-documented, well-trodden.
   Manual trigger (Calva's model) sidesteps this entirely — which is
   exactly why AREPL, running continuously, needs its `unsafeKeywords`
   blocklist hack. Prefer explicit evaluation.
+- **`input()` settles the continuous-vs-manual argument.** Beginner and
+  course code is full of `input()` prompts, and beginners write infinite
+  loops constantly. Any evaluate-as-you-type mode relaunches a program
+  that is *blocked waiting on stdin* every time the user pauses typing.
+  This is not a tuning problem, it is a category error: continuous
+  evaluation is only coherent for pure, terminating code. **Manual
+  trigger must be the default**, and any continuous mode should be
+  opt-in per file rather than global.
+
+  This was discovered empirically while setting up a first-year student's
+  environment: a `watchfiles`-based run-on-save loop had to be abandoned
+  for exactly this reason, on a file named `intrprog.py`.
 - **Value formatting.** Truncation limits, nesting depth, hover-for-full,
   and sensible `repr()` handling of large or cyclic structures.
 - **Decoration lifecycle.** Clear on edit, dismiss on Escape, reposition
@@ -178,6 +190,14 @@ Reading that one file collapses several open questions:
 - **AREPL** — `almenon/AREPL-vscode`. Solves the continuous-execution and
   value-serialisation problems (`repr()` handling, truncation, nesting
   depth), even though it renders to a panel rather than inline.
+- **VS Code itself.** Setting `"debug.inlineValues": "on"` makes the
+  editor paint variable values inline, greyed, beside the code while a
+  debug session is paused. That is a *first-party* implementation of
+  precisely the rendering this project wants, already solving placement,
+  theming, truncation and update-on-step. It is worth studying how the
+  debug adapter feeds it before designing a decoration layer from
+  scratch — and it is also the honest answer to "what can I use today",
+  its only cost being that it requires a paused debug session.
 
 ### The author is reachable
 
