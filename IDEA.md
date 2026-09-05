@@ -1,4 +1,4 @@
-# Calva-style inline evaluation for Python in VS Code
+# Evalens — Calva-style inline evaluation for Python in VS Code
 
 ## The idea
 
@@ -147,6 +147,49 @@ spent finding out.
 
 Estimated effort: a weekend for the prototype, a few more to reach
 something daily-drivable. `yo code` scaffolds the TypeScript extension.
+
+## Naming and marketplace positioning
+
+The name is **Evalens** (eval + lens). A marketplace search for "evalens"
+returns zero results, so it is unclaimed.
+
+The reasoning: **Error Lens has 9,780,508 installs**, and `*-Lens` has
+become recognised shorthand for "paints information into your editor."
+Landing in that mental category is free positioning. As a second data
+point, `TylerLeonhardt.vscode-inline-values-powershell` has 115,525
+installs — the "inline values for X" framing demonstrably sells, in a
+language with a fraction of Python's user base.
+
+### Use both name fields
+
+`package.json` exposes two separate fields, so brandability and
+searchability are not a trade-off:
+
+```jsonc
+"name":        "python-inline-values",           // id + marketplace URL slug: pure SEO
+"displayName": "Evalens — Inline Python Values",  // shown to humans: brand + keywords
+```
+
+### Other listing metadata that matters
+
+- **`keywords`** are indexed by marketplace search:
+  `python, repl, inline, live, values, evaluate, calva, nrepl, arepl,
+  print debugging`. Including `calva` and `arepl` is deliberate — people
+  searching those terms are precisely the target audience.
+- **`categories`**: `["Debuggers", "Visualization", "Programming Languages"]`
+- **`description`** renders as the single line under the name in search
+  results, so it should be the pitch rather than a summary. Something
+  like: *"See values inline as you type. No print(), no debugger, no
+  notebook."*
+
+### What actually converts
+
+For a visual extension, an **animated GIF at the top of the README**
+outsells the name by a wide margin. Every extension that has won this
+category leads with one above the fold, Error Lens included. A viewer
+scrolling search results decides in about two seconds, and a five-second
+loop of values appearing on `Cmd+Enter` does that work. This deserves
+more effort than the naming did.
 
 ## Motivation
 
