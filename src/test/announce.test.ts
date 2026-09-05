@@ -149,11 +149,13 @@ test('the names the kernel capped are counted out loud', () => {
   assert.match(spoken, /and 3 more names$/);
 });
 
-test('the count is not spoken when no name survived to be a footnote to', () => {
-  // The painted footnote carries the same guard: `…+3 more` beside output
-  // alone reads as a claim about the output.
+test('the count is spoken even where the only slot on the line is its own', () => {
+  // #74/#85: `more` is only ever positive because a cap left something off
+  // this exact line, so it does not need a read name beside it to be true --
+  // and a spoken answer that stayed silent here would say less than the
+  // painted one, which is exactly the drift this module exists to prevent.
   const spoken = spokenText({ value: '1', display: 'x', more: 3 })!;
-  assert.doesNotMatch(spoken, /more names/);
+  assert.match(spoken, /and 3 more names$/);
 });
 
 // -- truncation ------------------------------------------------------------

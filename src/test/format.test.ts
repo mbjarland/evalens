@@ -371,16 +371,18 @@ test('the footnote lands after the result, not among the values', () => {
     preserveSpacing('y: [1, 2, 3]   => 4   \u2026+2 more'));
 });
 
-test('the cap footnote goes when the names it counted are gone', () => {
-  // Reachable once output can be the only thing on a line: the repeat rule
-  // drops every name as already-shown, the output stays because it is this
-  // run's own, and a bare `…+1 more` beside it would read as a claim that
-  // there is one more line of output -- which is not what the cap left off.
+test('the cap footnote survives even where output is all that is left', () => {
+  // #74: reachable once output can be the only thing on a line -- the repeat
+  // rule drops every name as already-shown, and the output stays because it
+  // is this run's own. `more` is still true here, and a footnote that reads
+  // a little like a remark about the output is a smaller wrong than a line
+  // that hides that a cap bit at all.
   assert.equal(
     resultText({ value: null, display: null, loop: null, names: [],
       bindings: [], printed: { stdout: 'hello\n' }, more: 1 }),
-    preserveSpacing('printed: hello'));
-  // With a name still on the line the footnote is a footnote to it again.
+    preserveSpacing('printed: hello   \u2026+1 more'));
+  // With a name still on the line the footnote reads exactly as it always
+  // did -- a footnote to the name beside it.
   assert.equal(
     resultText({ value: null, display: null, loop: null,
       names: pairs(['a', '1']), bindings: [], printed: { stdout: 'hello\n' },

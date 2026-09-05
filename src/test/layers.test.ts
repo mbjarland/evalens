@@ -108,11 +108,14 @@ test('coalescing leaves a stream label standing on its own', () => {
     ['nameLabel', 'value', 'nameLabel', 'streamLabel', 'value']);
 });
 
-test('the widest line the kernel can produce still fits the pool', () => {
+test('the widest line the renderer can produce still fits the pool', () => {
   // The pool is fixed, so the number in it has to be derived from the caps
-  // rather than eyeballed. `NAME_LIMIT` is 4 and `BINDING_LIMIT` is 3 in the
-  // kernel; everything else a line can carry is here too. If a cap is raised
-  // and this is not, the widest lines quietly fall back to one colour.
+  // rather than eyeballed. Four names is `evalens.readNamesPerLine`'s own
+  // default -- the display cap `capNames` applies in `repeats.ts`, not the
+  // kernel's own `NAME_LIMIT`, which since #85 is a generous transport bound
+  // rather than the number a line actually shows -- and `BINDING_LIMIT` is 3
+  // in the kernel; everything else a line can carry is here too. If a cap is
+  // raised and this is not, the widest lines quietly fall back to one colour.
   const widest = coalesce(resultSegments({
     value: '12',
     display: 'total',

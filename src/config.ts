@@ -98,6 +98,25 @@ export function announceResults(): 'auto' | 'always' | 'never' {
 }
 
 /**
+ * How many `name: value` pairs the kernel may put in one response, when
+ * `evalens.readNames` is on.
+ *
+ * Not `evalens.readNamesPerLine` -- that used to travel on the wire as this
+ * same number, and #85 is the record of why that was the bug: the kernel
+ * cannot know which of a line's names the reader has already seen painted
+ * above it, so a cap enforced there can only keep whichever names came first
+ * and drop the rest, which is exactly backwards when the dropped one is the
+ * one that just changed. So the wire asks for more than any line is meant to
+ * show, generous the way `WIRE_REPR_LIMIT` is generous for one value, and
+ * `nameDisplayCap` below is the number actually painted, applied by the
+ * renderer once repeat suppression has said which names are new.
+ *
+ * Kept in step with the kernel's own `NAME_LIMIT`, which is the same bound
+ * for a request that sends no `limits` at all.
+ */
+export const TRANSPORT_NAME_LIMIT = 64;
+
+/**
  * What the annotations may contain, in the form the kernel is told it.
  *
  * The two off switches collapse into the counts rather than crossing the wire
@@ -114,10 +133,25 @@ export function displayLimits(): DisplayLimits {
     loop_values: config.get<boolean>('loopValues', true)
       ? config.get<number>('loopIterations', 5)
       : 0,
-    names: config.get<boolean>('readNames', true)
-      ? config.get<number>('readNamesPerLine', 4)
-      : 0,
+    names: config.get<boolean>('readNames', true) ? TRANSPORT_NAME_LIMIT : 0,
   };
+}
+
+/**
+ * How many `name: value` pairs one line's annotation actually shows, once
+ * repeat suppression has decided which of the names the wire carried are new.
+ *
+ * This is `evalens.readNamesPerLine`, and until #85 it was sent to the kernel
+ * instead of kept here -- see `displayLimits`. It belongs on this side of the
+ * pipe now because choosing which four names of six to paint is a question
+ * about what is already on the reader's screen, and the kernel has no view of
+ * that at all.
+ */
+export function nameDisplayCap(): number {
+  const config = vscode.workspace.getConfiguration('evalens');
+  return config.get<boolean>('readNames', true)
+    ? config.get<number>('readNamesPerLine', 4)
+    : 0;
 }
 
 /** Ask an interpreter what version it is, rather than assuming. */

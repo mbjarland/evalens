@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 
 import { nextStop } from './advance';
-import { advanceSkipsComments, displayLimits, progressDelay } from './config';
+import {
+  advanceSkipsComments, displayLimits, nameDisplayCap, progressDelay,
+} from './config';
 import { LoadPrompts, waitingLabel } from './input';
 import { describeInterrupt, settlesWithin } from './interrupt';
 import { KernelClient } from './kernel/client';
@@ -18,7 +20,7 @@ import { printedFrom } from './render/format';
 import {
   describeLoad, describeRun, hoverFor, partialCause, partialOf, present,
 } from './render/present';
-import { PaintedAbove } from './render/repeats';
+import { capNames, PaintedAbove } from './render/repeats';
 import { BlockedMark, Waiting, whileRunning } from './render/status';
 import { selectedLines, widenedBeyond } from './selection';
 
@@ -206,9 +208,12 @@ class LoadPainting {
    * annotation that may since have gone is the wrong way to be wrong.
    *
    * This is the one path that suppresses anything. `evaluateAtCursor` never
-   * does, because there somebody pressed a key and is owed a visible answer.
+   * does, because there somebody pressed a key and is owed a visible answer
+   * -- though it still caps what it shows to the same `nameDisplayCap`, since
+   * the kernel's own cap is a transport bound now and no longer does that
+   * job; see `capNames`.
    */
-  private readonly painted = new PaintedAbove();
+  private readonly painted = new PaintedAbove(nameDisplayCap());
   private annotated = 0;
   private failures = 0;
 
@@ -739,13 +744,22 @@ export class Evaluator {
       this.annotations.add(document, causeAnnotation(partial));
     }
 
-    const presentation = present(response, cursor.line);
-    if (presentation.kind === 'nothing') {
+    const evaluated = present(response, cursor.line);
+    if (evaluated.kind === 'nothing') {
       // A blank line. Nothing is going to replace the mark, so it goes.
       run.waiting.withdraw();
-      vscode.window.setStatusBarMessage(presentation.message, STATUS_ACK_MS);
+      vscode.window.setStatusBarMessage(evaluated.message, STATUS_ACK_MS);
       return;
     }
+    // The kernel's own cap is a transport bound now, generous enough that a
+    // single line rarely reaches it -- see `NAME_LIMIT` in
+    // `evalens_kernel.py`. Capping to what the setting actually asks for is
+    // this side's job, same as it is for a bulk load; the difference is that
+    // nothing is suppressed first, because nobody's `PaintedAbove` runs over
+    // a single keypress.
+    const presentation = evaluated.kind === 'value'
+      ? capNames(evaluated, nameDisplayCap())
+      : evaluated;
 
     const annotation: Annotation =
       presentation.kind === 'error'

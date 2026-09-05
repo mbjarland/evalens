@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { BindingTrace, LoopTrace, NamedValue } from '../kernel/protocol';
 import { resultText } from '../render/format';
-import { Annotated, PaintedAbove } from '../render/repeats';
+import { Annotated, PaintedAbove, capNames } from '../render/repeats';
 
 const NBSP = / /g;
 
@@ -29,14 +29,24 @@ function reads(display: string, ...read: [string, string][]): Annotated {
  * `null` is a line that paints nothing at all -- which is a different outcome
  * from an empty string, and the one this rule produces most.
  */
-function walk(...lines: readonly Annotated[]): (string | null)[] {
-  const above = new PaintedAbove();
+function walk(
+  ...lines: readonly Annotated[]
+): (string | null)[] {
+  return walkCapped(4, ...lines);
+}
+
+/** `walk`, with the display cap set to `cap` rather than the default four. */
+function walkCapped(
+  cap: number, ...lines: readonly Annotated[]
+): (string | null)[] {
+  const above = new PaintedAbove(cap);
   return lines.map((line) => {
     const kept = above.keep(line);
     return kept === undefined
       ? null
       : resultText({ value: kept.value ?? null, display: kept.display,
-        loop: kept.loop, names: kept.names, bindings: kept.bindings })
+        loop: kept.loop, names: kept.names, bindings: kept.bindings,
+        more: kept.more })
         .replace(NBSP, ' ');
   });
 }
@@ -201,4 +211,60 @@ test('distance up the file does not weaken the rule', () => {
 
   assert.equal(walk(...lines).at(-1), null,
     'the line still carries nothing, twelve lines down');
+});
+
+test('a name reassigned out of sight survives the cap (#85)', () => {
+  // The measured case: five names bound at the top of the file, one of them
+  // reassigned inside a function nobody re-read, then a line that reads all
+  // five. A cap applied before suppression -- the bug -- keeps the four the
+  // reader has already seen and drops `e`, the one that changed; capping
+  // after suppression keeps `e` because it is the only one left to keep.
+  assert.deepEqual(
+    walkCapped(4,
+      binds('a', '1'), binds('b', '2'), binds('c', '3'), binds('d', '4'),
+      binds('e', '5'),
+      binds('total', '109', ['a', '1'], ['b', '2'], ['c', '3'], ['d', '4'],
+        ['e', '99'])
+    ),
+    ['a: 1', 'b: 2', 'c: 3', 'd: 4', 'e: 5', 'total: 109   e: 99']);
+});
+
+test('novel names past the display cap are counted, not dropped silently', () => {
+  // The other half of #85: capping is still a real thing the display does,
+  // it just happens after suppression now, and what it leaves off is still
+  // owed a footnote -- same as when the kernel did the capping itself.
+  assert.deepEqual(
+    walkCapped(2, reads('print(a, b, c)', ['a', '1'], ['b', '2'], ['c', '3'])),
+    ['a: 1   b: 2   …+1 more']);
+});
+
+test('a name the cap counted rather than painted is still news later', () => {
+  // The ledger must record what the reader actually saw, not everything the
+  // kernel sent: `c` is cut from the first line and only counted, so a later
+  // line naming it is not suppressed even though its value never changed --
+  // the reader has genuinely not seen it yet.
+  assert.deepEqual(
+    walkCapped(2,
+      reads('print(a, b, c)', ['a', '1'], ['b', '2'], ['c', '3']),
+      reads('print(c)', ['c', '3'])
+    ),
+    ['a: 1   b: 2   …+1 more', 'c: 3']);
+});
+
+test('capNames leaves an annotation that already fits untouched', () => {
+  const annotation: Annotated = { display: 'x', value: '1',
+    names: pairs(['a', '1']) };
+  assert.equal(capNames(annotation, 4), annotation);
+});
+
+test('capNames folds its overflow into more rather than replacing it', () => {
+  // A response can already carry a nonzero `more` of its own -- the kernel's
+  // transport bound is generous, not infinite -- so a display cap applied on
+  // top has to add to that count, not overwrite the part of it it never saw.
+  const annotation: Annotated = {
+    names: pairs(['a', '1'], ['b', '2'], ['c', '3']), more: 5,
+  };
+  const result = capNames(annotation, 1);
+  assert.deepEqual(result.names, pairs(['a', '1']));
+  assert.equal(result.more, 7);
 });

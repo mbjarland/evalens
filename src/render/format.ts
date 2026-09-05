@@ -623,7 +623,11 @@ export interface Rendered {
   readonly bindings?: readonly BindingTrace[];
   /** What the statement wrote to stdout and stderr, when it wrote anything. */
   readonly printed?: Printed;
-  /** How many further names the kernel's per-line cap left off the line. */
+  /**
+   * How many further names are not shown on this line -- the kernel's own
+   * transport cap, the renderer's display cap applied after repeat
+   * suppression (see `capNames` in `repeats.ts`), or both added together.
+   */
   readonly more?: number;
   /** The 0-based line the file stopped parsing at, if it did. */
   readonly partialFrom?: number;
@@ -639,12 +643,13 @@ export interface Rendered {
  * different colours.
  *
  * What the statement printed follows every value on the line, and `more` --
- * how many names the kernel's per-line cap left off -- follows that. Saying
- * so is the difference between an annotation that looks wrong and one that is
- * honest: a reader who counts five names on the line and four beside it
- * cannot otherwise tell whether the fifth was omitted, unreadable, or somehow
- * not a name. It is last of all, because it is a footnote about the line
- * rather than another thing on it.
+ * how many further names are not shown, whether a cap left them off the wire
+ * or the display cap left them off the line -- follows that. Saying so is the
+ * difference between an annotation that looks wrong and one that is honest: a
+ * reader who counts five names on the line and four beside it cannot
+ * otherwise tell whether the fifth was omitted, unreadable, or somehow not a
+ * name. It is last of all, because it is a footnote about the line rather
+ * than another thing on it.
  *
  * Segments rather than one string because CSS cannot colour part of a text
  * node, and one `after` attachment is one text node. Splitting the decision
@@ -660,12 +665,18 @@ export function resultSegments(rendered: Rendered): readonly Segment[] {
   const painted: (readonly Segment[])[] = slots.map(slotSegments);
   painted.push(
     ...streamsOf(printed).map(([label, text]) => streamPiece(label, text)));
-  // The footnote counts names, so it needs a name on the line to be a
-  // footnote to. A line whose names were all dropped as repeats keeps its
-  // output and loses the count with them: `printed: hello   …+1 more` reads
-  // as a claim about the output -- one more line of it -- which is not what
-  // the cap left off and not something this knows.
-  if (more > 0 && slots.some((slot) => !slot.own)) {
+  // `more` is only ever positive because a cap left something off this exact
+  // line -- see `Rendered.more` and `capNames` in `repeats.ts` -- so it never
+  // needs a surviving name slot to justify it the way an earlier version of
+  // this guard required. That version collapsed two different reasons a line
+  // could show no names: there were never any to show, where `more` is
+  // already zero and stays silent on its own, and every one of them was
+  // suppressed as a repeat, where `more` can still be positive and was being
+  // hidden anyway. Only the first should be quiet; `printed: hello   …+1
+  // more` reads a little like a claim about one more line of output, but the
+  // alternative -- a line that hid names and said nothing about it -- is the
+  // worse of the two readings.
+  if (more > 0) {
     painted.push([asLabel(`…+${grouped(more)} more`)]);
   }
   // The caveat goes last of all: it qualifies the whole line -- every value on
