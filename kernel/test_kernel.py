@@ -398,13 +398,59 @@ class Descriptions(KernelTest):
                            "    pass\n")
         self.assertEqual(result["value"], "THE CLASS")
 
-    def test_a_builtin_with_no_signature_falls_back_to_its_repr(self):
-        # inspect.signature raises ValueError for min, and a raise here would
-        # take down an evaluation over a cosmetic feature.
+    def test_a_builtin_with_no_signature_reads_the_one_in_its_docstring(self):
+        # inspect.signature raises ValueError for min, which used to leave
+        # `<built-in function min>`. A builtin that cannot express a
+        # machine-readable signature states one in its docstring's first line
+        # by convention, precisely so tooling can find it there.
         result = self.show("min\n")
         self.assertTrue(result["ok"], result)
-        self.assertEqual(result["value"], "<built-in function min>")
+        self.assertEqual(
+            result["value"],
+            "min(iterable, *[, default=obj, key=func]) -> value")
+        # And the substitution still hides nothing: the hover has the original.
+        self.assertEqual(result["repr"], "<built-in function min>")
+
+    def test_a_builtin_type_keeps_reading_as_a_class(self):
+        # The docstring line already names the type, so the `class` prefix is
+        # the only thing telling a reader that calling `range` constructs one.
+        # Dropping it here would make builtin types read unlike written ones.
+        result = self.show("range\n")
+        self.assertEqual(result["value"], "class range(stop) -> range object")
+
+    def test_a_prose_docstring_is_never_mistaken_for_a_signature(self):
+        # ValueError has no signature, and its docstring opens "Inappropriate
+        # argument value (of correct type)." -- prose that even contains a
+        # parenthesis, so only the leading name rules it out. A sentence
+        # rendered where a call belongs is worse than the repr it replaced,
+        # because the reader cannot tell that it is wrong.
+        result = self.show("ValueError\n")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["value"], "<class 'ValueError'>")
         self.assertNotIn("repr", result)
+
+    def test_only_the_first_documented_overload_is_shown(self):
+        # `dict` documents four ways to build one; a one-line annotation has
+        # room for the first, and the rest are a hover's problem.
+        result = self.show("dict\n")
+        self.assertEqual(result["value"],
+                         "class dict() -> new empty dictionary")
+
+    def test_the_common_builtins_all_describe_themselves(self):
+        # The regression guard, and the reason it is a table: which builtins
+        # carry an Argument Clinic signature and which fall back to their
+        # docstring changes between Python releases -- `print`, `zip`, `map`
+        # and `filter` all moved between 3.9 and 3.14. What must not change is
+        # that every one of them answers with a call rather than with a
+        # `<built-in ...>` or `<class ...>` placeholder.
+        names = ("len print min max range dict list sorted sum open "
+                 "isinstance enumerate zip int str abs round map filter "
+                 "type").split()
+        for name in names:
+            with self.subTest(builtin=name):
+                value = self.show(f"{name}\n")["value"]
+                self.assertIn("(", value)
+                self.assertNotRegex(value, r"^<(built-in|class) ")
 
     def test_ordinary_values_are_untouched(self):
         for source, expected in (("[1, 2, 3]\n", "[1, 2, 3]"),

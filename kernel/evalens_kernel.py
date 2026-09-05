@@ -150,6 +150,36 @@ def _readable_name(obj: Any) -> Optional[str]:
     return name.rpartition("<locals>.")[2] or name
 
 
+def _documented_signature(value: Any, name: str) -> Optional[str]:
+    """The signature a builtin states in the opening line of its ``__doc__``.
+
+    Reading a docstring for this is convention, not a trick. A CPython builtin
+    whose arguments cannot be expressed in the machine-readable form
+    ``inspect.signature`` reads -- ``min`` with its ``*[, default=obj]``,
+    ``range`` and ``dict`` with their overloads, ``int``, ``str``, ``type`` --
+    writes one into the first line of its docstring *so that tooling can find
+    it*. That is what ``help()`` prints and what every IDE has read for as long
+    as builtins have been documented that way. We already had the string and
+    were throwing it away.
+
+    The line counts only when it opens with the object's own name followed by
+    ``(``, and that guard is the whole safety of it: ``len.__doc__`` opens
+    "Return the number of items in a container.", and a sentence rendered where
+    a call belongs is worse than the repr it replaced, because the reader
+    cannot tell it is wrong. Anything failing the test answers None and keeps
+    its repr exactly as before.
+
+    Only the first line is taken. ``dict`` documents four overloads and ``int``
+    two; a one-line annotation has room for one, and the rest are a hover's
+    problem.
+    """
+    doc = getattr(value, "__doc__", None)
+    if not isinstance(doc, str):
+        return None
+    first = doc.lstrip().partition("\n")[0].rstrip()
+    return first if first.startswith(f"{name}(") else None
+
+
 #: Checked in order, and only the first match is reported.
 _CALL_RESULTS = (
     (inspect.isasyncgenfunction, "async generator"),
@@ -174,10 +204,13 @@ def _describe_callable(value: Any) -> Optional[str]:
     try:
         signature = inspect.signature(value)
     except BaseException:  # noqa: BLE001 - introspection runs user code too
-        # Builtins, C extensions and some descriptors have no signature to
-        # find. Their repr carries no address either, so the fallback loses
-        # nothing: `min` reads `<built-in function min>` exactly as before.
-        return None
+        # Builtins, C extensions and some descriptors have no machine-readable
+        # signature. The ones people meet first say it in their docstring
+        # instead, which is where `min` keeps `min(iterable, *[, default=obj,
+        # key=func]) -> value`. That line already states what calling returns,
+        # so the generator/coroutine suffix below would have nothing to add to
+        # it; anything without such a line keeps its repr, as before.
+        return _documented_signature(value, name)
     text = f"{name}{signature}"
     produces = next(
         (word for test, word in _CALL_RESULTS if test(value)), None)
@@ -196,6 +229,11 @@ def _describe_class(value: Any) -> Optional[str]:
     ``<class 'app.config.Config'>`` is stable already, so this is not about
     addresses. It is that the one question asked of a class in an editor is
     what it takes, and the answer is free.
+
+    ``range``, ``dict``, ``int``, ``str`` and ``type`` are the ones where it
+    was not free, because ``inspect.signature`` refuses all five. Their
+    docstrings answer instead, and the ``class`` prefix stays on that answer so
+    that a builtin type reads the same way a hand-written one does.
     """
     name = _readable_name(value)
     if name is None:
@@ -203,7 +241,8 @@ def _describe_class(value: Any) -> Optional[str]:
     try:
         signature = inspect.signature(value)
     except BaseException:  # noqa: BLE001
-        return None
+        documented = _documented_signature(value, name)
+        return None if documented is None else f"class {documented}"
     return f"class {name}{signature}"
 
 
