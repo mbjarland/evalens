@@ -245,6 +245,21 @@ function paintOutcome(
       .replace(/ /g, ' ');
 }
 
+/**
+ * Whether a load would register anything at all for one statement -- a
+ * region highlight and a gutter marker, whatever ends up written beside it.
+ *
+ * Mirrors `evaluateFile`'s registration path after #91: an `ok` statement is
+ * always registrable, because it ran. Only a failure with no range at all --
+ * nowhere to put a region -- is not. Deliberately independent of
+ * `PaintedAbove`: the whole point of the fix is that the repeat rule and the
+ * load's cap decide what *text* ends up on the line, never whether the line
+ * is marked as having run at all.
+ */
+function registers(outcome: StatementOutcome): boolean {
+  return outcome.ok ? true : outcome.range !== undefined;
+}
+
 test('the whole pipeline produces the annotation IDEA.md promises', async (t) => {
   // Kernel -> resolver -> client -> present -> format, i.e. everything except
   // the call to setDecorations. This is the acceptance clip, minus the pixels.
@@ -800,6 +815,36 @@ test('a line past the name cap says how many it left off', async (t) => {
     "printed: <class 'list'> <class 'tuple'> <class 'dict'> <class 'set'> "
     + "<class 'set'>");
 });
+
+test('a statement that ran registers a region even with nothing to paint',
+  async (t) => {
+    // #91. `d = 1` paints; the `if` below only restates `d`, already shown
+    // above, so the repeat rule empties it; the bare `pass` never had a
+    // value, a name or output to report in the first place. Before the fix
+    // both of those were dropped from the registry outright rather than
+    // merely losing their text -- no region highlight, no gutter marker,
+    // pixel-identical to a line the load never reached. `paintOutcome` (what
+    // ends up written beside the line) still says null for both, exactly as
+    // it should; `registers` (whether the statement is in the registry at
+    // all) must not.
+    const client = connect();
+    t.after(() => client.dispose());
+
+    const source = ['d = 1', 'if d:', '    pass', 'pass'].join('\n') + '\n';
+
+    const loaded = await load(client, source, undefined, '/tmp/evalens-91.py');
+    assert.equal(loaded.ok, true);
+    assert.equal(loaded.results.length, 3, 'the `if` and its `pass` are one');
+
+    const above = new PaintedAbove();
+    assert.deepEqual(
+      loaded.results.map((outcome) => paintOutcome(above, outcome)),
+      ['d: 1', null, null],
+      'the repeat and the bare pass both still paint nothing');
+    assert.deepEqual(
+      loaded.results.map(registers), [true, true, true],
+      'but every one of them ran, and every one is still registered');
+  });
 
 test('a broken line does not stop the rest of the file loading', async (t) => {
   // The tour file contains a deliberate NameError two thirds of the way down,

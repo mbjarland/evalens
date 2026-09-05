@@ -14,7 +14,7 @@ import { askForInput } from './prompt';
 import { Annotations } from './render/annotations';
 import { Annotation, sourceAt, toVsCodeRange } from './render/decorations';
 import { Flash, SNAP } from './render/flash';
-import { hasOutput, printedFrom } from './render/format';
+import { printedFrom } from './render/format';
 import {
   describeLoad, describeRun, hoverFor, partialCause, partialOf, present,
 } from './render/present';
@@ -78,7 +78,18 @@ export const STATUS_ACK_MS = 2000;
 export const STATUS_OUTCOME_MS = 4000;
 
 /**
- * The annotation for one loaded statement, or none if it has nothing to say.
+ * The annotation for one loaded statement, undefined only when a failure
+ * gives no range to paint on at all.
+ *
+ * A statement that ran always gets one, whether or not it has a value: a
+ * `del` or a bare `pass` produces the same shape as `x = 5` with every
+ * text-bearing field left out by the spreads below. That is not an
+ * afterthought -- `Decorator.show` already paints a range with no text as a
+ * highlighted region and a gutter marker and nothing else, precisely because
+ * a statement that ran and a statement the load never reached must not look
+ * the same (#91). Only the caller's repeat rule, and its own cap, get to take
+ * the *text* back off a registered annotation; neither is licensed to make
+ * the statement disappear.
  *
  * `document` is here for one field: the statement's own text, taken at the
  * moment its value was, so that a later edit can be compared against what
@@ -102,15 +113,6 @@ function annotationFor(
       : undefined;
   }
   const printed = printedFrom(outcome.stdout, outcome.stderr);
-  if (outcome.value === null && outcome.loop === undefined
-      && !outcome.names?.length && !hasOutput(printed)) {
-    // It ran; a `del` or a bare `pass` simply has no value to report. A loop
-    // that ran zero times is one exception -- no value, and still an answer --
-    // and so is any statement whose names have something to say, or that
-    // printed: a `while` has no target to point at and its output is the
-    // whole of what it had to show.
-    return undefined;
-  }
   return {
     range: toVsCodeRange(outcome.range),
     ...(outcome.anchor === undefined ? {} : { anchor: outcome.anchor }),
@@ -128,6 +130,27 @@ function annotationFor(
       outcome.display, outcome.value, outcome.repr, outcome.loop,
       outcome.names, outcome.bindings, printed
     ),
+  };
+}
+
+/**
+ * `annotation` with every text-bearing field stripped away, keeping only the
+ * range and the trace fields a later edit needs to judge it.
+ *
+ * Reached from exactly one place: the repeat rule found every pair on this
+ * line already painted, unchanged, above it, and nothing here printed, so
+ * there is no text left to show. The statement still ran -- `annotationFor`
+ * already proved that by returning something for it -- and this is what
+ * keeps the region highlight and the gutter marker attached to the line
+ * rather than losing them along with the text (#91).
+ */
+function withoutText(annotation: Annotation): Annotation {
+  return {
+    range: annotation.range,
+    ...(annotation.anchor === undefined ? {} : { anchor: annotation.anchor }),
+    ...(annotation.source === undefined ? {} : { source: annotation.source }),
+    ...(annotation.binds === undefined ? {} : { binds: annotation.binds }),
+    ...(annotation.reads === undefined ? {} : { reads: annotation.reads }),
   };
 }
 
@@ -209,6 +232,13 @@ class LoadPainting {
    * nothing has removed nothing -- the user still has to walk down the file
    * pressing a key to find out what it did.
    *
+   * But a statement that ran is registered whether or not any of that text
+   * survives (#91). `annotationFor` already proved it ran by returning
+   * something; from here, the repeat rule and the cap only ever get to take
+   * the *text* back off, never the region highlight and the gutter marker
+   * that come with registering it at all -- a line the load never reached
+   * must not end up looking like one it did.
+   *
    * Printed output is not echoed to the channel here. It reached it as each
    * statement wrote it, and appending the captured copy afterwards would print
    * the whole load a second time.
@@ -223,13 +253,22 @@ class LoadPainting {
       return;
     }
     const annotation = annotationFor(this.document, outcome);
-    const fresh = annotation === undefined
-      ? undefined
-      : this.painted.keep(annotation);
+    if (annotation === undefined) {
+      // A failure with no range at all: nothing to point the region at.
+      return;
+    }
+    const fresh = this.painted.keep(annotation);
     if (fresh) {
       this.annotations.add(this.document, fresh);
       this.annotated += 1;
+      return;
     }
+    // Every pair on this line was already painted, unchanged, above, and
+    // nothing here printed -- so the repeat rule leaves no text. The
+    // statement still ran, so it still gets its region and its marker. Not
+    // counted towards the cap above: that bounds how much text one load
+    // paints, and a text-less registration is not text.
+    this.annotations.add(this.document, withoutText(annotation));
   }
 }
 
