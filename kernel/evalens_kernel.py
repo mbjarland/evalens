@@ -155,6 +155,30 @@ evaluation has just put out of date -- an annotation that reads ``x`` and sits
 below one that binds it. Nothing is re-run on the strength of them; see
 ``defs_and_uses``. Either is absent when empty.
 
+A value or a named pair may carry ``table``, a bounded description of it for
+the shapes #24 covers -- a ``pandas.DataFrame``, or a ``list``/``tuple`` of
+dicts with consistent keys, of ``namedtuple`` s, or of same-length
+lists/tuples -- and nothing else. It travels beside ``value``/``repr``
+exactly as they do, computed from the identical value at the identical
+moment, never by asking the namespace again later::
+
+    <- {..., "display":"df", "value":"   a  b\\n0  1  4\\n1  2  5\\n2  3  6",
+        "table":{"kind":"dataframe","columns":["a","b"],
+                 "rows":[["1","4"],["2","5"],["3","6"]],
+                 "row_count":3,"shown_rows":3,"col_count":2,"shown_cols":2}}
+
+``row_count``/``col_count`` are the value's real totals, cheap to ask for
+even on a huge frame or list -- ``len()`` and ``DataFrame.shape`` are both
+O(1). ``shown_rows``/``shown_cols`` are how many of them made it into
+``rows``/``columns``, bounded to a head-and-tail sample (see
+``tabular.HEAD_ROWS``/``TAIL_ROWS``/``MAX_COLUMNS``) so a million-row frame
+is never walked; ``more_rows``/``more_cols`` say how many were left out, on
+the same terms ``more_names`` does, and are absent when nothing was. Absent
+entirely for anything that does not duck-type as one of the shapes above --
+which is every value today, since none of this changes what ``value`` or
+``repr`` say. See ``tabular.describe`` for the detection rules and why they
+stop where they do.
+
 Coordinates are VS Code's: 0-based line, 0-based character.
 
 ``eval_file`` takes the whole buffer and, optionally, ``start_line`` and
@@ -399,6 +423,7 @@ import types
 from typing import Any, Dict, Iterable, Iterator, List, Optional, TextIO, Tuple
 
 import loops
+import tabular
 from resolver import Form, Parsed, form_at, forms_in, parse_prefix
 
 #: Where this kernel's own modules live, resolved once. At startup it is also
@@ -1899,6 +1924,46 @@ def wire_value(
     return _capped(description, limit), text
 
 
+#: How long one table cell's text may run. Well short of `WIRE_REPR_LIMIT`:
+#: a table already shows up to `tabular.MAX_COLUMNS` times
+#: `tabular.HEAD_ROWS + tabular.TAIL_ROWS` cells, and letting any one of them
+#: spend the whole wire budget would crowd out the rows and columns either
+#: side of it, the same reasoning `REPR_NESTED_STRING_LIMIT` states for a
+#: string found inside an ordinary collection.
+TABLE_CELL_LIMIT = 80
+
+
+def _table_cell(value: Any) -> str:
+    """One table cell's text -- `safe_repr`, bounded to `TABLE_CELL_LIMIT`.
+
+    The same machinery every other value on the wire goes through: cycle
+    detection, the ``describe()`` substitution for a function or instance
+    found sitting in a cell, a ``__repr__`` that raises. Nothing about a
+    table cell is exempt from any of that.
+    """
+    return safe_repr(value, TABLE_CELL_LIMIT)
+
+
+def wire_value_and_table(
+    value: Any, limit: int = WIRE_REPR_LIMIT
+) -> Tuple[Optional[str], Optional[str], Optional[Dict[str, Any]]]:
+    """``wire_value``, plus a bounded table description when ``value`` is one.
+
+    Computed from the identical value at the identical moment `wire_value`
+    already reads -- never a second lookup, which is what an annotation being
+    a trace rather than a watch requires (#40). ``tabular.describe`` is
+    exactly as defensive as ``describe()`` above and this repeats the same
+    belt-and-braces catch around it anyway, so a badly behaved ``.shape`` or
+    ``__len__`` can take nothing with it but the table field.
+    """
+    shown, raw_repr = wire_value(value, limit)
+    try:
+        table = tabular.describe(value, _table_cell)
+    except BaseException:  # noqa: BLE001 - introspection runs user code too
+        table = None
+    return shown, raw_repr, table
+
+
 #: Statement kinds where a module or a callable IS the value the line means to
 #: report, rather than machinery the line happens to mention.
 #:
@@ -1979,10 +2044,12 @@ def _named_values(
             # the values it exists to leave out would defeat it.
             more += 1
             continue
-        shown, raw_repr = wire_value(value)
+        shown, raw_repr, table = wire_value_and_table(value)
         pair = {"name": name, "value": shown}
         if raw_repr is not None:
             pair["repr"] = raw_repr
+        if table is not None:
+            pair["table"] = table
         pairs.append(pair)
     return pairs, more
 
@@ -3401,6 +3468,7 @@ class Kernel:
         statement = ast.Module(body=[node], type_ignores=[])
         shown: Optional[str] = None
         raw_repr: Optional[str] = None
+        table: Optional[Dict[str, Any]] = None
         loop: Optional[Dict[str, Any]] = None
         bindings: list = []
         names: list = []
@@ -3448,7 +3516,7 @@ class Kernel:
                             compile(expression, filename, "eval",
                                     dont_inherit=True), self.namespace)
                     if form.display is not None:
-                        shown, raw_repr = wire_value(value)
+                        shown, raw_repr, table = wire_value_and_table(value)
                     # A docstring is the one expression statement the resolver
                     # declines to display. It still runs, and the region
                     # highlight still says so; what it must not do is restate
@@ -3491,7 +3559,8 @@ class Kernel:
                         # `acct.balance` is never read: the annotation reports
                         # the value the line put there, which it can do
                         # without asking the object anything.
-                        shown, raw_repr = wire_value(kept.value)
+                        shown, raw_repr, table = wire_value_and_table(
+                            kept.value)
                     elif form.readable:
                         # A bare name, or a tuple of them, which the resolver
                         # has already vouched for: evaluating one is a
@@ -3509,7 +3578,8 @@ class Kernel:
                         # extension's own NameError in red beside a loop that
                         # had worked. Nothing bound is nothing to say, which
                         # is what `count: int` already answers.
-                        shown, raw_repr = self._read_back(form, filename)
+                        shown, raw_repr, table = self._read_back(
+                            form, filename)
                     else:
                         # A star import is the one statement with no display
                         # that still has something to say, and what it says
@@ -3626,6 +3696,11 @@ class Kernel:
             # bare name -- so a renderer can label `led['a']: 1` without first
             # asking whether `led['a']` looks like an identifier (#81).
             outcome["is_binding"] = True
+        if table is not None:
+            # Present only for the shapes `tabular.describe` recognises, and
+            # computed from this same value at this same moment -- never a
+            # second lookup. See the module docstring's `table` section.
+            outcome["table"] = table
         if loop is not None:
             # Present only for a loop, so a reader of the wire can tell "this
             # ran once" from "this ran and the sequence is elsewhere".
@@ -3665,8 +3740,9 @@ class Kernel:
                 "False -- not run as a script (Evalens: Run File as Script)")
         return outcome
 
-    def _read_back(self, form: Form,
-                   filename: str) -> Tuple[Optional[str], Optional[str]]:
+    def _read_back(
+        self, form: Form, filename: str
+    ) -> Tuple[Optional[str], Optional[str], Optional[Dict[str, Any]]]:
         """`form.display` looked up in the namespace, or nothing if unbound.
 
         Only ever called for a display the resolver marked readable, which is
@@ -3699,8 +3775,8 @@ class Kernel:
         try:
             value = eval(code, self.namespace)  # noqa: S307
         except NameError:
-            return None, None
-        return wire_value(value)
+            return None, None, None
+        return wire_value_and_table(value)
 
     @staticmethod
     def _syntax_error(exc: SyntaxError) -> Dict[str, Any]:
