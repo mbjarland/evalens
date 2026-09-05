@@ -93,11 +93,39 @@ export function normalizeSource(text: string): string {
 }
 
 /**
+ * Whether the lines an annotation now covers could be a statement at all.
+ *
+ * Not a parser, deliberately: this module stays free of one so the lifecycle
+ * is testable without the kernel, and the two shapes checked here need none --
+ * they cannot be a statement under any grammar. `current` has already been
+ * through `normalizeSource`, so blank lines are already gone and "" means the
+ * lines hold nothing but whitespace; the other shape a comment-only line
+ * leaves is every remaining line starting with `#`. Between them these are
+ * exactly what commenting out a statement, or deleting its text and leaving
+ * the line, produces (#96).
+ *
+ * A statement with only *some* of its lines commented is left alone by this
+ * and falls through to the ordinary stale check -- it may be broken Python,
+ * but something is still there, and over-marking rather than over-dropping is
+ * the safe side of a guess this module cannot resolve without parsing.
+ */
+function isStatementless(current: string): boolean {
+  return current === ''
+    || current.split('\n').every((line) => line.startsWith('#'));
+}
+
+/**
  * How an annotation stands after an edit rewrote the lines it sits on.
  *
  * `current` is those lines as the document holds them now, already through
- * `normalizeSource`. Three answers, in the order they are decided:
+ * `normalizeSource`. Four answers, in the order they are decided:
  *
+ * 0. No statement is left there at all -- commented out, or emptied -- and
+ *    the annotation is dropped outright, `stale` or not. This is not the
+ *    undo case below: undo puts text back that is still a statement, and the
+ *    kernel's disagreement with it is a real, nameable fact. A comment is not
+ *    disagreement, it is the absence of anything to agree or disagree with,
+ *    and stale would claim a statement is there to be out of sync (#96).
  * 1. Already stale stays stale. This is the undo case, and it is the point of
  *    the whole ticket rather than an edge of it: putting the text back does
  *    not put the value back, because the kernel still holds whatever it was
@@ -106,7 +134,12 @@ export function normalizeSource(text: string): string {
  * 2. Unchanged text stays evaluated -- the whitespace rule above.
  * 3. Anything else is stale, including an annotation with no recorded source.
  */
-export function afterEdit<T extends Traced>(annotation: T, current: string): T {
+export function afterEdit<T extends Traced>(
+  annotation: T, current: string
+): T | undefined {
+  if (isStatementless(current)) {
+    return undefined;
+  }
   if (annotation.stale) {
     return annotation;
   }
@@ -210,12 +243,14 @@ export interface TextChange extends Anchored {
 export type Shift<T> = (annotation: T, lines: number) => T;
 
 /**
- * Restate an annotation whose lines an edit rewrote where they stood.
+ * Restate an annotation whose lines an edit rewrote where they stood, or say
+ * there is nothing left to restate.
  *
  * Separated from the arithmetic because deciding it needs the document's text
- * and this module has no document. `afterEdit` is what the caller wraps.
+ * and this module has no document. `afterEdit` is what the caller wraps, and
+ * `undefined` is what it answers when the lines no longer hold a statement.
  */
-export type Rewrite<T> = (annotation: T) => T;
+export type Rewrite<T> = (annotation: T) => T | undefined;
 
 function countLineBreaks(text: string): number {
   let count = 0;
@@ -247,6 +282,12 @@ export function lineDelta(change: TextChange): number {
  * anyone wrote it down here: the fringe marker beside an evaluated form turns
  * amber when the form is edited, meaning *out of sync with what the REPL has*
  * rather than *wrong*.
+ *
+ * `rewrite` can also answer that there is nothing to keep: a same-line edit
+ * that turned the statement into a comment, or emptied it, still lands here
+ * because the line count did not change, but there is no code left to be out
+ * of sync with anything -- so it is dropped rather than marked, which is
+ * `afterEdit`'s call to make and #96 is why it exists.
  *
  * An annotation the edit **cut lines out of or pasted lines into** is still
  * dropped. There is no longer a statement for the value to sit beside -- half
@@ -353,14 +394,22 @@ export function reanchor<T extends Anchored>(
   // loop would read the wrong lines whenever a second cursor added or removed
   // some further up the file.
   let changed = false;
-  const settled = current.map((annotation) => {
+  const settled: T[] = [];
+  for (const annotation of current) {
     if (!rewritten.has(annotation)) {
-      return annotation;
+      settled.push(annotation);
+      continue;
     }
     const next = rewrite(annotation);
-    changed ||= next !== annotation;
-    return next;
-  });
+    if (next !== annotation) {
+      changed = true;
+    }
+    // undefined is `rewrite` finding no statement left at all (#96) -- the
+    // annotation is left out rather than restated.
+    if (next !== undefined) {
+      settled.push(next);
+    }
+  }
   // A whitespace-only edit reaches here having marked nothing, and must not
   // cost a repaint either.
   return changed ? settled : current;
