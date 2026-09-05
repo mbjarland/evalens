@@ -766,19 +766,36 @@ def form_at(tree: ast.Module, line: int, character: int = 0,
     Falling back to the nearest preceding statement would be the kind of
     helpfulness that runs code the user did not point at.
 
-    `source`, when given, is threaded to `form_of` for its own optional
-    argument, so a compound statement whose body opens with a comment anchors
-    on its header instead of on that comment. See `_anchor_line`.
-    """
-    del character  # reserved: sub-expression resolution needs it, top-level does not
+    **`character` only matters when more than one top-level statement covers
+    `line`.** Ordinary code never has this happen -- indentation is what keeps
+    every other pair of top-level statements on disjoint lines -- so the one
+    way it does is a semicolon: `print('x'); 'the value'` is two statements,
+    both spanning column 0's line, and a resolver that used line containment
+    alone always answered the first of them regardless of where the cursor
+    actually was (#18). Preferring whichever statement's own column range
+    contains `character` answers the one the user pointed at; falling back to
+    the first when `character` lands in neither -- on the semicolon itself, or
+    past the end of the line -- keeps every existing single-statement caller,
+    which never had a reason to pass anything but the default, resolving
+    exactly as it always did.
 
+    `source` is unused here beyond being threaded to `form_of` for its own
+    optional argument; see `_anchor_line`.
+    """
     source_lines = None if source is None else source.split("\n")
-    for index, node in enumerate(tree.body):
-        start, end = _span(node)
-        if start <= line <= end:
-            return form_of(node, first_in_body=index == 0,
-                          source_lines=source_lines)
-    return None
+    matches = [(index, node) for index, node in enumerate(tree.body)
+               if _span(node)[0] <= line <= _span(node)[1]]
+    if len(matches) > 1:
+        for index, node in matches:
+            if node.col_offset <= character <= (node.end_col_offset
+                                                 if node.end_col_offset is not None
+                                                 else node.col_offset):
+                return form_of(node, first_in_body=index == 0,
+                              source_lines=source_lines)
+    if not matches:
+        return None
+    index, node = matches[0]
+    return form_of(node, first_in_body=index == 0, source_lines=source_lines)
 
 
 def forms_in(tree: ast.Module,

@@ -18,14 +18,14 @@ TOUR = os.path.join(
     "examples", "tour.py")
 
 
-def resolve(src: str, line: int):
+def resolve(src: str, line: int, character: int = 0):
     """Resolve at a 0-based line of `src`, which is written without indent.
 
     `src` is threaded through as `source` too, on the same terms the kernel
     always has it available: a caller here is never testing the reduced case
     of a tree with no buffer behind it unless it calls `form_at` itself.
     """
-    return form_at(ast.parse(src), line, source=src)
+    return form_at(ast.parse(src), line, character, source=src)
 
 
 class DisplayMapping(unittest.TestCase):
@@ -482,6 +482,41 @@ class Positions(unittest.TestCase):
 
     def test_an_empty_module_resolves_to_nothing(self):
         self.assertIsNone(resolve("", 0))
+
+    def test_semicolon_separated_statements_resolve_by_column(self):
+        # #18: several top-level statements can share one line only through a
+        # semicolon, and line containment alone cannot tell them apart --
+        # every candidate contains the same line. `character` is what
+        # distinguishes them, and a cursor "anywhere on that line" used to
+        # always answer the first regardless of where it actually was.
+        src = "a = 1; b = 2\n"
+        self.assertEqual(resolve(src, 0, 0).display, "a")
+        self.assertEqual(resolve(src, 0, 5).display, "a")
+        self.assertEqual(resolve(src, 0, 7).display, "b")
+        self.assertEqual(resolve(src, 0, 12).display, "b")
+
+    def test_a_character_that_lands_in_neither_falls_back_to_the_first(self):
+        # The semicolon itself, and past the end of the line: nowhere a
+        # statement's own column range covers, so the fallback the ticket
+        # asks for applies -- the first statement, which is also everything
+        # every caller before #18 already relied on `character` defaulting
+        # to 0 to get.
+        src = "a = 1; b = 2\n"
+        self.assertEqual(resolve(src, 0, 6).display, "a")
+        self.assertEqual(resolve(src, 0, 100).display, "a")
+
+    def test_three_statements_on_one_line_still_resolve_by_column(self):
+        src = "a = 1; b = 2; c = 3\n"
+        self.assertEqual(resolve(src, 0, 0).display, "a")
+        self.assertEqual(resolve(src, 0, 7).display, "b")
+        self.assertEqual(resolve(src, 0, 14).display, "c")
+
+    def test_a_single_statement_line_ignores_character_entirely(self):
+        # The overwhelmingly common case, and the one every existing caller
+        # of `form_at` was already relying on before `character` did
+        # anything: one statement per line, so any column resolves to it.
+        f = resolve("x = 1\n", 0, 4)
+        self.assertEqual(f.display, "x")
 
     def test_the_prototype_answers_reproduce(self):
         # The two answers IDEA.md cites from prototype/form_at_cursor.py.
