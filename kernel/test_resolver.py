@@ -277,6 +277,82 @@ class WhereTheValueComesFrom(unittest.TestCase):
                     f"{form.display!r} is not a namespace lookup")
 
 
+class WhatTheDisplaySlotMeans(unittest.TestCase):
+    """Whether `display` names a place this statement bound, for #81.
+
+    `led["a"] = 1` used to annotate `=> 1`, as though the line only produced a
+    value rather than storing one -- because the renderer decided "is this a
+    binding" by testing whether `display` reads as a bare or dotted
+    identifier, and a subscript does not. `is_binding` is the resolver
+    answering the question itself, from the statement rather than from the
+    text, so a subscript or attribute target gets it right without the
+    renderer having to recognise more shapes of text.
+    """
+
+    def test_a_subscript_assignment_target_is_a_binding(self):
+        # The reported case, verbatim.
+        form = resolve("led['a'] = 1\n", 0)
+        self.assertEqual(form.display, "led['a']")
+        self.assertTrue(form.is_binding)
+
+    def test_an_attribute_assignment_target_is_a_binding(self):
+        form = resolve("acct.balance = 100\n", 0)
+        self.assertEqual(form.display, "acct.balance")
+        self.assertTrue(form.is_binding)
+
+    def test_a_bare_name_assignment_is_a_binding(self):
+        self.assertTrue(resolve("x = 1\n", 0).is_binding)
+
+    def test_a_bare_subscript_expression_is_not_a_binding(self):
+        # `xs[0]` alone reads a value; it does not store one. Widening the
+        # identifier test to admit subscripts without asking the statement
+        # would have called this a binding too, and mislabelled it.
+        form = resolve("xs = [5]\nxs[0]\n", 1)
+        self.assertEqual(form.display, "xs[0]")
+        self.assertFalse(form.is_binding)
+
+    def test_a_genuine_expression_is_not_a_binding(self):
+        self.assertFalse(resolve("sum([10, 20])\n", 0).is_binding)
+
+    def test_a_definition_or_import_is_still_a_binding(self):
+        for src in ("def f():\n    pass\n",
+                    "class C:\n    pass\n",
+                    "import os\n"):
+            with self.subTest(src=src):
+                self.assertTrue(resolve(src, 0).is_binding)
+
+    def test_a_loop_target_is_a_binding_whether_or_not_it_is_readable(self):
+        # `for box.item in xs:` is neither readable nor captured -- there is
+        # no value in the statement's hand the way an assignment has one --
+        # and it is still a binding: the loop stores through that target on
+        # every iteration, which is not what an ordinary expression does.
+        form = resolve("for box.item in [1, 2]:\n    pass\n", 0)
+        self.assertFalse(form.readable)
+        self.assertFalse(form.captured)
+        self.assertTrue(form.is_binding)
+
+    def test_nothing_with_no_display_is_a_binding(self):
+        for src in ("if x:\n    pass\n", "del x\n", "count: int\n",
+                    '"""Module."""\n'):
+            with self.subTest(src=src):
+                form = resolve(src, 0)
+                self.assertIsNone(form.display)
+                self.assertFalse(form.is_binding)
+
+    def test_is_binding_disagrees_with_the_identifier_text_test_exactly_where_it_should(self):
+        # The invariant the field exists to replace: only a bare expression
+        # statement is not a binding, and that is true regardless of whether
+        # `display` happens to look like a name.
+        for src in SHAPES:
+            with self.subTest(src=src):
+                form = resolve(src, 0)
+                if form.display is None:
+                    self.assertFalse(form.is_binding)
+                    continue
+                self.assertEqual(form.is_binding,
+                                 not isinstance(form.node, ast.Expr))
+
+
 #: One of every statement shape the display table has an answer for, plus the
 #: shapes that made the safety rule necessary. Written out rather than
 #: generated: the point is that a reader can see what is covered.

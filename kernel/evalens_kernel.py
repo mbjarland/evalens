@@ -81,6 +81,20 @@ beside it, and what it answers with is how many names it brought in -- read
 out of the exporting module's own dictionary, which is stable across
 evaluations and cannot run anything. See ``_star_import``.
 
+``is_binding`` says whether ``display`` names a place this statement bound --
+an assignment target, a loop variable, a ``with ... as``, the name a ``def``
+or ``import`` introduces -- rather than the value of a bare expression
+statement. Present only when true, the same as ``loop``'s own ``constant``::
+
+    -> {"id":4,"op":"eval","source":"led = {}\\nled['a'] = 1\\n","line":1,...}
+    <- {"id":4,...,"display":"led['a']","value":"1","is_binding":true}
+
+Nothing about ``display``'s own text says this -- ``led['a']`` is no more and
+no less a binding than ``x`` is for ``x = 1``, and a consumer that infers the
+answer from whether ``display`` looks like a bare or dotted identifier gets
+this one wrong (#81). ``resolver.Form.is_binding`` decides it from the
+statement, not from the string.
+
 ``names`` is what the names on the line hold, which for most lines is the
 answer the reader wanted and ``value`` is not::
 
@@ -3549,6 +3563,15 @@ class Kernel:
             # would double the width of every large value on the wire to say
             # the same thing twice.
             outcome["repr"] = raw_repr
+        if form.is_binding:
+            # Present only when true, on the same terms as `loop`'s own
+            # `constant`: absence is the ordinary case, a plain expression
+            # statement, and costs nothing to say nothing about. What this
+            # says is what `resolver.Form.is_binding` says -- `display` names
+            # a place this statement bound, whether or not that place is a
+            # bare name -- so a renderer can label `led['a']: 1` without first
+            # asking whether `led['a']` looks like an identifier (#81).
+            outcome["is_binding"] = True
         if loop is not None:
             # Present only for a loop, so a reader of the wire can tell "this
             # ran once" from "this ran and the sequence is elsewhere".

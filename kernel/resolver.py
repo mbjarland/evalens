@@ -98,6 +98,21 @@ class Form:
     #: stores it, because reading the target back would run the user's code.
     #: Exactly one of this and `readable` is ever true. See `_value_source`.
     captured: bool = False
+    #: Whether `display` names a place this statement bound -- an assignment
+    #: target, a loop variable, a `with ... as`, the name a `def` or `import`
+    #: introduces -- as opposed to the value of a bare expression statement,
+    #: which is the only case this is ever false while `display` is not None.
+    #:
+    #: A renderer that wants to lead with a binding and trail with a result
+    #: needs this fact and does not otherwise have it: `led["a"] = 1` unparses
+    #: `display` to `led['a']`, which is exactly as much a binding as `x` is
+    #: for `x = 1`, and no less one for failing to look like a bare name (#81).
+    #: Guessing from the text of `display` -- is it a bare or dotted
+    #: identifier -- is the mistake this field replaces; the resolver already
+    #: knows which statement it is looking at; a text pattern is a second,
+    #: worse way of asking the same question, and the one that missed a
+    #: subscript and an attribute target.
+    is_binding: bool = False
 
 
 #: Statements whose value belongs on the line that introduces them rather than
@@ -715,10 +730,11 @@ def form_of(node: ast.stmt, first_in_body: bool = False,
     end = (node.end_lineno or node.lineno) - 1
     binds, reads = defs_and_uses(node)
     display = display_expr(node, first_in_body)
-    # Asked of the target only when there is a display to put a value beside,
-    # so a suppressed docstring cannot be reported as readable source.
-    readable, captured = _value_source(
-        node, None if display is None else _display_target(node))
+    # None only for a suppressed docstring; every other display is what
+    # `_display_target` answered, computed once and shared by the two
+    # questions below rather than asked twice.
+    target = None if display is None else _display_target(node)
+    readable, captured = _value_source(node, target)
     return Form(
         node=node,
         kind=type(node).__name__,
@@ -733,6 +749,7 @@ def form_of(node: ast.stmt, first_in_body: bool = False,
         reads=reads,
         readable=readable,
         captured=captured,
+        is_binding=target is not None and not isinstance(node, ast.Expr),
     )
 
 
