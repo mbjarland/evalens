@@ -70,6 +70,15 @@ export type Presentation =
       /** How many further names the kernel's per-line cap left out. */
       readonly more?: number;
       /**
+       * Whether `display` names a place this statement bound (#81).
+       *
+       * Present only when true, matching the wire. Absent means either a
+       * bare expression, whose value is its own answer, or a kernel too old
+       * to say -- and `isBoundTarget` falls back to the identifier regex for
+       * the second, which is why this stays optional rather than defaulted.
+       */
+      readonly isBinding?: boolean;
+      /**
        * A bounded table description of `value`, when it duck-types as one
        * of the shapes #24 covers -- see `TableWire`. Never rendered here:
        * `render/table.ts`'s `tableMarkdown` is the one place that turns it
@@ -195,6 +204,9 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
     ...(response.more_names === undefined
       ? {}
       : { more: response.more_names }),
+    ...(response.is_binding === undefined
+      ? {}
+      : { isBinding: response.is_binding }),
     ...(response.table === undefined ? {} : { table: response.table }),
     ...(response.binds === undefined ? {} : { binds: response.binds }),
     ...(response.reads === undefined ? {} : { reads: response.reads }),
