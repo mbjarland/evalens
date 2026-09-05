@@ -43,6 +43,16 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('evalens.evaluateFile', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        return;
+      }
+      await evaluator?.evaluateFile(editor);
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand('evalens.restartKernel', async () => {
       client?.restart();
       // The interpreter may have changed since the last spawn -- a new venv

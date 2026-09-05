@@ -36,6 +36,10 @@
   "contributes": {
     "commands": [
       {
+        "command": "evalens.evaluateFile",
+        "title": "Evalens: Evaluate File"
+      },
+      {
         "command": "evalens.evaluateAtCursor",
         "title": "Evalens: Evaluate at Cursor"
       },
@@ -117,6 +121,12 @@
       }
     ],
     "keybindings": [
+      {
+        "command": "evalens.evaluateFile",
+        "key": "ctrl+alt+enter",
+        "mac": "cmd+alt+enter",
+        "when": "editorTextFocus && editorLangId == python && !findWidgetVisible"
+      },
       {
         "command": "evalens.evaluateAtCursor",
         "key": "ctrl+enter",

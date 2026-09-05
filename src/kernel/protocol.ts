@@ -32,8 +32,15 @@ export interface EvalRequest {
   readonly filename: string;
 }
 
+export interface EvalFileRequest {
+  readonly op: 'eval_file';
+  readonly source: string;
+  readonly filename: string;
+}
+
 export type Request =
   | EvalRequest
+  | EvalFileRequest
   | { readonly op: 'ping' }
   | { readonly op: 'reset' };
 
@@ -65,7 +72,20 @@ export interface Failed {
   readonly kind?: string;
   readonly stdout?: string;
   readonly stderr?: string;
+  /** How many statements ran before the failure, for `eval_file`. */
+  readonly statements?: number;
 }
+
+/** A whole module body executed into the namespace. */
+export interface FileLoaded {
+  readonly id: number;
+  readonly ok: true;
+  readonly statements: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+export type FileResponse = FileLoaded | Failed;
 
 export type EvalResponse = Unresolved | Evaluated | Failed;
 
@@ -74,7 +94,7 @@ export interface Acknowledged {
   readonly ok: true;
 }
 
-export type Response = EvalResponse | Acknowledged;
+export type Response = EvalResponse | FileResponse | Acknowledged;
 
 export function isFailure(response: Response): response is Failed {
   return response.ok === false;

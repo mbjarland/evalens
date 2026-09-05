@@ -203,6 +203,64 @@ class Failures(KernelTest):
             self.k.evaluate_lines("v = 2\nv\n", 0, 1)["value"], "2")
 
 
+class LoadFile(KernelTest):
+    SOURCE = (
+        "import sys\n"
+        "GREETING = 'hello'\n"
+        "def shout():\n"
+        "    return GREETING.upper()\n"
+        "if __name__ == '__main__':\n"
+        "    sys.exit('the main guard ran')\n"
+    )
+
+    def load(self, source=None):
+        return self.k.send(op="eval_file",
+                           source=self.SOURCE if source is None else source,
+                           filename="/tmp/module.py")
+
+    def test_loading_populates_the_namespace_in_one_step(self):
+        result = self.load()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["statements"], 4)
+        # The point of the command: a line near the bottom now evaluates
+        # without walking down the file first.
+        called = self.k.evaluate(self.SOURCE + "shout()\n", 6)
+        self.assertEqual(called["value"], "'HELLO'")
+
+    def test_the_main_guard_does_not_run(self):
+        # True because __name__ is "__evalens__", which is what importing a
+        # module means. Pinned because it is a consequence of the namespace
+        # setup rather than an explicit rule, and would be easy to break by
+        # making __name__ look more realistic.
+        self.assertTrue(self.load()["ok"])
+        self.assertEqual(
+            self.k.evaluate("__name__\n", 0)["value"], "'__evalens__'")
+
+    def test_loading_stops_at_the_first_failure(self):
+        source = "a = 1\nraise ValueError('stop here')\nb = 2\n"
+        result = self.load(source)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["type"], "ValueError")
+        self.assertEqual(result["statements"], 1, "one statement ran before it")
+        self.assertEqual(result["range"]["start"]["line"], 1)
+        # Everything before the failure is in the namespace; nothing after is.
+        self.assertEqual(self.k.evaluate("a\n", 0)["value"], "1")
+        self.assertFalse(self.k.evaluate("b\n", 0)["ok"])
+
+    def test_output_during_a_load_is_captured(self):
+        self.assertEqual(self.load("print('loading')\n")["stdout"], "loading\n")
+
+    def test_a_syntax_error_is_reported_with_its_position(self):
+        result = self.load("a = 1\ndef (\n")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["type"], "SyntaxError")
+
+    def test_loading_an_empty_file_is_not_an_error(self):
+        result = self.load("")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["statements"], 0)
+
+
 class Protocol(KernelTest):
     def test_responses_carry_the_request_id(self):
         self.assertEqual(self.k.send(op="ping", id=77)["id"], 77)

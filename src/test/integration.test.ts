@@ -124,3 +124,47 @@ test('an undefined name paints as an error, not as a crash', async (t) => {
       (shown as { message: string }).message).replace(/ /g, ' '),
     "=> NameError: name 'nope' is not defined");
 });
+
+test('loading a file makes a line near the bottom evaluate straight away', async (t) => {
+  // The command's whole reason to exist: without it the first thirty seconds
+  // are a NameError and a walk down the file.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = [
+    'import sys',
+    "GREETING = 'hello'",
+    'def shout():',
+    '    return GREETING.upper()',
+    "if __name__ == '__main__':",
+    "    sys.exit('the main guard ran')",
+    'shout()',
+  ].join('\n') + '\n';
+
+  const loaded = await client.request({
+    op: 'eval_file', source, filename: '/tmp/evalens-load.py',
+  }) as { ok: boolean; statements: number };
+  assert.equal(loaded.ok, true);
+
+  const called = await evaluate(client, source, 6) as Evaluated;
+  assert.equal(called.value, "'HELLO'",
+    'the namespace should be populated without evaluating line by line');
+});
+
+test('the __main__ guard does not run on load', async (t) => {
+  // Load File means "import the module", and an imported module does not run
+  // its main guard. True here because __name__ is "__evalens__" -- pinned on
+  // both sides because it is a consequence of the namespace setup rather
+  // than an explicit rule.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = "import sys\nif __name__ == '__main__':\n    sys.exit(9)\n";
+  const loaded = await client.request({
+    op: 'eval_file', source, filename: '/tmp/evalens-main.py',
+  }) as { ok: boolean };
+  assert.equal(loaded.ok, true, 'sys.exit would have made this a failure');
+
+  const name = await evaluate(client, '__name__\n', 0) as Evaluated;
+  assert.equal(name.value, "'__evalens__'");
+});

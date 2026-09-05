@@ -25,8 +25,8 @@ JSON escapes newlines, so line framing is safe for arbitrary source text.
 
 Coordinates are VS Code's: 0-based line, 0-based character.
 
-Ops: ``ping``, ``reset``, ``eval``. ``eval_above`` is reserved and answers
-with an explicit not-implemented error until #13 lands.
+Ops: ``ping``, ``reset``, ``eval``, ``eval_file``. ``eval_above`` is reserved
+and answers with an explicit not-implemented error until #13 lands.
 
 Requires Python 3.9 or later (``ast.unparse``).
 """
@@ -154,6 +154,8 @@ class Kernel:
             return {"ok": True}
         if op == "eval":
             return self.evaluate(request)
+        if op == "eval_file":
+            return self.evaluate_file(request)
         if op == "eval_above":
             # Reserved so the protocol shape is settled; the feature is #13.
             return {
@@ -199,6 +201,64 @@ class Kernel:
             return {"ok": True, "resolved": False}
 
         return self._run(form, filename)
+
+    def evaluate_file(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Run a whole module body in the namespace, as an import would.
+
+        This is Calva's Load File. Its Clojure form is safe because a
+        namespace is almost all definitions; a Python module body genuinely
+        runs, so the translation matters.
+
+        The faithful one is already right. "Load the namespace" in Python
+        means *import the module*, and an imported module does not run its
+        ``if __name__ == "__main__":`` block. ``__name__`` here is
+        ``"__evalens__"``, so that guard is False without anything special
+        being done about it -- no heuristic, no list of statements to skip.
+        ``test_kernel`` pins it, because it is currently true as a
+        consequence of the namespace setup and would be easy to break by
+        making ``__name__`` look more realistic.
+        """
+        source: str = request.get("source", "")
+        filename: str = request.get("filename") or "<evalens>"
+
+        linecache.cache[filename] = (
+            len(source), None, source.splitlines(keepends=True), filename,
+        )
+
+        try:
+            tree = ast.parse(source, filename=filename)
+        except SyntaxError as exc:
+            return self._syntax_error(exc)
+
+        with _user_io() as (out, err):
+            for index, statement in enumerate(tree.body):
+                module = ast.Module(body=[statement], type_ignores=[])
+                try:
+                    exec(compile(module, filename, "exec"), self.namespace)
+                except BaseException as exc:  # noqa: BLE001
+                    # Stop at the failure rather than pressing on. Continuing
+                    # would build a namespace half from this file and half
+                    # from whatever ran before, which nobody can reason about.
+                    return {
+                        "ok": False,
+                        "error": _error(exc, tb_skip=1),
+                        "statements": index,
+                        "range": {
+                            "start": _position(statement.lineno - 1, 0),
+                            "end": _position(
+                                (statement.end_lineno or statement.lineno) - 1,
+                                statement.end_col_offset or 0),
+                        },
+                        "stdout": out.getvalue(),
+                        "stderr": err.getvalue(),
+                    }
+
+        return {
+            "ok": True,
+            "statements": len(tree.body),
+            "stdout": out.getvalue(),
+            "stderr": err.getvalue(),
+        }
 
     # -- internals ----------------------------------------------------------
 

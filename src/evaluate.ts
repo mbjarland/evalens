@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 import { KernelClient } from './kernel/client';
-import { EvalResponse, LatestWins } from './kernel/protocol';
+import { EvalResponse, FileResponse, LatestWins } from './kernel/protocol';
 import { Annotations } from './render/annotations';
 import { Annotation, toVsCodeRange } from './render/decorations';
 import { present } from './render/present';
@@ -25,6 +25,56 @@ export class Evaluator {
     private readonly annotations: Annotations,
     private readonly output: vscode.OutputChannel
   ) {}
+
+  /**
+   * Load the whole file into the namespace, the way a session starts.
+   *
+   * This is Calva's Load File. It reports rather than annotates: loading is
+   * "get me set up", not "show me the work" -- keeping those distinct is
+   * what stops a 400-line file painting 400 annotations. #13 is the command
+   * that shows the work.
+   */
+  async evaluateFile(editor: vscode.TextEditor): Promise<void> {
+    const document = editor.document;
+    let response: FileResponse;
+    try {
+      const client = await this.kernel();
+      response = (await client.request({
+        op: 'eval_file',
+        source: document.getText(),
+        filename: document.uri.fsPath,
+      })) as FileResponse;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.output.appendLine(message);
+      void vscode.window.showErrorMessage(`Evalens: ${message}`);
+      return;
+    }
+
+    if (response.ok) {
+      const n = response.statements;
+      vscode.window.setStatusBarMessage(
+        `Evalens: loaded ${n} statement${n === 1 ? '' : 's'}`, 3000);
+      if (response.stdout) {
+        this.output.append(response.stdout);
+      }
+      return;
+    }
+
+    // A failure DOES get annotated: it has a place on screen, and the user
+    // needs to see which statement stopped the load.
+    const ran = response.statements ?? 0;
+    void vscode.window.showErrorMessage(
+      `Evalens: load stopped after ${ran} statement${ran === 1 ? '' : 's'} ` +
+      `- ${response.error.type}: ${response.error.message}`);
+    if (response.range) {
+      this.annotations.add(document, {
+        range: toVsCodeRange(response.range),
+        error: { type: response.error.type, message: response.error.message },
+        hover: response.error.traceback || response.error.message,
+      });
+    }
+  }
 
   async evaluateAtCursor(editor: vscode.TextEditor): Promise<void> {
     const document = editor.document;
