@@ -78,6 +78,6 @@ export class Evaluator {
             ...(presentation.hover ? { hover: presentation.hover } : {}),
           };
 
-    this.annotations.show(document, [annotation]);
+    this.annotations.add(document, annotation);
   }
 }

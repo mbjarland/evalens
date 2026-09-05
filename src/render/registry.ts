@@ -1,3 +1,34 @@
+/** The minimum an annotation needs for overlap to be decidable. */
+export interface Anchored {
+  readonly range: {
+    readonly start: { readonly line: number };
+    readonly end: { readonly line: number };
+  };
+}
+
+/** Do these two annotations cover any of the same lines? */
+export function overlaps(a: Anchored, b: Anchored): boolean {
+  return a.range.start.line <= b.range.end.line
+    && b.range.start.line <= a.range.end.line;
+}
+
+/**
+ * Add an annotation, displacing any it overlaps.
+ *
+ * Results accumulate: the point of the feature is that a file becomes a
+ * worked example you can read, which needs more than one value on screen at
+ * a time. But re-evaluating a statement must update its annotation rather
+ * than stack a second one on the same line -- and "the same statement" is
+ * overlap, not equality, because the ranges genuinely nest. Evaluating a line
+ * inside a function and then the function itself produces one range
+ * containing the other, and painting both would put two values on one line.
+ */
+export function merge<T extends Anchored>(
+  existing: readonly T[], added: T
+): T[] {
+  return [...existing.filter((each) => !overlaps(each, added)), added];
+}
+
 /**
  * Which documents currently carry annotations.
  *

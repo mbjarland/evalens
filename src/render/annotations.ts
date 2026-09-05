@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 import { Annotation, Decorator } from './decorations';
-import { AnnotationRegistry } from './registry';
+import { AnnotationRegistry, merge } from './registry';
 
 /**
  * Set while the active editor has annotations, so `escape` keeps doing
@@ -52,10 +52,17 @@ export class Annotations implements vscode.Disposable {
     );
   }
 
+  /** Replace this document's annotations outright. */
   show(document: vscode.TextDocument, annotations: readonly Annotation[]): void {
     this.registry.set(document.uri.toString(), annotations);
     this.repaint(document);
     this.updateContext();
+  }
+
+  /** Add one annotation, displacing any it overlaps. */
+  add(document: vscode.TextDocument, annotation: Annotation): void {
+    const uri = document.uri.toString();
+    this.show(document, merge(this.registry.get(uri), annotation));
   }
 
   clear(document: vscode.TextDocument): void {
