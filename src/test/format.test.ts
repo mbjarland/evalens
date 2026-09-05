@@ -203,6 +203,19 @@ test('a name bound to None keeps it, however much else is shown', () => {
     preserveSpacing('noise: None   lst: [1, 2]'));
 });
 
+test('an unpacking assignment reads as one pair per binding', () => {
+  // `d1, d2 = {'a': 1}, {'b': 2}` painted `=> ({'a': 1}, {'b': 2})` -- the
+  // right-hand side echoed back, which is already on the line. The kernel now
+  // leaves the display slot empty and sends the bindings as names, so this
+  // composes with the rendering above rather than adding a shape of its own.
+  assert.equal(
+    resultText(null, null, null, pairs(['d1', "{'a': 1}"], ['d2', "{'b': 2}"])),
+    preserveSpacing("d1: {'a': 1}   d2: {'b': 2}"));
+  assert.equal(
+    resultText(null, null, null, pairs(['head', '1'], ['rest', '[2, 3, 4]'])),
+    preserveSpacing('head: 1   rest: [2, 3, 4]'));
+});
+
 test('a statement with no value of its own still shows its names', () => {
   // An `if` produces nothing and can still be the most informative line in a
   // file: what it bound is the answer.

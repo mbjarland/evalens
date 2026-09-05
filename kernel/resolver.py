@@ -162,7 +162,23 @@ def _display_target(node: ast.stmt) -> Optional[Union[ast.expr, str]]:
     if isinstance(node, ast.Assign):
         # `a = b = 1` has two targets; the first is the one written left-most
         # and is what the eye lands on.
-        return node.targets[0]
+        target = node.targets[0]
+        if isinstance(target, (ast.Tuple, ast.List)):
+            # `d1, d2 = {'a': 1}, {'b': 2}` is not one binding to display but
+            # several, and the display slot holds one. Unparsed it reads
+            # `(d1, d2)`, which is not an identifier, so it is not labelled
+            # with and falls through to `=> ({'a': 1}, {'b': 2})` -- the
+            # right-hand side echoed back, which is already on the line, while
+            # the question the reader has (what is `d1` now?) goes unanswered.
+            #
+            # Leaving the slot empty hands the whole line to `annotated_names`,
+            # which reports one `name: value` pair per bound name from the
+            # namespace after the statement ran. That is the same rendering
+            # several names on a line already use, so this is composition
+            # rather than new display, and it stays a trace: nothing here is
+            # re-evaluated to produce it.
+            return None
+        return target
     if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
         return node.target
     if isinstance(node, ast.Expr):
@@ -192,6 +208,10 @@ def display_expr(node: ast.stmt, first_in_body: bool = False) -> Optional[str]:
     `None` means the statement runs but has nothing to display -- an `if`, a
     `del`, a bare `pass`. That is a real answer and not a failure; the caller
     highlights the region without painting a value.
+
+    An unpacking assignment answers `None` for a different reason: it has
+    several things to display rather than none, and `annotated_names` is where
+    several go. See `_display_target`.
 
     A docstring is the one statement whose value is real and worth nothing:
     restating a module's opening paragraph back at its author, with the

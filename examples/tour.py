@@ -228,16 +228,24 @@ if __name__ != "__main__":
 #     left-most, which is where the eye lands.
 first = second = 'both'
 
-# 12. A tuple target is shown whole, so unpacking reads as one value rather
-#     than as the first name only.
+# 12. An unpacking target is several bindings, not one, so the annotation
+#     names each of them: `low: 1   high: 100`.  Showing the target whole gave
+#     `=> (1, 100)`, which is the right-hand side read back -- already on the
+#     line, and no answer to the question the reader has, which is which name
+#     got which value.  The nested case binds every leaf.
 low, high = 1, 100
+outer, (inner, deepest) = 1, (2, 3)
 
-# 13. A starred target survives the round trip through unparsing, and is the
-#     one row of the table where reading the display expression back is not
-#     faithful: `(head, *rest)` re-splats, so the annotation says
-#     `(1, 2, 3, 4)` where the binding is `head = 1, rest = [2, 3, 4]`.  The
-#     case is kept precisely because it is wrong today (#38).
+# 13. A starred target names the list the star collected.  Reading the
+#     unparsed target back gave `(1, 2, 3, 4)` instead, because `(head, *rest)`
+#     as an expression re-splats: a faithful echo of the right-hand side and a
+#     misleading picture of what is now in the namespace.
 head, *rest = [1, 2, 3, 4]
+
+# 13a. A swap, which is the case that shows these values are read out of the
+#      namespace after the statement ran rather than by re-running anything.
+#      There is no right-hand side here whose echo would say the same thing.
+low, high = high, low
 
 # 14. Subscript and attribute targets are shown as written.  Displaying
 #     `shelf` or `spot` instead would hide the thing that just changed, and

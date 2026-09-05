@@ -32,8 +32,20 @@ class DisplayMapping(unittest.TestCase):
     def test_chained_assign_shows_the_leftmost_target(self):
         self.assertEqual(resolve("a = b = 1\n", 0).display, "a")
 
-    def test_tuple_assign_shows_the_whole_target(self):
-        self.assertEqual(resolve("a, b = 1, 2\n", 0).display, "(a, b)")
+    def test_an_unpacking_assign_leaves_the_display_slot_empty(self):
+        # It has several things to show rather than none, and the slot holds
+        # one. `(a, b)` is not an identifier, so it is not labelled with and
+        # falls through to `=>` -- where it echoes the right-hand side that is
+        # already on the line. The names carry it instead; see AnnotatedNames.
+        self.assertIsNone(resolve("a, b = 1, 2\n", 0).display)
+        self.assertIsNone(resolve("head, *rest = [1, 2, 3, 4]\n", 0).display)
+        self.assertIsNone(resolve("[p, q] = [1, 2]\n", 0).display)
+
+    def test_a_loop_target_is_still_shown_whole(self):
+        # The same shape, a different question. A `for` target labels the
+        # sequence the kernel recorded, and the sequence is what gets painted.
+        self.assertEqual(
+            resolve("for k, v in d.items():\n    pass\n", 0).display, "(k, v)")
 
     def test_subscript_and_attribute_targets_survive(self):
         self.assertEqual(resolve("d['k'] = 1\n", 0).display, "d['k']")
@@ -183,8 +195,33 @@ class AnnotatedNames(unittest.TestCase):
         # `x = 1` would otherwise read `x: 1   x: 1`.
         self.assertEqual(self.names("x = 1\n"), ())
         self.assertEqual(self.names("y = x\n"), ("x",))
-        self.assertEqual(self.names("low, high = 1, 100\n"), ())
         self.assertEqual(self.names("shelf['jam'] = 99\n"), ())
+
+    def test_an_unpacking_assign_offers_every_name_it_bound(self):
+        # The display slot is empty for these, so nothing is repeated and the
+        # bindings are the whole annotation: `d1: {'a': 1}   d2: {'b': 2}`
+        # rather than the right-hand side echoed back.
+        self.assertEqual(self.names("low, high = 1, 100\n"), ("low", "high"))
+        self.assertEqual(self.names("d1, d2 = {'a': 1}, {'b': 2}\n"),
+                         ("d1", "d2"))
+
+    def test_a_starred_target_offers_the_name_the_star_bound(self):
+        # `rest` holds the list the star collected. Unparsing the target and
+        # reading it back gave `(1, 2, 3, 4)` instead, because a starred
+        # element in a tuple display re-splats.
+        self.assertEqual(self.names("head, *rest = [1, 2, 3, 4]\n"),
+                         ("head", "rest"))
+
+    def test_a_nested_pattern_offers_every_leaf_name(self):
+        self.assertEqual(self.names("a, (b, c) = 1, (2, 3)\n"),
+                         ("a", "b", "c"))
+        self.assertEqual(self.names("(a, b), c = (1, 2), 3\n"),
+                         ("a", "b", "c"))
+
+    def test_an_unpacking_assign_into_places_offers_only_real_names(self):
+        # `obj.a` and `d['k']` bind into something that already exists; `obj`
+        # and `d` are reads, and reporting them is what the reader wants.
+        self.assertEqual(self.names("obj.a, n = 1, 2\n"), ("n", "obj"))
 
     def test_an_expression_offers_the_names_inside_it(self):
         # The case the whole ticket turns on: the statement produced None and

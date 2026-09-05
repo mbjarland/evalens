@@ -1348,6 +1348,36 @@ class Names(KernelTest):
         self.assertEqual(self.pairs(result),
                          [("factor", "10"), ("data", "[1, 2]")])
 
+    def test_unpacking_names_each_binding_instead_of_echoing_the_source(self):
+        # The ticket's case. `=> ({'a': 1}, {'b': 2})` restated the line and
+        # left the actual question -- what is `d1` now -- unanswered.
+        result = self.k.evaluate('d1, d2 = {"a": 1}, {"b": 2}\n', 0)
+        self.assertIsNone(result["display"])
+        self.assertIsNone(result["value"])
+        self.assertEqual(self.pairs(result),
+                         [("d1", "{'a': 1}"), ("d2", "{'b': 2}")])
+
+    def test_a_starred_target_reports_the_list_the_star_collected(self):
+        # Re-evaluating the unparsed target gave `(1, 2, 3, 4)`, because a
+        # starred element in a tuple display re-splats: a faithful echo of the
+        # right-hand side and a misleading picture of the namespace.
+        result = self.k.evaluate("head, *rest = [1, 2, 3, 4]\n", 0)
+        self.assertEqual(self.pairs(result),
+                         [("head", "1"), ("rest", "[2, 3, 4]")])
+
+    def test_a_nested_pattern_reports_every_leaf_it_bound(self):
+        result = self.k.evaluate("a, (b, c) = 1, (2, 3)\n", 0)
+        self.assertEqual(self.pairs(result),
+                         [("a", "1"), ("b", "2"), ("c", "3")])
+
+    def test_the_values_come_from_the_namespace_not_from_the_source(self):
+        # A trace, not a re-evaluation: the right-hand side runs once, and
+        # what is reported is what the names hold afterwards. A swap has no
+        # right-hand side to echo that would say the same thing.
+        result = self.k.evaluate_lines(
+            "x, y = 1, 2\nx, y = y, x\n", 0, 1)
+        self.assertEqual(self.pairs(result), [("x", "2"), ("y", "1")])
+
     def test_a_line_with_nothing_to_add_carries_no_names_at_all(self):
         self.assertNotIn("names", self.k.evaluate("x = 1 + 1\n", 0))
         self.assertNotIn("names", self.k.evaluate("sum([10, 20])\n", 0))

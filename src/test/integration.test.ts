@@ -196,6 +196,30 @@ test('a comprehension does not paint an unrelated variable of the same name', as
     'the comprehensions never touched it, which is the whole point');
 });
 
+test('unpacking names each binding rather than echoing the line', async (t) => {
+  // The other half of the screenshot. `=> ({'a': 1}, {'b': 2})` restated the
+  // right-hand side, which the reader can already see, and left the question
+  // it exists to answer -- what is `d1` now -- unanswered. The swap is the
+  // case that proves these are read from the namespace afterwards rather than
+  // re-evaluated: there is no right-hand side to echo that would agree.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = [
+    'd1, d2 = {"a": 1}, {"b": 2}',
+    'head, *rest = [1, 2, 3, 4]',
+    'a, (b, c) = 1, (2, 3)',
+    'd1, d2 = d2, d1',
+  ].join('\n') + '\n';
+
+  assert.deepEqual(await paint(client, source, [0, 1, 2, 3]), [
+    "d1: {'a': 1}   d2: {'b': 2}",
+    'head: 1   rest: [2, 3, 4]',
+    'a: 1   b: 2   c: 3',
+    "d1: {'b': 2}   d2: {'a': 1}",
+  ]);
+});
+
 test('an expression keeps its arrow, and a call keeps its result', async (t) => {
   // The three shapes that look alike and are not. `sum([10, 20]): 30` would
   // repeat the line back at the reader, so it keeps the arrow. `y.pop()`
