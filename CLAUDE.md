@@ -42,6 +42,15 @@ Bypass once, deliberately, with `git commit --no-verify` — but never by
 inventing an issue number. An unlinked commit is recoverable; a commit
 pointing at the wrong issue is worse.
 
+## The rules this project has settled
+
+[`docs/development/design-rules.md`](docs/development/design-rules.md) holds
+eleven principles arrived at the hard way — an annotation must never assert
+more than we know, annotating must never execute user code, nothing is
+configured before a value appears, and so on. Each records the defect that
+produced it. **Read it before designing anything**; a feature that conflicts
+with one is off-strategy even when it is convenient.
+
 ## Status
 
 **Nothing is scaffolded yet.** The repo currently holds the design document

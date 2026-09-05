@@ -96,6 +96,20 @@ work is delegated at volume, and then stops. If you are directing agents, put
 the issue reference in the instruction — they write the message shape they are
 given and will not infer this.
 
+## Keeping the board true
+
+- **Move a ticket to `status:in-progress` when work on it starts**, and clear
+  the label when it lands. The board is how a reader — human or agent — sees
+  what is happening without reading a transcript, and a board that lags is
+  worse than no board because it is believed.
+- **Push after every merge.** A `fixes #NNN` trailer closes its issue when it
+  reaches the default branch and not before, so a batch of unpushed merges
+  leaves a queue of tickets that look open and are not. Twelve accumulated
+  once in a single session and the open list stopped meaning anything.
+- **Refer to an issue by number and slug, never the number alone** — `#51
+  stale-annotations`, not `#51`. Past a couple of dozen tickets a bare number
+  carries no information, in a status report or in a commit message.
+
 ## Labels
 
 **Areas** — `kernel` (the Python evaluation subprocess and its protocol) ·

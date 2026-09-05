@@ -80,6 +80,29 @@ Surface it. Don't paper over.
 The cost of asking is one round trip. The cost of guessing wrong is debugging
 the wrong thing.
 
+## Delegating to agents
+
+Implementation work goes to a subagent on its own worktree; this session
+files the ticket and merges the branch. The point is that a long
+implementation should not block the conversation.
+
+- **One agent per ticket, or per tightly-coupled pair.** Pair only when the
+  two genuinely cannot ship apart — an interrupt and the prompt that needs it
+  (#26/#34), a pending state and the input UI that uses it (#10/#61).
+- **Name the agent `#<issue>-<slug>`**, matching the branch and worktree.
+- **Prefer disjoint files.** Several agents in one file means a rebase per
+  merge; it is sometimes worth it and never free.
+- **Give the agent the WHY, not just the what.** The best results in this
+  project came from briefs that explained what the ticket was for and named
+  the failure it was avoiding; agents given only a specification produced
+  code that met it and missed the point.
+- **Tell it what must not break.** A list of invariants — the pure/impure
+  split, `dont_inherit=True`, the control channel — has caught real
+  regressions during rebases.
+- **Agents do not push and do not merge.** They commit on their branch and
+  report. Merging is this session's job, and it includes re-running both
+  suites, because a clean rebase is not evidence that both sides survived.
+
 ## Default cadence
 
 1. Sketch the change in a sentence or two — not a plan document.
