@@ -72,6 +72,25 @@ export interface LoopTrace {
   readonly count: number;
 }
 
+/**
+ * What one name on a line holds, read at the moment the line ran.
+ *
+ * Most lines in a real file are not bindings, and their own value has nothing
+ * to say: `print("y unaffected by rebind:", y)` produced `None`, which is true
+ * and useless beside the line whose entire point is `y`. The names are what
+ * the reader came for, and their values are already in the namespace.
+ *
+ * Bare names only, and read once. A trace, not a watch (#40): the kernel takes
+ * these while the statement's own effects are still the newest thing that
+ * happened, and nothing re-reads them afterwards.
+ */
+export interface NamedValue {
+  readonly name: string;
+  readonly value: string;
+  /** The untouched `repr()`, present only when `value` describes it instead. */
+  readonly repr?: string;
+}
+
 export interface Evaluated {
   readonly id: number;
   readonly ok: true;
@@ -106,6 +125,8 @@ export interface Evaluated {
   readonly stderr: string;
   /** Present only for a `for` / `async for`. */
   readonly loop?: LoopTrace;
+  /** Present only when the line mentions names worth reporting. */
+  readonly names?: readonly NamedValue[];
 }
 
 export interface Failed {
@@ -136,6 +157,7 @@ export type StatementOutcome =
       readonly stdout: string;
       readonly stderr: string;
       readonly loop?: LoopTrace;
+      readonly names?: readonly NamedValue[];
     }
   | {
       readonly ok: false;

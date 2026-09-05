@@ -111,6 +111,33 @@ the annotation shows the sequence, bounded — `p: 1, 2, 3, 4`, or
 place a value is shown without the target being re-read afterwards;
 `kernel/loops.py` carries the reasoning.
 
+**One value per statement is the wrong unit**, though, and that is the
+second half of the answer. It is right for a binding and has nothing to
+say for everything else, which is most lines: `print("y unaffected by
+rebind:", y)` returns `None`, and `None` is true, useless and misleading
+on the line whose whole point is `y`. So Rider's model rather than a
+REPL's — annotate the *names on a line*, several of them, as separate
+`name: value` pairs:
+
+```
+x = [1, 2, 3]                              x: [1, 2, 3]
+y = x                                      y: [1, 2, 3]   x: [1, 2, 3]
+y.append(4)                                y: [1, 2, 3, 4]
+print("y unaffected by rebind:", y)        y: [1, 2, 3, 4]
+```
+
+The names come from the AST — what the statement binds, then what it
+reads — and their values from a plain dictionary lookup in the namespace,
+which cannot run user code and so is safe to do unbidden. Bare names
+only, for that reason: `obj.attr` may be a property with a body. Callables
+and modules are skipped as noise, and the count per line is capped.
+
+`=>` survives for a genuine expression that is not a binding, because
+`sum([10, 20]): 30` would repeat the line back at the reader. A produced
+`None` gives way when the line has anything else to show, and stays when
+it does not — `d.get('missing')` on its own really did answer `None`. What
+is suppressed moves to the hover rather than away.
+
 ### 3. Rendering the overlay
 
 `vscode.window.createTextEditorDecorationType({ after: { contentText: ' => [1, 2, 3]' } })`

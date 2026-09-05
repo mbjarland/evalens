@@ -5,10 +5,20 @@
  * without an editor, and the part with the one non-obvious rule.
  */
 
-import { LoopTrace } from '../kernel/protocol';
+import { LoopTrace, NamedValue } from '../kernel/protocol';
 
 /** Reads as annotation rather than as code the user wrote. */
 export const SEPARATOR = '=>';
+
+/**
+ * What separates one `name: value` from the next.
+ *
+ * Wide enough to read as a break between two answers rather than as one long
+ * one, narrow enough that a line carrying three of them still fits. Rider
+ * separates its inline values the same way -- by a gap, with no delimiter and
+ * no chip -- and it turns out to read better than the punctuation would.
+ */
+export const GAP = '   ';
 
 const NBSP = ' ';
 
@@ -86,27 +96,56 @@ export function sequenceText(loop: LoopTrace): string {
 /**
  * The painted annotation for a successful evaluation.
  *
- * Names the binding when there is one, following Rider's inline values:
- * `lst: [1, 2, 3]` rather than `=> [1, 2, 3]`. The name is information the
- * arrow throws away, and it matters most exactly where the line does not
- * make it obvious -- a `for` target, a `with` variable, an import alias.
+ * Several `name: value` pairs on one line, following Rider's inline values
+ * rather than one value per statement. One value per statement is right for a
+ * binding and has nothing to say for everything else, which is most lines:
+ * `print("y unaffected by rebind:", y)` produced `None`, and `None` is not an
+ * answer on the line whose whole point is `y`.
  *
- * An expression is not a binding, so `sum([10, 20])` keeps the arrow.
- * Labelling it `sum([10, 20]): 30` would repeat the line back at the reader
- * and crowd out the only new information on it.
+ * Three rules decide what ends up where.
+ *
+ * **A binding leads; a result follows.** `lst: [1, 2, 3]` is what the line
+ * did, so it goes first and the names it read follow it. An expression's
+ * result is what those reads produced, so it goes last.
+ *
+ * **`=>` survives only for a genuine expression.** `sum([10, 20])` stays
+ * `=> 30`; labelling it `sum([10, 20]): 30` would repeat the line back at the
+ * reader and crowd out the only new information on it.
+ *
+ * **A produced `None` gives way to anything else on the line.** `y.append(4)`
+ * changed `y` and returned nothing, which is the shape of every mutating
+ * method in Python, and the `None` adds nothing the reader has not already
+ * read to its left. It survives where there is nothing else: `d.get('missing')`
+ * on its own really did answer `None`. The suppressed value is not lost -- the
+ * hover still carries it, the third use of the same shelf.
  *
  * A loop displaces `value` with its whole sequence: `p: 1, 2, 3, 4` rather
  * than `p: 4`. `value` is still the last iteration, so a caller that ignores
  * the trace shows something true rather than nothing.
  */
 export function resultText(
-  value: string, display?: string | null, loop?: LoopTrace | null
+  value: string | null, display?: string | null, loop?: LoopTrace | null,
+  names?: readonly NamedValue[]
 ): string {
-  const label = display && IDENTIFIER.test(display)
-    ? `${display}:`
-    : SEPARATOR;
-  const shown = loop ? sequenceText(loop) : collapseLines(value);
-  return preserveSpacing(`${label} ${shown}`);
+  const pairs = (names ?? []).map(
+    (each) => `${each.name}: ${collapseLines(each.value)}`);
+  const produced = loop
+    ? sequenceText(loop)
+    : value === null ? null : collapseLines(value);
+  const binds = display !== undefined && display !== null
+    && IDENTIFIER.test(display);
+  // A loop's sequence is what the statement did, whatever its target unparses
+  // to, so it leads even where `(key, value)` is too much of an expression to
+  // label with.
+  const leads = binds || Boolean(loop);
+
+  if (produced === null
+      || (!leads && produced === 'None' && pairs.length > 0)) {
+    return preserveSpacing(pairs.join(GAP));
+  }
+  const slot = `${binds ? `${display}:` : SEPARATOR} ${produced}`;
+  return preserveSpacing(
+    (leads ? [slot, ...pairs] : [...pairs, slot]).join(GAP));
 }
 
 /**
@@ -115,16 +154,36 @@ export function resultText(
  * One place rather than two: the cursor path and the file-load path both need
  * it, and a hover that says something different depending on which command
  * produced it is a bug nobody would think to look for.
+ *
+ * This is where a suppressed `None` goes, and it is why suppressing it is not
+ * the same as throwing it away:
+ *
+ *     inline:  y: [1, 2, 3, 4]
+ *     hover:   y.append(4) = None
+ *              y = [1, 2, 3, 4]
+ *
+ * The beginner trap that protects -- `y = y.append(4)` silently binding None
+ * -- is real, and is learned exactly once. After that it is noise on every
+ * mutating call for the rest of a career, which is what the hover is for.
  */
 export function hoverText(
-  display: string | null | undefined, value: string, loop?: LoopTrace | null
+  display: string | null | undefined, value: string | null,
+  loop?: LoopTrace | null, names?: readonly NamedValue[]
 ): string {
-  if (!loop) {
-    return display ? `${display} = ${value}` : value;
+  const lines: string[] = [];
+  if (loop) {
+    const sequence = sequenceText(loop);
+    lines.push(display ? `${display} = ${sequence}` : sequence);
+    lines.push(`${loop.count} iteration${loop.count === 1 ? '' : 's'}`);
+  } else if (value !== null) {
+    lines.push(display ? `${display} = ${value}` : value);
   }
-  const sequence = sequenceText(loop);
-  const bound = display ? `${display} = ${sequence}` : sequence;
-  return `${bound}\n${loop.count} iteration${loop.count === 1 ? '' : 's'}`;
+  for (const each of names ?? []) {
+    // The untouched repr where there is one, on the same terms as the value
+    // above it: describing hides nothing, it only moves it here.
+    lines.push(`${each.name} = ${each.repr ?? each.value}`);
+  }
+  return lines.join('\n');
 }
 
 /**

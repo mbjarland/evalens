@@ -38,9 +38,11 @@ function annotationFor(outcome: StatementOutcome): Annotation | undefined {
         }
       : undefined;
   }
-  if (outcome.value === null && outcome.loop === undefined) {
-    // It ran; an `if` or a `del` simply has no value to report. A loop that
-    // ran zero times is the exception -- no value, and still an answer.
+  if (outcome.value === null && outcome.loop === undefined
+      && !outcome.names?.length) {
+    // It ran; a `del` or a bare `pass` simply has no value to report. A loop
+    // that ran zero times is one exception -- no value, and still an answer --
+    // and so is any statement whose names have something to say.
     return undefined;
   }
   return {
@@ -49,8 +51,9 @@ function annotationFor(outcome: StatementOutcome): Annotation | undefined {
     ...(outcome.value === null ? {} : { value: outcome.value }),
     display: outcome.display,
     ...(outcome.loop === undefined ? {} : { loop: outcome.loop }),
+    ...(outcome.names === undefined ? {} : { names: outcome.names }),
     hover: hoverFor(
-      outcome.display, outcome.value ?? '', outcome.repr, outcome.loop
+      outcome.display, outcome.value, outcome.repr, outcome.loop, outcome.names
     ),
   };
 }
@@ -193,6 +196,9 @@ export class Evaluator {
             ...(presentation.loop === undefined
               ? {}
               : { loop: presentation.loop }),
+            ...(presentation.names === undefined
+              ? {}
+              : { names: presentation.names }),
             ...(presentation.hover ? { hover: presentation.hover } : {}),
           };
 

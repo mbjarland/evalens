@@ -165,6 +165,73 @@ class Positions(unittest.TestCase):
         self.assertEqual(f.kind, "Assign")
 
 
+class AnnotatedNames(unittest.TestCase):
+    """Which names a line offers up, and in which order.
+
+    Only which names -- what they hold is the namespace's business. This side
+    can say that `print("y:", y)` refers to `y`; it cannot say that `y` is
+    worth showing, and does not try.
+    """
+
+    def names(self, src, line=0):
+        return resolve(src, line).names
+
+    def test_a_statement_offers_what_it_binds_then_what_it_reads(self):
+        self.assertEqual(self.names("total = a + b\n"), ("a", "b"))
+
+    def test_the_display_is_not_offered_a_second_time(self):
+        # `x = 1` would otherwise read `x: 1   x: 1`.
+        self.assertEqual(self.names("x = 1\n"), ())
+        self.assertEqual(self.names("y = x\n"), ("x",))
+        self.assertEqual(self.names("low, high = 1, 100\n"), ())
+        self.assertEqual(self.names("shelf['jam'] = 99\n"), ())
+
+    def test_an_expression_offers_the_names_inside_it(self):
+        # The case the whole ticket turns on: the statement produced None and
+        # `y` is the answer.
+        self.assertEqual(self.names("y.append(4)\n"), ("y",))
+        self.assertEqual(self.names('print("y:", y)\n'), ("print", "y"))
+
+    def test_a_bare_name_expression_offers_nothing_extra(self):
+        # The display already says `lst`, so a pair would repeat it.
+        self.assertEqual(self.names("lst\n"), ())
+
+    def test_a_statement_with_no_display_offers_everything_it_touched(self):
+        # An `if` and a `while` have nothing to point at, which is why they
+        # used to annotate nothing at all.
+        self.assertEqual(self.names("if budget > 100:\n    tier = 'l'\n"),
+                         ("tier", "budget"))
+        self.assertEqual(self.names("while countdown:\n    countdown -= 1\n"),
+                         ("countdown",))
+
+    def test_a_name_both_bound_and_read_is_offered_once(self):
+        self.assertEqual(self.names("n = m + 1\nn += 1\n", 1), ())
+        self.assertEqual(self.names("a = a + b\n"), ("b",))
+
+    def test_a_definition_offers_its_name_and_not_its_body(self):
+        # Its body runs when it is called, which may be long after this
+        # evaluation; the names in it do not exist yet, or belong to a scope
+        # nothing here can see.
+        self.assertEqual(self.names("def f():\n    return secret\n"), ())
+        self.assertEqual(self.names("class C:\n    x = hidden\n"), ())
+        self.assertEqual(self.names("fn = lambda: hidden\n"), ())
+
+    def test_a_loop_offers_what_it_iterates_and_what_its_body_bound(self):
+        self.assertEqual(
+            self.names("for p in squares:\n    seen = p\n"),
+            ("seen", "squares"))
+
+    def test_a_deleted_name_is_offered_neither_way(self):
+        # It is gone; reading it back would raise where the statement worked.
+        self.assertEqual(self.names("del scratch\n"), ())
+
+    def test_an_import_offers_the_names_it_bound(self):
+        self.assertEqual(self.names("import os, sys\n"), ("sys",))
+
+    def test_a_docstring_offers_nothing(self):
+        self.assertEqual(self.names('"""The module."""\n'), ())
+
+
 class HeaderAnchors(unittest.TestCase):
     """Where the value is written, as distinct from how much code ran.
 

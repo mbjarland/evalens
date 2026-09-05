@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { LoopTrace } from '../kernel/protocol';
+import { LoopTrace, NamedValue } from '../kernel/protocol';
 import {
   SEPARATOR, alignmentGap, collapseLines, columnWidth, errorText, hoverText,
   preserveSpacing, resultText, sequenceText,
@@ -11,6 +11,10 @@ function trace(
   values: string[], last: string | null, count = values.length
 ): LoopTrace {
   return { values, last, count };
+}
+
+function pairs(...entries: [string, string][]): NamedValue[] {
+  return entries.map(([name, value]) => ({ name, value }));
 }
 
 const NBSP = ' ';
@@ -143,6 +147,102 @@ test('a multi-line value in a sequence still collapses to one line', () => {
     'Point( x=1 ), 2');
   assert.equal(sequenceText(trace(['1'], 'Point(\n  x=9\n)', 40)),
     '1, … (+38 more) … Point( x=9 )');
+});
+
+test('several names share one line, Rider-style', () => {
+  assert.equal(
+    resultText(null, null, null, pairs(['tier', "'large'"], ['budget', '525'])),
+    preserveSpacing("tier: 'large'   budget: 525"));
+});
+
+test('a binding leads and the names it read follow it', () => {
+  // `y = x` did one thing and depended on another; the order says which.
+  assert.equal(resultText('[1, 2, 3]', 'y', null, pairs(['x', '[1, 2, 3]'])),
+    preserveSpacing('y: [1, 2, 3]   x: [1, 2, 3]'));
+});
+
+test('an expression result follows the reads it came from', () => {
+  // `y.pop()` read `y` and produced 4; the 4 is the consequence, so it lands
+  // where a reader looks last.
+  assert.equal(resultText('4', 'y.pop()', null, pairs(['y', '[1, 2, 3]'])),
+    preserveSpacing('y: [1, 2, 3]   => 4'));
+});
+
+test('a produced None gives way to anything else on the line', () => {
+  // The shape of every mutating method in Python. The None adds nothing the
+  // reader has not already read immediately to its left.
+  assert.equal(
+    resultText('None', 'y.append(4)', null, pairs(['y', '[1, 2, 3, 4]'])),
+    preserveSpacing('y: [1, 2, 3, 4]'));
+  assert.equal(
+    resultText('None', "print('y:', y)", null, pairs(['y', '[1, 2, 3, 4]'])),
+    preserveSpacing('y: [1, 2, 3, 4]'));
+});
+
+test('a produced None survives when it is the only answer', () => {
+  // `d.get('missing')` really did answer None, and blanking it would leave
+  // the line looking like nothing happened.
+  assert.equal(resultText('None', "d.get('missing')"),
+    preserveSpacing('=> None'));
+  assert.equal(resultText('None', "d.get('missing')", null, []),
+    preserveSpacing('=> None'));
+});
+
+test('a name bound to None keeps it, however much else is shown', () => {
+  // `noise = lst.append(99)` is the case where there is a value to show and
+  // it happens to be nothing -- which is the lesson, not the noise.
+  assert.equal(resultText('None', 'noise', null, pairs(['lst', '[1, 2]'])),
+    preserveSpacing('noise: None   lst: [1, 2]'));
+});
+
+test('a statement with no value of its own still shows its names', () => {
+  // An `if` produces nothing and can still be the most informative line in a
+  // file: what it bound is the answer.
+  assert.equal(resultText(null, null, null, pairs(['tier', "'large'"])),
+    preserveSpacing("tier: 'large'"));
+});
+
+test("a loop's sequence leads and the names it read follow", () => {
+  assert.equal(
+    resultText('16', 'p', trace(['1', '4', '9', '16'], null),
+      pairs(['squares', '[1, 4, 9, 16]'])),
+    preserveSpacing('p: 1, 4, 9, 16   squares: [1, 4, 9, 16]'));
+});
+
+test('a tuple loop target still leads with its sequence', () => {
+  // `(key, value)` is too much of an expression to label with, and the
+  // sequence is still what the statement did.
+  assert.equal(
+    resultText("('b', 2)", '(key, value)', trace(["('a', 1)", "('b', 2)"], null),
+      pairs(['shelf', "{'a': 1, 'b': 2}"])),
+    preserveSpacing("=> ('a', 1), ('b', 2)   shelf: {'a': 1, 'b': 2}"));
+});
+
+test('a multi-line value in a pair collapses like any other', () => {
+  assert.equal(resultText(null, null, null, pairs(['p', 'Point(\n  x=1\n)'])),
+    preserveSpacing('p: Point( x=1 )'));
+});
+
+test('a hover carries the production a line suppressed', () => {
+  // Demoted, not destroyed: `y = y.append(4)` binding None is a real trap,
+  // learned exactly once, and then noise on every mutating call after that.
+  assert.equal(
+    hoverText('y.append(4)', 'None', null, pairs(['y', '[1, 2, 3, 4]'])),
+    'y.append(4) = None\ny = [1, 2, 3, 4]');
+});
+
+test('a hover with nothing produced starts with the names', () => {
+  assert.equal(hoverText(null, null, null, pairs(['tier', "'large'"])),
+    "tier = 'large'");
+});
+
+test('a hover prefers the untouched repr a pair describes', () => {
+  // The same rule the produced value follows: describing hides nothing, it
+  // only moves the address one hover away.
+  assert.equal(
+    hoverText('cfg', '<Config instance>', null,
+      [{ name: 'other', value: '<Config instance>', repr: '<Config at 0x1>' }]),
+    'cfg = <Config instance>\nother = <Config at 0x1>');
 });
 
 test('a hover names the binding and says how many iterations there were', () => {

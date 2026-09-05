@@ -68,6 +68,32 @@ test('"ran with nothing to show" is not "nothing to run"', () => {
   assert.equal(present(nothingThere, 3).kind, 'nothing');
 });
 
+test('the names a line mentions reach the presentation and the hover', () => {
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: 'None',
+    display: "print('y:', y)", kind: 'Expr', range, stdout: '', stderr: '',
+    names: [{ name: 'y', value: '[1, 2, 3, 4]' }],
+  };
+  const shown = present(response, 3) as {
+    names?: { name: string }[]; hover: string;
+  };
+  assert.deepEqual((shown.names ?? []).map((each) => each.name), ['y']);
+  assert.equal(shown.hover, "print('y:', y) = None\ny = [1, 2, 3, 4]");
+});
+
+test('a statement with no value of its own still speaks through its names', () => {
+  // An `if` produced nothing and bound `tier`. Treating "no value" as
+  // "nothing to paint" throws away the only thing the line had to say.
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: null, display: null,
+    kind: 'If', range, stdout: '', stderr: '',
+    names: [{ name: 'tier', value: "'large'" }],
+  };
+  const shown = present(response, 3);
+  assert.equal(shown.kind, 'value');
+  assert.equal((shown as { hover?: string }).hover, "tier = 'large'");
+});
+
 test('a failure carries its traceback to the hover, not to the line', () => {
   const response: EvalResponse = {
     id: 1, ok: false,

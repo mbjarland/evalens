@@ -1,4 +1,4 @@
-import { EvalResponse, LoopTrace, Range } from '../kernel/protocol';
+import { EvalResponse, LoopTrace, NamedValue, Range } from '../kernel/protocol';
 import { hoverText } from './format';
 
 /**
@@ -26,6 +26,8 @@ export type Presentation =
       readonly display: string | null;
       /** Every value a loop's target held, when the statement was a loop. */
       readonly loop?: LoopTrace;
+      /** What the names on the line held when it ran. */
+      readonly names?: readonly NamedValue[];
       readonly hover?: string;
     }
   | {
@@ -63,8 +65,11 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
 
   // A loop that ran zero times has no value and still has something to say --
   // that it ran zero times. Treating "no value" as "nothing to paint" would
-  // leave the previous run's binding on screen as the answer.
-  const speaks = response.value !== null || response.loop !== undefined;
+  // leave the previous run's binding on screen as the answer. An `if` that
+  // bound a name is the same shape: no value of its own, and an answer.
+  const speaks = response.value !== null
+    || response.loop !== undefined
+    || (response.names?.length ?? 0) > 0;
 
   return {
     kind: 'value',
@@ -73,10 +78,12 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
     value: response.value,
     display: response.display,
     ...(response.loop === undefined ? {} : { loop: response.loop }),
+    ...(response.names === undefined ? {} : { names: response.names }),
     ...(speaks
       ? {
           hover: hoverFor(
-            response.display, response.value ?? '', response.repr, response.loop
+            response.display, response.value, response.repr, response.loop,
+            response.names
           ),
         }
       : {}),
@@ -96,9 +103,10 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
  * path cannot drift into saying different things about the same response.
  */
 export function hoverFor(
-  display: string | null, value: string, repr?: string, loop?: LoopTrace | null
+  display: string | null, value: string | null, repr?: string,
+  loop?: LoopTrace | null, names?: readonly NamedValue[]
 ): string {
-  return hoverText(display, repr ?? value, loop);
+  return hoverText(display, repr ?? value, loop, names);
 }
 
 

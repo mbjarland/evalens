@@ -93,6 +93,24 @@ test('printed output survives the protocol channel', async (t) => {
   assert.equal(result.stdout, 'hi\n');
 });
 
+/** Everything except the call to setDecorations, as one string per line. */
+async function paint(
+  client: KernelClient, source: string, lines: readonly number[]
+): Promise<string[]> {
+  const painted: string[] = [];
+  for (const line of lines) {
+    const shown = present(await evaluate(client, source, line), line);
+    if (shown.kind !== 'value') {
+      painted.push(`!! ${shown.kind}`);
+      continue;
+    }
+    painted.push(
+      resultText(shown.value, shown.display, shown.loop, shown.names)
+        .replace(/ /g, ' '));
+  }
+  return painted;
+}
+
 test('the whole pipeline produces the annotation IDEA.md promises', async (t) => {
   // Kernel -> resolver -> client -> present -> format, i.e. everything except
   // the call to setDecorations. This is the acceptance clip, minus the pixels.
@@ -100,21 +118,62 @@ test('the whole pipeline produces the annotation IDEA.md promises', async (t) =>
   t.after(() => client.dispose());
 
   const source = 'lst = [1, 2, 3]\ny = lst\ny.append(4)\nlst\n';
-  const painted: string[] = [];
 
-  for (const line of [0, 1, 2, 3]) {
-    const response = await evaluate(client, source, line);
-    const shown = present(response, line);
-    if (shown.kind === 'value' && shown.value !== null) {
-      painted.push(resultText(shown.value));
-    }
-  }
+  assert.deepEqual(await paint(client, source, [0, 1, 2, 3]), [
+    'lst: [1, 2, 3]',
+    'y: [1, 2, 3]   lst: [1, 2, 3]',
+    // `=> None` is what this line said before, and it is the one line whose
+    // whole job is to show that `lst` and `y` are the same list.
+    'y: [1, 2, 3, 4]',
+    'lst: [1, 2, 3, 4]',
+  ]);
+});
 
-  assert.deepEqual(painted.map((p) => p.replace(/ /g, ' ')), [
-    '=> [1, 2, 3]',
-    '=> [1, 2, 3]',
+test('the teaching file from the ticket annotates the lesson, not None', async (t) => {
+  // The shape #35 was filed against: the two `print` lines are the entire
+  // point of the file, and the column said `None` on both of them.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = [
+    'x = [1, 2, 3]',
+    'y = x',
+    'y.append(4)',
+    'print("x after mutating y:", x)',
+    'x = [1, 2, 3]',
+    'print("y unaffected by rebind:", y)',
+  ].join('\n') + '\n';
+
+  assert.deepEqual(await paint(client, source, [0, 1, 2, 3, 4, 5]), [
+    'x: [1, 2, 3]',
+    'y: [1, 2, 3]   x: [1, 2, 3]',
+    'y: [1, 2, 3, 4]',
+    'x: [1, 2, 3, 4]',
+    'x: [1, 2, 3]',
+    'y: [1, 2, 3, 4]',
+  ]);
+});
+
+test('an expression keeps its arrow, and a call keeps its result', async (t) => {
+  // The three shapes that look alike and are not. `sum([10, 20]): 30` would
+  // repeat the line back at the reader, so it keeps the arrow. `y.pop()`
+  // returned the 4 that a "hide the value when something changed" rule would
+  // have thrown away. And a `None` survives exactly where the line has
+  // nothing else to say -- which `print()` has and `d.get('k')` does not,
+  // because `d` is right there and its contents are the better answer.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'sum([10, 20])\ny = [1, 2, 3, 4]\ny.pop()\nd = {}\n'
+    + 'd.get("k")\nprint("done")\n';
+
+  assert.deepEqual(await paint(client, source, [0, 1, 2, 3, 4, 5]), [
+    '=> 30',
+    'y: [1, 2, 3, 4]',
+    'y: [1, 2, 3]   => 4',
+    'd: {}',
+    'd: {}',
     '=> None',
-    '=> [1, 2, 3, 4]',
   ]);
 });
 

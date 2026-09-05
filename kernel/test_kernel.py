@@ -595,6 +595,117 @@ class Loops(KernelTest):
                          ["1", "2", "3"])
 
 
+class Names(KernelTest):
+    """What the names on a line hold, which for most lines is the answer.
+
+    One value per statement is right for a binding and has nothing to say for
+    everything else. `print("y unaffected by rebind:", y)` produced `None` on
+    the line whose entire lesson is `y`.
+    """
+
+    def pairs(self, result):
+        return [(p["name"], p["value"]) for p in result.get("names", [])]
+
+    def test_a_line_reports_the_names_it_read(self):
+        result = self.k.evaluate_lines(
+            "y = [1, 2, 3]\nprint('y:', y)\n", 0, 1)
+        self.assertEqual(result["value"], "None", "still true, still useless")
+        self.assertEqual(self.pairs(result), [("y", "[1, 2, 3]")])
+
+    def test_a_binding_reports_what_it_read_alongside(self):
+        result = self.k.evaluate_lines("a = 1\nb = 2\nt = a + b\n", 0, 1, 2)
+        self.assertEqual(result["display"], "t")
+        self.assertEqual(self.pairs(result), [("a", "1"), ("b", "2")])
+
+    def test_builtins_are_not_names_worth_reporting(self):
+        # They are the line's machinery, not its data, and they drop out for
+        # free: `print` and `len` live in __builtins__, not in the namespace.
+        result = self.k.evaluate_lines(
+            "xs = [1, 2]\nprint(len(xs))\n", 0, 1)
+        self.assertEqual(self.pairs(result), [("xs", "[1, 2]")])
+
+    def test_a_users_own_function_is_skipped_too(self):
+        # Its signature is worth showing where the `def` runs, and not on
+        # every line that calls it afterwards.
+        result = self.k.evaluate_lines(
+            "def double(n):\n    return n * 2\nk = 3\ndouble(k)\n", 0, 2, 3)
+        self.assertEqual(self.pairs(result), [("k", "3")])
+
+    def test_a_module_is_skipped(self):
+        result = self.k.evaluate_lines("import json\njson.dumps([1])\n", 0, 1)
+        self.assertEqual(self.pairs(result), [])
+
+    def test_a_class_is_skipped_and_its_instance_is_not(self):
+        result = self.k.evaluate_lines(
+            "class Box:\n    pass\nb = Box()\n[b, Box]\n", 0, 2, 3)
+        self.assertEqual(self.pairs(result), [("b", "<Box instance>")])
+
+    def test_a_described_value_carries_its_untouched_repr(self):
+        result = self.k.evaluate_lines(
+            "class Box:\n    pass\nb = Box()\n[b]\n", 0, 2, 3)
+        self.assertRegex(result["names"][0]["repr"], r"0x[0-9a-f]+")
+
+    def test_the_number_of_names_on_one_line_is_capped(self):
+        # A line that reports every name it mentions becomes a second copy of
+        # the namespace and buries the code it is written beside.
+        source = ("a = 1\nb = 2\nc = 3\nd = 4\ne = 5\nf = 6\n"
+                  "[a, b, c, d, e, f]\n")
+        result = self.k.evaluate_lines(source, 0, 1, 2, 3, 4, 5, 6)
+        self.assertEqual(len(result["names"]), 4)
+        self.assertEqual([p["name"] for p in result["names"]],
+                         ["a", "b", "c", "d"])
+
+    def test_a_name_the_namespace_does_not_hold_is_simply_not_reported(self):
+        # `caught` is deleted by Python at the end of the except block, so it
+        # is gone by the time anyone looks.
+        result = self.k.evaluate(
+            "try:\n    raise ValueError('x')\n"
+            "except ValueError as caught:\n    handled = str(caught)\n", 0)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(self.pairs(result), [("handled", "'x'")])
+
+    def test_the_values_are_the_ones_the_statement_left_behind(self):
+        # A trace, not a watch: read once, at the moment the line ran, and
+        # never refreshed. Evaluating the line above again must not disturb
+        # what this one already reported.
+        source = "y = [1, 2, 3]\ny.append(4)\n"
+        self.k.evaluate(source, 0)
+        first = self.k.evaluate(source, 1)
+        self.assertEqual(self.pairs(first), [("y", "[1, 2, 3, 4]")])
+        second = self.k.evaluate(source, 1)
+        self.assertEqual(self.pairs(second), [("y", "[1, 2, 3, 4, 4]")],
+                         "each evaluation reports the namespace it left")
+
+    def test_a_line_with_nothing_to_add_carries_no_names_at_all(self):
+        self.assertNotIn("names", self.k.evaluate("x = 1 + 1\n", 0))
+        self.assertNotIn("names", self.k.evaluate("sum([10, 20])\n", 0))
+
+    def test_a_failure_reports_no_names(self):
+        # The statement did not finish, so the namespace is half-updated and
+        # a value read out of it would sit beside code that did not produce
+        # it.
+        result = self.k.evaluate_lines(
+            "xs = [1]\nxs.append(undefined_name)\n", 0, 1)
+        self.assertFalse(result["ok"])
+        self.assertNotIn("names", result)
+
+    def test_a_statement_with_no_value_of_its_own_still_reports_names(self):
+        # An `if` had nothing to point at and so annotated nothing at all,
+        # which made the most informative line in a file the emptiest.
+        result = self.k.evaluate_lines(
+            "budget = 500\nif budget > 100:\n    tier = 'large'\n", 0, 1)
+        self.assertIsNone(result["value"])
+        self.assertEqual(self.pairs(result),
+                         [("tier", "'large'"), ("budget", "500")])
+
+    def test_loading_a_file_reports_names_the_same_way(self):
+        result = self.k.send(
+            op="eval_file", source="y = [1, 2]\ny.append(3)\n",
+            filename="/tmp/module.py")
+        self.assertEqual(self.pairs(result["results"][1]),
+                         [("y", "[1, 2, 3]")])
+
+
 class Docstrings(KernelTest):
     """The first impression the extension makes on a documented file.
 

@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 
-import { LoopTrace, Range as KernelRange } from '../kernel/protocol';
+import {
+  LoopTrace, NamedValue, Range as KernelRange,
+} from '../kernel/protocol';
 import { alignmentGap, columnWidth, errorText, resultText } from './format';
 
 /**
@@ -49,6 +51,8 @@ export interface Annotation {
   readonly display?: string | null;
   /** Every value a loop's target held; displaces `value` when present. */
   readonly loop?: LoopTrace;
+  /** What the names on the line held; painted beside `value`, not instead. */
+  readonly names?: readonly NamedValue[];
   readonly error?: { readonly type: string; readonly message: string };
   readonly hover?: string;
 }
@@ -145,7 +149,9 @@ export class Decorator implements vscode.Disposable {
             },
           },
         });
-      } else if (annotation.value !== undefined || annotation.loop !== undefined) {
+      } else if (annotation.value !== undefined
+                 || annotation.loop !== undefined
+                 || (annotation.names?.length ?? 0) > 0) {
         results.push({
           range: at,
           hoverMessage,
@@ -153,9 +159,11 @@ export class Decorator implements vscode.Disposable {
             after: {
               margin,
               // A loop that ran zero times has a trace and no value, and
-              // still has something to report.
+              // still has something to report. So does an `if` that bound a
+              // name: no value of its own, and the name is the answer.
               contentText: resultText(
-                annotation.value ?? '', annotation.display, annotation.loop),
+                annotation.value ?? null, annotation.display, annotation.loop,
+                annotation.names),
             },
           },
         });

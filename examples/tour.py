@@ -47,10 +47,23 @@ from types import SimpleNamespace as Record
 # 2. The example IDEA.md opens with.  Run these four lines in order: the point
 #    is that `lst` and `y` are the same list, which the third line proves and
 #    the fourth line shows.  Seeing it needs no print() and no breakpoint.
+#
+#    `y.append(4)` is also the shape every mutating method in Python has: it
+#    changed `y` and returned nothing.  It annotates `y: [1, 2, 3, 4]` rather
+#    than `=> None`, and the None it produced is on the hover.
 lst = [1, 2, 3]
 y = lst
 y.append(4)
 lst
+
+# 2b. Several names on one line, which is what most lines of a real file
+#     need.  Neither of these two statements has a value worth showing --
+#     `print` returns None -- and both of them are the reason the file exists:
+#     `x` was rebound and `y` was not, and the annotation is where you read
+#     that.  This is the case one-value-per-statement had nothing to say
+#     about.
+print('after mutating y, lst is:', lst)
+print('and y is still the same object:', y)
 
 # 3. A value keeps its internal spacing.  VS Code collapses ordinary spaces in
 #    decoration text, so this dict renders as one word unless the renderer

@@ -23,9 +23,20 @@ JSON escapes newlines, so line framing is safe for arbitrary source text.
         "kind":"Assign","range":{"start":{"line":3,"character":0},
         "end":{"line":3,"character":15}},"stdout":"","stderr":""}
 
-``value`` is what to show. Usually that is ``repr()``; for the few things
-Python reprs by memory address it is a description instead, and an extra
-``repr`` field then carries the untouched original -- see ``describe``.
+``value`` is what the statement itself produced. Usually that is ``repr()``;
+for the few things Python reprs by memory address it is a description instead,
+and an extra ``repr`` field then carries the untouched original -- see
+``describe``.
+
+``names`` is what the names on the line hold, which for most lines is the
+answer the reader wanted and ``value`` is not::
+
+    -> {"id":2,"op":"eval","source":"print('y:', y)\\n","line":0,...}
+    <- {"id":2,...,"display":"print('y:', y)","value":"None",
+        "names":[{"name":"y","value":"[1, 2, 3, 4]"}]}
+
+Each entry may carry its own ``repr`` on the same terms as the one above.
+Present only when there is something to report; see ``_named_values``.
 
 A ``for`` loop answers with one extra field, ``loop``, holding the sequence
 its target ran through rather than only the value it stopped on::
@@ -65,7 +76,7 @@ import json
 import linecache
 import sys
 import traceback
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterable, Iterator, Optional
 
 import loops
 from resolver import Form, form_at, form_of
@@ -75,6 +86,11 @@ from resolver import Form, form_at, form_of
 #: reading. Without it, one `repr()` of a large frame is a multi-megabyte JSON
 #: line.
 WIRE_REPR_LIMIT = 8192
+
+#: How many `name: value` pairs one line may carry. A line that reports every
+#: name it mentions stops being an annotation and becomes a second copy of the
+#: namespace, and the code it is written beside disappears under it.
+NAME_LIMIT = 4
 
 #: The real stdout, captured before anything can replace it. Responses are
 #: written here rather than through `sys.stdout`, because user code is free to
@@ -307,6 +323,54 @@ def wire_value(
     return _capped(description, limit), text
 
 
+def _worth_a_pair(value: Any) -> bool:
+    """Is this a value, or is it the machinery the line is written with?
+
+    `print`, `type` and `isinstance` are noise beside the code that calls
+    them, and so is `<module 'os'>` beside a line that happens to name `os`.
+    Neither tells the reader anything about what just happened, and both cost
+    the width that the values do use.
+
+    A user's own function is skipped by the same rule. Its signature is worth
+    showing when the `def` runs -- which is where the `def` already shows it --
+    and not on every line that calls it afterwards.
+    """
+    return not inspect.ismodule(value) and not callable(value)
+
+
+def _named_values(
+    namespace: Dict[str, Any], names: Iterable[str], limit: int = NAME_LIMIT
+) -> list:
+    """What the names on a line hold, read at the moment that line ran.
+
+    A dictionary lookup and nothing else. Reading a bare name out of the
+    namespace cannot run user code, which is what makes doing it unbidden
+    safe; #40 settles that an annotation is a trace, so these are read once,
+    here, and never refreshed afterwards.
+
+    A name the namespace does not hold is simply not reported. That is how
+    builtins drop out without a list of them -- `print` and `len` live in
+    `__builtins__`, not here -- and it also covers a comprehension target that
+    never escaped its scope and an `except ... as` name Python has already
+    deleted.
+    """
+    pairs = []
+    for name in names:
+        if len(pairs) >= limit:
+            break
+        if name not in namespace:
+            continue
+        value = namespace[name]
+        if not _worth_a_pair(value):
+            continue
+        shown, raw_repr = wire_value(value)
+        pair = {"name": name, "value": shown}
+        if raw_repr is not None:
+            pair["repr"] = raw_repr
+        pairs.append(pair)
+    return pairs
+
+
 def _instrumented(node: ast.stmt) -> tuple[ast.stmt, list]:
     """`node` rewritten to announce each iteration, plus its recorders.
 
@@ -501,6 +565,7 @@ class Kernel:
         shown: Optional[str] = None
         raw_repr: Optional[str] = None
         loop: Optional[Dict[str, Any]] = None
+        names: list = []
 
         with _user_io() as (out, err):
             try:
@@ -564,6 +629,15 @@ class Kernel:
                                     dont_inherit=True),
                             self.namespace)
                         shown, raw_repr = wire_value(value)
+
+                # After the statement and before anything else can touch the
+                # namespace: these are what the names held at the moment this
+                # line ran, which is the only thing an annotation ever claims.
+                # Nothing is read on the failure path -- a statement that
+                # raised leaves the namespace half-updated, and reporting a
+                # name out of it would put a value beside code that did not
+                # finish producing it.
+                names = _named_values(self.namespace, form.names)
             except BaseException as exc:  # noqa: BLE001
                 # BaseException, not Exception: user code calling exit() raises
                 # SystemExit, and taking the kernel down over it would discard
@@ -599,6 +673,10 @@ class Kernel:
             # Present only for a loop, so a reader of the wire can tell "this
             # ran once" from "this ran and the sequence is elsewhere".
             outcome["loop"] = loop
+        if names:
+            # Absent rather than empty, in line with the two above: a line
+            # with nothing else to say about it costs no field.
+            outcome["names"] = names
         return outcome
 
     @staticmethod

@@ -20,6 +20,14 @@ and do not exist at module level.
 this module's substance, and it is why the kernel runs two steps rather than
 one.
 
+**A statement's own value is not the only thing worth showing.** Most lines
+in a real file are not bindings, and one value per statement has nothing to
+say about them: `print("y unaffected by rebind:", y)` produced `None`, which
+is true, useless and misleading beside the line whose whole point is `y`.
+Rider annotates the *names on a line* and shows several, so `annotated_names`
+reports what a statement binds and what it reads, and the kernel looks them
+up in the namespace afterwards.
+
 Coordinates in and out are VS Code's: 0-based line, 0-based character. `ast`
 is 1-based for `lineno`, and the conversion happens here rather than in the
 renderer -- an off-by-one next to the parser is much cheaper to find than one
@@ -32,7 +40,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional, Set, Tuple, Union
 
 
 @dataclass(frozen=True)
@@ -51,6 +59,10 @@ class Form:
     #: on purpose: the range says how much code ran and still covers the whole
     #: statement, while this says where the answer is written.
     anchor_line: int
+    #: Bare names this statement binds and then reads, in the order to show
+    #: them, minus the ones `display` already accounts for. What they hold is
+    #: the namespace's business, not the parser's.
+    names: Tuple[str, ...] = ()
 
 
 #: Statements whose value belongs on the line that introduces them rather than
@@ -111,6 +123,41 @@ def is_docstring(node: ast.stmt, first_in_body: bool) -> bool:
     )
 
 
+def _display_target(node: ast.stmt) -> Optional[Union[ast.expr, str]]:
+    """What the statement produces, as a node -- or as a plain bound name.
+
+    Split out from `display_expr` so the same table answers two questions: the
+    source to show, and which names that source already accounts for. Deriving
+    the second by re-parsing the first would be a second table pretending to
+    be one.
+    """
+    if isinstance(node, ast.Assign):
+        # `a = b = 1` has two targets; the first is the one written left-most
+        # and is what the eye lands on.
+        return node.targets[0]
+    if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+        return node.target
+    if isinstance(node, ast.Expr):
+        return node.value
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return node.name
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return _first_bound_name(node.names[0])
+    if isinstance(node, (ast.For, ast.AsyncFor)):
+        # The target labels a sequence rather than a value: the kernel records
+        # what it held on each iteration and reports all of them. `p` is still
+        # the right thing to write beside the answer -- it is what the reader
+        # is watching -- but nothing evaluates it afterwards, because by then
+        # it holds only the last of the values already recorded. See `loops`.
+        return node.target
+    if isinstance(node, (ast.With, ast.AsyncWith)):
+        for item in node.items:
+            if item.optional_vars is not None:
+                return item.optional_vars
+        return None
+    return None
+
+
 def display_expr(node: ast.stmt, first_in_body: bool = False) -> Optional[str]:
     """The expression worth showing after `node` has run, as source.
 
@@ -125,31 +172,113 @@ def display_expr(node: ast.stmt, first_in_body: bool = False) -> Optional[str]:
     """
     if is_docstring(node, first_in_body):
         return None
-    if isinstance(node, ast.Assign):
-        # `a = b = 1` has two targets; the first is the one written left-most
-        # and is what the eye lands on.
-        return ast.unparse(node.targets[0])
-    if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
-        return ast.unparse(node.target)
+    target = _display_target(node)
+    if target is None or isinstance(target, str):
+        return target
+    return ast.unparse(target)
+
+
+class _Names(ast.NodeVisitor):
+    """The bare names a statement binds, and the bare names it reads.
+
+    Bare names only. Reading one is a dictionary lookup that cannot run user
+    code, which is what makes reporting them safe to do unbidden; `obj.attr`
+    may be a property with a body and `area(3, 4)` would have to be called
+    again, and #40 settles that an annotation never re-runs either.
+
+    A `del`eted name is neither: it is gone, and reading it back would raise.
+    """
+
+    def __init__(self) -> None:
+        self.bound: List[str] = []
+        self.read: List[str] = []
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, ast.Store):
+            self._record(self.bound, node.id)
+        elif isinstance(node.ctx, ast.Load):
+            self._record(self.read, node.id)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            self._record(self.bound, _first_bound_name(alias))
+
+    visit_ImportFrom = visit_Import
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if node.name:
+            # Python deletes it again at the end of the block, so it is
+            # usually gone by the time anyone looks. Recorded anyway: the
+            # reader who is missing a name is worse off than the one whose
+            # name simply is not there to report.
+            self._record(self.bound, node.name)
+        self.generic_visit(node)
+
+    # A definition binds its name now and runs its body at some other time --
+    # when it is called, which may be long after this evaluation. Descending
+    # would report names that do not exist yet, or that belong to a scope
+    # nothing here can see. `loops` refuses the same three nodes for the same
+    # reason, and it is spelled out per type rather than left to a comment.
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._record(self.bound, node.name)
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self._record(self.bound, node.name)
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        return
+
+    def _record(self, into: List[str], name: str) -> None:
+        # A name that is both bound and read -- `n += 1`, `x = x + 1` -- is
+        # one pair, and the binding is the more informative half.
+        if name not in self.bound and name not in self.read:
+            into.append(name)
+
+
+def _already_shown(node: ast.stmt, first_in_body: bool) -> Set[str]:
+    """Names the display slot already accounts for.
+
+    Reporting them again would put the same name twice on one line: `x = 1`
+    would read `x: 1   x: 1`.
+
+    An expression statement is the exception, and the reason this is not
+    simply "the names in the display". There the display *is* the expression,
+    so its names are exactly the reads worth showing -- `y` in `y.append(4)`
+    is the whole point of the exercise. Only when the expression is one bare
+    name does the pair repeat the display.
+    """
+    if is_docstring(node, first_in_body):
+        return set()
+    target = _display_target(node)
+    if target is None:
+        return set()
+    if isinstance(target, str):
+        return {target}
     if isinstance(node, ast.Expr):
-        return ast.unparse(node.value)
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-        return node.name
-    if isinstance(node, (ast.Import, ast.ImportFrom)):
-        return _first_bound_name(node.names[0])
-    if isinstance(node, (ast.For, ast.AsyncFor)):
-        # The target labels a sequence rather than a value: the kernel records
-        # what it held on each iteration and reports all of them. `p` is still
-        # the right thing to write beside the answer -- it is what the reader
-        # is watching -- but nothing evaluates it afterwards, because by then
-        # it holds only the last of the values already recorded. See `loops`.
-        return ast.unparse(node.target)
-    if isinstance(node, (ast.With, ast.AsyncWith)):
-        for item in node.items:
-            if item.optional_vars is not None:
-                return ast.unparse(item.optional_vars)
-        return None
-    return None
+        return {target.id} if isinstance(target, ast.Name) else set()
+    return {name.id for name in ast.walk(target)
+            if isinstance(name, ast.Name)}
+
+
+def annotated_names(node: ast.stmt, first_in_body: bool = False) -> Tuple[str, ...]:
+    """The names worth reading beside this statement, in the order to show.
+
+    What it binds first, then what it reads: a binding is what the line did,
+    and a read is the context that makes the line make sense. `print("y
+    unaffected by rebind:", y)` reads `y`, and `y` is the entire lesson of the
+    line -- where the annotation used to say `None`, which is true, useless
+    and misleading in a display whose job is to show what the code did.
+
+    Which of these survive to the screen is the caller's: this side knows what
+    the source refers to, and only the namespace knows what those names hold.
+    """
+    collector = _Names()
+    collector.visit(node)
+    shown = _already_shown(node, first_in_body)
+    return tuple(name for name in (*collector.bound, *collector.read)
+                 if name not in shown)
 
 
 def _start_line(node: ast.stmt) -> int:
@@ -207,6 +336,7 @@ def form_of(node: ast.stmt, first_in_body: bool = False) -> Form:
         end_line=end,
         end_char=node.end_col_offset or 0,
         anchor_line=_anchor_line(node, end),
+        names=annotated_names(node, first_in_body),
     )
 
 
