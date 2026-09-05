@@ -174,6 +174,25 @@ pressing Load File twice does. There is no reset and no second namespace,
 because the one this kernel already keeps is the thing a session cannot get
 back. See ``Kernel._as_module`` and issue #78.
 
+A script run's own functions still cannot cross into a ``multiprocessing``
+worker -- issue #80, investigated and left as a known limitation rather than
+fixed. ``sys.modules["__main__"]`` during the run is still this kernel
+module, never the user's, so a worker looking a pickled function up there
+misses it exactly as one would looking it up in any other process that is
+not the one holding the namespace. Registering the run's own namespace under
+that key was spiked and found not to help the platform this project targets:
+it works under ``fork``, because a forked worker is the parent's whole
+memory and inherits the registration for free, but macOS has defaulted to
+``spawn`` since Python 3.8, and a worker started that way is a fresh
+interpreter that inherits nothing -- it can only rebuild the function by
+re-importing a real file from disk, which this kernel does not set
+(``__file__`` is deliberately absent from a script run's namespace) and
+which, even given one, would silently run whatever is saved on disk rather
+than the buffer this run actually evaluated the moment the two disagree.
+Jupyter and IPython hit the identical wall for the identical reason. See
+`RunFileAsScript` in ``test_kernel.py`` for what is pinned instead of
+fixed.
+
 ``outline`` answers with the same ranges and anchors for every top-level
 statement in a file, and runs none of them::
 
