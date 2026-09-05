@@ -71,7 +71,11 @@ interface HarnessOptions {
   /** Short by default, so the unacknowledged branch is reachable in a test. */
   readonly ackTimeout?: number;
   readonly onInput?: (request: InputRequest) => Promise<string | null>;
-  readonly onStream?: (name: 'stdout' | 'stderr', text: string) => void;
+  readonly onStream?: (
+    name: 'stdout' | 'stderr', text: string, unattributed: boolean
+  ) => void;
+  /** Short by default, so a stranded request can be seen to fail in a test. */
+  readonly strayGrace?: number;
 }
 
 function clientWith(options: HarnessOptions = {}): Harness {
@@ -82,6 +86,7 @@ function clientWith(options: HarnessOptions = {}): Harness {
     kernelPath: '/kernel/evalens_kernel.py',
     onStderr: options.onStderr,
     ackTimeout: options.ackTimeout ?? 50,
+    strayGrace: options.strayGrace ?? 50,
     onInput: options.onInput,
     onStream: options.onStream,
     spawn: (command, args) => {
@@ -239,6 +244,48 @@ test('an unparseable line is reported and does not break the stream', async () =
   proc.reply({ id: 1, ok: true });
   await pending;
   assert.match(seen.join(''), /unparseable line/);
+});
+
+test('a response with output spliced onto the front is still delivered', async () => {
+  // The wedge, and the whole reason this is worth recovering rather than
+  // reporting: a write with no trailing newline lands on the same line as the
+  // next response. Discarding the line loses an answer that was computed
+  // correctly, and leaves the request pending with nothing left to settle it.
+  const seen: string[] = [];
+  const { client, started } = clientWith({ onStderr: (text) => seen.push(text) });
+  const pending = client.request({ op: 'ping' });
+  const proc = await started();
+  proc.stdout.emit('data',
+    'PARTIAL FROM THREAD{"id":1,"ok":true,"value":"42"}\n');
+  assert.equal((await pending as Response & { value: string }).value, '42');
+  assert.match(seen.join(''), /stray output.*PARTIAL FROM THREAD/s);
+});
+
+test('a request whose answer a stray line may have eaten is failed, not dropped', async () => {
+  // `deliver` used to return here without touching `pending`, and nothing else
+  // clears it short of the kernel dying -- so the promise for that keypress
+  // never settled and the progress notification spun forever. Failing it names
+  // something the user can act on instead.
+  const { client, started } = clientWith({ strayGrace: 20 });
+  const pending = client.request({ op: 'ping' });
+  const proc = await started();
+  proc.stdout.emit('data', 'LATE THREAD PRINT\n');
+  await assert.rejects(pending, /this evaluation was lost.*LATE THREAD PRINT/s);
+});
+
+test('a stray line does not fail a request sent after it', async () => {
+  // Only what was already in flight can have had its answer destroyed. A
+  // blanket per-request timeout would also cancel the long-running evaluation
+  // that Cancel exists for, which is why the clock starts on evidence.
+  const { client, started } = clientWith({ strayGrace: 20 });
+  const doomed = client.request({ op: 'ping' });
+  const proc = await started();
+  proc.stdout.emit('data', 'LATE THREAD PRINT\n');
+  const later = client.request({ op: 'ping' });
+  await assert.rejects(doomed, /this evaluation was lost/);
+  proc.reply({ id: 2, ok: true, marker: 'answered' });
+  assert.equal((await later as Response & { marker: string }).marker,
+    'answered');
 });
 
 test('dispose kills the process and refuses further requests', async () => {
@@ -440,6 +487,28 @@ test('printed output is handed over as it arrives', async () => {
   proc.says({ op: 'stream', name: 'stderr', text: 'careful\n' });
 
   assert.deepEqual(seen, ['stdout:tick 3\n', 'stderr:careful\n']);
+});
+
+test('output from a thread with nothing running arrives marked', async () => {
+  // It is the user's own print and they need to see it. What cannot be done is
+  // to say which line produced it: the statement that started the thread has
+  // long returned, and attributing it would put text beside code that did not
+  // write it.
+  const seen: string[] = [];
+  const { client, started } = clientWith({
+    onStream: (name, text, unattributed) =>
+      seen.push(`${name}:${unattributed ? 'late' : 'live'}:${text}`),
+  });
+  void client.request({ op: 'ping' }).catch(() => undefined);
+  const proc = await started();
+
+  proc.says({ op: 'stream', name: 'stdout', text: 'in the statement' });
+  proc.says({
+    op: 'stream', name: 'stdout', text: 'from a thread', unattributed: true,
+  });
+
+  assert.deepEqual(seen,
+    ['stdout:live:in the statement', 'stdout:late:from a thread']);
 });
 
 test('a request goes out as one JSON line carrying its id', async () => {

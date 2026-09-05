@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { LatestWins, LineDecoder } from '../kernel/protocol';
+import { LatestWins, LineDecoder, salvageResponse } from '../kernel/protocol';
 
 test('a response split across chunks is reassembled', () => {
   const decoder = new LineDecoder();
@@ -33,6 +33,42 @@ test('windows line endings are stripped', () => {
 test('blank lines are not delivered as messages', () => {
   const decoder = new LineDecoder();
   assert.deepEqual(decoder.push('\n\n{"id":1}\n\n'), ['{"id":1}']);
+});
+
+test('an ordinary response salvages to itself, with nothing in front', () => {
+  const { response, stray } = salvageResponse('{"id":1,"ok":true}');
+  assert.deepEqual(response, { id: 1, ok: true });
+  assert.equal(stray, '');
+});
+
+test('output spliced onto the front of a response does not destroy it', () => {
+  // The shape that wedges a session: a write with no trailing newline lands on
+  // the same line as the next response, so the whole line fails to parse and
+  // an answer that was computed correctly is thrown away.
+  const { response, stray } = salvageResponse(
+    'PARTIAL FROM THREAD{"id":7,"ok":true,"value":"42"}');
+  assert.deepEqual(response, { id: 7, ok: true, value: '42' });
+  assert.equal(stray, 'PARTIAL FROM THREAD');
+});
+
+test('stray output containing a brace is skipped past, not parsed', () => {
+  const { response, stray } = salvageResponse(
+    'printed {a dict-ish thing}{"id":2,"ok":true}');
+  assert.deepEqual(response, { id: 2, ok: true });
+  assert.equal(stray, 'printed {a dict-ish thing}');
+});
+
+test('a line with no response in it salvages nothing', () => {
+  const { response, stray } = salvageResponse('LATE THREAD PRINT');
+  assert.equal(response, undefined);
+  assert.equal(stray, 'LATE THREAD PRINT');
+});
+
+test('valid JSON that is not an object is not a response', () => {
+  // `42` and `"hello"` parse. Treating either as a response would look up an
+  // `id` on a number and drop it silently, which reads as the answer arriving.
+  assert.equal(salvageResponse('42').response, undefined);
+  assert.equal(salvageResponse('[{"id":1}]').response, undefined);
 });
 
 test('latest-wins keeps only the newest token per key', () => {

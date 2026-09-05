@@ -216,6 +216,18 @@ export type ControlMessage =
       readonly op: 'stream';
       readonly name: 'stdout' | 'stderr';
       readonly text: string;
+      /**
+       * Nothing was running when this was written, so it belongs to no line.
+       *
+       * A thread, a timer or an executor started by one statement goes on
+       * printing after that statement has returned. The kernel's streams are
+       * replaced for its whole life so that text can never reach the protocol
+       * channel, but the statement that started it is gone and no id can
+       * honestly be put on it. Absent means the text came from the evaluation
+       * that was in flight. Attributing late output to the line that started
+       * the thread is not knowable and is deliberately not attempted.
+       */
+      readonly unattributed?: boolean;
     };
 
 /**
@@ -561,6 +573,63 @@ export class LineDecoder {
   reset(): void {
     this.buffer = '';
   }
+}
+
+/** A response read off the wire, and anything written in front of it. */
+export interface SalvagedLine {
+  /** Absent when nothing in the line parsed as a response object. */
+  readonly response?: Response;
+  /** What preceded it, which is never anything the protocol wrote. */
+  readonly stray: string;
+}
+
+/** How many `{` in one line are worth trying before calling it noise. */
+const SALVAGE_ATTEMPTS = 64;
+
+/**
+ * Read a response out of a line that may have something spliced in front.
+ *
+ * The kernel writes one response per line and writes nothing else on that
+ * channel, so in a healthy session this is `JSON.parse` and nothing more. The
+ * reason it is more is that descriptor 1 can still be written by something no
+ * Python-level redirection reaches -- a native extension calling `printf`, a
+ * subprocess or a multiprocessing worker that inherited the descriptor -- and
+ * text with no trailing newline does not merely arrive as its own bad line. It
+ * lands on the *front* of the next response, which parses as nothing, and a
+ * correctly computed answer is destroyed by output the user cannot see.
+ *
+ * So the leading garbage is skipped rather than the line discarded. The suffix
+ * has to parse whole and be an object, and the caller still checks the `id`
+ * against what it actually sent, which is what keeps this a recovery rather
+ * than a guess.
+ */
+export function salvageResponse(line: string): SalvagedLine {
+  const whole = parseObject(line);
+  if (whole) {
+    return { response: whole, stray: '' };
+  }
+  let from = line.indexOf('{');
+  for (let tries = 0; from >= 0 && tries < SALVAGE_ATTEMPTS; tries++) {
+    const response = parseObject(line.slice(from));
+    if (response) {
+      return { response, stray: line.slice(0, from) };
+    }
+    from = line.indexOf('{', from + 1);
+  }
+  return { stray: line };
+}
+
+/** `JSON.parse`, but only a JSON object counts. `42` is not a response. */
+function parseObject(text: string): Response | undefined {
+  try {
+    const value: unknown = JSON.parse(text);
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      return value as Response;
+    }
+  } catch {
+    // Not a response, or not one yet -- the caller decides what that means.
+  }
+  return undefined;
 }
 
 /**

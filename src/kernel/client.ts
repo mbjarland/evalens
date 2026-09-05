@@ -8,10 +8,29 @@ import {
   LineDecoder,
   Request,
   Response,
+  salvageResponse,
 } from './protocol';
 
 /** How long the kernel gets to acknowledge an interrupt before we say so. */
 const DEFAULT_ACK_TIMEOUT = 2000;
+
+/**
+ * How long a request already in flight gets after the protocol channel was
+ * seen to carry something that was not a response.
+ *
+ * Deliberately not a per-request timeout. Evaluations are allowed to take as
+ * long as the user's code takes -- `while True:` is a normal thing to write,
+ * and interrupting rather than timing out is the whole of how that is handled
+ * -- so a clock started by every request would cancel exactly the evaluations
+ * the Cancel button exists for. This clock starts only on evidence: a line
+ * arrived that the kernel cannot have written, so an answer may have been
+ * destroyed on its way here, and a promise nothing can settle is a spinner
+ * that runs forever.
+ */
+const DEFAULT_STRAY_GRACE = 2000;
+
+/** Enough of a stray line to recognise it by, in a notification. */
+const STRAY_QUOTE_LIMIT = 120;
 
 type Stream = NodeJS.EventEmitter & { setEncoding?(encoding: string): void };
 type Sink = { write(chunk: string): void; end(): void };
@@ -67,14 +86,28 @@ export interface KernelClientOptions {
    * right default for a client with no user attached to it.
    */
   readonly onInput?: (request: InputRequest) => Promise<string | null>;
-  /** What the evaluated code printed, as it printed it. */
-  readonly onStream?: (name: 'stdout' | 'stderr', text: string) => void;
+  /**
+   * What the evaluated code printed, as it printed it.
+   *
+   * `unattributed` says nothing was running when it was written -- a thread
+   * or an executor still going after the statement that started it returned.
+   * It is still the user's own output and still worth showing; what cannot be
+   * done is to say which line it came from.
+   */
+  readonly onStream?: (
+    name: 'stdout' | 'stderr', text: string, unattributed: boolean
+  ) => void;
   /**
    * How long an interrupt may go unacknowledged before it is reported as
    * unconfirmed. Two seconds unless a test wants to reach that branch without
    * waiting two seconds for it.
    */
   readonly ackTimeout?: number;
+  /**
+   * How long a request in flight when the protocol channel was corrupted gets
+   * before it is failed rather than left pending. See `DEFAULT_STRAY_GRACE`.
+   */
+  readonly strayGrace?: number;
 }
 
 class Deferred<T> {
@@ -108,6 +141,10 @@ export class KernelClient {
   private executing = false;
   /** Resolved by `interrupt_ack`, so cancel is not fire-and-forget. */
   private acknowledged?: Deferred<void>;
+  /** Armed by a corrupted line; see `stranded`. Cleared by every stop. */
+  private readonly watchdogs = new Set<ReturnType<typeof setTimeout>>();
+  /** Requests already given their grace period, so noise arms one each. */
+  private readonly doomed = new Set<number>();
   private nextId = 1;
   private disposed = false;
   /** Bumped by every stop, so a spawn in flight can tell it is orphaned. */
@@ -297,12 +334,24 @@ export class KernelClient {
   }
 
   private deliver(line: string): void {
-    let response: Response;
-    try {
-      response = JSON.parse(line) as Response;
-    } catch {
+    const { response, stray } = salvageResponse(line);
+    if (!response) {
+      // Nothing here was a response. It may simply be noise on its own line,
+      // in which case the answer is still coming; or it may have swallowed
+      // one, in which case nothing will ever settle the request that is
+      // waiting for it. Which of the two it is cannot be told apart now, only
+      // later, by whether the answer turns up.
       this.options.onStderr?.(`unparseable line from kernel: ${line}\n`);
+      this.stranded(line);
       return;
+    }
+    if (stray) {
+      // The dangerous shape: text with no trailing newline written onto the
+      // front of a real response. The answer was computed correctly and is
+      // right here; discarding the line would throw it away and wedge the
+      // request it belongs to.
+      this.options.onStderr?.(
+        `stray output on the kernel's protocol channel: ${stray}\n`);
     }
     const deferred = this.pending.get(response.id);
     if (!deferred) {
@@ -312,6 +361,55 @@ export class KernelClient {
     }
     this.pending.delete(response.id);
     deferred.resolve(response);
+  }
+
+  /**
+   * Fail the requests whose answer this line may have destroyed.
+   *
+   * Only the ones already in flight, and only after a grace period: a stray
+   * line that arrived whole, on its own, has taken nothing with it and the
+   * real answer lands milliseconds later. What must not happen is the other
+   * case -- the answer eaten, `pending` untouched, and a progress
+   * notification spinning until the user restarts the kernel and loses the
+   * session's namespace to find out why.
+   */
+  private stranded(line: string): void {
+    // One grace period per request, not one per garbage line: something
+    // writing to the descriptor in a loop would otherwise arm a timer per
+    // line, all of them saying the same thing about the same request.
+    const ids = [...this.pending.keys()].filter((id) => !this.doomed.has(id));
+    if (ids.length === 0) {
+      return;
+    }
+    const generation = this.generation;
+    for (const id of ids) {
+      this.doomed.add(id);
+    }
+    const quoted = line.length > STRAY_QUOTE_LIMIT
+      ? `${line.slice(0, STRAY_QUOTE_LIMIT)}…`
+      : line;
+    const timer = setTimeout(() => {
+      this.watchdogs.delete(timer);
+      for (const id of ids) {
+        this.doomed.delete(id);
+      }
+      if (this.generation !== generation) {
+        return;
+      }
+      for (const id of ids) {
+        const deferred = this.pending.get(id);
+        if (!deferred) {
+          continue;
+        }
+        this.pending.delete(id);
+        deferred.reject(new Error(
+          'this evaluation was lost: something that is not a response was ' +
+          `written on the kernel's protocol channel ("${quoted}"). ` +
+          'Evaluating the line again is safe; the namespace is intact.'
+        ));
+      }
+    }, this.strayGrace);
+    this.watchdogs.add(timer);
   }
 
   /**
@@ -340,7 +438,8 @@ export class KernelClient {
         this.acknowledged = undefined;
         return;
       case 'stream':
-        this.options.onStream?.(message.name, message.text);
+        this.options.onStream?.(
+          message.name, message.text, message.unattributed === true);
         return;
       case 'input_request':
         void this.answerInput(message);
@@ -387,6 +486,10 @@ export class KernelClient {
     return this.options.ackTimeout ?? DEFAULT_ACK_TIMEOUT;
   }
 
+  private get strayGrace(): number {
+    return this.options.strayGrace ?? DEFAULT_STRAY_GRACE;
+  }
+
   private stop(reason: Error): void {
     const process = this.process;
     this.process = undefined;
@@ -398,6 +501,13 @@ export class KernelClient {
     // caller is waiting on that. Let the timeout say so rather than leaving a
     // promise nothing can resolve.
     this.acknowledged = undefined;
+    // The loop below settles everything a watchdog was waiting to settle, so
+    // the timers have nothing left to do but keep the process awake.
+    for (const timer of this.watchdogs) {
+      clearTimeout(timer);
+    }
+    this.watchdogs.clear();
+    this.doomed.clear();
     // Reject before killing: a pending promise that never settles is a
     // spinner that never stops, and the caller cannot tell it from slow code.
     for (const deferred of this.pending.values()) {

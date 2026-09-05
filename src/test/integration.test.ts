@@ -1633,3 +1633,134 @@ test('a selection still snaps outward inside a file that does not parse',
     assert.equal(widenedBeyond(ran.range!, selection), true);
     assert.equal((await evaluate(client, 'f\n', 0) as Evaluated).display, 'f');
   });
+
+/**
+ * A statement that starts a thread which prints once it has returned.
+ *
+ * `start()` returns as soon as the thread is bootstrapped, so the statement is
+ * over -- and its response already written -- long before the sleep ends. What
+ * the write meets is whatever the kernel leaves in `sys.stdout` between
+ * evaluations, which for the life of this project was the pipe every response
+ * travels on.
+ */
+function lateWriter(write: string): string {
+  return 'import sys, threading, time\n'
+    + 'def late():\n'
+    + '    time.sleep(0.3)\n'
+    + `    ${write}\n`
+    + 'worker = threading.Thread(target=late)\n'
+    + 'worker.start()\n';
+}
+
+/** A client that collects the output frames, so a test can wait for one. */
+function connectWatchingOutput(): {
+  client: KernelClient;
+  streamed: Array<{ text: string; unattributed: boolean }>;
+  reported: string[];
+} {
+  const streamed: Array<{ text: string; unattributed: boolean }> = [];
+  const reported: string[] = [];
+  const client = new KernelClient({
+    resolvePython: async () => 'python3',
+    kernelPath: KERNEL,
+    onStream: (_name, text, unattributed) => streamed.push({ text, unattributed }),
+    onStderr: (text) => reported.push(text),
+  });
+  return { client, streamed, reported };
+}
+
+/** Wait for the thread's write to have happened, or fail saying it never did. */
+async function waitForOutput(
+  streamed: ReadonlyArray<{ text: string }>, needle: string
+): Promise<void> {
+  for (let tick = 0; tick < 200; tick++) {
+    if (streamed.some((frame) => frame.text.includes(needle))) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.fail(`the kernel never delivered ${needle}`);
+}
+
+/** Fail rather than hang: a wedged session is a promise that never settles. */
+function withinFiveSeconds<T>(work: Promise<T>, what: string): Promise<T> {
+  // When the wait runs out the request is still pending, and it is rejected
+  // later when the kernel is disposed with nobody left listening. An unhandled
+  // rejection takes the whole file down rather than failing this one test,
+  // which for a regression test is the difference between a red line naming
+  // the defect and a run that stops before it reaches the rest.
+  work.catch(() => undefined);
+  return Promise.race([
+    work,
+    new Promise<T>((_resolve, reject) => setTimeout(
+      () => reject(new Error(`${what} never settled -- the session is wedged`)),
+      5000).unref()),
+  ]);
+}
+
+test('a thread printing after its statement returned does not wedge the session',
+  async (t) => {
+    // The mild half of the defect: with a trailing newline the text arrives as
+    // its own line, fails JSON.parse, and is reported to the user as the
+    // extension malfunctioning. It is their own print.
+    const { client, streamed, reported } = connectWatchingOutput();
+    t.after(() => client.dispose());
+
+    const source = lateWriter("print('LATE THREAD PRINT')");
+    for (let line = 0; line < source.split('\n').length - 1; line++) {
+      await evaluate(client, source, line);
+    }
+    await waitForOutput(streamed, 'LATE THREAD PRINT');
+
+    const answer = await withinFiveSeconds(
+      evaluate(client, 'answer = 42\n', 0), 'the request after the late print'
+    ) as Evaluated;
+    assert.equal(answer.value, '42');
+    assert.equal(reported.join(''), '',
+      "the user's own print must not be reported as a kernel fault");
+  });
+
+test('a thread writing without a newline does not splice onto the next answer',
+  async (t) => {
+    // The dangerous half. Unterminated text lands on the *front* of the next
+    // response: the value is computed correctly and thrown away, `deliver`
+    // returns without touching the pending request, and with no per-request
+    // timeout the spinner runs until the kernel is restarted and the session's
+    // namespace goes with it.
+    const { client, streamed, reported } = connectWatchingOutput();
+    t.after(() => client.dispose());
+
+    const source = lateWriter("sys.stdout.write('PARTIAL FROM THREAD')");
+    for (let line = 0; line < source.split('\n').length - 1; line++) {
+      await evaluate(client, source, line);
+    }
+    await waitForOutput(streamed, 'PARTIAL FROM THREAD');
+
+    const answer = await withinFiveSeconds(
+      evaluate(client, 'answer = 42\n', 0), 'the request after the late write'
+    ) as Evaluated;
+    assert.equal(answer.value, '42');
+    assert.equal(answer.display, 'answer');
+    assert.equal(reported.join(''), '');
+
+    // And the session is still usable, which is the claim the ticket is about.
+    const after = await withinFiveSeconds(
+      evaluate(client, 'again = answer + 1\n', 0), 'the request after that'
+    ) as Evaluated;
+    assert.equal(after.value, '43');
+  });
+
+test('late output reaches the user, saying it belongs to no line', async (t) => {
+  const { client, streamed } = connectWatchingOutput();
+  t.after(() => client.dispose());
+
+  const source = lateWriter("print('LATE THREAD PRINT')");
+  for (let line = 0; line < source.split('\n').length - 1; line++) {
+    await evaluate(client, source, line);
+  }
+  await waitForOutput(streamed, 'LATE THREAD PRINT');
+
+  const late = streamed.find((frame) => frame.text.includes('LATE THREAD PRINT'));
+  assert.equal(late?.unattributed, true,
+    'which statement started the thread is not knowable, and is not guessed');
+});

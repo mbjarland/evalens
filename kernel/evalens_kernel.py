@@ -37,6 +37,17 @@ not told apart from a stale response by some rule applied to a shared stream,
 it arrives somewhere a response never can. Jupyter splits its channels the
 same way and for the same reason.
 
+Everything user code prints leaves on the control channel, and it does so for
+the life of the process rather than for the life of a statement. ``sys.stdout``
+and ``sys.stderr`` are replaced once, at startup, and never restored -- see
+``_UserStream``. A redirection that ends when a statement ends leaves a thread
+started on line 4 still writing on line 40, straight onto the pipe the protocol
+runs on, where a trailing newline gets the user's own ``print`` reported back to
+them as a kernel fault and the absence of one splices their text onto the front
+of the next response and destroys it. Output that arrives with no statement
+running is sent marked ``unattributed``: it cannot be blamed on a line, and the
+reader needs to see it more than they need it labelled.
+
 Protocol
 --------
 Newline-delimited JSON, one request per line in, one response per line out.
@@ -306,6 +317,10 @@ _NOTHING = object()
 #: written here rather than through `sys.stdout`, because user code is free to
 #: rebind `sys.stdout` permanently and doing so must not silently redirect the
 #: protocol into the user's own object.
+#:
+#: This is also what makes the permanent redirection in `_install_user_streams`
+#: possible rather than circular: by the time `sys.stdout` becomes something
+#: that writes to the control channel, the protocol already holds the real one.
 _PROTOCOL_OUT = sys.stdout
 
 #: The real stdin, captured for the same reason and read by the protocol loop
@@ -474,36 +489,73 @@ def _control_loop(stream: TextIO) -> None:
             _INPUT_REPLIES.put((message.get("seq"), message.get("value")))
 
 
-class _Tee(io.TextIOBase):
-    """Captured for the response, and echoed as it is written.
+class _UserStream(io.TextIOBase):
+    """``sys.stdout`` (or ``sys.stderr``) for the whole life of the kernel.
 
-    Both, not one or the other. The response still carries everything a
-    statement printed, because that is the field every consumer already reads.
-    And each write also goes out on the control channel as it happens, which
-    is the only way a loop that prints its progress reads as progress rather
-    than as a report delivered once it is over -- and it is what puts the
-    prompt on screen before the box asking for an answer to it.
+    Installed once by ``_install_user_streams`` and never taken away again,
+    and that is the point rather than an implementation detail. A redirection
+    scoped to a statement leaves whatever the user started -- a thread, a
+    timer, an executor -- writing to the real descriptor 1 the moment the
+    statement it was started by has returned, which is the pipe the protocol
+    travels on. A line of user output landing there is at best reported to
+    them as a kernel fault and at worst splices onto the front of the next
+    response, destroying an answer that was computed correctly.
+
+    So every write goes out on the control channel as a ``stream`` frame,
+    whenever it happens. Two shapes, and the difference is the only thing
+    ``_user_io`` still decides:
+
+    * **While a statement is running** the text is also captured, so the
+      response still carries everything the statement printed -- the field
+      every consumer already reads -- and the frame is attributed to the
+      evaluation in flight. Output written by a thread the statement itself
+      started and joined belongs to that statement and lands here, which is
+      what a terminal would show.
+    * **With nothing running** there is no statement to attribute it to, and
+      saying so is more honest than guessing. The frame carries
+      ``unattributed``; the extension can still show it, which is what the
+      user needs, and cannot claim it came from a line it did not come from.
+
+    Writing is best-effort. A failed announcement must never surface as an
+    exception in the middle of somebody's ``print()``, and there is nowhere
+    else to put the text: the descriptor it would otherwise fall back to is
+    the one this class exists to keep clean.
     """
 
     def __init__(self, name: str) -> None:
         self._name = name
-        self._captured = io.StringIO()
+        #: Where a running statement's output is accumulating, or None when
+        #: nothing is running. Rebound by `_user_io`, read by every thread.
+        self._captured: Optional[io.StringIO] = None
+
+    def capture(self, buffer: Optional[io.StringIO]) -> Optional[io.StringIO]:
+        """Start (or stop) collecting into ``buffer``; answer the old one."""
+        previous, self._captured = self._captured, buffer
+        return previous
 
     def write(self, text: str) -> int:
         if not text:
             return 0
-        self._captured.write(text)
-        control({"op": "stream", "name": self._name, "text": text})
+        # Read once. A statement can finish between these two lines, and a
+        # write that lands in a buffer nobody will read again is a far smaller
+        # problem than one that raises AttributeError inside user code.
+        captured = self._captured
+        message = {"op": "stream", "name": self._name, "text": text}
+        if captured is not None:
+            captured.write(text)
+        else:
+            message["unattributed"] = True
+        try:
+            control(message)
+        except Exception:  # noqa: BLE001 - see the class docstring
+            pass
         return len(text)
 
     def writable(self) -> bool:
         return True
 
-    def getvalue(self) -> str:
-        return self._captured.getvalue()
-
     def tail(self) -> str:
-        """Whatever has been written since the last newline.
+        """Whatever the running statement has written since the last newline.
 
         This is the prompt. ``input("Name? ")`` writes its argument to stdout
         and *then* calls ``readline()`` -- the prompt is not a parameter of the
@@ -511,7 +563,30 @@ class _Tee(io.TextIOBase):
         why a terminal shows it on the line you type on. Reading it back here
         is what lets the stub carry a prompt without hooking ``input`` itself.
         """
-        return self._captured.getvalue().rpartition("\n")[2]
+        captured = self._captured
+        if captured is None:
+            return ""
+        return captured.getvalue().rpartition("\n")[2]
+
+
+#: The two objects user code sees as its standard streams. Module-level and
+#: shared, because they have to be reachable from a thread that outlives the
+#: statement which started it -- that is the whole fix.
+_USER_OUT = _UserStream("stdout")
+_USER_ERR = _UserStream("stderr")
+
+
+def _install_user_streams() -> None:
+    """Put the capturing streams in place, for good.
+
+    Called from ``main`` rather than at import, so that importing this module
+    -- which a diagnostic or another test does -- does not silently take a
+    process's stdout away from it. ``_PROTOCOL_OUT`` was captured at import,
+    before this runs, which is what lets ``respond`` keep writing to the real
+    descriptor while everything user code writes goes elsewhere.
+    """
+    sys.stdout = _USER_OUT
+    sys.stderr = _USER_ERR
 
 
 class _AskingStdin(io.TextIOBase):
@@ -538,7 +613,7 @@ class _AskingStdin(io.TextIOBase):
     hooking something that needs a terminal and half-succeeding.
     """
 
-    def __init__(self, out: "_Tee", err: "_Tee") -> None:
+    def __init__(self, out: "_UserStream", err: "_UserStream") -> None:
         self._out = out
         self._err = err
 
@@ -644,8 +719,8 @@ def _reading_a_password() -> bool:
 @contextlib.contextmanager
 def _user_io(allow_stdin: bool = False,
              at: Optional[Dict[str, Any]] = None
-             ) -> Iterator[tuple[_Tee, _Tee]]:
-    """Isolate evaluated code from the protocol channel.
+             ) -> Iterator[tuple[io.StringIO, io.StringIO]]:
+    """Attribute this statement's output to it, and let it ask questions.
 
     Two hazards, both silent if unhandled:
 
@@ -657,9 +732,21 @@ def _user_io(allow_stdin: bool = False,
       answer, so the extension appears to hang while the kernel quietly eats
       its instructions.
 
-    The isolation is kept and given somewhere to go. Evaluated code still
-    never touches the request channel; what it gets instead is a stream that
-    asks the extension, on the control channel, and blocks for the reply.
+    **Only the second of those is this function's job.** The output half is
+    settled once and for all by ``_install_user_streams``: ``sys.stdout`` and
+    ``sys.stderr`` are replaced for the life of the process, so there is no
+    window -- not between statements, not after one has returned -- in which
+    anything the user started can reach the protocol channel. What is left
+    here is attribution, which is genuinely per statement: a buffer is put in
+    front of the stream while this one runs, so its output comes back in the
+    response, and taken away afterwards so a thread that outlives it is
+    reported as unattributed rather than blamed on the next line the user
+    evaluates.
+
+    The stdin half stays scoped, because it is a question about *this*
+    request. Evaluated code never touches the request channel; what it gets
+    instead is a stream that asks the extension, on the control channel, and
+    blocks for the reply.
 
     ``allow_stdin`` is the caller's decision and defaults to no, so that a
     caller which forgot the flag gets an ``EOFError`` rather than a kernel
@@ -672,19 +759,28 @@ def _user_io(allow_stdin: bool = False,
     raises. Only this side knows: during a load the extension sent a whole
     file and has no idea which statement stopped.
 
-    Known limitation: this rebinds Python-level streams. A native extension
-    writing straight to file descriptor 1 still escapes it, and so does
-    anything reading ``sys.__stdin__``.
+    Known limitation, unchanged and worth restating because the permanent
+    redirection above can read as more than it is: this rebinds *Python-level*
+    streams. A native extension writing straight to file descriptor 1 still
+    escapes it -- so does a subprocess or a multiprocessing worker, which
+    inherits the descriptor itself -- and so does anything reading
+    ``sys.__stdin__`` or writing ``sys.__stdout__``. Closing that would mean
+    replacing descriptor 1 in the child rather than an attribute in it, which
+    is a different design and a different ticket; the client is written to
+    survive it rather than to assume it cannot happen.
     """
     global _ALLOW_STDIN, _RUNNING_AT
-    out, err = _Tee("stdout"), _Tee("stderr")
+    out, err = io.StringIO(), io.StringIO()
+    previous_out = _USER_OUT.capture(out)
+    previous_err = _USER_ERR.capture(err)
     stdin, allowed, was_at = sys.stdin, _ALLOW_STDIN, _RUNNING_AT
     _ALLOW_STDIN, _RUNNING_AT = allow_stdin, at
-    sys.stdin = _AskingStdin(out, err)
+    sys.stdin = _AskingStdin(_USER_OUT, _USER_ERR)
     try:
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            yield out, err
+        yield out, err
     finally:
+        _USER_OUT.capture(previous_out)
+        _USER_ERR.capture(previous_err)
         sys.stdin, _ALLOW_STDIN, _RUNNING_AT = stdin, allowed, was_at
 
 
@@ -1942,6 +2038,10 @@ def main() -> None:
     if control_in is not None:
         threading.Thread(target=_control_loop, args=(control_in,),
                          name="evalens-control", daemon=True).start()
+    # Before a single line of user code can run, and never undone. A thread
+    # someone starts on line 4 is still printing on line 40, and the only
+    # redirection that catches it is one with no end.
+    _install_user_streams()
 
     kernel = Kernel()
     while True:

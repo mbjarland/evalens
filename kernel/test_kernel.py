@@ -136,6 +136,23 @@ class KernelProcess:
                 return message
         raise AssertionError(f"no {op!r} on the control channel in {timeout}s")
 
+    def read_stream_containing(self, needle, timeout=ANSWER_TIMEOUT):
+        """The next ``stream`` frame whose text holds ``needle``.
+
+        Waiting for the output itself rather than for a wall-clock interval is
+        what makes a test about a thread deterministic: by the time this
+        returns the write has already happened, so the request sent next is
+        provably the one that would have met a corrupted pipe.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            message = self.read_control(timeout=timeout)
+            if (message.get("op") == "stream"
+                    and needle in message.get("text", "")):
+                return message
+        raise AssertionError(
+            f"no stream frame carrying {needle!r} in {timeout}s")
+
     def interrupt(self):
         self.send_control(op="interrupt")
 
@@ -414,6 +431,105 @@ class ChannelIsolation(KernelTest):
         result = self.k.evaluate(src, 1)
         self.assertTrue(result["ok"], "writing to stderr is not a failure")
         self.assertEqual(result["stderr"], "warned")
+
+
+def late_writer(write):
+    """A statement that starts a thread which prints once it has returned.
+
+    The sleep is the whole point and is not a race: ``start()`` returns as soon
+    as the thread is bootstrapped, so the statement is over -- and its response
+    written -- long before the write happens. What the write then meets is
+    whatever the kernel leaves in ``sys.stdout`` between evaluations, which is
+    the thing this file is about.
+    """
+    return (
+        "import sys, threading, time\n"
+        "def late():\n"
+        "    time.sleep(0.3)\n"
+        f"    {write}\n"
+        "worker = threading.Thread(target=late)\n"
+        "worker.start()\n"
+    )
+
+
+@unittest.skipUnless(CAN_OPEN_CONTROL,
+                     "this harness cannot hand the kernel a control channel")
+class LateOutput(KernelTest):
+    """Output that arrives when no statement is running.
+
+    Concurrency is on the syllabus this kernel is aimed at, so a ``print`` in a
+    thread is not exotic; it is how every threading tutorial demonstrates that
+    threads interleave. A redirection scoped to a statement leaves that print
+    writing to the real descriptor 1, which is the pipe the protocol travels
+    on, and what the user then gets is decided by whether their last write
+    happened to end in a newline -- their own output reported to them as a
+    kernel fault, or a correct answer destroyed and the session wedged.
+    """
+
+    def start_late_writer(self, write):
+        source = late_writer(write)
+        for line in range(len(source.splitlines())):
+            self.k.evaluate(source, line)
+
+    def test_a_late_print_never_reaches_the_protocol_pipe(self):
+        # The mild half of the defect: a trailing newline makes the text its
+        # own line, which fails JSON.parse and is shown to the user as the
+        # extension malfunctioning. It is their own print.
+        self.start_late_writer("print('LATE THREAD PRINT')")
+        self.k.read_stream_containing("LATE THREAD PRINT")
+        # `read` parses the next protocol line, so a kernel that let the
+        # thread write there fails here rather than somewhere later.
+        self.assertEqual(self.k.evaluate("answer = 42\n", 0)["value"], "42")
+
+    def test_a_late_write_with_no_newline_does_not_splice_onto_the_answer(self):
+        # The dangerous half, and the reason this is sev:high. Unterminated
+        # text lands on the *front* of the next response: the value was
+        # computed correctly and is thrown away, the client cannot parse the
+        # line, the request is never settled and the spinner never stops.
+        self.start_late_writer("sys.stdout.write('PARTIAL FROM THREAD')")
+        self.k.read_stream_containing("PARTIAL FROM THREAD")
+        self.assertEqual(self.k.evaluate("answer = 42\n", 0)["value"], "42")
+
+    def test_late_output_says_it_belongs_to_no_statement(self):
+        # It still reaches the user, which is what matters, and it does not
+        # claim to have come from a line. Which line started the thread is not
+        # knowable, and guessing would put text beside code that did not
+        # produce it.
+        self.start_late_writer("print('LATE THREAD PRINT')")
+        frame = self.k.read_stream_containing("LATE THREAD PRINT")
+        self.assertEqual(frame["name"], "stdout")
+        self.assertTrue(frame.get("unattributed"), frame)
+
+    def test_late_output_on_stderr_is_routed_the_same_way(self):
+        self.start_late_writer("sys.stderr.write('LATE THREAD WARNING')")
+        frame = self.k.read_stream_containing("LATE THREAD WARNING")
+        self.assertEqual(frame["name"], "stderr")
+        self.assertTrue(frame.get("unattributed"), frame)
+        self.assertEqual(self.k.evaluate("answer = 42\n", 0)["value"], "42")
+
+    def test_a_thread_a_statement_waits_for_is_still_that_statements_output(self):
+        # The over-correction to guard against. A pool joined inside the
+        # statement that opened it is the concurrency example a course
+        # actually contains, and its output belongs to that statement -- which
+        # is what a terminal would show, and what the response field every
+        # consumer reads has always carried.
+        src = ("import concurrent.futures as cf\n"
+               "with cf.ThreadPoolExecutor(max_workers=2) as pool:\n"
+               "    _ = list(pool.map(lambda n: print('worker', n), range(2)))\n")
+        self.k.evaluate(src, 0)
+        result = self.k.evaluate(src, 1)
+        self.assertTrue(result["ok"], result)
+        self.assertIn("worker 0", result["stdout"])
+        self.assertIn("worker 1", result["stdout"])
+
+    def test_a_thread_outliving_one_statement_is_not_blamed_on_the_next(self):
+        # Attribution is per statement, so a straggler cannot be silently
+        # folded into a response it had nothing to do with once that statement
+        # has ended.
+        self.start_late_writer("print('LATE THREAD PRINT')")
+        self.k.read_stream_containing("LATE THREAD PRINT")
+        result = self.k.evaluate("answer = 42\n", 0)
+        self.assertEqual(result["stdout"], "")
 
 
 class Failures(KernelTest):

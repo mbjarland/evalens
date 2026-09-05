@@ -84,6 +84,19 @@ same way. It is not the notebook protocol and does not want to be: no ZeroMQ,
 no message signing, no session identities, four message kinds. The lesson
 taken from Jupyter here is the channel split, not the wire format.
 
+**Everything the user's code prints leaves on the control channel, and it
+does so for the life of the process rather than the life of a statement.**
+That correction cost a wedged session to learn. Replacing `sys.stdout` only
+while a statement runs leaves a thread started on line 4 still writing on
+line 40 — onto the pipe every response travels on, where a trailing newline
+gets the user's own `print` reported back to them as a kernel fault and the
+absence of one splices their text onto the front of the next response and
+destroys it. Concurrency is on the syllabus this is aimed at, so a `print`
+inside a thread is not an edge case. Output that arrives with nothing running
+is sent marked as belonging to no line: which statement started the thread is
+not knowable, and the reader needs to see the text more than they need it
+labelled.
+
 **(b) Borrow Jupyter's kernel.** The `ms-toolsai.jupyter` extension
 exposes `IExportedKernelService` / `getKernelService` to third-party
 extensions (verified present in the shipped bundle of

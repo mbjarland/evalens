@@ -160,7 +160,8 @@ async function ensureClient(
     onInput: (request) => evaluator!.askUser(request),
     // Live, rather than at the end of the statement. A loop that prints its
     // progress only reads as progress if the output arrives while it runs.
-    onStream: (_name, text) => output?.append(text),
+    onStream: (_name, text, unattributed) =>
+      output?.append(unattributed ? markBackground(text) : text),
     onStderr: (text) => output?.append(text),
     onExit: (code, signal) =>
       output?.appendLine(
@@ -173,4 +174,36 @@ async function ensureClient(
 function disposeClient(): void {
   client?.dispose();
   client = undefined;
+}
+
+/** Whether the next piece of background output starts a fresh line. */
+let backgroundAtLineStart = true;
+
+/**
+ * Label output that arrived with no statement running.
+ *
+ * A thread the user started two lines ago is still printing, and there is no
+ * line to put its text beside -- attributing it would be a guess, and a value
+ * next to code it did not come from is the failure this project treats as
+ * worse than showing nothing. So it goes in the channel, marked.
+ *
+ * Marked per *line* rather than per frame, and that is why this holds state:
+ * `print("x")` is two writes, the text and the newline, so a marker stamped on
+ * every chunk would land in the middle of the sentence it is describing.
+ */
+function markBackground(text: string): string {
+  let marked = '';
+  for (const piece of text.split(/(\n)/)) {
+    if (piece === '') {
+      continue;
+    }
+    if (piece === '\n') {
+      marked += piece;
+      backgroundAtLineStart = true;
+      continue;
+    }
+    marked += backgroundAtLineStart ? `[background] ${piece}` : piece;
+    backgroundAtLineStart = false;
+  }
+  return marked;
 }
