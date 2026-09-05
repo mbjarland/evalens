@@ -4228,6 +4228,7 @@ class Kernel:
                         # this expression specifically, wherever it was
                         # nested, and losing it silently would be #48's
                         # entire mechanism built for nothing.
+                        shown_names = {b["name"] for b in bindings}
                         for trace in recorders:
                             if not trace.watches:
                                 continue
@@ -4241,7 +4242,25 @@ class Kernel:
                             # already allows: it is an opaque label to every
                             # consumer of this array, never parsed back into
                             # anything.
-                            bindings = [*bindings, *trace.watches_wire()]
+                            #
+                            # A nomination that spells exactly the name of a
+                            # body binding already on the line -- `total`,
+                            # say, when `total += x` already reports one --
+                            # is not a second fact: both read the same name
+                            # at the same point in the same iteration, so the
+                            # two sequences are identical, and painting them
+                            # side by side would be the "value repeated on
+                            # consecutive lines" design rule 2 already rules
+                            # out, one line narrower. The existing binding
+                            # already answers what was nominated, so the
+                            # watch adds nothing and is left out; it is not
+                            # lost, since `evaluate_watch`'s caller nominated
+                            # a name that was already going to be shown.
+                            for entry in trace.watches_wire():
+                                if entry["name"] in shown_names:
+                                    continue
+                                bindings.append(entry)
+                                shown_names.add(entry["name"])
                             _report_watch_failures(trace, err)
                     elif kept.value is not _NOTHING:
                         # What the assignment stored, taken as it stored it.

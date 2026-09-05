@@ -108,6 +108,7 @@ without a way to run these.
 |---|---|
 | Evalens: Evaluate at Cursor | Evaluates the form the cursor is in and paints its value beside it |
 | Evalens: Evaluate and Advance | The same, then moves to the next top-level statement — hold the key to walk a file |
+| Evalens: Add Inline Watch | Traces a selected expression inside a loop at every iteration, alongside the loop's own sequence |
 | Evalens: Evaluate File | Clears the namespace, then runs the file top to bottom, annotating each statement — or the selected statements, when there is a selection, which never resets |
 | Evalens: Run File as Script | Runs the whole file the way `python3 file.py` would, so an `if __name__ == "__main__":` block runs |
 | Evalens: Evaluate Above Cursor | Resets the namespace and runs everything above the statement the cursor is in, stopping at the first failure |
@@ -144,6 +145,17 @@ highlights how far it reached — a partial statement is never executed, because
 a fragment can parse into something valid that means something else. A
 selection with no complete statement in it — a comment, a blank line — says so
 in the status bar and runs nothing.
+
+**Add Inline Watch traces one more expression, not a live value.** A loop
+already shows what its target ran through and what its body bound; select
+`p+6`, or `total`, or anything else the loop's body can see, and pressing the
+key runs that loop once more, this time also capturing the selected
+expression's value at every iteration — painted the same way a body binding
+is. It is a trace, exactly like the rest of the line: each value is read the
+moment that iteration produced it, not fetched afterwards, and nothing is
+kept between presses — nominate again after editing the loop to see the new
+values. An expression that raises partway through — `1/x` over a sequence
+containing a zero — is reported once, and the loop still runs to completion.
 
 **Evaluate File never runs an `if __name__ == "__main__":` block, on
 purpose.** Loading a file means *import this module*, which is what an

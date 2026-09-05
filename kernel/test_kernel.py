@@ -3667,6 +3667,17 @@ class Watches(KernelTest):
         watch = next(b for b in result["bindings"] if b["name"] == "total")
         self.assertEqual(watch["values"], ["1", "3", "6", "10"])
 
+    def test_nominating_an_already_bound_name_does_not_paint_it_twice(self):
+        # `total` is already a body binding (#75) on this loop: nominating
+        # it too must not print `total: ... total: ...` on one line, since
+        # both read the same name at the same point in the same iteration
+        # and would say the identical sequence twice.
+        source = "total = 0\nfor x in [1, 2, 3, 4]:\n    total += x\n"
+        self.k.evaluate(source, 0)
+        result = self.k.watch(source, 1, "total")
+        names = [b["name"] for b in result["bindings"]]
+        self.assertEqual(names.count("total"), 1, result["bindings"])
+
     def test_a_raising_expression_is_reported_once_and_the_loop_finishes(self):
         result = self.k.watch("for p in [1, 0, 2, 0, 3]:\n    pass\n", 0,
                               "1/p")

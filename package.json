@@ -61,6 +61,10 @@
         "title": "Evalens: Evaluate and Advance"
       },
       {
+        "command": "evalens.addInlineWatch",
+        "title": "Evalens: Add Inline Watch"
+      },
+      {
         "command": "evalens.interrupt",
         "title": "Evalens: Interrupt Evaluation"
       },

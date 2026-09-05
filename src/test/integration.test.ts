@@ -51,6 +51,17 @@ async function evaluate(
   })) as EvalResponse;
 }
 
+/** `evaluate`, nominating `watch` against the loop under `line`/`character`. */
+async function evaluateWatch(
+  client: KernelClient, source: string, line: number, watch: string,
+  character = 0
+) {
+  return (await client.request({
+    op: 'eval_watch', source, line, character,
+    filename: '/tmp/evalens-test.py', allow_stdin: false, watch,
+  })) as EvalResponse;
+}
+
 test('the IDEA.md example round-trips through the real kernel', async (t) => {
   const client = connect();
   t.after(() => client.dispose());
@@ -208,6 +219,32 @@ async function paint(
         .replace(/ /g, ' '));
   }
   return painted;
+}
+
+/**
+ * `paint`, over `eval_watch` instead of `eval` -- #48.
+ *
+ * Deliberately routed through the exact same `present`/`capNames`/
+ * `resultText` pipeline `paint` already uses: the wire is expected to put a
+ * nominated expression's trace in `bindings`, the same array a loop's body
+ * binding already rides in, so the renderer needs nothing new to paint one --
+ * proving that is most of what this helper is for.
+ */
+async function paintWatch(
+  client: KernelClient, source: string, line: number, watch: string,
+  character = 0
+): Promise<string> {
+  const evaluated = present(
+    await evaluateWatch(client, source, line, watch, character), line);
+  if (evaluated.kind !== 'value') {
+    return `!! ${evaluated.kind}`;
+  }
+  const shown = capNames(evaluated, 4);
+  return resultText({
+    value: shown.value, display: shown.display, loop: shown.loop,
+    names: shown.names, bindings: shown.bindings, printed: shown.printed,
+    more: shown.more,
+  }).replace(/ /g, ' ');
 }
 
 /**
@@ -1293,6 +1330,87 @@ test('a loop stopped by break annotates the value it broke on', async (t) => {
       loop: result.loop })
       .replace(/ /g, ' '),
     'p ×3: 1, 2, 3');
+});
+
+test('a nominated expression paints as another name beside the loop', async (t) => {
+  // #48's own example: `p+6` is what the line is actually about, and it
+  // used to be invisible. It arrives in `bindings`, exactly where a body
+  // binding already does, so the renderer needs nothing new to show it.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'for p in [0, 1, 4, 9, 16]:\n    pass\n';
+  assert.equal(
+    await paintWatch(client, source, 0, 'p+6'),
+    // The `×5` is #36's iteration cue, and a watch gets it for free: the
+    // trace rides in `bindings`, so a nominated expression reads as a
+    // history exactly the way the loop's own target does.
+    'p ×5: 0, 1, 4, 9, 16   p+6 ×5: 6, 7, 10, 15, 22');
+});
+
+test('a watched accumulator traces the running total, end to end', async (t) => {
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'total = 0\nfor x in [1, 2, 3, 4]:\n    total += x\n';
+  await evaluate(client, source, 0);
+  assert.equal(
+    await paintWatch(client, source, 1, 'total'),
+    'x ×4: 1, 2, 3, 4   total ×4: 1, 3, 6, 10');
+});
+
+test('a watch that raises is reported once and the loop still completes', async (t) => {
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'for p in [1, 0, 2, 0, 3]:\n    pass\n';
+  const result = await evaluateWatch(client, source, 0, '1/p') as Evaluated;
+  assert.equal(result.ok, true);
+  assert.equal(result.loop?.count, 5, 'the loop itself ran to completion');
+  const watch = result.bindings?.find((b) => b.name === '1/p');
+  assert.deepEqual(watch?.values, ['1.0', '0.5', '0.3333333333333333']);
+  assert.equal(watch?.error?.type, 'ZeroDivisionError');
+  assert.equal(watch?.failed, 1);
+  // Reported once through the statement's own stderr, not once per bad
+  // iteration -- the same channel a print() inside the loop already uses.
+  assert.equal(
+    (result.stderr.match(/ZeroDivisionError/g) ?? []).length, 1);
+});
+
+test('a plain eval of the watched loop afterwards carries none of it', async (t) => {
+  // Design rule 4: the nomination is data on one request, not something the
+  // kernel remembers. Nothing here is a watch in the forbidden sense.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'for p in [1, 2, 3]:\n    pass\n';
+  await evaluateWatch(client, source, 0, 'p * 2');
+  const plain = await evaluate(client, source, 0) as Evaluated;
+  assert.equal(plain.bindings, undefined);
+});
+
+test('loopValues: 0 leaves a watched loop uninstrumented, over the wire', async (t) => {
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'for p in [1, 2, 3]:\n    pass\n';
+  const result = await client.request({
+    op: 'eval_watch', source, line: 0, character: 4,
+    filename: '/tmp/evalens-test.py', allow_stdin: false, watch: 'p * 2',
+    limits: { loop_values: 0, names: 4 },
+  }) as Evaluated;
+  assert.equal(result.ok, true);
+  assert.equal(result.loop, undefined);
+  assert.equal(result.bindings, undefined);
+});
+
+test('nominating an expression outside a loop is reported, not silently ignored', async (t) => {
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const result = await evaluateWatch(client, 'x = 1\n', 0, 'x') as Failed;
+  assert.equal(result.ok, false);
+  assert.equal(result.error.type, 'NoLoop');
 });
 
 test('the display limits a setting produces reach the real kernel', async (t) => {
