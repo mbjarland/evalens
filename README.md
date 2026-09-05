@@ -28,6 +28,7 @@ without a way to run these.
 | Evalens: Evaluate at Cursor | Evaluates the form the cursor is in and paints its value beside it |
 | Evalens: Evaluate File | Runs the file top to bottom, annotating each statement |
 | Evalens: Clear Inline Results | Removes the annotations from the active editor |
+| Evalens: Interrupt Evaluation | Stops a running evaluation and keeps the namespace it built |
 | Evalens: Restart Kernel | Throws away the namespace and starts a fresh interpreter |
 | Evalens: Fix Keybinding Conflict | Hands you the user keybinding described below |
 

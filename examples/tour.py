@@ -14,7 +14,8 @@
 # Every case says what it is there to prove.
 #
 # This is also an ordinary Python file.  `python3 examples/tour.py` runs top
-# to bottom, prints two lines and exits 0.  Nothing here imports anything from
+# to bottom, prints a handful of lines and exits 0 -- and never stops to ask
+# you anything, which case 2a explains.  Nothing here imports anything from
 # outside the standard library, on purpose: the tour has to work against
 # whatever interpreter the user happens to have selected, with no environment
 # to set up first.
@@ -56,6 +57,30 @@ y = lst
 y.append(4)
 lst
 
+# 2a. `input()` asks -- and, one case down, deliberately does not.  Put the
+#     cursor on the `if` below and press Ctrl+Enter: a box opens carrying the
+#     prompt text, and what you type comes back as the value of `answer`.
+#     Press Escape at that box instead and you get EOFError, which is the way
+#     out rather than a dead end.
+#
+#     Now try Evaluate File over the whole tour.  This case does NOT prompt:
+#     it raises EOFError and paints red, because loading a file asks the
+#     kernel not to prompt at all.  A teaching file with twenty `input()`
+#     calls would otherwise stop dead on the first one waiting for a human --
+#     the opposite of what a command called "load this file" is for -- and
+#     twenty modal boxes in a row is not the better version of that.
+#
+#     The guard is `__name__` rather than `sys.stdin.isatty()`, which is worth
+#     a sentence because the obvious choice is the wrong one here.  Evalens
+#     hands evaluated code a stdin that is deliberately not a terminal, so
+#     isatty() answers False exactly where you *do* want to ask, and True in
+#     the plain `python3 examples/tour.py` run, where stopping to wait for a
+#     human would hang the script.  `__name__` is `"__evalens__"` under
+#     Evalens and `"__main__"` as a script -- the same fact case 52 turns on.
+if __name__ == "__evalens__":
+    answer = input("Enter a value: ")
+    print("You entered:", answer)
+
 # 2b. Several names on one line, which is what most lines of a real file
 #     need.  Neither of these two statements has a value worth showing --
 #     `print` returns None -- and both of them are the reason the file exists:
@@ -64,6 +89,21 @@ lst
 #     about.
 print('after mutating y, lst is:', lst)
 print('and y is still the same object:', y)
+
+# 2c. Output shows up while a loop runs, not in a lump once it finishes.
+#     Evaluate this `while` and watch the Evalens output channel: each tick
+#     appears as it is printed, because the kernel sends what user code writes
+#     as it writes it rather than holding the lot until the statement returns.
+#     A loop that reports its progress only reads as progress if the report
+#     arrives while it is still going.
+#
+#     The line itself annotates nothing, for the reason case 20 gives: a
+#     `while` has no target to point at.  The output channel is the whole of
+#     what this case has to show.
+ticks = 3
+while ticks > 0:
+    print("tick", ticks)
+    ticks -= 1
 
 # 3. A value keeps its internal spacing.  VS Code collapses ordinary spaces in
 #    decoration text, so this dict renders as one word unless the renderer

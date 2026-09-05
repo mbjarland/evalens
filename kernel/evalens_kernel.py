@@ -28,8 +28,8 @@ a second pipe, descriptors 3 and 4 (``--control-in`` / ``--control-out`` to
 move them). A daemon thread reads descriptor 3 and is never blocked by
 whatever the main thread is doing, which is the entire point.
 
-    fd 0 -> requests            fd 3 -> interrupt, input_reply
-    fd 1 <- responses           fd 4 <- interrupt_ack, status, input_request
+    fd 0 -> requests    fd 3 -> interrupt, input_reply
+    fd 1 <- responses   fd 4 <- interrupt_ack, status, input_request, stream
 
 **Nothing on the control channel is a reply to anything on the request
 channel.** That is what makes a server-initiated message unmistakable: it is
@@ -111,6 +111,24 @@ Python loops and ``time.sleep`` will. User code that installs its own
 it, because a handler someone wrote is as deliberate as any other code they
 asked to run.
 
+Asking the user something
+-------------------------
+Evaluated code gets a ``sys.stdin`` that asks the extension for a line rather
+than one that is empty. **The interception point is stdin and nothing else**:
+``input()``, ``sys.stdin.readline()`` and ``sys.stdin.read()`` all pass
+through the one object, and nothing that needs a real terminal is wrapped or
+pretended at. ``_AskingStdin`` says where that boundary is and why.
+
+An ``eval`` request may set ``allow_stdin`` to be asked; ``eval_file`` never
+prompts, whatever it says. A file being loaded is a command that exists to
+avoid waiting, and a teaching file with twenty prompts would otherwise stop
+on the first one until a human noticed. Jupyter carries the same flag for the
+same reason.
+
+Cancelling a prompt sends a null answer, which reads as end-of-file and
+raises ``EOFError`` -- today's behaviour, kept deliberately, because a student
+who cannot get out of a prompt is worse off than one whose program errors.
+
 Requires Python 3.9 or later (``ast.unparse``).
 """
 
@@ -124,6 +142,7 @@ import io
 import json
 import linecache
 import os
+import queue
 import signal
 import sys
 import threading
@@ -171,6 +190,27 @@ _CONTROL_LOCK = threading.Lock()
 #: descriptors, in which case it behaves exactly as it did before the channel
 #: existed.
 _CONTROL_OUT: Optional[TextIO] = None
+
+#: Hard cap on prompt text put on the wire. A prompt is a sentence someone
+#: typed into `input()`; a megabyte of it is a bug, and a dialog is not where
+#: to discover that.
+PROMPT_LIMIT = 500
+
+#: Answers to `input_request`, put here by the control thread and taken by
+#: whichever evaluation is blocked waiting. A queue rather than a variable
+#: because the two ends are different threads.
+_INPUT_REPLIES: "queue.Queue" = queue.Queue()
+
+#: Which question is outstanding. Only ever touched by the main thread, and
+#: what lets a late answer to an abandoned prompt be discarded rather than
+#: land in an unrelated variable.
+_INPUT_SEQ = 0
+
+#: Whether the evaluation currently running may ask for input. Set per
+#: evaluation by `_user_io` from the request, and false by default: a caller
+#: that forgot the flag gets today's EOFError, not a kernel that stops and
+#: waits for a human nobody told to look.
+_ALLOW_STDIN = False
 
 
 def _open_control(argv: list) -> Tuple[Optional[TextIO], Optional[TextIO]]:
@@ -282,10 +322,180 @@ def _control_loop(stream: TextIO) -> None:
             # cares to run.
             control({"op": "interrupt_ack"})
             _raise_in_main_thread()
+        elif message.get("op") == "input_reply":
+            # Handed to whoever is blocked in `_AskingStdin.readline`. Nothing
+            # is checked here: the sequence number decides whose answer this
+            # is, and only the reader knows what it is waiting for.
+            _INPUT_REPLIES.put((message.get("seq"), message.get("value")))
+
+
+class _Tee(io.TextIOBase):
+    """Captured for the response, and echoed as it is written.
+
+    Both, not one or the other. The response still carries everything a
+    statement printed, because that is the field every consumer already reads.
+    And each write also goes out on the control channel as it happens, which
+    is the only way a loop that prints its progress reads as progress rather
+    than as a report delivered once it is over -- and it is what puts the
+    prompt on screen before the box asking for an answer to it.
+    """
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+        self._captured = io.StringIO()
+
+    def write(self, text: str) -> int:
+        if not text:
+            return 0
+        self._captured.write(text)
+        control({"op": "stream", "name": self._name, "text": text})
+        return len(text)
+
+    def writable(self) -> bool:
+        return True
+
+    def getvalue(self) -> str:
+        return self._captured.getvalue()
+
+    def tail(self) -> str:
+        """Whatever has been written since the last newline.
+
+        This is the prompt. ``input("Name? ")`` writes its argument to stdout
+        and *then* calls ``readline()`` -- the prompt is not a parameter of the
+        read, it is output that has not been terminated yet, which is exactly
+        why a terminal shows it on the line you type on. Reading it back here
+        is what lets the stub carry a prompt without hooking ``input`` itself.
+        """
+        return self._captured.getvalue().rpartition("\n")[2]
+
+
+class _AskingStdin(io.TextIOBase):
+    """Stdin for evaluated code: asks the extension for a line.
+
+    **The scope of this feature is stdin, and nothing else.** One object, one
+    interception point, and ``input()``, ``sys.stdin.readline()`` and
+    ``sys.stdin.read()`` all pass through it. The alternative -- wrapping each
+    function that might want to talk to a human -- is the version of this that
+    never stops growing.
+
+    What stays out, deliberately, and keeps failing the way it does today:
+
+    * ``getpass.getpass()`` opens ``/dev/tty`` and reads the terminal
+      directly. Where there is no controlling terminal it falls back to
+      ``sys.stdin`` and lands here like anything else, and the request is
+      marked as a password so the answer is not echoed; where there *is* one,
+      it bypasses this object entirely and blocks. Interrupting is the way out
+      of that, which is why the two features are siblings.
+    * ``curses`` wants a terminal, and GUI toolkits open real windows. Neither
+      is reachable from here and neither should be half-supported.
+
+    The failure mode to avoid was never "too many functions to hook". It was
+    hooking something that needs a terminal and half-succeeding.
+    """
+
+    def __init__(self, out: "_Tee", err: "_Tee") -> None:
+        self._out = out
+        self._err = err
+
+    def readable(self) -> bool:
+        return True
+
+    def isatty(self) -> bool:
+        # Truthfully. Code that asks is usually deciding whether a human is
+        # there, and answering yes would invite the terminal handling this
+        # object cannot provide.
+        return False
+
+    def readline(self, size: int = -1) -> str:  # noqa: ARG002 - size ignored
+        """Ask for one line, and block until it arrives.
+
+        Blocking is correct and is what a REPL does. It is also why this
+        feature could not ship without a way to interrupt: while this waits,
+        a prompt the user dismissed and a genuinely hung kernel look identical
+        from the outside.
+        """
+        if _CONTROL_OUT is None or not _ALLOW_STDIN:
+            # No channel to ask on, or a caller that said not to ask. Empty is
+            # what `input()` turns into EOFError, which is the behaviour this
+            # had before there was anywhere to ask, kept deliberately.
+            raise EOFError(_no_input_message())
+        global _INPUT_SEQ
+        _INPUT_SEQ += 1
+        wanted = _INPUT_SEQ
+        # The prompt is whatever user code has written and not terminated:
+        # stdout for `input()`, stderr for the one thing that prompts there.
+        prompt = self._out.tail() or self._err.tail()
+        control({
+            "op": "input_request",
+            "seq": wanted,
+            "prompt": _capped(prompt, PROMPT_LIMIT),
+            "password": _reading_a_password(),
+        })
+        while True:
+            try:
+                seq, value = _INPUT_REPLIES.get(timeout=0.1)
+            except queue.Empty:
+                # The poll is not politeness. A bare `get()` is a lock
+                # acquisition, and on Windows that is not reliably
+                # interruptible -- the timeout is what gives the interpreter a
+                # bytecode boundary at which to run a pending KeyboardInterrupt,
+                # which is the only way out of a prompt nobody answers.
+                continue
+            if seq != wanted:
+                # An answer to a question that was already abandoned, most
+                # likely because the evaluation asking it was interrupted.
+                # Letting it stand as this answer would put someone's earlier
+                # typing into an unrelated variable.
+                continue
+            if value is None:
+                # Cancel. `input()` turns an empty read into EOFError, which
+                # is preserved on purpose as the escape hatch: a student who
+                # cannot get out of a prompt is worse off than one whose
+                # program raises.
+                return ""
+            return value if value.endswith("\n") else value + "\n"
+
+    def read(self, size: int = -1) -> str:  # noqa: ARG002 - size ignored
+        """Everything, which means asking until the answer is EOF."""
+        chunks = []
+        while True:
+            line = self.readline()
+            if not line:
+                return "".join(chunks)
+            chunks.append(line)
+
+
+def _no_input_message() -> str:
+    """Why a read failed, in the terms of what the user just did."""
+    if _CONTROL_OUT is None:
+        return ("EOF when reading a line (this kernel has no channel to ask "
+                "for input on)")
+    return ("EOF when reading a line (this evaluation was asked not to "
+            "prompt, which a file load never does; evaluate the line on its "
+            "own to be asked)")
+
+
+def _reading_a_password() -> bool:
+    """Is the code that asked for this line inside ``getpass``?
+
+    Noticed rather than hooked, which is the whole difference. The boundary
+    this feature keeps is that it intercepts ``sys.stdin`` and nothing else, so
+    ``getpass`` is not wrapped -- but when it falls back to ``sys.stdin``, as
+    it does wherever there is no controlling terminal, the read arrives here
+    like any other and echoing it into a visible box would leak the one thing
+    that function exists to hide. Walking the stack is how a stream can tell
+    without reaching into the module that called it.
+    """
+    frame = sys._getframe(1)
+    while frame is not None:
+        if frame.f_globals.get("__name__") == "getpass":
+            return True
+        frame = frame.f_back
+    return False
 
 
 @contextlib.contextmanager
-def _user_io() -> Iterator[tuple[io.StringIO, io.StringIO]]:
+def _user_io(allow_stdin: bool = False) -> Iterator[tuple[_Tee, _Tee]]:
     """Isolate evaluated code from the protocol channel.
 
     Two hazards, both silent if unhandled:
@@ -296,20 +506,33 @@ def _user_io() -> Iterator[tuple[io.StringIO, io.StringIO]]:
     * ``input()`` reads the same stdin the protocol uses. Left alone it does
       not merely block -- it consumes the *next request* as the user's typed
       answer, so the extension appears to hang while the kernel quietly eats
-      its instructions. Handing it an empty stream turns that into an
-      immediate EOFError, which is a comprehensible failure.
+      its instructions.
+
+    The isolation is kept and given somewhere to go. Evaluated code still
+    never touches the request channel; what it gets instead is a stream that
+    asks the extension, on the control channel, and blocks for the reply.
+
+    ``allow_stdin`` is the caller's decision and defaults to no. A single
+    evaluation says yes, because someone pressed a key and is sitting there. A
+    file load says no, because a teaching file with twenty prompts would
+    otherwise stop dead on the first one, waiting for a human, which is the
+    opposite of what "load this file" is for. Jupyter carries the same flag for
+    the same reason, and it is why nbconvert fails loudly instead of hanging.
 
     Known limitation: this rebinds Python-level streams. A native extension
-    writing straight to file descriptor 1 still escapes it.
+    writing straight to file descriptor 1 still escapes it, and so does
+    anything reading ``sys.__stdin__``.
     """
-    out, err = io.StringIO(), io.StringIO()
-    stdin = sys.stdin
-    sys.stdin = io.StringIO()
+    global _ALLOW_STDIN
+    out, err = _Tee("stdout"), _Tee("stderr")
+    stdin, allowed = sys.stdin, _ALLOW_STDIN
+    _ALLOW_STDIN = allow_stdin
+    sys.stdin = _AskingStdin(out, err)
     try:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             yield out, err
     finally:
-        sys.stdin = stdin
+        sys.stdin, _ALLOW_STDIN = stdin, allowed
 
 
 def _capped(text: str, limit: int) -> str:
@@ -698,7 +921,10 @@ class Kernel:
             # did not point at.
             return {"ok": True, "resolved": False}
 
-        return self._run(form, filename)
+        # A single evaluation may prompt: someone pressed a key and is
+        # sitting in front of the editor waiting for this line to answer.
+        return self._run(form, filename,
+                         allow_stdin=bool(request.get("allow_stdin")))
 
     def evaluate_file(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Run a whole module body, reporting what each statement produced.
@@ -740,6 +966,10 @@ class Kernel:
         results = []
         ran = 0
         for index, statement in enumerate(tree.body):
+            # Never prompts, whatever the request says. See `_user_io`:
+            # twenty prompts in a teaching file would stop the load dead
+            # on the first one, and this command exists to avoid exactly
+            # that kind of waiting.
             outcome = self._run(
                 form_of(statement, first_in_body=index == 0), filename)
             results.append(outcome)
@@ -762,7 +992,8 @@ class Kernel:
 
     # -- internals ----------------------------------------------------------
 
-    def _run(self, form: Form, filename: str) -> Dict[str, Any]:
+    def _run(self, form: Form, filename: str,
+             allow_stdin: bool = False) -> Dict[str, Any]:
         node, recorders = _instrumented(form.node)
         statement = ast.Module(body=[node], type_ignores=[])
         shown: Optional[str] = None
@@ -770,7 +1001,7 @@ class Kernel:
         loop: Optional[Dict[str, Any]] = None
         names: list = []
 
-        with _user_io() as (out, err):
+        with _user_io(allow_stdin) as (out, err):
             try:
                 # One dict for globals AND locals. Passing two makes
                 # comprehensions and nested scopes fail to see module-level

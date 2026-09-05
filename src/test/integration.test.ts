@@ -29,9 +29,12 @@ function connect(): KernelClient {
   });
 }
 
-async function evaluate(client: KernelClient, source: string, line: number) {
+async function evaluate(
+  client: KernelClient, source: string, line: number, allowStdin = false
+) {
   return (await client.request({
     op: 'eval', source, line, character: 0, filename: '/tmp/evalens-test.py',
+    allow_stdin: allowStdin,
   })) as EvalResponse;
 }
 
@@ -287,7 +290,7 @@ test('loading a file makes a line near the bottom evaluate straight away', async
   ].join('\n') + '\n';
 
   const loaded = await client.request({
-    op: 'eval_file', source, filename: '/tmp/evalens-load.py',
+    op: 'eval_file', allow_stdin: false, source, filename: '/tmp/evalens-load.py',
   }) as FileLoaded;
   assert.equal(loaded.ok, true);
 
@@ -306,7 +309,7 @@ test('the __main__ guard does not run on load', async (t) => {
 
   const source = "import sys\nif __name__ == '__main__':\n    sys.exit(9)\n";
   const loaded = await client.request({
-    op: 'eval_file', source, filename: '/tmp/evalens-main.py',
+    op: 'eval_file', allow_stdin: false, source, filename: '/tmp/evalens-main.py',
   }) as FileLoaded;
   assert.equal(loaded.ok, true, 'sys.exit would have made this a failure');
 
@@ -320,7 +323,7 @@ test('loading a file paints what walking down it would have', async (t) => {
 
   const source = 'lst = [1, 2, 3]\ny = lst\ny.append(4)\nlst\n';
   const loaded = await client.request({
-    op: 'eval_file', source, filename: '/tmp/evalens-tour.py',
+    op: 'eval_file', allow_stdin: false, source, filename: '/tmp/evalens-tour.py',
   }) as FileLoaded;
 
   assert.equal(loaded.ok, true);
@@ -340,7 +343,7 @@ test('a broken line does not stop the rest of the file loading', async (t) => {
 
   const source = 'a = 1\nundefined_one\nb = 2\nundefined_two\nc = 3\n';
   const loaded = await client.request({
-    op: 'eval_file', source, filename: '/tmp/evalens-partial.py',
+    op: 'eval_file', allow_stdin: false, source, filename: '/tmp/evalens-partial.py',
   }) as FileLoaded;
 
   assert.equal(loaded.ok, true, 'a broken line is not a broken load');
@@ -514,4 +517,123 @@ test('an interrupt reaches a kernel parked in a blocking call', async (t) => {
   const stopped = await sleeping as Failed;
   assert.equal(stopped.error.type, 'KeyboardInterrupt');
   assert.ok(Date.now() - started < 30_000, 'the sleep ran to completion');
+});
+
+/** A client that answers every prompt the way `answer` says to. */
+function connectAnswering(
+  answer: (prompt: string, password: boolean) => string | null,
+  onStream?: (text: string) => void
+): { client: KernelClient; prompts: string[] } {
+  const prompts: string[] = [];
+  const client = new KernelClient({
+    resolvePython: async () => 'python3',
+    kernelPath: KERNEL,
+    onInput: async (request) => {
+      prompts.push(request.prompt);
+      return answer(request.prompt, request.password);
+    },
+    onStream: (_name, text) => onStream?.(text),
+  });
+  return { client, prompts };
+}
+
+test('input() prompts, and the answer becomes the value', async (t) => {
+  // The ticket's acceptance case through the whole stack. Nothing here works
+  // unless the control channel is really wired: the kernel is blocked inside
+  // input() and cannot read the request pipe at all while it waits.
+  const { client, prompts } = connectAnswering(() => 'Ada');
+  t.after(() => client.dispose());
+
+  const result = await evaluate(
+    client, "name = input('Your name? ')\n", 0, true) as Evaluated;
+
+  assert.deepEqual(prompts, ['Your name? ']);
+  assert.equal(result.ok, true);
+  assert.equal(result.value, "'Ada'");
+});
+
+test('cancelling a prompt raises EOFError, which is the way out', async (t) => {
+  const { client } = connectAnswering(() => null);
+  t.after(() => client.dispose());
+
+  const result = await evaluate(
+    client, "name = input('Your name? ')\n", 0, true) as Failed;
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.type, 'EOFError');
+
+  // And the session survives it, so the next line still runs.
+  const after = await evaluate(client, 'ok = 1\n', 0) as Evaluated;
+  assert.equal(after.value, '1');
+});
+
+test('loading a file does not prompt, it raises and says why', async (t) => {
+  // A load exists to avoid waiting. Twenty prompts in a teaching file would
+  // stop it dead on the first one until a human noticed, and twenty modal
+  // boxes are not the better version of that.
+  const { client, prompts } = connectAnswering(() => 'Ada');
+  t.after(() => client.dispose());
+
+  const loaded = await client.request({
+    op: 'eval_file',
+    allow_stdin: false,
+    source: "before = 1\nname = input('Your name? ')\nafter = 3\n",
+    filename: '/tmp/evalens-course.py',
+  }) as FileLoaded;
+
+  assert.deepEqual(prompts, [], 'a load must never open a box');
+  assert.equal(loaded.ok, true);
+  assert.equal(loaded.ran, 2, 'the statements around it still ran');
+
+  const failure = loaded.results[1]!;
+  assert.equal(failure.ok, false);
+  assert.equal((failure as { error: { type: string } }).error.type, 'EOFError');
+  assert.match((failure as { error: { message: string } }).error.message,
+    /evaluate the line on its own/,
+    'the message has to say how to be asked instead');
+});
+
+test('a password read is marked so the box does not echo it', async (t) => {
+  // getpass is out of scope and is not wrapped -- but where there is no
+  // terminal it falls back to sys.stdin and lands in the stub like any other
+  // read, and echoing it would leak the one thing it exists to hide.
+  let asked = false;
+  const { client } = connectAnswering((_prompt, password) => {
+    asked = password;
+    return 'hunter2';
+  });
+  t.after(() => client.dispose());
+
+  await evaluate(client, 'import getpass\n', 0);
+  const result = await evaluate(
+    client, "secret = getpass.fallback_getpass('Password: ')\n", 0, true
+  ) as Evaluated;
+
+  assert.equal(asked, true, 'the box would have shown the password');
+  assert.equal(result.value, "'hunter2'");
+});
+
+test('printed output arrives while the statement is still running', async (t) => {
+  // Invisible in a test that only reads the response, whose stdout would look
+  // identical either way. Here the printed line is observed while the kernel
+  // is demonstrably still inside the statement, because it is blocked waiting
+  // to be answered.
+  const streamed: string[] = [];
+  let printedBeforeAnswering = '';
+  const { client } = connectAnswering(
+    () => { printedBeforeAnswering = streamed.join(''); return 'yes'; },
+    (text) => streamed.push(text));
+  t.after(() => client.dispose());
+
+  const source = 'def announce():\n'
+    + "    print('working')\n"
+    + "    return input('done? ')\n";
+  await evaluate(client, source, 0);
+  const result = await evaluate(client, 'reply = announce()\n', 0, true) as Evaluated;
+
+  assert.match(printedBeforeAnswering, /working\n/,
+    'the print reached the extension before the statement finished');
+  assert.equal(result.value, "'yes'");
+  assert.equal(result.stdout, 'working\ndone? ',
+    'and the response still carries the whole of it');
 });

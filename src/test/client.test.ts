@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
 import { KernelClient, KernelProcess } from '../kernel/client';
-import { Response } from '../kernel/protocol';
+import { InputRequest, Response } from '../kernel/protocol';
 
 /** A child process that never runs Python, so the transport can be driven. */
 class FakeProcess extends EventEmitter implements KernelProcess {
@@ -70,6 +70,8 @@ interface HarnessOptions {
   readonly onStderr?: (text: string) => void;
   /** Short by default, so the unacknowledged branch is reachable in a test. */
   readonly ackTimeout?: number;
+  readonly onInput?: (request: InputRequest) => Promise<string | null>;
+  readonly onStream?: (name: 'stdout' | 'stderr', text: string) => void;
 }
 
 function clientWith(options: HarnessOptions = {}): Harness {
@@ -80,6 +82,8 @@ function clientWith(options: HarnessOptions = {}): Harness {
     kernelPath: '/kernel/evalens_kernel.py',
     onStderr: options.onStderr,
     ackTimeout: options.ackTimeout ?? 50,
+    onInput: options.onInput,
+    onStream: options.onStream,
     spawn: (command, args) => {
       calls.push({ command, args });
       const p = new FakeProcess();
@@ -348,6 +352,94 @@ test('an unparseable control line is reported, not thrown', async () => {
   const proc = await started();
   assert.doesNotThrow(() => proc.controlOut.emit('data', 'not json\n'));
   assert.match(seen.join(''), /unparseable control line/);
+});
+
+test('a prompt is answered on the control channel, carrying its sequence', async () => {
+  // The other half of the two-pipe invariant. The answer goes back where the
+  // question came from, and never on the request pipe -- where the kernel is
+  // not listening, because it is blocked waiting for this.
+  const asked: InputRequest[] = [];
+  const { client, started } = clientWith({
+    onInput: async (request) => { asked.push(request); return 'Ada'; },
+  });
+  void client.request({ op: 'ping' }).catch(() => undefined);
+  const proc = await started();
+  const before = proc.written.length;
+
+  proc.says({ op: 'input_request', seq: 7, prompt: 'who? ', password: false });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(asked, [
+    { op: 'input_request', seq: 7, prompt: 'who? ', password: false },
+  ]);
+  assert.deepEqual(proc.controlRequests(), [
+    { op: 'input_reply', seq: 7, value: 'Ada' },
+  ]);
+  assert.equal(proc.written.length, before, 'nothing goes on the request pipe');
+});
+
+test('a prompt nobody can answer is answered with end-of-file', async () => {
+  // No handler at all, which is what a client with no user attached is. The
+  // one outcome that must not happen is a kernel left waiting for an answer
+  // nobody is going to give, so every path out of here sends something.
+  const { client, started } = clientWith();
+  void client.request({ op: 'ping' }).catch(() => undefined);
+  const proc = await started();
+
+  proc.says({ op: 'input_request', seq: 1, prompt: '', password: false });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(proc.controlRequests(), [
+    { op: 'input_reply', seq: 1, value: null },
+  ]);
+});
+
+test('a handler that throws still lets the kernel go', async () => {
+  const { client, started } = clientWith({
+    onInput: async () => { throw new Error('the box exploded'); },
+  });
+  void client.request({ op: 'ping' }).catch(() => undefined);
+  const proc = await started();
+
+  proc.says({ op: 'input_request', seq: 3, prompt: '', password: false });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(proc.controlRequests(), [
+    { op: 'input_reply', seq: 3, value: null },
+  ]);
+});
+
+test('an answer to a kernel that has gone is not written anywhere', async () => {
+  // The box was still open when the kernel was restarted. Nothing is waiting
+  // for this answer, and the kernel that replaced it is not waiting either.
+  let release: (value: string | null) => void = () => undefined;
+  const { client, started } = clientWith({
+    onInput: () => new Promise((resolve) => { release = resolve; }),
+  });
+  void client.request({ op: 'ping' }).catch(() => undefined);
+  const proc = await started();
+  proc.says({ op: 'input_request', seq: 1, prompt: '', password: false });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  client.restart();
+  release('too late');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(proc.controlWritten, []);
+});
+
+test('printed output is handed over as it arrives', async () => {
+  const seen: string[] = [];
+  const { client, started } = clientWith({
+    onStream: (name, text) => seen.push(`${name}:${text}`),
+  });
+  void client.request({ op: 'ping' }).catch(() => undefined);
+  const proc = await started();
+
+  proc.says({ op: 'stream', name: 'stdout', text: 'tick 3\n' });
+  proc.says({ op: 'stream', name: 'stderr', text: 'careful\n' });
+
+  assert.deepEqual(seen, ['stdout:tick 3\n', 'stderr:careful\n']);
 });
 
 test('a request goes out as one JSON line carrying its id', async () => {

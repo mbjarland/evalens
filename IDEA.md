@@ -182,6 +182,20 @@ Well-documented, well-trodden.
   This was discovered empirically while setting up a first-year student's
   environment: a `watchfiles`-based run-on-save loop had to be abandoned
   for exactly this reason, on a file named `intrprog.py`.
+
+  With manual triggering settled, prompting is answerable, and it is
+  answered: a `sys.stdin` that asks the extension for a line and blocks
+  for the reply. **The interception point is stdin and nothing else** —
+  one object, through which `input()`, `readline()` and `read()` all
+  pass. Anything demanding a real terminal (`getpass` where a tty exists,
+  `curses`, GUI toolkits) is out of scope and stays out; the failure to
+  avoid was never "too many functions to hook", it was hooking something
+  that needs a terminal and half-succeeding.
+
+  Evaluating a line prompts, because someone is sitting there. Loading a
+  file does not, and raises instead: twenty prompts in a teaching file
+  would stop the load on the first one, and twenty modal boxes are not
+  the better version of that.
 - **Value formatting.** Truncation limits, nesting depth, hover-for-full,
   and sensible `repr()` handling of large or cyclic structures.
 - **Decoration lifecycle.** Clear what an edit touched, dismiss on Escape,

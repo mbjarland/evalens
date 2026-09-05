@@ -49,12 +49,32 @@ export interface EvalRequest {
   readonly line: number;
   readonly character: number;
   readonly filename: string;
+  /**
+   * Whether this evaluation may stop and ask the user something.
+   *
+   * True for a keypress: somebody is sitting in front of the editor waiting
+   * for this line to answer, so a prompt is a conversation rather than a
+   * hang.
+   */
+  readonly allow_stdin: boolean;
 }
 
 export interface EvalFileRequest {
   readonly op: 'eval_file';
   readonly source: string;
   readonly filename: string;
+  /**
+   * Always false, and typed as false so it cannot become anything else.
+   *
+   * Loading a file is the command that exists to avoid waiting. A teaching
+   * file with twenty prompts would otherwise stop dead on the first one until
+   * a human noticed -- and the twenty modal boxes that would replace it are
+   * not better. `input()` in a loaded file raises instead, with a message
+   * saying to evaluate the line on its own to be asked. Jupyter carries the
+   * same flag for the same reason, which is why nbconvert fails loudly rather
+   * than deadlocking.
+   */
+  readonly allow_stdin: false;
 }
 
 export type Request =
@@ -71,7 +91,47 @@ export type Request =
  * so a message it has to read for itself is a message it reads when it is
  * finished -- which is never, for the loop this is meant to end.
  */
-export type ControlRequest = { readonly op: 'interrupt' };
+export type ControlRequest =
+  | { readonly op: 'interrupt' }
+  | {
+      readonly op: 'input_reply';
+      /** Which question this answers -- see `InputRequest.seq`. */
+      readonly seq: number;
+      /**
+       * What the user typed, or null for end-of-file.
+       *
+       * Null rather than a sentinel string: cancelling has to be expressible
+       * as something no answer could ever be, and any text at all is
+       * something someone could type. It reaches the running code as
+       * `EOFError`, which is what `input()` raises on an empty read and what
+       * this did before there was anywhere to ask -- kept deliberately, as
+       * the way out. A student who cannot escape a prompt is worse off than
+       * one whose program errors.
+       */
+      readonly value: string | null;
+    };
+
+/** The kernel asking the user for a line. */
+export interface InputRequest {
+  readonly op: 'input_request';
+  /**
+   * Which question this is.
+   *
+   * The kernel discards a reply that does not match, which is what stops a
+   * late answer to a prompt that was interrupted -- the box was still open,
+   * the user typed anyway -- from landing in an unrelated variable.
+   */
+  readonly seq: number;
+  /**
+   * The prompt, which is whatever the code printed and did not terminate.
+   *
+   * Empty when the code asked for a line without saying why, which is a thing
+   * beginners write. The extension supplies its own wording then.
+   */
+  readonly prompt: string;
+  /** The read came from inside `getpass`, so the answer must not be echoed. */
+  readonly password: boolean;
+}
 
 /**
  * What the kernel says on the control channel, unprompted.
@@ -91,7 +151,22 @@ export type ControlMessage =
       readonly state: 'busy' | 'idle';
       readonly id?: number | null;
     }
-  | { readonly op: 'interrupt_ack' };
+  | { readonly op: 'interrupt_ack' }
+  | InputRequest
+  | {
+      /**
+       * Something the evaluated code printed, as it printed it.
+       *
+       * The response still carries the whole of it when the statement
+       * finishes; this is the same text arriving live. Both, because a loop
+       * that prints its progress only reads as progress if the output shows
+       * up while it is running -- and because the prompt has to be on screen
+       * before the box asking about it.
+       */
+      readonly op: 'stream';
+      readonly name: 'stdout' | 'stderr';
+      readonly text: string;
+    };
 
 /** Nothing under the cursor -- a blank line. Not an error. */
 export interface Unresolved {

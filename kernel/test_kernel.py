@@ -451,6 +451,174 @@ class Interrupt(KernelTest):
                          "the statement after the loop must not have run")
 
 
+@unittest.skipUnless(CAN_OPEN_CONTROL,
+                     "this harness cannot hand the kernel a control channel")
+class Prompts(KernelTest):
+    """`input()`, and the boundary around it.
+
+    The kernel hands evaluated code an isolated stdin so that a read cannot
+    eat the protocol channel. This is that isolation given somewhere to go:
+    the stub asks the extension on the control channel and blocks for the
+    answer, and nothing that needs a real terminal is wrapped.
+    """
+
+    def ask(self, source, line=0, **extra):
+        """Start an evaluation that will prompt, and return the request."""
+        self.k.send_async(op="eval", source=source, line=line,
+                          allow_stdin=True, **extra)
+        return self.k.read_control_until("input_request")
+
+    def test_a_prompt_round_trips_and_the_answer_becomes_the_value(self):
+        request = self.ask("name = input('who? ')\n")
+        self.assertEqual(request["prompt"], "who? ")
+        self.assertFalse(request["password"])
+
+        self.k.send_control(op="input_reply", seq=request["seq"], value="Ada")
+        result = self.k.read()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["value"], "'Ada'")
+
+    def test_cancelling_a_prompt_raises_EOFError(self):
+        # Preserved deliberately as the escape hatch. A student who cannot get
+        # out of a prompt is worse off than one whose program errors.
+        request = self.ask("name = input('who? ')\n")
+        self.k.send_control(op="input_reply", seq=request["seq"], value=None)
+        result = self.k.read()
+        self.assertFalse(result["ok"], result)
+        self.assertEqual(result["error"]["type"], "EOFError")
+
+    def test_a_request_arriving_during_a_prompt_is_not_eaten(self):
+        # The regression this whole two-pipe design exists to prevent, and the
+        # thing that must never come back. The user is looking at an input box
+        # and their instinct is to press the evaluate key again. That request
+        # lands on the request pipe while the kernel is blocked -- and if the
+        # code waiting for the answer were reading that same pipe, it would
+        # take the JSON as the typed answer, bind it to `name`, and leave the
+        # second request with no response for anyone to wait on.
+        request = self.ask("name = input('who? ')\n")
+
+        interloper = self.k.send_async(op="ping")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="Ada")
+
+        answered = self.k.read()
+        self.assertEqual(answered["value"], "'Ada'",
+                         "the interloping request was read as the answer")
+
+        pinged = self.k.read()
+        self.assertEqual(pinged["id"], interloper,
+                         "the request that arrived mid-prompt got no response")
+        self.assertTrue(pinged["ok"])
+
+    def test_a_file_load_never_prompts_however_it_is_asked(self):
+        # A load exists to avoid waiting. Twenty prompts in a teaching file
+        # would otherwise stop it dead on the first one until a human noticed,
+        # which is the opposite of what the command is for.
+        result = self.k.send(op="eval_file", allow_stdin=True,
+                             source="name = input('who? ')\nprint(name)\n",
+                             filename="/tmp/course.py")
+        self.assertTrue(result["ok"], result)
+
+        first = result["results"][0]
+        self.assertFalse(first["ok"])
+        self.assertEqual(first["error"]["type"], "EOFError")
+        self.assertIn("evaluate the line on its own", first["error"]["message"])
+
+        during = []
+        while True:
+            message = self.k.read_control()
+            during.append(message)
+            if message.get("op") == "status" and message.get("state") == "idle":
+                break
+        self.assertNotIn("input_request", [m.get("op") for m in during])
+
+    def test_an_interrupt_is_the_way_out_of_a_prompt_nobody_answers(self):
+        # Why these two features had to land together. While this waits, the
+        # kernel is blocked -- correctly, it is what a REPL does -- and a
+        # prompt the user walked away from is indistinguishable from a hung
+        # kernel. Without a way out, prompting would have replaced one
+        # dead-feeling failure with another.
+        self.ask("name = input('who? ')\n")
+        self.k.interrupt()
+
+        result = self.k.read()
+        self.assertFalse(result["ok"], result)
+        self.assertEqual(result["error"]["type"], "KeyboardInterrupt")
+        self.assertEqual(
+            self.k.evaluate_lines("q = 1\nq\n", 0, 1)["value"], "1")
+
+    def test_a_stale_answer_does_not_land_in_the_next_prompt(self):
+        # An answer to a question that was already abandoned -- the prompt was
+        # interrupted, the box was still open, the user typed anyway. Letting
+        # it stand would put someone's earlier typing into an unrelated name.
+        request = self.ask("name = input('who? ')\n")
+        self.k.send_control(op="input_reply", seq=request["seq"] + 99,
+                            value="stale")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="Ada")
+        self.assertEqual(self.k.read()["value"], "'Ada'")
+
+    def test_the_prompt_is_whatever_was_printed_and_not_terminated(self):
+        # How the stub carries a prompt without hooking `input`: the prompt is
+        # not a parameter of the read, it is output nobody ended with a
+        # newline, which is exactly why a terminal shows it on the line you
+        # type on. Reading it back means `sys.stdin.readline()` gets a prompt
+        # too, which hooking `input` alone would never have managed.
+        source = ("import sys\n"
+                  "def ask():\n"
+                  "    sys.stdout.write('Q: ')\n"
+                  "    return sys.stdin.readline().strip()\n"
+                  "reply = ask()\n")
+        self.k.evaluate(source, 0)
+        self.k.evaluate(source, 1)
+
+        request = self.ask(source, line=4)
+        self.assertEqual(request["prompt"], "Q: ")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="here")
+        self.assertEqual(self.k.read()["value"], "'here'")
+
+    def test_a_password_read_is_marked_so_it_is_not_echoed(self):
+        # getpass is out of scope and is not wrapped -- but where there is no
+        # terminal it falls back to sys.stdin and arrives here like any other
+        # read. Echoing it into a visible box would leak the one thing that
+        # function exists to hide, so the stack says what the stream cannot.
+        # `fallback_getpass` is called directly because whether the real
+        # `getpass` finds a terminal depends on how the tests were started.
+        source = ("import getpass\n"
+                  "secret = getpass.fallback_getpass('Password: ')\n")
+        self.k.evaluate(source, 0)
+
+        request = self.ask(source, line=1)
+        self.assertTrue(request["password"])
+        self.assertEqual(request["prompt"], "Password: ",
+                         "the prompt goes to stderr on this path")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="hunter2")
+        self.assertEqual(self.k.read()["value"], "'hunter2'")
+
+    def test_output_arrives_while_the_statement_is_still_running(self):
+        # Invisible in any test that only reads the response: the captured
+        # stdout would look the same either way. This one reads the printed
+        # line off the control channel while the kernel is demonstrably still
+        # inside the statement, because it is blocked waiting to be answered.
+        source = ("def announce():\n"
+                  "    print('working')\n"
+                  "    return input('done? ')\n"
+                  "reply = announce()\n")
+        self.k.evaluate(source, 0)
+
+        self.k.send_async(op="eval", source=source, line=3, allow_stdin=True)
+        streamed = ""
+        while "working" not in streamed:
+            message = self.k.read_control()
+            if message.get("op") == "stream":
+                streamed += message["text"]
+
+        request = self.k.read_control_until("input_request")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="yes")
+        result = self.k.read()
+        self.assertEqual(result["value"], "'yes'")
+        self.assertEqual(result["stdout"], "working\ndone? ",
+                         "the response still carries the whole of it")
+
+
 class LoadFile(KernelTest):
     SOURCE = (
         "import sys\n"

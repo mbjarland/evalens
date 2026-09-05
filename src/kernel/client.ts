@@ -4,6 +4,7 @@ import { InterruptOutcome } from '../interrupt';
 import {
   ControlMessage,
   ControlRequest,
+  InputRequest,
   LineDecoder,
   Request,
   Response,
@@ -58,6 +59,16 @@ export interface KernelClientOptions {
   /** Kernel-side stderr: its own crashes, not the user's code. */
   readonly onStderr?: (text: string) => void;
   readonly onExit?: (code: number | null, signal: string | null) => void;
+  /**
+   * Answer a prompt from the running code, or null for end-of-file.
+   *
+   * Absent means nobody can be asked, and every prompt is answered with EOF --
+   * which is the behaviour the kernel had before it could ask at all, and the
+   * right default for a client with no user attached to it.
+   */
+  readonly onInput?: (request: InputRequest) => Promise<string | null>;
+  /** What the evaluated code printed, as it printed it. */
+  readonly onStream?: (name: 'stdout' | 'stderr', text: string) => void;
   /**
    * How long an interrupt may go unacknowledged before it is reported as
    * unconfirmed. Two seconds unless a test wants to reach that branch without
@@ -315,9 +326,44 @@ export class KernelClient {
         this.acknowledged?.resolve();
         this.acknowledged = undefined;
         return;
+      case 'stream':
+        this.options.onStream?.(message.name, message.text);
+        return;
+      case 'input_request':
+        void this.answerInput(message);
+        return;
       default:
         this.options.onStderr?.(`unknown control message from kernel: ${line}\n`);
     }
+  }
+
+  /**
+   * Ask whoever is attached, and write the answer back.
+   *
+   * The kernel is blocked while this runs, which is correct -- it is what a
+   * REPL does -- and is also why every path out of here ends in a reply. No
+   * handler, a handler that throws, a user who cancelled: all of them send
+   * end-of-file, because the one outcome that must not happen is a kernel
+   * left waiting for an answer nobody is going to give.
+   */
+  private async answerInput(request: InputRequest): Promise<void> {
+    const generation = this.generation;
+    let value: string | null = null;
+    try {
+      value = (await this.options.onInput?.(request)) ?? null;
+    } catch (error) {
+      this.options.onStderr?.(
+        `Evalens could not ask for input: ${String(error)}\n`);
+    }
+    if (this.generation !== generation || !this.process) {
+      // The kernel was restarted or disposed while the box was open. There is
+      // nothing listening for this answer, and the next kernel is not waiting
+      // for one.
+      return;
+    }
+    this.writeControl(this.process, {
+      op: 'input_reply', seq: request.seq, value,
+    });
   }
 
   private writeControl(process: KernelProcess, message: ControlRequest): void {

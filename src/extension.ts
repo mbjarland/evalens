@@ -4,6 +4,7 @@ import { Evaluator } from './evaluate';
 import { fixKeybindingConflict, reportKeybindingConflicts } from './conflicts';
 import { resolveInterpreter } from './config';
 import { KernelClient } from './kernel/client';
+import { askForInput } from './prompt';
 import { Annotations } from './render/annotations';
 
 let client: KernelClient | undefined;
@@ -118,6 +119,10 @@ async function ensureClient(
     // take effect on the next evaluation.
     resolvePython: () => resolveInterpreter(output!),
     kernelPath,
+    onInput: askForInput,
+    // Live, rather than at the end of the statement. A loop that prints its
+    // progress only reads as progress if the output arrives while it runs.
+    onStream: (_name, text) => output?.append(text),
     onStderr: (text) => output?.append(text),
     onExit: (code, signal) =>
       output?.appendLine(

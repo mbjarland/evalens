@@ -148,6 +148,11 @@ export class Evaluator {
           op: 'eval_file',
           source: document.getText(),
           filename: document.uri.fsPath,
+          // A load never prompts. Twenty prompts in a teaching file would
+          // stop it dead on the first one, and twenty modal boxes are not the
+          // better version of that -- `input()` raises here, with a message
+          // saying to evaluate the line on its own to be asked.
+          allow_stdin: false,
         }),
         'Evalens: loading the file'
       )) as FileResponse;
@@ -177,12 +182,12 @@ export class Evaluator {
     // walking down a file pressing a key; if it runs fifteen statements and
     // shows nothing, the user has to walk down the file pressing a key to
     // find out what it did, and the command has removed nothing.
+    // Printed output is not echoed here any more: it already reached the
+    // output channel as each statement wrote it, and appending the captured
+    // copy afterwards would print the whole load a second time.
     let failed = 0;
     let annotated = 0;
     for (const outcome of response.results) {
-      if (outcome.stdout) {
-        this.output.append(outcome.stdout);
-      }
       if (!outcome.ok) {
         failed += 1;
       }
@@ -216,6 +221,9 @@ export class Evaluator {
           line: cursor.line,
           character: cursor.character,
           filename: document.uri.fsPath,
+          // Somebody pressed a key and is sitting there waiting for this line
+          // to answer, so `input()` is a conversation rather than a hang.
+          allow_stdin: true,
         }),
         'Evalens: evaluating'
       )) as EvalResponse;
