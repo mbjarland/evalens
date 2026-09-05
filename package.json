@@ -216,6 +216,8 @@
   "scripts": {
     "compile": "tsc -p .",
     "watch": "tsc -p . --watch",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package",
     "pretest": "npm run compile",
     "test": "node --test out/test/",
     "test:kernel": "python3 -m unittest discover -s kernel -t kernel"
@@ -223,6 +225,7 @@
   "devDependencies": {
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.9.2",
     "typescript": "^5.9.3"
   }
 }

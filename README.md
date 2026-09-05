@@ -13,8 +13,29 @@ work; what the project is and why it exists is in [`IDEA.md`](IDEA.md).
 
 ## Requirements
 
-Python 3.9 or later on `PATH`, or an interpreter chosen with the Python
-extension, or one named in the `evalens.pythonPath` setting.
+**Python 3.9 or later on your `PATH`. That is the whole requirement.** No
+Jupyter, no notebook server, no kernel to install, no launch configuration,
+no marketplace account — which is most of the reason to reach for this rather
+than the alternatives. Evalens uses the interpreter the Python extension has
+selected if you have that extension, then `python3`, then `python`, and takes
+the first that runs and reports 3.9 or later. Naming one in the
+`evalens.pythonPath` setting overrides all of it.
+
+## Install
+
+There is no marketplace listing yet, so install the `.vsix` you build:
+
+```bash
+npm ci
+npm run package
+code --install-extension python-inline-values-0.0.1.vsix
+```
+
+`npm run package` writes `python-inline-values-<version>.vsix` into the
+repository root; the version comes from `package.json`. Reload the window
+afterwards, open a Python file, and press `Alt+Enter` on a line. If nothing
+happens, read the keybinding section below before anything else — a dead key
+is the expected symptom of a conflict, not of a broken install.
 
 ## Commands
 
@@ -123,6 +144,21 @@ Use `ctrl+enter` in place of `cmd+enter` on Windows and Linux; `alt+enter` is
 the same on every platform. The removal entries are not redundant: an Evalens
 binding only wins where its `when` holds, so without them AREPL still answers
 while the find widget is open.
+
+**Installing Evalens is what makes that entry matter.** While the extension
+only ever ran in an Extension Development Host, a user keybinding scoped with
+`isDevelopment` was enough — it applied in the dev host, which was the only
+window Evalens existed in. An installed extension exists in ordinary windows
+instead, where `isDevelopment` is false, so a binding carrying that clause now
+excludes exactly the windows the extension runs in: AREPL wins `Cmd+Enter`
+back and the key goes dead again, silently, for a reason that reads like a bad
+install. The entries above are unscoped on purpose; if you wrote one against
+the dev host, drop the `isDevelopment` clause.
+
+**On a machine with Evalens installed, the answer is not to install AREPL.**
+The two bind the same two keys to the same job, and which one answers is
+decided by extension load order, which nothing makes stable. There is no
+configuration that makes both work on one key. Keep the one you use.
 
 Evalens says all of this itself. When it activates and finds AREPL enabled it
 writes the conflict and the snippet to its **Evalens** output channel every
@@ -260,4 +296,7 @@ background counterparts.
 
 ## License
 
-MIT.
+MIT — see [`LICENSE`](LICENSE). The inline rendering approach is taken from
+[Calva](https://github.com/BetterThanTomorrow/calva), which is MIT as well;
+matching the licence is the plain form of the attribution
+[`IDEA.md`](IDEA.md) records as intended.

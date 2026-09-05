@@ -97,3 +97,31 @@ test('the README shows the user binding that settles the advance key', () => {
       `the README does not show this entry verbatim:\n${json}`);
   }
 });
+
+test('the keybinding section says an install revokes an isDevelopment scope', () => {
+  // A user keybinding scoped to the Extension Development Host was the right
+  // fix while that was the only window Evalens existed in. Installing the
+  // .vsix silently inverts it: `isDevelopment` is false in an ordinary
+  // window, so the scope now excludes every window the extension runs in and
+  // AREPL takes the key back. The symptom is the same dead key as before,
+  // which is why it has to be said next to the conflict rather than found.
+  const keybindings = section('Keybindings');
+  assert.match(keybindings, /isDevelopment/);
+  assert.match(keybindings, /not to install AREPL/);
+});
+
+test('the requirement is one interpreter, said before the install steps', () => {
+  // "Python and nothing else" is the advantage over every alternative here,
+  // and it is only an advantage if an installer reads it. Buried under the
+  // settings table it is a footnote.
+  const requirements = section('Requirements');
+  assert.match(requirements, /Python 3\.9 or later/);
+  assert.ok(readme.indexOf('## Requirements') < readme.indexOf('## Install'),
+    'the requirement is stated after the install steps it governs');
+});
+
+test('the install section hands over a command that installs', () => {
+  const install = section('Install');
+  assert.match(install, /npm run package/);
+  assert.match(install, /code --install-extension/);
+});

@@ -1,9 +1,13 @@
 .vscode/**
 .github/**
+.gitignore
 docs/**
 bin/**
 prototype/**
+examples/**
 kernel/test_*.py
+**/__pycache__/**
+**/*.pyc
 src/**
 out/test/**
 node_modules/**
