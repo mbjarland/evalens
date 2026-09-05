@@ -112,6 +112,16 @@ export interface Annotation extends Traced {
    * flag can only say that one of them is true.
    */
   readonly pending?: Pending;
+  /**
+   * The 0-based line the file stopped parsing at, when this answer was
+   * computed without the rest of the file.
+   *
+   * A value from a reduced context is a weaker claim than a value from the
+   * whole file. Painting the two identically would make every annotation on
+   * screen mean "one of these two things", which is the failure this project
+   * treats as worse than showing nothing.
+   */
+  readonly partialFrom?: number;
 }
 
 /**
@@ -311,7 +321,8 @@ export class Decorator implements vscode.Disposable {
             after: {
               margin,
               contentText: errorText(
-                annotation.error.type, annotation.error.message),
+                annotation.error.type, annotation.error.message,
+                annotation.partialFrom),
             },
           },
         });
@@ -329,7 +340,8 @@ export class Decorator implements vscode.Disposable {
         // its own, and the name is the answer.
         const text = resultText(
           annotation.value ?? null, annotation.display, annotation.loop,
-          annotation.names, annotation.bindings, printed, annotation.more);
+          annotation.names, annotation.bindings, printed, annotation.more,
+          annotation.partialFrom);
         // Rendered first, then compared with the line it would sit on: an
         // annotation that only restates its own line is not worth the width,
         // and the region highlight below already says that it ran. The

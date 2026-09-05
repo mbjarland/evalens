@@ -142,6 +142,27 @@ It exists so that Evaluate and Advance can step by statements rather than by
 lines without a second parser on the extension side -- and it is a separate op
 precisely so that asking where the next statement is cannot run anything.
 
+A buffer that does not parse whole is answered from the part that does, and
+both ``eval`` and ``eval_file`` then carry ``partial``::
+
+    <- {"id":4,"ok":true,"statements":92,"ran":92,"results":[...],
+        "partial":{"truncated_at":18,"error":{"type":"SyntaxError",...},
+                   "range":{"start":{"line":18,...},"end":{"line":18,...}}}}
+
+``truncated_at`` is the 0-based line where the part that does not parse
+begins, and its ``range`` is where the break itself is, so the cause can be
+painted on the line that caused it. The field is **absent** rather than false
+when nothing was left out: its presence is the claim that this answer was
+computed with less than the whole file, and a flag that is always there saying
+``false`` cannot be told apart from one nobody filled in.
+
+``partial`` and ``range`` are independent and both may appear. ``range`` is
+what ran; ``truncated_at`` is where parsing stopped. A selection is applied
+*inside* the part that parsed, so one lying entirely below ``truncated_at``
+answers ``statements: 0`` with ``partial`` set and no ``range`` -- nothing ran,
+and the reason is on the wire. It is emphatically not answered by running the
+prefix instead, which would execute code nobody selected.
+
 Ops: ``ping``, ``reset``, ``eval``, ``eval_file``, ``outline``.
 ``eval_above`` is reserved and answers with an explicit not-implemented
 error until #13 lands.
@@ -216,7 +237,7 @@ import traceback
 from typing import Any, Dict, Iterable, Iterator, Optional, TextIO, Tuple
 
 import loops
-from resolver import Form, form_at, forms_in
+from resolver import Form, Parsed, form_at, forms_in, parse_prefix
 
 #: Hard cap on a repr() put on the wire. This is a transport guard, not a
 #: display policy -- the extension knows the editor width and truncates for
@@ -1004,6 +1025,50 @@ def _selected_lines(request: Dict[str, Any]) -> Optional[Tuple[int, int]]:
     return (max(start, 0), end)
 
 
+def _syntax_wire(exc: SyntaxError) -> Dict[str, Any]:
+    """A `SyntaxError` as the wire's error object.
+
+    No traceback frames: nothing ran, so the stack would be this module's own
+    and would describe the extension rather than the file.
+    """
+    return {
+        "type": "SyntaxError",
+        "message": exc.msg or str(exc),
+        "traceback": "".join(traceback.format_exception_only(type(exc), exc)),
+    }
+
+
+def _syntax_position(exc: SyntaxError) -> Dict[str, Dict[str, int]]:
+    """Where the break is, so the report lands on the line that caused it.
+
+    This is the half of the complaint that costs the most: a break on line 19
+    used to be answered as a failure of whatever line the cursor was on, which
+    sends the reader to the wrong end of the file with a message about a line
+    they were not looking at.
+    """
+    line = (exc.lineno or 1) - 1
+    character = max((exc.offset or 1) - 1, 0)
+    return {
+        "start": _position(line, character),
+        "end": _position(line, character),
+    }
+
+
+def _partial_of(parsed: Parsed) -> Dict[str, Any]:
+    """The `partial` field: what the answer was computed without, and why.
+
+    Present only when the file did not parse whole. Its absence is the claim
+    that nothing was left out, which is why this is a field that appears rather
+    than a flag that is always there saying `false` -- a reader of the wire
+    cannot mistake "full context" for "nobody filled this in".
+    """
+    return {
+        "truncated_at": parsed.truncated_at,
+        "error": _syntax_wire(parsed.error),
+        "range": _syntax_position(parsed.error),
+    }
+
+
 def _was_interrupted(outcome: Dict[str, Any]) -> bool:
     """Did this outcome fail because someone pressed Cancel?
 
@@ -1063,6 +1128,23 @@ class Kernel:
         }
 
     def evaluate(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Run the statement under the cursor and report what it produced.
+
+        Two things happen here when the file does not parse whole, and they
+        pull in opposite directions on purpose.
+
+        **A break below the cursor does not stop the cursor's line.** The
+        answer comes from the part of the file that parses, and says so:
+        `partial` travels with it, so a value computed without the file's full
+        context is never mistaken for one computed with it.
+
+        **A break at or above the cursor is the answer.** The fallback
+        truncates from the end, so a prefix that stops short of the cursor
+        cannot contain the statement the user pointed at -- and a broken
+        statement where you are pointing is a real answer rather than an
+        obstacle. Either way the report carries the break's own position, so
+        the reader is sent to the line that caused it.
+        """
         source: str = request.get("source", "")
         line: int = request.get("line", 0)
         character: int = request.get("character", 0)
@@ -1076,21 +1158,30 @@ class Kernel:
         )
 
         try:
-            tree = ast.parse(source, filename=filename)
+            parsed = parse_prefix(source, filename=filename)
         except SyntaxError as exc:
             return self._syntax_error(exc)
 
-        form = form_at(tree, line, character)
+        if parsed.truncated_at is not None and parsed.truncated_at <= line:
+            return self._syntax_error(parsed.error)
+
+        partial = {} if parsed.truncated_at is None else {
+            "partial": _partial_of(parsed)}
+
+        form = form_at(parsed.tree, line, character)
         if form is None:
             # A cursor on a blank line. Not an error, and deliberately not a
             # fallback to the nearest statement: that would run code the user
-            # did not point at.
-            return {"ok": True, "resolved": False}
+            # did not point at. The break still travels, because the user
+            # pressed a key and the file being broken is worth knowing.
+            return {"ok": True, "resolved": False, **partial}
 
         # A single evaluation may prompt: someone pressed a key and is
         # sitting in front of the editor waiting for this line to answer.
-        return self._run(form, filename,
-                         allow_stdin=bool(request.get("allow_stdin")))
+        outcome = self._run(form, filename,
+                            allow_stdin=bool(request.get("allow_stdin")))
+        outcome.update(partial)
+        return outcome
 
     def evaluate_file(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Run a module body, reporting what each statement produced.
@@ -1137,6 +1228,28 @@ class Kernel:
         set up a session refusing to, on the files it was built for. How many
         prompts is too many is a question for whoever is looking at the
         screen, and this is not that layer.
+
+        A line that does not *parse* is the same argument one step earlier, and
+        gets the same answer: load what parses, report the rest. Refusing the
+        whole file over a half-typed line at the bottom is how the command that
+        sets up a session comes to need the session already set up.
+
+        **Parse first, then narrow inside what parsed**, when both apply. The
+        order is forced rather than preferred: narrowing snaps outward to
+        statement boundaries, boundaries only exist inside a tree, and for a
+        broken file ``parse_prefix`` is the only thing that produces one. The
+        two facts that fall out are reported separately because they are
+        separate -- ``range`` is what ran, ``partial.truncated_at`` is where
+        parsing stopped, and neither can be computed from the other.
+
+        The consequence worth stating is the empty one. A selection lying
+        entirely below the break intersects nothing in the prefix, so it runs
+        *nothing*; it does not quietly run the prefix instead. Running code the
+        user did not select is the failure both the narrowing and the fallback
+        exist to prevent, and it is the more tempting mistake here precisely
+        because there is something runnable sitting right there. ``partial``
+        still travels, so the answer is "the selection is below the line the
+        file stops parsing at" rather than a bare count of zero.
         """
         source: str = request.get("source", "")
         filename: str = request.get("filename") or "<evalens>"
@@ -1147,12 +1260,19 @@ class Kernel:
         )
 
         try:
-            tree = ast.parse(source, filename=filename)
+            parsed = parse_prefix(source, filename=filename)
         except SyntaxError as exc:
             return self._syntax_error(exc)
 
+        partial = {} if parsed.truncated_at is None else {
+            "partial": _partial_of(parsed)}
+
+        # The narrowing runs against the tree that parsed, never against the
+        # source. A selection below `truncated_at` therefore intersects nothing
+        # and yields no forms, which is the whole point: the empty list is the
+        # refusal, and it arrives without a special case for it.
         selection = _selected_lines(request)
-        forms = forms_in(tree, selection)
+        forms = forms_in(parsed.tree, selection)
 
         results = []
         ran = 0
@@ -1177,6 +1297,7 @@ class Kernel:
             "statements": len(forms),
             "ran": ran,
             "results": results,
+            **partial,
         }
         if selection is not None and forms:
             # What actually ran, which is not what was asked for whenever the
@@ -1390,20 +1511,10 @@ class Kernel:
 
     @staticmethod
     def _syntax_error(exc: SyntaxError) -> Dict[str, Any]:
-        line = (exc.lineno or 1) - 1
-        character = max((exc.offset or 1) - 1, 0)
         return {
             "ok": False,
-            "error": {
-                "type": "SyntaxError",
-                "message": exc.msg or str(exc),
-                "traceback": "".join(
-                    traceback.format_exception_only(type(exc), exc)),
-            },
-            "range": {
-                "start": _position(line, character),
-                "end": _position(line, character),
-            },
+            "error": _syntax_wire(exc),
+            "range": _syntax_position(exc),
         }
 
 

@@ -54,6 +54,24 @@ export const PRINTED_LABEL = 'printed';
  */
 export const STDERR_LABEL = 'stderr';
 
+/**
+ * The caveat on a value computed without the rest of the file.
+ *
+ * A value from a reduced context is a weaker claim than a value from the whole
+ * file, and painting the two identically would make every annotation on screen
+ * mean "one of these two things". So it is said on the line, every time -- and
+ * with the line number, because the first question it raises is *which* part
+ * of the file was missing. The number is 1-based: it is for a human reading a
+ * gutter, not for an index.
+ *
+ * Short on purpose. It appears beside an ordinary answer, and the rest of the
+ * story is two places the reader already has -- the hover, and the error
+ * painted in red on the broken line itself.
+ */
+export function partialNote(truncatedAt: number): string {
+  return `(partial: line ${truncatedAt + 1})`;
+}
+
 const NBSP = ' ';
 
 /**
@@ -405,6 +423,8 @@ export function paintedSlots(
   // label with.
   const leads = target !== null || Boolean(loop);
 
+  // The caveat goes last wherever it goes: it qualifies the whole line rather
+  // than any one value on it.
   if (produced === null
       || (!leads && produced === 'None'
           && (pairs.length > 0 || hasOutput(printed)))) {
@@ -456,7 +476,7 @@ function slotText(slot: Slot): string {
 export function resultText(
   value: string | null, display?: string | null, loop?: LoopTrace | null,
   names?: readonly NamedValue[], bindings?: readonly BindingTrace[],
-  printed?: Printed, more = 0
+  printed?: Printed, more = 0, partialFrom?: number
 ): string {
   const slots = paintedSlots(value, display, loop, names, bindings, printed);
   const painted = slots.map(slotText);
@@ -468,6 +488,11 @@ export function resultText(
   // the cap left off and not something this knows.
   if (more > 0 && slots.some((slot) => !slot.own)) {
     painted.push(`…+${grouped(more)} more`);
+  }
+  // The caveat goes last of all: it qualifies the whole line -- every value on
+  // it and both footnotes after them -- rather than any one thing on it.
+  if (partialFrom !== undefined) {
+    painted.push(partialNote(partialFrom));
   }
   return preserveSpacing(painted.join(GAP));
 }
@@ -516,7 +541,8 @@ function bindingNote(
 export function hoverText(
   display: string | null | undefined, value: string | null,
   loop?: LoopTrace | null, names?: readonly NamedValue[],
-  bindings?: readonly BindingTrace[], printed?: Printed
+  bindings?: readonly BindingTrace[], printed?: Printed,
+  partial?: { readonly truncated_at: number; readonly message: string }
 ): string {
   const lines: string[] = [];
   if (loop) {
@@ -553,6 +579,14 @@ export function hoverText(
       lines.push(`${label}:`, ...written);
     }
   }
+  if (partial) {
+    // The full version of the inline `(partial: line 19)`, which is short
+    // enough to raise the question without room to answer it. This is where
+    // the answer goes: what was left out, and what stopped the parse.
+    lines.push(
+      `evaluated without line ${partial.truncated_at + 1} onwards`);
+    lines.push(`SyntaxError: ${partial.message}`);
+  }
   return lines.join('\n');
 }
 
@@ -560,10 +594,21 @@ export function hoverText(
  * The painted annotation for a failure: type and message, never the
  * traceback. The traceback goes on hover, where it does not shove the code
  * sideways.
+ *
+ * A failure under a reduced context carries the same caveat a value does, and
+ * needs it more: the lines that were left out are the likeliest reason a name
+ * is not defined, and a `NameError` that does not say so sends the reader
+ * hunting for a typo that is not there.
  */
-export function errorText(type: string, message: string): string {
+export function errorText(
+  type: string, message: string, partialFrom?: number
+): string {
   const summary = collapseLines(message);
-  return preserveSpacing(summary ? `${SEPARATOR} ${type}: ${summary}` : `${SEPARATOR} ${type}`);
+  const shown = summary ? `${SEPARATOR} ${type}: ${summary}`
+    : `${SEPARATOR} ${type}`;
+  return preserveSpacing(partialFrom === undefined
+    ? shown
+    : [shown, partialNote(partialFrom)].join(GAP));
 }
 
 /**

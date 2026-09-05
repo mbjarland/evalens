@@ -218,11 +218,34 @@ export type ControlMessage =
       readonly text: string;
     };
 
+/**
+ * What the kernel could not parse, when it answered from part of the file.
+ *
+ * `ast` is all-or-nothing, so one half-typed line used to make every line in
+ * the file unevaluable -- and a half-typed line is what a file being explored
+ * in has, because that is why anyone is evaluating anything. The kernel drops
+ * trailing lines until what is left parses and answers from that, which means
+ * the answer carries a weaker claim than usual: it was computed without the
+ * rest of the file. This is that claim, made explicit.
+ *
+ * Its presence is the signal. Absent means the whole file parsed and nothing
+ * was left out, which is why there is no `partial: false` to misread.
+ */
+export interface PartialParse {
+  /** 0-based first line the parse could not reach. */
+  readonly truncated_at: number;
+  readonly error: KernelError;
+  /** Where the break is, so the report lands on the line that caused it. */
+  readonly range: Range;
+}
+
 /** Nothing under the cursor -- a blank line. Not an error. */
 export interface Unresolved {
   readonly id: number;
   readonly ok: true;
   readonly resolved: false;
+  /** Present when the file did not parse whole -- see `PartialParse`. */
+  readonly partial?: PartialParse;
 }
 
 /**
@@ -351,6 +374,8 @@ export interface Evaluated {
    */
   readonly binds?: readonly string[];
   readonly reads?: readonly string[];
+  /** Present when the file did not parse whole -- see `PartialParse`. */
+  readonly partial?: PartialParse;
 }
 
 export interface Failed {
@@ -372,6 +397,15 @@ export interface Failed {
   readonly reads?: readonly string[];
   /** How many statements ran before the failure, for `eval_file`. */
   readonly statements?: number;
+  /**
+   * Present when the file did not parse whole -- see `PartialParse`.
+   *
+   * A failure under a reduced context is where this matters most: the missing
+   * lines are the likeliest reason a name is not defined, and a `NameError`
+   * that does not say so sends the reader looking for a typo that is not
+   * there.
+   */
+  readonly partial?: PartialParse;
 }
 
 /** What one statement produced while a file was being loaded. */
@@ -413,11 +447,25 @@ export type StatementOutcome =
  * succeeded -- a file being explored in is expected to contain broken lines,
  * and the ones that worked are in the namespace regardless. Per-statement
  * success lives in `results`.
+ *
+ * A line that does not *parse* is the same argument one step earlier: the file
+ * loads as far as it parses and `partial` says where that stopped. `statements`
+ * counts what was there to run, which under a `partial` is the prefix rather
+ * than the file.
  */
 export interface FileLoaded {
   readonly id: number;
   readonly ok: true;
-  /** How many statements the request covered -- the selection's, when narrowed. */
+  /**
+   * How many statements the request covered -- the selection's, when narrowed,
+   * and under a `partial` the selection's *within the part that parsed*.
+   *
+   * Those compose in that order and only that order: a selection snaps outward
+   * to whole statements, and whole statements only exist in a tree. So a
+   * selection lying below `partial.truncated_at` covers nothing and this is 0.
+   * It is emphatically not answered by running the prefix, which would execute
+   * code the user did not select.
+   */
   readonly statements: number;
   readonly ran: number;
   readonly results: readonly StatementOutcome[];
@@ -429,8 +477,15 @@ export interface FileLoaded {
    * inside them, because a partial statement runs whole or not at all. The
    * kernel reports it because the extension cannot infer it: the side that
    * decided how far to widen is the side that knows.
+   *
+   * Independent of `partial`, and both may be present. This is what ran;
+   * `partial.truncated_at` is where parsing stopped. A selection reaching past
+   * the break has a `range` ending above it and neither number implies the
+   * other.
    */
   readonly range?: Range;
+  /** Present when the file did not parse whole -- see `PartialParse`. */
+  readonly partial?: PartialParse;
 }
 
 export type FileResponse = FileLoaded | Failed;

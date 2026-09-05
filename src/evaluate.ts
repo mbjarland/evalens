@@ -7,14 +7,16 @@ import { describeInterrupt, settlesWithin } from './interrupt';
 import { KernelClient } from './kernel/client';
 import {
   EvalResponse, FileResponse, InputRequest, LatestWins, OutlineResponse,
-  StatementOutcome, StatementSpan,
+  PartialParse, StatementOutcome, StatementSpan,
 } from './kernel/protocol';
 import { askForInput } from './prompt';
 import { Annotations } from './render/annotations';
 import { Annotation, sourceAt, toVsCodeRange } from './render/decorations';
 import { Flash, SNAP } from './render/flash';
 import { hasOutput, printedFrom } from './render/format';
-import { describeLoad, describeRun, hoverFor, present } from './render/present';
+import {
+  describeLoad, describeRun, hoverFor, partialCause, partialOf, present,
+} from './render/present';
 import { PaintedAbove } from './render/repeats';
 import { Waiting, whileRunning } from './render/status';
 import { selectedLines, widenedBeyond } from './selection';
@@ -111,6 +113,24 @@ interface Asking {
   readonly waiting?: Waiting;
   /** Prompt bookkeeping for a load; absent for a single evaluation. */
   readonly load?: LoadPrompts;
+}
+
+/**
+ * The break that reduced the context, painted where the break is.
+ *
+ * Two jobs in one annotation. It puts the cause on the line that caused it,
+ * which is where the eye goes and where a fix is typed -- a message about line
+ * 19 delivered beside line 1 sends the reader to the wrong end of the file.
+ * And it is the loudest half of saying which mode answered: a red syntax error
+ * on screen is why the value beside the cursor carries a caveat.
+ */
+function causeAnnotation(partial: PartialParse): Annotation {
+  const cause = partialCause(partial);
+  return {
+    range: toVsCodeRange(cause.range),
+    error: { type: cause.type, message: cause.message },
+    hover: cause.hover,
+  };
 }
 
 export class Evaluator {
@@ -362,12 +382,28 @@ export class Evaluator {
       return;
     }
 
+    if (response.partial) {
+      // #25 settled that a broken line must not stop a load; a line that does
+      // not parse is the same argument one step earlier. The prefix is in the
+      // namespace, and the part that is not is painted where it is rather
+      // than thrown away with the load.
+      //
+      // Painted before the empty-selection return below, not after it. That
+      // case is the one that most needs the reason on screen: a selection
+      // below the break matches nothing in the part that parsed, so it runs
+      // nothing, and the break is the whole explanation for a count of zero.
+      this.annotations.add(document, causeAnnotation(response.partial));
+    }
+
     if (lines && response.statements === 0) {
-      // A selection holding only comments, or only blank lines. Not an error:
-      // it is the same answer a blank line under the cursor gets, said in the
-      // same place, and reaching for the nearest statement instead would run
-      // code nobody pointed at.
-      vscode.window.setStatusBarMessage(describeRun(0, 0, 0, false), 2000);
+      // A selection holding only comments, or only blank lines -- or one
+      // lying below the line the file stops parsing at. Not an error: it is
+      // the same answer a blank line under the cursor gets, said in the same
+      // place, and reaching for the nearest statement instead would run code
+      // nobody pointed at. Nor is it a reason to fall back to the prefix,
+      // which is code nobody pointed at with a tempting amount of it.
+      vscode.window.setStatusBarMessage(
+        describeRun(0, 0, 0, false, response.partial?.truncated_at), 2000);
       return;
     }
 
@@ -426,12 +462,14 @@ export class Evaluator {
         this.flash.show([editor], [toVsCodeRange(executed)], SNAP);
       }
       vscode.window.setStatusBarMessage(
-        describeRun(response.ran, response.statements, failed, widened), 4000);
+        describeRun(response.ran, response.statements, failed, widened,
+          response.partial?.truncated_at), 4000);
       return;
     }
 
     vscode.window.setStatusBarMessage(
-      describeLoad(response.ran, response.statements, failed), 4000);
+      describeLoad(response.ran, response.statements, failed,
+        response.partial?.truncated_at), 4000);
   }
 
   /**
@@ -523,6 +561,15 @@ export class Evaluator {
       return;
     }
 
+    // Read off the response rather than the presentation: the break belongs to
+    // the file, not to this keypress, so it is painted even when the cursor
+    // resolved to nothing. Before the answer, so that if the two ever landed
+    // on one line the value the user asked for is what survives `merge`.
+    const partial = partialOf(response);
+    if (partial) {
+      this.annotations.add(document, causeAnnotation(partial));
+    }
+
     const presentation = present(response, cursor.line);
     if (presentation.kind === 'nothing') {
       // A blank line. Nothing is going to replace the mark, so it goes.
@@ -549,6 +596,9 @@ export class Evaluator {
               : { reads: presentation.reads }),
             error: { type: presentation.type, message: presentation.message },
             hover: presentation.hover,
+            ...(partial === undefined
+              ? {}
+              : { partialFrom: partial.truncated_at }),
           }
         : {
             range: toVsCodeRange(presentation.range),
@@ -589,6 +639,9 @@ export class Evaluator {
               ? {}
               : { reads: presentation.reads }),
             ...(presentation.hover ? { hover: presentation.hover } : {}),
+            ...(partial === undefined
+              ? {}
+              : { partialFrom: partial.truncated_at }),
           };
 
     // Withdrawn rather than left to be displaced by overlap: the mark sits on

@@ -1,7 +1,35 @@
 import {
-  BindingTrace, EvalResponse, LoopTrace, NamedValue, Range,
+  BindingTrace, EvalResponse, LoopTrace, NamedValue, PartialParse, Range,
 } from '../kernel/protocol';
 import { Printed, hasOutput, hoverText, printedFrom } from './format';
+
+/**
+ * A failure to show: the kernel's, or the break that stopped it parsing.
+ *
+ * Named rather than inlined into `Presentation` because both reach the same
+ * annotation, and a syntax error painted on the line that caused it is not a
+ * different kind of thing from one painted under the cursor.
+ */
+export type ErrorPresentation = {
+  readonly kind: 'error';
+  readonly range: Range;
+  readonly anchor?: number;
+  readonly type: string;
+  readonly message: string;
+  /**
+   * The module-level names the statement bound and read.
+   *
+   * Carried through unchanged and unread by anything here: they say nothing
+   * about what to show, only about which *other* annotations this one has just
+   * put out of date. A failure binds too -- a statement that raised halfway
+   * may already have written a name.
+   */
+  readonly binds?: readonly string[];
+  readonly reads?: readonly string[];
+  readonly hover: string;
+  /** The file did not parse whole, and this answer was computed without it. */
+  readonly partial?: PartialParse;
+};
 
 /**
  * What to show for a kernel response.
@@ -57,23 +85,54 @@ export type Presentation =
       readonly binds?: readonly string[];
       readonly reads?: readonly string[];
       readonly hover?: string;
+      /**
+       * The file did not parse whole, and this value was computed without the
+       * part that did not. It is a weaker claim than an ordinary value and is
+       * painted as one -- see `format.partialNote`.
+       */
+      readonly partial?: PartialParse;
     }
-  | {
-      readonly kind: 'error';
-      readonly range: Range;
-      readonly anchor?: number;
-      readonly type: string;
-      readonly message: string;
-      readonly binds?: readonly string[];
-      readonly reads?: readonly string[];
-      readonly hover: string;
-    };
+  | ErrorPresentation;
 
 function atLine(line: number): Range {
   return { start: { line, character: 0 }, end: { line, character: 0 } };
 }
 
+/**
+ * The break that reduced the context, as an annotation of its own.
+ *
+ * The complaint this answers is that a break on line 19 used to surface as a
+ * failed evaluation on line 1: the message named a line the reader was not
+ * looking at, and there was nothing on line 19 to look at. So the cause is
+ * painted where it is, in red, beside the line that caused it -- which is also
+ * half the answer to "which mode answered", because the reason the context was
+ * reduced is on screen next to the reason it had to be.
+ */
+export function partialCause(partial: PartialParse): ErrorPresentation {
+  return {
+    kind: 'error',
+    range: partial.range,
+    type: partial.error.type,
+    message: partial.error.message,
+    hover: partial.error.traceback || partial.error.message,
+  };
+}
+
+/**
+ * What the kernel left out of this answer, if anything.
+ *
+ * Reads off every answer shape, including the one that resolved to nothing:
+ * the break belongs to the file rather than to the keypress, so a cursor on a
+ * blank line in a broken file still has something to be told.
+ */
+export function partialOf(response: EvalResponse): PartialParse | undefined {
+  return response.partial;
+}
+
 export function present(response: EvalResponse, cursorLine: number): Presentation {
+  const partial = partialOf(response);
+  const caveat = partial === undefined ? {} : { partial };
+
   if (response.ok === false) {
     return {
       kind: 'error',
@@ -86,12 +145,15 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
       type: response.error.type,
       message: response.error.message,
       hover: response.error.traceback || response.error.message,
+      ...caveat,
     };
   }
 
   if (response.resolved === false) {
     // A blank line. Not an error, and not a reason to paint anything -- but
-    // the user pressed a key and deserves to know it was received.
+    // the user pressed a key and deserves to know it was received. The break
+    // that reduced the context is still painted, by the caller: it is about
+    // the file rather than about this keypress.
     return { kind: 'nothing', message: 'Evalens: nothing to evaluate here' };
   }
 
@@ -130,10 +192,11 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
       ? {
           hover: hoverFor(
             response.display, response.value, response.repr, response.loop,
-            response.names, response.bindings, printed
+            response.names, response.bindings, printed, partial
           ),
         }
       : {}),
+    ...caveat,
   };
 }
 
@@ -153,9 +216,13 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
 export function hoverFor(
   display: string | null, value: string | null, repr?: string,
   loop?: LoopTrace | null, names?: readonly NamedValue[],
-  bindings?: readonly BindingTrace[], printed?: Printed
+  bindings?: readonly BindingTrace[], printed?: Printed,
+  partial?: PartialParse
 ): string {
-  return hoverText(display, repr ?? value, loop, names, bindings, printed);
+  return hoverText(display, repr ?? value, loop, names, bindings, printed,
+    partial === undefined
+      ? undefined
+      : { truncated_at: partial.truncated_at, message: partial.error.message });
 }
 
 
@@ -167,12 +234,18 @@ export function hoverFor(
  * in the namespace, ready to use.
  */
 export function describeLoad(
-  ran: number, total: number, failed: number
+  ran: number, total: number, failed: number, partialFrom?: number
 ): string {
-  if (failed === 0) {
-    return `Evalens: loaded ${total} statement${total === 1 ? '' : 's'}`;
+  const counted = failed === 0
+    ? `Evalens: loaded ${total} statement${total === 1 ? '' : 's'}`
+    : `Evalens: loaded ${ran} of ${total} statements, ${failed} failed`;
+  if (partialFrom === undefined) {
+    return counted;
   }
-  return `Evalens: loaded ${ran} of ${total} statements, ${failed} failed`;
+  // "loaded 18 statements" on a file with 30 in it is true and reads as
+  // complete. What the user has to know is that the count is a count of the
+  // part that parsed, and where the rest starts.
+  return `${counted}; line ${partialFrom + 1} onwards did not parse`;
 }
 
 /**
@@ -187,19 +260,30 @@ export function describeLoad(
  * at all, so a selection starting inside a `def` executed the entire `def`;
  * a reader who is not told that has been shown a count they will attribute to
  * the lines they highlighted.
+ *
+ * `partialFrom` is the other thing that cannot be left out, and it matters
+ * most in the case that says nothing ran. A selection is narrowed inside the
+ * part of the file that parsed, so one lying below the break matches no
+ * statement and runs nothing -- and "nothing to run in the selection" on its
+ * own reads as "you selected comments" when the selection was full of code.
+ * The reason has to travel with the count, exactly as it does for a load.
  */
 export function describeRun(
-  ran: number, total: number, failed: number, widened: boolean
+  ran: number, total: number, failed: number, widened: boolean,
+  partialFrom?: number
 ): string {
+  const caveat = partialFrom === undefined
+    ? ''
+    : `; line ${partialFrom + 1} onwards did not parse`;
   if (total === 0) {
     // Not an error. A selection holding only comments is the same answer as a
     // blank line under the cursor: there was nothing there to run.
-    return 'Evalens: nothing to run in the selection';
+    return `Evalens: nothing to run in the selection${caveat}`;
   }
   const counted = failed === 0
     ? `ran ${total} statement${total === 1 ? '' : 's'}`
     : `ran ${ran} of ${total} statements, ${failed} failed`;
   return widened
-    ? `Evalens: ${counted}, widened to whole statements`
-    : `Evalens: ${counted}`;
+    ? `Evalens: ${counted}, widened to whole statements${caveat}`
+    : `Evalens: ${counted}${caveat}`;
 }

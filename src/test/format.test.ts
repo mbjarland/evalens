@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 
 import { BindingTrace, LoopTrace, NamedValue } from '../kernel/protocol';
 import {
-  SEPARATOR, alignmentGap, bindingText, collapseLines, columnWidth, errorText,
-  hasOutput, hoverText, outputSegments, preserveSpacing, printedFrom,
-  restatesLine, resultText, sequenceText,
+  GAP, SEPARATOR, alignmentGap, bindingText, collapseLines, columnWidth,
+  errorText, hasOutput, hoverText, outputSegments, partialNote,
+  preserveSpacing, printedFrom, restatesLine, resultText, sequenceText,
 } from '../render/format';
 
 function trace(
@@ -587,4 +587,60 @@ test('both streams reach the hover, each under its own name', () => {
     hoverText('run()', 'None', null, [], [],
       { stdout: 'fine\n', stderr: 'careful\n' }),
     'run() = None\nprinted: fine\nstderr: careful');
+});
+
+test('a value from a reduced context says so on the line', () => {
+  // A value computed without the rest of the file is a weaker claim than one
+  // computed with it. Painting the two identically would make every
+  // annotation on screen mean "one of these two things".
+  const text = resultText('42', 'answer', null, undefined, undefined,
+    undefined, 0, 18);
+  assert.equal(text, preserveSpacing(`answer: 42${GAP}(partial: line 19)`));
+});
+
+test('the caveat is 1-based, because it is read in a gutter', () => {
+  assert.equal(partialNote(0), '(partial: line 1)');
+  assert.equal(partialNote(18), '(partial: line 19)');
+});
+
+test('the caveat goes last, after every value on the line', () => {
+  // It qualifies the whole line rather than any one value on it.
+  const text = resultText(null, null, null,
+    pairs(['a', '1'], ['b', '2']), undefined, undefined, 0, 4);
+  assert.equal(text, preserveSpacing(`a: 1${GAP}b: 2${GAP}(partial: line 5)`));
+});
+
+test('a suppressed None does not take the caveat down with it', () => {
+  const text = resultText('None', 'y.append(4)', null,
+    pairs(['y', '[1, 2]']), undefined, undefined, 0, 7);
+  assert.equal(text, preserveSpacing(`y: [1, 2]${GAP}(partial: line 8)`));
+});
+
+test('a value that parsed whole carries no caveat', () => {
+  assert.equal(resultText('42', 'answer'), preserveSpacing('answer: 42'));
+});
+
+test('a failure under a reduced context carries the caveat too', () => {
+  // This is where it matters most: the lines left out are the likeliest
+  // reason a name is not defined, and a NameError that does not say so sends
+  // the reader hunting for a typo that is not there.
+  assert.equal(errorText('NameError', "name 'helper' is not defined", 18),
+    preserveSpacing(
+      `${SEPARATOR} NameError: name 'helper' is not defined`
+      + `${GAP}(partial: line 19)`));
+});
+
+test('an ordinary failure is unchanged', () => {
+  assert.equal(errorText('NameError', 'nope'),
+    preserveSpacing(`${SEPARATOR} NameError: nope`));
+});
+
+test('the hover explains what the line only hints at', () => {
+  // `(partial: line 19)` is short enough to raise the question without room
+  // to answer it. The answer goes here.
+  assert.equal(
+    hoverText('answer', '42', null, undefined, undefined, undefined,
+      { truncated_at: 18, message: 'unterminated string literal' }),
+    'answer = 42\nevaluated without line 19 onwards'
+    + '\nSyntaxError: unterminated string literal');
 });

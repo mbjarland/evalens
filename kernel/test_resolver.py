@@ -8,7 +8,7 @@ import ast
 import os
 import unittest
 
-from resolver import form_at, form_of, forms_in
+from resolver import cut_points, form_at, form_of, forms_in, parse_prefix
 
 #: The manual test fixture, located relative to this file rather than to the
 #: working directory: the suite is discovered with `-t kernel`, so a relative
@@ -554,6 +554,251 @@ class FormsInARange(unittest.TestCase):
         # selection. Deciding it against the selection would swallow the value
         # of any string a range happens to start on.
         self.assertEqual(self.shown((2, 2), self.DOCUMENTED), ["'hello'"])
+
+
+#: A line that does not parse, to put at the bottom of a fixture.
+#:
+#: An unterminated string rather than a stray bracket, because it is what a
+#: half-typed line actually looks like and because it is the one the complaint
+#: was filed about.
+BROKEN = 's = "half-typed\n'
+
+
+class CutPoints(unittest.TestCase):
+    """Where the file may be cut without splitting a statement in half."""
+
+    def points(self, src: str):
+        return cut_points(src.split("\n"))
+
+    def test_a_flush_left_statement_is_a_cut_point(self):
+        self.assertEqual(self.points("a = 1\nb = 2\n"), [0, 1])
+
+    def test_an_indented_line_is_not(self):
+        # Cutting into a body leaves a `for` or a `def` running fewer
+        # statements than the one on the screen, which parses and is not what
+        # the user pointed at.
+        self.assertEqual(self.points("def f():\n    a = 1\n    b = 2\n"), [0])
+
+    def test_a_clause_continuation_is_not(self):
+        # `else:` starts flush left and is the middle of a statement. Cutting
+        # there leaves an `if` that parses perfectly and silently drops the
+        # branch the reader can see two lines below the cursor.
+        for keyword in ("else:", "elif y:", "except E:", "finally:"):
+            with self.subTest(keyword=keyword):
+                self.assertEqual(
+                    self.points(f"if x:\n    a = 1\n{keyword}\n    a = 2\n"),
+                    [0])
+
+    def test_a_name_that_merely_starts_with_one_is(self):
+        # `\b` rather than `startswith`: `elsewhere = 1` is a statement.
+        self.assertIn(1, self.points("a = 1\nelsewhere = 2\n"))
+
+    def test_blank_lines_and_comments_are_not_cut_points(self):
+        # Nothing is lost by skipping them: cutting above a comment and
+        # cutting below it produce the same tree.
+        self.assertEqual(self.points("a = 1\n\n# note\nb = 2\n"), [0, 3])
+
+
+class ParsePrefix(unittest.TestCase):
+    """Answering from as much of the buffer as parses, and saying so."""
+
+    def test_a_file_that_parses_is_not_truncated(self):
+        parsed = parse_prefix("a = 1\nb = 2\n")
+        self.assertIsNone(parsed.truncated_at)
+        self.assertIsNone(parsed.error)
+        self.assertEqual(len(parsed.tree.body), 2)
+
+    def test_a_broken_last_line_leaves_the_rest_usable(self):
+        parsed = parse_prefix("a = 1\nb = 2\n" + BROKEN)
+        self.assertEqual(parsed.truncated_at, 2)
+        self.assertEqual(len(parsed.tree.body), 2)
+
+    def test_the_error_that_stopped_it_travels_with_the_tree(self):
+        # Reporting the reduced context without the reason for it is the same
+        # unhelpfulness one layer up: the user is told something is missing and
+        # not what.
+        parsed = parse_prefix("a = 1\n" + BROKEN)
+        self.assertIsInstance(parsed.error, SyntaxError)
+        self.assertEqual(parsed.error.lineno, 2)
+
+    def test_line_numbers_survive_the_truncation(self):
+        # The tree is parsed from a prefix and its positions are used against
+        # the whole buffer, so a statement must still know where it really is.
+        parsed = parse_prefix("a = 1\n\n\nb = 2\n" + BROKEN)
+        self.assertEqual(form_at(parsed.tree, 3).start_line, 3)
+
+    def test_nothing_above_the_break_raises_the_original_error(self):
+        # There is no reduced context to answer from -- only the error, which
+        # is what the user needs to see.
+        with self.assertRaises(SyntaxError):
+            parse_prefix("def (\na = 1\n")
+
+    def test_a_body_is_never_cut_short(self):
+        # The `if` would parse with one statement in it rather than two. That
+        # is the failure mode this refuses: an answer to a question nobody
+        # asked is worse than no answer.
+        parsed = parse_prefix("x = 1\nif True:\n    a = 1\n    b = 2 +\n")
+        self.assertEqual(parsed.truncated_at, 1)
+        self.assertIsNone(form_at(parsed.tree, 1))
+
+    def test_an_else_branch_is_never_dropped(self):
+        # `if True: a = 1` and `if True: a = 1 else: a = 2` are both valid and
+        # mean different things. Cutting at the `else:` would answer with the
+        # second while the user is looking at the first.
+        parsed = parse_prefix(
+            "x = 1\nif True:\n    a = 1\nelse:\n    a = 2 +\n")
+        self.assertEqual(parsed.truncated_at, 1)
+        self.assertIsNone(form_at(parsed.tree, 1))
+
+    def test_a_fragment_of_a_bracketed_chain_is_never_evaluated(self):
+        # The negative the whole design turns on. `out = (df.groupby('a')` is
+        # not valid on its own, but a fallback that kept shrinking towards the
+        # cursor would eventually find something that is -- and would answer
+        # with it. Truncating from the end cannot: the cursor is below the cut,
+        # so there is nothing to resolve and the caller reports the error.
+        source = ("keep = 1\n"
+                  "out = (df.groupby('a')\n"
+                  "       .agg(sum\n"
+                  "       .reset_index())\n")
+        parsed = parse_prefix(source)
+        self.assertEqual(parsed.truncated_at, 1)
+        for line in (1, 2, 3):
+            with self.subTest(line=line + 1):
+                self.assertIsNone(form_at(parsed.tree, line))
+
+
+class ANarrowedPrefix(unittest.TestCase):
+    """A selection resolved against a file that does not parse whole.
+
+    Two features that never met. The order they compose in is forced rather
+    than chosen: `forms_in` snaps a range outward to whole statements, whole
+    statements are boundaries in a tree, and for a broken file `parse_prefix`
+    is the only thing that produces a tree. So the parse comes first and the
+    range is applied inside its result.
+
+    What that buys, and what it costs, are both pinned here. It buys a
+    selection that still snaps outward correctly in a broken file. It costs a
+    selection below the break its answer -- and that cost is the feature: the
+    parsed prefix is sitting right there, plainly runnable, and running it
+    would execute lines the user did not select.
+    """
+
+    #: 0: docstring  1: a  2-4: def f  5: c  6: "hello"  7: d
+    #: 8: the half-typed line, 9-10: below it, and perfectly runnable-looking.
+    SOURCE = ('"""doc"""\n'
+              "a = 1\n"
+              "def f(x):\n"
+              "    y = x + 1\n"
+              "    return y\n"
+              "c = f(1)\n"
+              '"hello"\n'
+              "d = 2\n"
+              + BROKEN
+              + "t = 3\n"
+                "u = 4\n")
+
+    def setUp(self):
+        self.parsed = parse_prefix(self.SOURCE)
+
+    def shown(self, lines):
+        return [form.display for form in forms_in(self.parsed.tree, lines)]
+
+    def test_the_prefix_stops_at_the_half_typed_line(self):
+        self.assertEqual(self.parsed.truncated_at, 8)
+
+    def test_a_range_above_the_break_resolves_normally(self):
+        self.assertEqual(self.shown((1, 1)), ["a"])
+
+    def test_a_range_below_the_break_resolves_to_nothing(self):
+        # Not to the prefix, which is the whole point. Eight statements parsed
+        # and none of them is what lines 10-11 said.
+        self.assertEqual(self.shown((9, 10)), [])
+
+    def test_a_range_starting_exactly_at_the_break_resolves_to_nothing(self):
+        # The boundary case, spelled out because off-by-one here means running
+        # a statement the selection stopped short of.
+        self.assertEqual(self.shown((8, 8)), [])
+
+    def test_a_range_spanning_the_break_takes_what_is_above_it(self):
+        self.assertEqual(self.shown((7, 8)), ["d"])
+
+    def test_the_snap_outward_survives_the_truncation(self):
+        # Lines 3-4 are inside the body of `f`. The boundaries the snap needs
+        # are still there because the range is applied to a tree, not to text.
+        self.assertEqual(self.shown((3, 4)), ["f"])
+        first = forms_in(self.parsed.tree, (3, 4))[0]
+        self.assertEqual((first.start_line, first.end_line), (2, 4))
+
+    def test_first_in_body_is_still_the_modules_own(self):
+        # The prefix is still a module, and its body still opens with the real
+        # docstring -- so the string on line 6 keeps its value and the one on
+        # line 0 stays silent. Deciding this against the selection instead
+        # would swallow whichever string a range happened to start on.
+        self.assertEqual(self.shown((6, 6)), ["\'hello\'"])
+        self.assertEqual(self.shown((0, 0)), [None])
+
+    def test_a_backwards_range_still_resolves_to_nothing(self):
+        # A half-stated request in a broken file: two reasons to run nothing,
+        # and still no reason to run everything that parsed.
+        self.assertEqual(self.shown((0, -1)), [])
+
+
+class TheJupyterMatrix(unittest.TestCase):
+    """The constructs that defeat any evaluation unit blunter than a parse.
+
+    Enumerated in microsoft/vscode-jupyter#1471 by people who shipped a fix
+    for the line-based version of this problem, and answered there the same
+    way: stop guessing, use the parser. Evalens gets all five right for free
+    because `form_at` works on a complete parse -- and this suite exists
+    because the syntax-error fallback is a *retreat* from a complete parse, so
+    each one is checked again with the file broken underneath it.
+    """
+
+    def resolve(self, body: str, line: int):
+        parsed = parse_prefix(body + BROKEN)
+        self.assertIsNotNone(parsed.truncated_at)
+        return form_at(parsed.tree, line)
+
+    def test_a_compound_header_still_resolves_to_the_whole_statement(self):
+        for header, body in (("def f(x):", "    return x * 2"),
+                             ("class C:", "    x = 1"),
+                             ("with open('f') as h:", "    data = h"),
+                             ("for i in [1]:", "    j = i"),
+                             ("while False:", "    pass"),
+                             ("if True:", "    a = 1"),
+                             ("try:", "    a = 1\nexcept Exception:\n    a = 2")):
+            with self.subTest(header=header):
+                form = self.resolve(f"{header}\n{body}\n", 0)
+                self.assertIsNotNone(form)
+                self.assertEqual(form.start_line, 0)
+                self.assertGreater(form.end_line, 0)
+
+    def test_a_backslash_continuation_resolves_from_either_line(self):
+        for line in (0, 1):
+            with self.subTest(line=line + 1):
+                form = self.resolve("x = 1 + \\\n    2\n", line)
+                self.assertEqual((form.start_line, form.end_line), (0, 1))
+
+    def test_a_bracketed_chain_resolves_from_any_line_of_it(self):
+        source = ("out = (Chain()\n"
+                  "       .agg(sum)\n"
+                  "       .reset_index())\n")
+        for line in (0, 1, 2):
+            with self.subTest(line=line + 1):
+                form = self.resolve(source, line)
+                self.assertEqual((form.start_line, form.end_line), (0, 2))
+
+    def test_a_multi_line_call_resolves_whole(self):
+        form = self.resolve("print('hello ' +\n      'world')\n", 1)
+        self.assertEqual((form.start_line, form.end_line), (0, 1))
+
+    def test_a_multi_line_dict_literal_resolves_whole(self):
+        source = "dtypes = {\n    'a': int,\n    'b': str,\n}\n"
+        for line in range(4):
+            with self.subTest(line=line + 1):
+                form = self.resolve(source, line)
+                self.assertEqual(form.display, "dtypes")
+                self.assertEqual((form.start_line, form.end_line), (0, 3))
 
 
 class TheTourFile(unittest.TestCase):

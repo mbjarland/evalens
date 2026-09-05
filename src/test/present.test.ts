@@ -1,12 +1,27 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { EvalResponse } from '../kernel/protocol';
-import { describeLoad, describeRun, present } from '../render/present';
+import { EvalResponse, PartialParse } from '../kernel/protocol';
+import {
+  describeLoad, describeRun, partialCause, present,
+} from '../render/present';
 
 const range = {
   start: { line: 3, character: 0 },
   end: { line: 3, character: 15 },
+};
+
+/** A file whose line 19 did not parse, as the kernel reports it. */
+const partial: PartialParse = {
+  truncated_at: 18,
+  error: {
+    type: 'SyntaxError',
+    message: 'unterminated string literal (detected at line 19)',
+    traceback: 'SyntaxError: unterminated string literal\n',
+  },
+  range: {
+    start: { line: 18, character: 4 }, end: { line: 18, character: 4 },
+  },
 };
 
 test('a value is presented at the range the kernel evaluated', () => {
@@ -282,6 +297,103 @@ test('a failure inside a selection is reported the way a load reports one', () =
 test('a selection with no complete statement in it is not an error', () => {
   // Selecting a comment. The same answer a blank line under the cursor gets,
   // and said in the same place rather than in an error box.
+  assert.equal(describeRun(0, 0, 0, false),
+    'Evalens: nothing to run in the selection');
+});
+
+test('a value from a reduced context keeps the caveat with it', () => {
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: '42', display: 'answer',
+    kind: 'Assign', range, stdout: '', stderr: '', partial,
+  };
+  const result = present(response, 3) as { partial?: PartialParse };
+  assert.equal(result.partial?.truncated_at, 18);
+});
+
+test('the hover of a partial value says what was left out', () => {
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: '42', display: 'answer',
+    kind: 'Assign', range, stdout: '', stderr: '', partial,
+  };
+  const result = present(response, 3) as { hover: string };
+  assert.match(result.hover, /evaluated without line 19 onwards/);
+  assert.match(result.hover, /unterminated string literal/);
+});
+
+test('a failure under a reduced context carries the caveat as well', () => {
+  // The lines left out are the likeliest reason the name is not defined.
+  const response: EvalResponse = {
+    id: 1, ok: false, range, partial,
+    error: {
+      type: 'NameError', message: "name 'helper' is not defined",
+      traceback: '',
+    },
+  };
+  const result = present(response, 3) as { partial?: PartialParse };
+  assert.equal(result.partial?.truncated_at, 18);
+});
+
+test('a response that parsed whole says nothing about a partial one', () => {
+  // Absence is the signal, so it has to be genuinely absent.
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: '42', display: 'answer',
+    kind: 'Assign', range, stdout: '', stderr: '',
+  };
+  const result = present(response, 3) as { partial?: PartialParse };
+  assert.equal(result.partial, undefined);
+});
+
+test('the break is presented at the line that caused it', () => {
+  // The half of the complaint that cost the most: a break on line 19 used to
+  // surface as a failed evaluation on line 1, which sends the reader to the
+  // wrong end of the file with a message about a line they were not looking
+  // at.
+  const cause = partialCause(partial);
+  assert.equal(cause.kind, 'error');
+  assert.equal(cause.range.start.line, 18);
+  assert.equal(cause.type, 'SyntaxError');
+  assert.equal(cause.hover, 'SyntaxError: unterminated string literal\n');
+});
+
+test('a partial load says the count is a count of the part that parsed', () => {
+  // "loaded 18 statements" on a file with 30 in it is true and reads as
+  // complete.
+  assert.equal(describeLoad(18, 18, 0, 18),
+    'Evalens: loaded 18 statements; line 19 onwards did not parse');
+  assert.equal(describeLoad(16, 18, 2, 18),
+    'Evalens: loaded 16 of 18 statements, 2 failed;'
+    + ' line 19 onwards did not parse');
+});
+
+test('a load of a file that parsed whole says nothing extra', () => {
+  assert.equal(describeLoad(18, 18, 0), 'Evalens: loaded 18 statements');
+});
+
+test('a partial run says the count is a count of the part that parsed', () => {
+  // #14 gave the caveat to `describeLoad` alone, because a selection did not
+  // exist yet. Running a selection in a broken file is the same sentence
+  // about a smaller thing, and leaving it out would make a narrowed run the
+  // one command that quietly drops the reason its count is short.
+  assert.equal(describeRun(3, 3, 0, false, 18),
+    'Evalens: ran 3 statements; line 19 onwards did not parse');
+  assert.equal(describeRun(2, 3, 1, true, 18),
+    'Evalens: ran 2 of 3 statements, 1 failed, widened to whole statements;'
+    + ' line 19 onwards did not parse');
+});
+
+test('a selection below the break says why nothing ran', () => {
+  // The composition case that matters most. "nothing to run in the selection"
+  // on its own reads as "you selected comments", and the user selected code:
+  // it is below the line the file stops parsing at, so it is not in the tree
+  // and cannot run. Without the reason, the extension looks broken again --
+  // which is the complaint #14 was filed about.
+  assert.equal(describeRun(0, 0, 0, false, 18),
+    'Evalens: nothing to run in the selection; line 19 onwards did not parse');
+});
+
+test('a run over a file that parsed whole says nothing extra', () => {
+  // Absence is the signal here too, so it has to stay genuinely absent.
+  assert.equal(describeRun(3, 3, 0, false), 'Evalens: ran 3 statements');
   assert.equal(describeRun(0, 0, 0, false),
     'Evalens: nothing to run in the selection');
 });

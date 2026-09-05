@@ -33,12 +33,19 @@ is 1-based for `lineno`, and the conversion happens here rather than in the
 renderer -- an off-by-one next to the parser is much cheaper to find than one
 three layers away.
 
+A file that does not parse is still mostly a file, and `parse_prefix` is what
+keeps one broken line from making every line unevaluable. It answers from as
+much of the buffer as parses on its own, and says how much that was, because a
+value computed without the rest of the file is not the same claim as one
+computed with it.
+
 Requires Python 3.9 or later, for `ast.unparse`.
 """
 
 from __future__ import annotations
 
 import ast
+import re
 from dataclasses import dataclass
 from typing import List, Optional, Set, Tuple, Union
 
@@ -568,3 +575,142 @@ def forms_in(tree: ast.Module,
                 continue
         forms.append(form_of(node, first_in_body=index == 0))
     return forms
+
+
+@dataclass(frozen=True)
+class Parsed:
+    """A parse of the buffer, and an honest account of how much it covers.
+
+    `truncated_at` is `None` for the ordinary case -- the whole file parsed,
+    and every answer drawn from this tree was computed with the file's full
+    context. Otherwise it is the 0-based line where the part that does not
+    parse begins, and `error` is why. Both travel together because a value
+    computed without the rest of the file is not the same claim as one
+    computed with it, and the caller has to be able to say so.
+    """
+
+    tree: ast.Module
+    truncated_at: Optional[int] = None
+    error: Optional[SyntaxError] = None
+
+
+#: Keywords that continue a compound statement someone already opened.
+#:
+#: They sit at the same indentation as the `if`, `for` or `try` they belong to,
+#: which makes them the one kind of line that starts flush left and is still
+#: the middle of a statement. Cutting the file at an `else:` leaves an `if`
+#: that parses perfectly and *does something different* -- it silently drops
+#: the branch the reader can see two lines below the cursor. That is the
+#: failure this whole module refuses: an answer to a question nobody asked is
+#: worse than no answer.
+_CONTINUES_A_CLAUSE = re.compile(r"^(?:else|elif|except|finally)\b")
+
+#: How many cuts are worth trying before giving up and reporting the error.
+#:
+#: Each attempt is guided by the position of the error it just hit, so it takes
+#: a file broken in a new place every time to use these up -- and a file broken
+#: in ten separate places is not one with a half-typed line at the bottom. At
+#: that point "the part of the file that is fine" has stopped being a useful
+#: idea and the honest answer is the syntax error.
+_MAX_ATTEMPTS = 10
+
+
+def cut_points(lines: List[str]) -> List[int]:
+    """Line indices where the file may be cut without splitting a statement.
+
+    A cut keeps `lines[:k]` and drops the rest, so `k` names the first dropped
+    line, and the question is whether that line is the start of a statement or
+    the middle of one.
+
+    Two conditions, and between them they are exhaustive:
+
+    **The line starts flush left.** Everything indented is inside a body, and
+    cutting into a body leaves a `for` or a `def` running fewer statements than
+    the one the user is looking at.
+
+    **The line does not continue a clause** -- see `_CONTINUES_A_CLAUSE`.
+
+    Nothing else needs checking, and the reason is worth stating because the
+    list looks too short. Every other way a statement spans lines -- an open
+    bracket, a triple-quoted string, a backslash continuation, a decorator
+    waiting for its `def` -- leaves the *prefix* unparseable when it is cut
+    through. The caller parses each candidate, so those disqualify themselves;
+    only indentation and the clause keywords can produce a prefix that parses
+    and means something else.
+
+    Blank lines and comments are not candidates, which costs nothing: cutting
+    above them and cutting below them produce the same tree.
+    """
+    points = []
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if line[:1].isspace():
+            continue
+        if _CONTINUES_A_CLAUSE.match(stripped):
+            continue
+        points.append(index)
+    return points
+
+
+def parse_prefix(source: str, filename: str = "<evalens>") -> Parsed:
+    """Parse `source`, or as much of it from the top as parses on its own.
+
+    `ast` is all-or-nothing, so one half-typed line makes a whole file
+    unevaluable -- and a half-typed line is exactly what a file being explored
+    in has, because that is why anyone is evaluating anything. The recovery is
+    to drop trailing lines until what is left parses.
+
+    **From the end, and never around the cursor.** The tempting alternative is
+    a window that shrinks towards the cursor until it parses, and it retreats
+    into precisely the constructs that defeat parsing in the first place:
+    compound statement headers, backslash continuations, a bracketed pandas
+    chain, a dict literal spanning a dozen lines. Microsoft enumerated that
+    list from the other direction in vscode-jupyter#1471 and answered it by
+    parsing rather than guessing. The dangerous half is not the window that
+    fails to parse -- it is the window that parses into something valid that
+    means something else, because that produces an answer instead of an error.
+    Truncating from the end cannot cut through a construct the cursor is
+    inside, and it handles the case the complaint is actually about: the
+    broken line is the one being typed.
+
+    Raises the original `SyntaxError` when nothing survives, so a genuinely
+    broken file reports the error it always did.
+    """
+    try:
+        return Parsed(ast.parse(source, filename=filename))
+    except SyntaxError as first:
+        original = first
+
+    # `split`, not `splitlines`: the latter breaks on form feeds and a handful
+    # of Unicode separators that Python's own tokenizer treats as ordinary
+    # whitespace. A file with a form feed in it would renumber every line
+    # below, and every position this module reports is a line number.
+    lines = source.split("\n")
+    points = cut_points(lines)
+    error: SyntaxError = original
+
+    for _ in range(_MAX_ATTEMPTS):
+        # The parser says where it gave up, so the largest cut worth trying is
+        # the last statement start at or above that line. Following the error
+        # rather than stepping down one candidate at a time is what keeps this
+        # from re-parsing a long file once per statement -- and it is what
+        # makes the loop terminate: a failed attempt can only fail inside the
+        # prefix it just cut, so the next limit is strictly smaller than this
+        # cut, and the next cut strictly smaller again.
+        limit = (error.lineno or 1) - 1
+        candidates = [k for k in points if k <= limit]
+        if not candidates or candidates[-1] == 0:
+            # Nothing above the break, so there is no reduced context to answer
+            # from -- only the error, which is what the user needs to see.
+            raise original
+        cut = candidates[-1]
+        try:
+            tree = ast.parse("\n".join(lines[:cut]) + "\n", filename=filename)
+        except SyntaxError as again:
+            error = again
+            continue
+        return Parsed(tree, truncated_at=cut, error=original)
+
+    raise original

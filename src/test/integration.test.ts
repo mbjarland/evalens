@@ -12,9 +12,12 @@ import {
   StatementOutcome,
 } from '../kernel/protocol';
 import {
-  errorText, hasOutput, printedFrom, restatesLine, resultText,
+  GAP, errorText, hasOutput, partialNote, preserveSpacing, printedFrom,
+  restatesLine, resultText,
 } from '../render/format';
-import { describeRun, present } from '../render/present';
+import {
+  describeLoad, describeRun, partialCause, present,
+} from '../render/present';
 import { PaintedAbove } from '../render/repeats';
 import { markDependents } from '../render/registry';
 import { LineRange, selectedLines, widenedBeyond } from '../selection';
@@ -1421,3 +1424,209 @@ test('the advance walk visits every top-level statement of the tour', async (t) 
     nextStop(outlined.statements, last.range.start.line, (line) => lines[line]!),
     { kind: 'end' });
 });
+
+test('a broken last line does not make the whole file unevaluable', async (t) => {
+  // The complaint, end to end. `ast` is all-or-nothing, so one half-typed
+  // line used to take the file down with it -- at exactly the moment a file
+  // is half-written, which is why anyone was evaluating anything.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'a = 1\nb = 2\ntotal = a + b\ns = "half-typ\n';
+  // Every one of these used to answer with a complaint about line 4.
+  await evaluate(client, source, 0);
+  await evaluate(client, source, 1);
+  const result = await evaluate(client, source, 2) as Evaluated;
+
+  assert.equal(result.ok, true, 'line 3 is perfectly valid Python');
+  assert.equal(result.value, '3');
+  assert.equal(result.partial?.truncated_at, 3);
+});
+
+test('a partial answer says so on the line it paints', async (t) => {
+  // "Which mode answered" all the way to the string the user reads. A value
+  // computed without the rest of the file is a weaker claim, and the two must
+  // not paint identically.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'total = 1 + 2\ns = "half-typ\n';
+  const response = await evaluate(client, source, 0);
+  const shown = present(response, 0) as {
+    kind: string; value: string; display: string;
+    partial?: { truncated_at: number };
+  };
+
+  assert.equal(shown.kind, 'value');
+  // Compared against `preserveSpacing`, because what reaches `contentText`
+  // has non-breaking spaces in it -- VS Code eats the ordinary kind.
+  assert.equal(
+    resultText(shown.value, shown.display, null, undefined, undefined,
+      undefined, 0, shown.partial?.truncated_at),
+    preserveSpacing(`total: 3${GAP}${partialNote(1)}`));
+});
+
+test('the break is painted on the line that broke, not on the cursor', async (t) => {
+  // The other half of the ticket, and arguably the more valuable one: the
+  // cause belongs where the eye goes and where the fix is typed.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'a = 1\nb = 2\nc = 3\ns = "half-typ\n';
+  const response = await evaluate(client, source, 0) as Evaluated;
+  const cause = partialCause(response.partial!);
+
+  assert.equal(cause.range.start.line, 3, 'the break is on line 4, not line 1');
+  assert.equal(cause.type, 'SyntaxError');
+  assert.match(errorText(cause.type, cause.message), /SyntaxError/);
+});
+
+test('a syntax error under the cursor still reports normally', async (t) => {
+  // The fallback is for a break somewhere else. A broken statement where you
+  // are pointing is a real answer, and answering it from a truncated file
+  // would be answering a question nobody asked.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'a = 1\nb = 2\ns = "half-typ\n';
+  const response = await evaluate(client, source, 2) as Failed;
+
+  assert.equal(response.ok, false);
+  assert.equal(response.error.type, 'SyntaxError');
+  assert.equal(response.partial, undefined,
+    'nothing was answered from a reduced context, so nothing to caveat');
+
+  const shown = present(response, 2) as { kind: string; range: { start: { line: number } } };
+  assert.equal(shown.kind, 'error');
+  assert.equal(shown.range.start.line, 2);
+});
+
+test('a load takes the part of the file that parses', async (t) => {
+  // #25 settled that a broken line must not stop a load. A line that does not
+  // parse is the same argument one step earlier.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'a = 1\nb = 2\nc = a + b\nd = broken(\n';
+  const loaded = await client.request({
+    op: 'eval_file', allow_stdin: false, source,
+    filename: '/tmp/evalens-halftyped.py',
+  }) as FileLoaded;
+
+  assert.equal(loaded.ok, true, 'a half-typed line is not a broken load');
+  assert.equal(loaded.ran, 3);
+  assert.equal(loaded.partial?.truncated_at, 3);
+  assert.equal(
+    describeLoad(loaded.ran, loaded.statements, 0, loaded.partial?.truncated_at),
+    'Evalens: loaded 3 statements; line 4 onwards did not parse');
+
+  // The bindings really are in the namespace, which is what loading is for.
+  const c = await evaluate(client, source, 2) as Evaluated;
+  assert.equal(c.value, '3');
+});
+
+test('the tour file still parses whole and answers with no caveat', async (t) => {
+  // The fixture the demo is recorded from, driven over a real pipe. A
+  // fallback that engaged on a file that parses would put "(partial)" on
+  // every annotation in the demo.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const tour = path.resolve(__dirname, '..', '..', 'examples', 'tour.py');
+  const source = fs.readFileSync(tour, 'utf8');
+
+  const loaded = await client.request({
+    op: 'eval_file', allow_stdin: false, source, filename: tour,
+  }) as FileLoaded;
+
+  assert.equal(loaded.ok, true);
+  assert.equal(loaded.partial, undefined, 'the tour must parse whole');
+  // The tour carries a deliberate NameError; what must not happen is a
+  // truncation, which would silently drop everything below it.
+  assert.equal(loaded.statements, loaded.results.length);
+  assert.ok(loaded.ran > 40, `only ${loaded.ran} statements ran`);
+});
+
+/**
+ * 0: docstring  1: a  2-4: def f  5: c  6: "hello"  7: d
+ * 8: the half-typed line, and 9-10 below it looking perfectly runnable.
+ */
+const BROKEN_SELECTABLE = '"""doc"""\na = 1\ndef f(x):\n    y = x + 1\n'
+  + '    return y\nc = f(1)\n"hello"\nd = 2\ns = "half-typ\nt = 3\nu = 4\n';
+
+test('a selection below the break runs nothing and says why', async (t) => {
+  // The composition neither ticket anticipated, over a real pipe. Eight
+  // statements parsed and are sitting above this selection; the user pointed
+  // at lines 10-11; not one of the eight may run. Falling back to the prefix
+  // is the failure mode both features exist to prevent, and it is the
+  // tempting mistake here because there is something runnable right there.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const ran = await load(client, BROKEN_SELECTABLE,
+    { start_line: 9, end_line: 10 }, '/tmp/evalens-broken-selection.py');
+
+  assert.equal(ran.ok, true, 'nothing to run is an outcome, not an error');
+  assert.equal(ran.statements, 0);
+  assert.equal(ran.ran, 0);
+  assert.equal(ran.range, undefined, 'nothing ran, so nothing to report a span for');
+  assert.equal(ran.partial?.truncated_at, 8);
+  assert.equal(
+    describeRun(ran.ran, ran.statements, 0, false, ran.partial?.truncated_at),
+    'Evalens: nothing to run in the selection; line 9 onwards did not parse');
+  assert.equal(
+    (await evaluate(client, 'a\n', 0) as Failed).error.type, 'NameError',
+    'the prefix must not have run in the selection\'s place');
+});
+
+test('a selection spanning the break runs the part above it', async (t) => {
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const ran = await load(client, BROKEN_SELECTABLE,
+    { start_line: 7, end_line: 8 }, '/tmp/evalens-broken-selection.py');
+
+  assert.equal(ran.ran, 1, 'only `d = 2`; the half-typed line is not a statement');
+  assert.equal((await evaluate(client, 'd\n', 0) as Evaluated).value, '2');
+  assert.equal((await evaluate(client, 's\n', 0) as Failed).error.type,
+    'NameError');
+});
+
+test('what ran and where parsing stopped are two facts, both on the wire',
+  async (t) => {
+    // The run ended on line 8 because that is where the last selected
+    // statement ended; parsing stopped on line 9 because that is where the
+    // file broke. Neither number can be derived from the other, so both
+    // travel and the extension paints two different things with them.
+    const client = connect();
+    t.after(() => client.dispose());
+
+    const ran = await load(client, BROKEN_SELECTABLE,
+      { start_line: 7, end_line: 8 }, '/tmp/evalens-broken-selection.py');
+
+    assert.equal(ran.range?.end.line, 7);
+    assert.equal(ran.partial?.truncated_at, 8);
+    assert.equal(partialCause(ran.partial!).range.start.line, 8,
+      'the red annotation goes on the break, not on the end of the run');
+  });
+
+test('a selection still snaps outward inside a file that does not parse',
+  async (t) => {
+    // Lines 4-5 are the body of `f`. Truncating the file did not cost the
+    // selection its statement boundaries, because the narrowing is applied to
+    // the tree the prefix produced rather than to the text.
+    const client = connect();
+    t.after(() => client.dispose());
+
+    const selection = {
+      start: { line: 3, character: 4 }, end: { line: 4, character: 12 },
+    };
+    const ran = await load(client, BROKEN_SELECTABLE, selectedLines(selection),
+      '/tmp/evalens-broken-selection.py');
+
+    assert.equal(ran.ran, 1);
+    assert.deepEqual(ran.range?.start, { line: 2, character: 0 },
+      'the run reached back to the `def` line');
+    assert.equal(widenedBeyond(ran.range!, selection), true);
+    assert.equal((await evaluate(client, 'f\n', 0) as Evaluated).display, 'f');
+  });

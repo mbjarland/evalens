@@ -302,7 +302,10 @@ class Failures(KernelTest):
         self.assertIn("repr() raised RuntimeError", result["value"])
 
     def test_a_syntax_error_reports_its_position(self):
-        result = self.k.evaluate("a = 1\ndef (\n", 0)
+        # The cursor is on the broken line, which is the case the fallback in
+        # `parse_prefix` deliberately does not touch: a broken statement where
+        # you are pointing is a real answer.
+        result = self.k.evaluate("a = 1\ndef (\n", 1)
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["type"], "SyntaxError")
         self.assertEqual(result["range"]["start"]["line"], 1)
@@ -762,9 +765,12 @@ class LoadFile(KernelTest):
             [r["stdout"] for r in result["results"]], ["first\n", "second\n"])
 
     def test_a_syntax_error_is_reported_with_its_position(self):
-        result = self.load("a = 1\ndef (\n")
+        # Nothing above the break, so there is no prefix to load and the error
+        # is the whole answer.
+        result = self.load("def (\na = 1\n")
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["type"], "SyntaxError")
+        self.assertEqual(result["range"]["start"]["line"], 0)
 
     def test_loading_an_empty_file_is_not_an_error(self):
         result = self.load("")
@@ -976,6 +982,259 @@ class Outline(KernelTest):
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["type"], "SyntaxError")
         self.assertEqual(result["range"]["start"]["line"], 1)
+
+
+class BrokenElsewhere(KernelTest):
+    """A syntax error somewhere else does not make every line unevaluable.
+
+    `ast` is all-or-nothing, so before this the whole file went dark the moment
+    one line went half-typed -- which is precisely the state a file is in while
+    someone is evaluating things in it. The kernel now answers from as much of
+    the buffer as parses, says so, and reports the break on the line that
+    caused it.
+    """
+
+    #: A file whose last line is being typed. Twelve good statements, then the
+    #: opening quote of a string nobody has finished.
+    SOURCE = "".join(f"x{n} = {n}\n" for n in range(1, 13)) + 's = "half-typ\n'
+    BREAK = 12
+
+    def evaluate(self, line, source=None):
+        return self.k.evaluate(
+            self.SOURCE if source is None else source, line,
+            filename="/tmp/broken.py")
+
+    def test_a_valid_line_evaluates_with_a_broken_last_line(self):
+        result = self.evaluate(0)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["value"], "1")
+
+    def test_the_answer_says_it_was_computed_without_the_whole_file(self):
+        # A value from a reduced context is a weaker claim than a value from
+        # the whole file, and the two must not paint identically.
+        partial = self.evaluate(0)["partial"]
+        self.assertEqual(partial["truncated_at"], self.BREAK)
+        self.assertEqual(partial["error"]["type"], "SyntaxError")
+
+    def test_the_break_is_reported_where_the_break_is(self):
+        # The half of the complaint that costs the most. The break is reported
+        # at the line that caused it, so the reader is sent to the fix rather
+        # than to whichever line they happened to press a key on.
+        #
+        # Asserted on the reported position, never on the message's wording.
+        # CPython rephrases its syntax errors between releases and only some
+        # years put the line number in the text at all -- 3.9 says "EOL while
+        # scanning string literal" and 3.12 onwards says "unterminated string
+        # literal (detected at line 13)". The position is on the wire either
+        # way, it is what the extension paints with, and it is the actual
+        # subject of this test.
+        result = self.evaluate(0)
+        partial = result["partial"]
+        self.assertEqual(partial["range"]["start"]["line"], self.BREAK)
+        self.assertEqual(partial["range"]["end"]["line"], self.BREAK)
+        # The two accounts of where parsing stopped agree: the range the red
+        # annotation is painted on, and the line the caveat counts from.
+        self.assertEqual(partial["truncated_at"], self.BREAK)
+        # And it lands on the break rather than on the cursor, which is the
+        # whole complaint -- line 1 was evaluated and is not where this points.
+        self.assertNotEqual(
+            partial["range"]["start"]["line"],
+            result["range"]["start"]["line"])
+        # There is still a message to paint, whatever this year's wording is.
+        self.assertTrue(partial["error"]["message"])
+
+    def test_a_line_that_parses_whole_carries_no_caveat_at_all(self):
+        # Absence is the signal, so it has to be genuinely absent: a reader of
+        # the wire must not be able to mistake "full context" for "nobody
+        # filled this in".
+        self.assertNotIn("partial", self.evaluate(0, "a = 1\nb = 2\n"))
+
+    def test_a_syntax_error_under_the_cursor_reports_normally(self):
+        # The fallback is for a break somewhere else. A broken statement where
+        # you are pointing is a real answer, not an obstacle.
+        result = self.evaluate(self.BREAK)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["type"], "SyntaxError")
+        self.assertEqual(result["range"]["start"]["line"], self.BREAK)
+        self.assertNotIn("partial", result)
+
+    def test_a_break_above_the_cursor_reports_rather_than_guesses(self):
+        # Truncating from the end cannot reach past a break to the lines below
+        # it, and inventing a context for them would be answering a question
+        # nobody asked. The error is the honest answer.
+        source = "a = 1\ndef (\nb = 2\n"
+        result = self.evaluate(2, source)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["type"], "SyntaxError")
+
+    def test_the_namespace_still_gets_what_the_line_bound(self):
+        # A partial answer is a real evaluation, not a preview of one.
+        self.evaluate(3)
+        self.assertEqual(self.evaluate(3)["value"], "4")
+
+    def test_a_blank_line_still_reports_the_break(self):
+        # Nothing to evaluate here is not nothing to say: the file is broken,
+        # and that is worth knowing whichever line the cursor is on.
+        source = "a = 1\n\n" + 's = "half-typ\n'
+        result = self.evaluate(1, source)
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["resolved"])
+        self.assertEqual(result["partial"]["truncated_at"], 2)
+
+    def test_a_load_takes_the_part_that_parses(self):
+        # #25 settled that a broken line must not stop a load. A line that does
+        # not parse is the same argument one step earlier, and refusing the
+        # whole file over a half-typed line at the bottom is how the command
+        # that sets up a session comes to need the session already set up.
+        result = self.k.send(op="eval_file", source=self.SOURCE,
+                             filename="/tmp/broken.py")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["statements"], self.BREAK)
+        self.assertEqual(result["ran"], self.BREAK)
+        self.assertEqual(result["partial"]["truncated_at"], self.BREAK)
+        # The bindings are really there, which is the whole point of loading.
+        self.assertEqual(self.k.evaluate("x12\n", 0)["value"], "12")
+
+    def test_a_load_of_a_file_that_parses_carries_no_caveat(self):
+        result = self.k.send(op="eval_file", source="a = 1\nb = 2\n",
+                             filename="/tmp/fine.py")
+        self.assertNotIn("partial", result)
+
+    def test_a_definition_below_the_break_is_simply_not_there(self):
+        # The honest consequence of a reduced context, and the reason it has to
+        # be visible: the failure looks like a typo and is not one.
+        source = "a = 1\ndef helper():\n    return 2\nb = helper(\n"
+        result = self.evaluate(0, source)
+        self.assertEqual(result["partial"]["truncated_at"], 3)
+        after = self.evaluate(1, source)
+        self.assertTrue(after["ok"], after)
+        self.assertEqual(after["display"], "helper")
+
+
+class SelectionInABrokenFile(KernelTest):
+    """A selection evaluated in a file that does not parse.
+
+    Neither the narrowing nor the fallback anticipated the other, and the order
+    they compose in is not a preference. Narrowing snaps outward to statement
+    boundaries; boundaries only exist inside a tree; for a broken file only
+    `parse_prefix` produces one. So the file is parsed first and the selection
+    is applied *inside what parsed*, and every case below is a consequence of
+    that rather than a rule written separately.
+
+    The consequence to be most careful about is the empty one. A selection
+    lying below the break matches nothing, and the tempting repair -- run the
+    prefix, there is something runnable right there -- is the exact failure
+    both features exist to prevent: executing code the user did not select.
+    """
+
+    #: 0: docstring  1: a  2-4: def f  5: c  6: "hello"  7: d
+    #: 8: the half-typed line, and 9-10 below it looking perfectly runnable.
+    SOURCE = ('"""Module docstring."""\n'
+              "a = 1\n"
+              "def f(x):\n"
+              "    y = x + 1\n"
+              "    return y\n"
+              "c = f(1)\n"
+              '"hello"\n'
+              "d = 2\n"
+              's = "half-typ\n'
+              "t = 3\n"
+              "u = 4\n")
+    BREAK = 8
+
+    def load(self, start=None, end=None, source=None):
+        request = {"op": "eval_file",
+                   "source": self.SOURCE if source is None else source,
+                   "filename": "/tmp/broken.py"}
+        if start is not None:
+            request["start_line"] = start
+        if end is not None:
+            request["end_line"] = end
+        return self.k.send(**request)
+
+    def bound(self, name):
+        """What the namespace holds for `name`, or the error type instead."""
+        result = self.k.evaluate(name + "\n", 0)
+        return result["value"] if result["ok"] else result["error"]["type"]
+
+    def test_a_selection_above_the_break_runs_and_says_it_was_narrowed(self):
+        result = self.load(1, 1)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual((result["statements"], result["ran"]), (1, 1))
+        self.assertEqual(self.bound("a"), "1")
+        self.assertEqual(result["partial"]["truncated_at"], self.BREAK)
+
+    def test_a_selection_below_the_break_runs_nothing(self):
+        # The whole composition in one assertion. There are eight parsed
+        # statements sitting above this selection and not one of them may run:
+        # the user pointed at lines 10-11, and code they did not point at is
+        # what both the narrowing and the fallback exist to refuse.
+        result = self.load(9, 10)
+        self.assertTrue(result["ok"], "nothing to run is an outcome")
+        self.assertEqual((result["statements"], result["ran"]), (0, 0))
+        self.assertEqual(result["results"], [])
+        self.assertEqual(self.bound("a"), "NameError",
+                         "the prefix must not have run instead")
+
+    def test_a_selection_below_the_break_says_why_nothing_ran(self):
+        # Silence here would read as "your selection held only comments". The
+        # reason is the break, and the break is on the wire.
+        result = self.load(9, 10)
+        self.assertEqual(result["partial"]["truncated_at"], self.BREAK)
+        self.assertEqual(result["partial"]["error"]["type"], "SyntaxError")
+        self.assertNotIn("range", result,
+                         "nothing ran, so there is no span that ran")
+
+    def test_a_selection_spanning_the_break_runs_the_part_above_it(self):
+        # Lines 8-9 are `d = 2` and the half-typed line. The first is a whole
+        # statement in the prefix and runs; the second is not in the tree at
+        # all and cannot.
+        result = self.load(7, 8)
+        self.assertEqual((result["statements"], result["ran"]), (1, 1))
+        self.assertEqual(self.bound("d"), "2")
+        self.assertEqual(self.bound("s"), "NameError")
+
+    def test_what_ran_and_where_parsing_stopped_are_separate_facts(self):
+        # Two different numbers about two different things, and neither can be
+        # computed from the other: the run ended at line 7 because that is
+        # where the last selected statement ended, and parsing stopped at line
+        # 8 because that is where the file broke.
+        result = self.load(7, 8)
+        self.assertEqual(result["range"]["end"]["line"], 7)
+        self.assertEqual(result["partial"]["truncated_at"], self.BREAK)
+
+    def test_the_snap_outward_still_works_inside_the_prefix(self):
+        # Lines 4-5 are the body of `f`. Truncating the file did not cost the
+        # selection its statement boundaries, because it is applied to the
+        # tree rather than to the text.
+        result = self.load(3, 4)
+        self.assertEqual(result["ran"], 1)
+        self.assertEqual(result["range"]["start"], {"line": 2, "character": 0})
+        # `def f(x)` rather than `f(x)`: a description leads with Python's own
+        # keyword, which is the part a bare signature cannot say.
+        self.assertEqual(self.bound("f"), "def f(x)")
+
+    def test_a_selected_string_in_a_broken_file_is_not_a_docstring(self):
+        # `first_in_body` is decided against the module body, and the module
+        # body is the prefix's -- which still starts with the real docstring on
+        # line 0, so the string on line 6 is a value like any other.
+        result = self.load(6, 6)
+        self.assertEqual(result["results"][0]["value"], "'hello'")
+
+    def test_a_half_stated_range_in_a_broken_file_still_runs_nothing(self):
+        # Two ways of arriving at "run nothing" at once. Neither may be
+        # answered by falling back to the part that happens to be runnable.
+        result = self.load(start=0)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["statements"], 0)
+        self.assertEqual(result["partial"]["truncated_at"], self.BREAK)
+        self.assertEqual(self.bound("a"), "NameError")
+
+    def test_a_selection_in_a_file_that_parses_says_nothing_about_partial(self):
+        # Absence is the signal, and narrowing must not manufacture one.
+        result = self.load(0, 0, source="a = 1\nb = 2\n")
+        self.assertNotIn("partial", result)
+        self.assertEqual(result["ran"], 1)
 
 
 class Descriptions(KernelTest):

@@ -302,6 +302,31 @@ Well-documented, well-trodden.
   it down — reflowing the column of values the reader is in the middle
   of. `WebviewEditorInset` is the right shape and is not in the stable
   API.
+- **A file that does not parse.** `ast` is all-or-nothing, so one
+  half-typed line makes every line in the file unevaluable — and a
+  half-typed line is what a file being explored in *has*, because that is
+  why anyone is evaluating anything. The recovery is to drop trailing
+  lines until what is left parses, and answer from that.
+
+  **From the end, and never around the cursor.** The tempting alternative
+  is a window that shrinks towards the cursor until it parses, and it
+  retreats into precisely the constructs that defeat parsing in the first
+  place: compound statement headers, backslash continuations, a bracketed
+  method chain, a dict literal spanning a dozen lines. Microsoft
+  enumerated that list from the other direction in vscode-jupyter#1471 and
+  answered it by parsing rather than guessing. The dangerous outcome is
+  not the window that fails to parse — it is the window that parses into
+  something valid meaning something *else*, because that produces an
+  answer instead of an error. Truncating from the end cannot cut through a
+  construct the cursor is inside, and it handles the case the complaint is
+  actually about: the broken line is the one being typed.
+
+  Two things follow and are not optional. A value computed without the
+  rest of the file is a weaker claim than one computed with it, so the
+  annotation says so. And the break is reported on the line that broke,
+  not on whichever line the cursor happened to be on — a message about
+  line 19 delivered beside line 1 sends the reader to the wrong end of the
+  file.
 - **Value formatting.** Truncation limits, nesting depth, hover-for-full,
   and sensible `repr()` handling of large or cyclic structures.
 - **Decoration lifecycle.** Reposition annotations as the document
