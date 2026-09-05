@@ -37,6 +37,16 @@ its target ran through rather than only the value it stopped on::
 already among them, and ``count`` is how many there were. The extension turns
 the three into one line; see ``loops`` for why the shape is bounded.
 
+A compound statement -- a ``def``, a loop, an ``if`` -- answers with an
+``anchor``, the line its value belongs beside::
+
+    <- {..., "display":"greet", "kind":"FunctionDef", "anchor":3,
+        "range":{"start":{"line":3,...},"end":{"line":4,...}}}
+
+``range`` still covers the whole statement, because that is what shows how
+much code ran; ``anchor`` is where the answer is written. The field is absent
+whenever the two agree, which is every statement that is not compound.
+
 Coordinates are VS Code's: 0-based line, 0-based character.
 
 Ops: ``ping``, ``reset``, ``eval``, ``eval_file``. ``eval_above`` is reserved
@@ -326,6 +336,19 @@ def _range_of(form: Form) -> Dict[str, Dict[str, int]]:
     }
 
 
+def _anchor_of(form: Form) -> Dict[str, Any]:
+    """The `anchor` field, present only when it is not the end of the range.
+
+    A compound statement's value belongs beside the line that introduces it,
+    not beside the last line of its body, so the annotation and the region
+    highlight stop sharing one position. Everything else anchors where it
+    always did, and says nothing extra on the wire to say so.
+    """
+    if form.anchor_line == form.end_line:
+        return {}
+    return {"anchor": form.anchor_line}
+
+
 def _error(exc: BaseException, tb_skip: int = 0) -> Dict[str, Any]:
     """Format an exception for the wire, without the kernel's own frames.
 
@@ -544,6 +567,7 @@ class Kernel:
                     "error": _error(exc, tb_skip=1),
                     "kind": form.kind,
                     "range": _range_of(form),
+                    **_anchor_of(form),
                     "stdout": out.getvalue(),
                     "stderr": err.getvalue(),
                 }
@@ -555,6 +579,7 @@ class Kernel:
             "display": form.display,
             "kind": form.kind,
             "range": _range_of(form),
+            **_anchor_of(form),
             "stdout": out.getvalue(),
             "stderr": err.getvalue(),
         }

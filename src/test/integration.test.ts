@@ -150,6 +150,36 @@ test('re-evaluating a def paints the same thing every time', async (t) => {
   assert.notEqual(hovers[0], hovers[1]);
 });
 
+test('a def is painted on the def line, not beside its return', async (t) => {
+  // `greet: <function greet>` next to `return f"hello {name}"` says the
+  // return statement produced a function. The region highlight still covers
+  // the whole definition, which is what shows how much code ran.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'def greet(name):\n    return f"hello {name}"\n';
+  const shown = present(await evaluate(client, source, 1), 1) as {
+    anchor?: number; range: { end: { line: number } };
+  };
+
+  assert.equal(shown.anchor, 0, 'the value belongs on the `def` line');
+  assert.equal(shown.range.end.line, 1, 'the region still covers the body');
+});
+
+test('a loop is painted on its header, not beside its last body line', async (t) => {
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'squares = [1, 4, 9, 16]\nfor p in squares:\n    print(p)\n';
+  await evaluate(client, source, 0);
+  const shown = present(await evaluate(client, source, 1), 1) as {
+    anchor?: number; range: { end: { line: number } };
+  };
+
+  assert.equal(shown.anchor, 1, '`p: 16` beside `print(p)` says print returned 16');
+  assert.equal(shown.range.end.line, 2);
+});
+
 test('an undefined name paints as an error, not as a crash', async (t) => {
   const client = connect();
   t.after(() => client.dispose());

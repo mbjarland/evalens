@@ -32,6 +32,17 @@ const CHIP = 'none; padding: 0 5px; border-radius: 3px;';
 
 export interface Annotation {
   readonly range: vscode.Range;
+  /**
+   * The line to write the value on, when that is not the end of `range`.
+   *
+   * A compound statement's value belongs beside the line that introduces it --
+   * `def greet(name):`, `for p in squares:` -- and not beside the last line of
+   * its body, which with a twenty-line body is twenty lines from the thing it
+   * describes and inside a folded region is not visible at all. The range is
+   * left covering the whole statement, because that is what the region
+   * highlight uses to show how much code ran.
+   */
+  readonly anchor?: number;
   /** The value's `repr()`, or the error to show in its place. */
   readonly value?: string;
   /** The expression whose value this is, when it names a binding. */
@@ -106,14 +117,15 @@ export class Decorator implements vscode.Disposable {
       // End of the LINE, not end of the statement. Anchoring mid-line would
       // insert the annotation before any trailing comment and shove it
       // right, and there would be no column to align to.
-      const lastLine = editor.document.lineAt(annotation.range.end.line);
-      const at = new vscode.Range(lastLine.range.end, lastLine.range.end);
+      const host = editor.document.lineAt(
+        annotation.anchor ?? annotation.range.end.line);
+      const at = new vscode.Range(host.range.end, host.range.end);
 
       // The gap goes in the margin rather than in the content, so it stays
       // outside the annotation's background. Padding the content instead
       // would render sixty columns of coloured block.
       const gap = alignmentGap(
-        columnWidth(lastLine.text, tabSize), targetColumn, MINIMUM_GAP);
+        columnWidth(host.text, tabSize), targetColumn, MINIMUM_GAP);
       const margin = `0 0 0 ${gap}ch`;
 
       const hoverMessage = annotation.hover

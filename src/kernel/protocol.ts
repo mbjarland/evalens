@@ -91,6 +91,17 @@ export interface Evaluated {
   readonly display: string | null;
   readonly kind: string;
   readonly range: Range;
+  /**
+   * The line the annotation belongs on, when that is not the end of `range`.
+   *
+   * A compound statement's value belongs beside the line that introduces it:
+   * `greet: <function greet>` next to `return f"hello {name}"` reads as a
+   * claim that the return statement produced a function. `range` still covers
+   * the whole statement, because that is what shows how much code ran.
+   * Absent means the two agree, which is every statement that is not
+   * compound.
+   */
+  readonly anchor?: number;
   readonly stdout: string;
   readonly stderr: string;
   /** Present only for a `for` / `async for`. */
@@ -102,6 +113,8 @@ export interface Failed {
   readonly ok: false;
   readonly error: KernelError;
   readonly range?: Range;
+  /** Where the message belongs, when that is not the end of `range`. */
+  readonly anchor?: number;
   readonly kind?: string;
   readonly stdout?: string;
   readonly stderr?: string;
@@ -119,6 +132,7 @@ export type StatementOutcome =
       readonly display: string | null;
       readonly kind: string;
       readonly range: Range;
+      readonly anchor?: number;
       readonly stdout: string;
       readonly stderr: string;
       readonly loop?: LoopTrace;
@@ -128,6 +142,7 @@ export type StatementOutcome =
       readonly error: KernelError;
       readonly kind?: string;
       readonly range?: Range;
+      readonly anchor?: number;
       readonly stdout?: string;
       readonly stderr?: string;
     };

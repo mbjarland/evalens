@@ -15,6 +15,11 @@ export type Presentation =
   | {
       readonly kind: 'value';
       readonly range: Range;
+      /**
+       * The line to paint on, when that is not the end of `range` -- a
+       * compound statement's header.
+       */
+      readonly anchor?: number;
       /** null when the statement ran but has nothing to display. */
       readonly value: string | null;
       /** The expression the value came from, for labelling. */
@@ -26,6 +31,7 @@ export type Presentation =
   | {
       readonly kind: 'error';
       readonly range: Range;
+      readonly anchor?: number;
       readonly type: string;
       readonly message: string;
       readonly hover: string;
@@ -42,6 +48,7 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
       // A protocol-level failure carries no range; anchor it where the user
       // was looking rather than dropping it silently.
       range: response.range ?? atLine(cursorLine),
+      ...(response.anchor === undefined ? {} : { anchor: response.anchor }),
       type: response.error.type,
       message: response.error.message,
       hover: response.error.traceback || response.error.message,
@@ -62,6 +69,7 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
   return {
     kind: 'value',
     range: response.range,
+    ...(response.anchor === undefined ? {} : { anchor: response.anchor }),
     value: response.value,
     display: response.display,
     ...(response.loop === undefined ? {} : { loop: response.loop }),

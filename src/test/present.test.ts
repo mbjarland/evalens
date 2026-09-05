@@ -103,6 +103,34 @@ test('an error with an empty traceback still has something to hover', () => {
     "unknown op 'nonsense'");
 });
 
+test("a compound statement's anchor reaches the presentation", () => {
+  // The range still covers the whole `def`; the anchor is the `def` line.
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: 'greet(name)', display: 'greet',
+    kind: 'FunctionDef', anchor: 3, stdout: '', stderr: '',
+    range: { start: { line: 3, character: 0 }, end: { line: 4, character: 20 } },
+  };
+  assert.equal((present(response, 3) as { anchor?: number }).anchor, 3);
+});
+
+test('a statement with no anchor of its own says nothing about one', () => {
+  // Absent means "the end of the range", which is where results have always
+  // gone; inventing a number here would be a second source of truth.
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: '30', display: 'total',
+    kind: 'Assign', range, stdout: '', stderr: '',
+  };
+  assert.equal((present(response, 3) as { anchor?: number }).anchor, undefined);
+});
+
+test('a failure inside a compound statement keeps its header anchor', () => {
+  const response: EvalResponse = {
+    id: 1, ok: false, anchor: 3, range,
+    error: { type: 'NameError', message: 'nope', traceback: '' },
+  };
+  assert.equal((present(response, 9) as { anchor?: number }).anchor, 3);
+});
+
 test("a loop's sequence reaches the presentation intact", () => {
   const response: EvalResponse = {
     id: 1, ok: true, resolved: true, value: '4', display: 'p',

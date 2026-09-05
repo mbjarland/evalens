@@ -595,6 +595,43 @@ class Loops(KernelTest):
                          ["1", "2", "3"])
 
 
+class Anchors(KernelTest):
+    """Which line the value is written on, over the wire.
+
+    `range` says how much code ran and `anchor` says where the answer goes.
+    They agree for almost everything, which is why the field is absent unless
+    they do not.
+    """
+
+    def test_a_def_answers_with_the_def_line(self):
+        result = self.k.evaluate("def greet(name):\n    return name\n", 0)
+        self.assertEqual(result["anchor"], 0)
+        self.assertEqual(result["range"]["end"]["line"], 1)
+
+    def test_a_loop_answers_with_its_header_line(self):
+        result = self.k.evaluate_lines(
+            "squares = [1, 4]\nfor p in squares:\n    print(p)\n", 0, 1)
+        self.assertEqual(result["anchor"], 1)
+        self.assertEqual(result["range"]["end"]["line"], 2)
+
+    def test_an_ordinary_statement_carries_no_anchor_at_all(self):
+        self.assertNotIn("anchor", self.k.evaluate("x = 1\n", 0))
+        self.assertNotIn(
+            "anchor", self.k.evaluate("t = sum([\n    1,\n    2,\n])\n", 0))
+
+    def test_a_failing_compound_statement_reports_on_its_header_too(self):
+        result = self.k.evaluate("for p in [1]:\n    undefined_name\n", 0)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["anchor"], 0)
+
+    def test_loading_a_file_anchors_each_statement_the_same_way(self):
+        result = self.k.send(op="eval_file",
+                             source="x = 1\nif x:\n    y = 2\n",
+                             filename="/tmp/module.py")
+        self.assertNotIn("anchor", result["results"][0])
+        self.assertEqual(result["results"][1]["anchor"], 1)
+
+
 class Protocol(KernelTest):
     def test_responses_carry_the_request_id(self):
         self.assertEqual(self.k.send(op="ping", id=77)["id"], 77)

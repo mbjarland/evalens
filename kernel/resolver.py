@@ -46,6 +46,35 @@ class Form:
     start_char: int
     end_line: int
     end_char: int
+    #: The line the annotation belongs beside, which is the last line of the
+    #: statement for everything except a compound one. Separate from the range
+    #: on purpose: the range says how much code ran and still covers the whole
+    #: statement, while this says where the answer is written.
+    anchor_line: int
+
+
+#: Statements whose value belongs on the line that introduces them rather than
+#: at the end of the code they contain.
+#:
+#: `def greet(name):` is where `greet` comes into existence and `for p in xs:`
+#: is where `p` is bound, so a value written twenty lines below -- beside the
+#: `return`, or beside the last line of a loop body -- reads as a claim about
+#: that line instead. `greet: <function greet>` next to `return f"hello
+#: {name}"` says the return statement produced a function, and `p: 16` next to
+#: `print(p)` says `print` returned 16.
+#:
+#: Everything else keeps the end-of-statement anchor, because a multi-line
+#: expression genuinely finishes where its value appears:
+#:
+#:     total = sum([
+#:         10,
+#:         20,
+#:     ])                              total: 30
+_HEADER_ANCHORED = (
+    ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
+    ast.For, ast.AsyncFor, ast.While,
+    ast.With, ast.AsyncWith, ast.If, ast.Try,
+)
 
 
 def _first_bound_name(alias: ast.alias) -> str:
@@ -107,6 +136,30 @@ def _start_line(node: ast.stmt) -> int:
     return node.lineno
 
 
+def _anchor_line(node: ast.stmt, end: int) -> int:
+    """The 0-based line the annotation belongs on.
+
+    For a compound statement that is its header: the first line through the
+    end of the introducing clause, which is everything above the body. It is
+    found as the line before the body starts rather than from the header's own
+    sub-expressions, because the clause ends at a `:` that no node's position
+    covers -- a signature wrapped over five lines ends at `):`, and the last
+    argument is a line above it.
+
+    `max` against the statement's own line keeps `if x: pass`, whose body
+    begins on the header line, from anchoring on the line above. The one shape
+    this reads a line low is a comment or blank line as the first thing in a
+    body; the annotation then sits on that instead of on the header, which is
+    still beside the statement rather than at the far end of it.
+
+    The `def` line, not the first decorator: `node.lineno` already points at
+    the `def`, and the decorator line is not where the name appears.
+    """
+    if not isinstance(node, _HEADER_ANCHORED):
+        return end
+    return max(node.lineno, _start_line(node.body[0]) - 1) - 1
+
+
 def form_of(node: ast.stmt) -> Form:
     """Describe a statement: what to run, what to show, and where it is."""
     start = _start_line(node) - 1
@@ -119,6 +172,7 @@ def form_of(node: ast.stmt) -> Form:
         start_char=0 if start < node.lineno - 1 else node.col_offset,
         end_line=end,
         end_char=node.end_col_offset or 0,
+        anchor_line=_anchor_line(node, end),
     )
 
 

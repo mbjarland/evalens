@@ -32,6 +32,7 @@ function annotationFor(outcome: StatementOutcome): Annotation | undefined {
     return outcome.range
       ? {
           range: toVsCodeRange(outcome.range),
+          ...(outcome.anchor === undefined ? {} : { anchor: outcome.anchor }),
           error: { type: outcome.error.type, message: outcome.error.message },
           hover: outcome.error.traceback || outcome.error.message,
         }
@@ -44,6 +45,7 @@ function annotationFor(outcome: StatementOutcome): Annotation | undefined {
   }
   return {
     range: toVsCodeRange(outcome.range),
+    ...(outcome.anchor === undefined ? {} : { anchor: outcome.anchor }),
     ...(outcome.value === null ? {} : { value: outcome.value }),
     display: outcome.display,
     ...(outcome.loop === undefined ? {} : { loop: outcome.loop }),
@@ -170,11 +172,17 @@ export class Evaluator {
       presentation.kind === 'error'
         ? {
             range: toVsCodeRange(presentation.range),
+            ...(presentation.anchor === undefined
+              ? {}
+              : { anchor: presentation.anchor }),
             error: { type: presentation.type, message: presentation.message },
             hover: presentation.hover,
           }
         : {
             range: toVsCodeRange(presentation.range),
+            ...(presentation.anchor === undefined
+              ? {}
+              : { anchor: presentation.anchor }),
             display: presentation.display,
             // A loop that ran zero times has a trace and no value, which is
             // still an answer -- and the only thing that keeps the previous

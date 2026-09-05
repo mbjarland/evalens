@@ -9,6 +9,10 @@ import { AnnotationRegistry, merge, reanchor } from './registry';
  * The shell's whole share of the edit arithmetic: `registry.ts` decides which
  * annotations move and by how much, and cannot build a `vscode.Range` to say
  * so.
+ *
+ * The anchor moves with the range. It is an absolute line, so leaving it
+ * behind would strand a compound statement's value on whatever line ended up
+ * where its header used to be.
  */
 function shifted(annotation: Annotation, lines: number): Annotation {
   return {
@@ -16,6 +20,9 @@ function shifted(annotation: Annotation, lines: number): Annotation {
     range: new vscode.Range(
       annotation.range.start.line + lines, annotation.range.start.character,
       annotation.range.end.line + lines, annotation.range.end.character),
+    ...(annotation.anchor === undefined
+      ? {}
+      : { anchor: annotation.anchor + lines }),
   };
 }
 

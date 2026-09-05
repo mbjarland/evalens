@@ -124,6 +124,69 @@ class Positions(unittest.TestCase):
         self.assertEqual(f.kind, "Assign")
 
 
+class HeaderAnchors(unittest.TestCase):
+    """Where the value is written, as distinct from how much code ran.
+
+    A compound statement annotated its last body line, so `greet: <function
+    greet>` sat beside `return f"hello {name}"` and `p: 16` beside `print(p)`
+    -- both of which read as claims about the wrong line, and the second of
+    which names the one call in the file that returns None.
+    """
+
+    def test_a_def_is_annotated_on_the_def_line(self):
+        f = resolve("def greet(name):\n    return name\n", 0)
+        self.assertEqual(f.end_line, 1, "the region still covers the body")
+        self.assertEqual(f.anchor_line, 0)
+
+    def test_a_loop_is_annotated_on_its_header(self):
+        f = resolve("for p in squares:\n    print(p)\n", 0)
+        self.assertEqual((f.anchor_line, f.end_line), (0, 1))
+
+    def test_every_compound_statement_anchors_on_its_header(self):
+        for src in ("def f():\n    pass\n    pass\n",
+                    "async def f():\n    pass\n    pass\n",
+                    "class C:\n    pass\n    pass\n",
+                    "for i in x:\n    pass\n    pass\n",
+                    "while x:\n    pass\n    pass\n",
+                    "with x as y:\n    pass\n    pass\n",
+                    "if x:\n    pass\n    pass\n",
+                    "try:\n    pass\nexcept Exception:\n    pass\n"):
+            with self.subTest(src=src):
+                f = resolve(src, 0)
+                self.assertEqual(f.anchor_line, 0)
+                self.assertGreater(f.end_line, 0, "the region still covers it")
+
+    def test_everything_else_still_anchors_where_it_ends(self):
+        # A multi-line expression genuinely finishes where its value appears;
+        # the header line alone would be a puzzling place for the answer.
+        f = resolve("total = sum([\n    10,\n    20,\n])\n", 0)
+        self.assertEqual(f.anchor_line, 3)
+        self.assertEqual(f.anchor_line, f.end_line)
+        self.assertEqual(resolve("x = 1\n", 0).anchor_line, 0)
+
+    def test_a_decorated_definition_anchors_on_the_def_not_the_decorator(self):
+        # The decorator line is not where the name appears.
+        f = resolve("@deco\n@more\ndef f():\n    pass\n", 0)
+        self.assertEqual(f.start_line, 0, "the region still covers both")
+        self.assertEqual(f.anchor_line, 2)
+
+    def test_a_wrapped_signature_anchors_on_the_line_that_closes_it(self):
+        # The header runs from `def` to the `):` that ends the clause, and the
+        # value belongs at the end of it rather than in the middle.
+        f = resolve("def f(\n    a,\n    b,\n):\n    return a\n", 0)
+        self.assertEqual(f.anchor_line, 3)
+
+    def test_a_header_and_body_on_one_line_anchor_together(self):
+        # `if x: pass` has no line above the body to fall onto.
+        self.assertEqual(resolve("if x: pass\n", 0).anchor_line, 0)
+
+    def test_a_decorated_first_body_statement_does_not_pull_the_anchor_down(self):
+        # A method's decorator sits above its `def`, so measuring the body
+        # from `lineno` alone would anchor the class on the decorator line.
+        f = resolve("class C:\n    @property\n    def m(self):\n        pass\n", 0)
+        self.assertEqual(f.anchor_line, 0)
+
+
 class TheTourFile(unittest.TestCase):
     """`examples/tour.py` is checked by hand; this keeps it honest.
 
@@ -157,6 +220,16 @@ class TheTourFile(unittest.TestCase):
                 form = form_of(node)
                 self.assertEqual(form.kind, type(node).__name__)
                 self.assertLessEqual(form.start_line, form.end_line)
+
+    def test_every_anchor_in_the_tour_lands_inside_its_own_statement(self):
+        # An anchor outside the range would paint a value beside code the
+        # statement never covered, which is the one thing worse than painting
+        # it in an awkward place.
+        for node in self.tree.body:
+            with self.subTest(line=node.lineno):
+                form = form_of(node)
+                self.assertGreaterEqual(form.anchor_line, form.start_line)
+                self.assertLessEqual(form.anchor_line, form.end_line)
 
     def test_every_statement_resolves_from_its_own_first_line(self):
         for node in self.tree.body:
