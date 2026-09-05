@@ -156,13 +156,38 @@ The names come from the AST — what the statement binds, then what it
 reads — and their values from a plain dictionary lookup in the namespace,
 which cannot run user code and so is safe to do unbidden. Bare names
 only, for that reason: `obj.attr` may be a property with a body. Callables
-and modules are skipped as noise, and the count per line is capped.
+and modules are skipped as noise, and the count per line is capped — with
+the line saying `…+1 more` where the cap bit, since a reader who counts
+five names on the line and four values beside it cannot otherwise tell
+whether the fifth was omitted, unreadable, or somehow not a name.
 
 `=>` survives for a genuine expression that is not a binding, because
 `sum([10, 20]): 30` would repeat the line back at the reader. A produced
 `None` gives way when the line has anything else to show, and stays when
 it does not — `d.get('missing')` on its own really did answer `None`. What
 is suppressed moves to the hover rather than away.
+
+**A pair already shown above is not repeated.** Annotating every statement
+makes repetition, not the annotation, the dominant visual problem: four
+consecutive lines calling methods on one dict each restate it, and the
+file reads as a log rather than as a worked example. So a `name: value`
+pair whose value has not changed since that name was last painted above is
+dropped, and a line left with nothing new carries nothing at all. Three
+parts of that are load-bearing. A **changed** value always appears — it is
+the most interesting thing this can show, and `lst` becoming
+`[1, 2, 3, 4]` above is the example the whole design is built on. The
+comparison is on the **rendered string**, not on object identity: a line
+calling a method may have mutated what it read, and what the reader needs
+to know is whether the shown value changed. And **above means earlier in
+the file**, scrolled into view or not — annotations that appeared and
+vanished as the file scrolled would be worse than the repetition they
+removed.
+
+**An explicit evaluation is exempt from it.** The rule belongs to bulk
+annotation, where nobody is waiting on any particular line. When somebody
+puts the cursor on a line and presses a key, something must visibly
+happen: silence because the value is unchanged and mentioned above is
+indistinguishable from the keypress being ignored.
 
 ### 3. Rendering the overlay
 

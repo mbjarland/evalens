@@ -11,6 +11,7 @@ import {
 } from '../kernel/protocol';
 import { errorText, resultText } from '../render/format';
 import { describeRun, present } from '../render/present';
+import { PaintedAbove } from '../render/repeats';
 import { markDependents } from '../render/registry';
 import { LineRange, selectedLines, widenedBeyond } from '../selection';
 
@@ -114,10 +115,41 @@ async function paint(
     }
     painted.push(
       resultText(shown.value, shown.display, shown.loop, shown.names,
-        shown.bindings)
+        shown.bindings, shown.more)
         .replace(/ /g, ' '));
   }
   return painted;
+}
+
+/**
+ * A file loaded in one keystroke, as the string each statement paints.
+ *
+ * The other half of `paint`: the same kernel and the same formatter, with the
+ * repeat rule in between -- which is what a bulk annotation has and a
+ * keypress does not. `null` is a statement that paints nothing at all.
+ */
+async function paintLoad(
+  client: KernelClient, source: string, filename?: string
+): Promise<(string | null)[]> {
+  const loaded = await load(client, source, undefined, filename);
+  assert.equal(loaded.ok, true);
+
+  const above = new PaintedAbove();
+  return loaded.results.map((outcome) => {
+    if (!outcome.ok) {
+      return `!! ${outcome.error.type}`;
+    }
+    if (outcome.value === null && outcome.loop === undefined
+        && !outcome.names?.length) {
+      return null;
+    }
+    const kept = above.keep(outcome);
+    return kept === undefined
+      ? null
+      : resultText(kept.value, kept.display, kept.loop, kept.names,
+        kept.bindings, kept.more_names)
+        .replace(/ /g, ' ');
+  });
 }
 
 test('the whole pipeline produces the annotation IDEA.md promises', async (t) => {
@@ -434,6 +466,96 @@ test('a dependency crosses the wire and reaches the marking rule', async (t) => 
   assert.deepEqual(marked.map((a) => a.stale === true), [false, true]);
   assert.deepEqual(marked.map((a) => a.value), ['1', '2'],
     'and nothing was re-run, so neither value moved');
+});
+
+test('the inventory block from the ticket annotates exactly once', async (t) => {
+  // The evidence #28 was filed on, through the real kernel over a real pipe:
+  // one dict, three lines calling methods on it, and four identical
+  // annotations where the repetition was the file's dominant visual problem.
+  // Two of those lines could have mutated `inventory`, which is why the
+  // comparison is on the value each line reported rather than on identity.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = [
+    'inventory = {"apples": 3, "pears": 5}',
+    'print(inventory.get("bananas", 0))',
+    'print(list(inventory.items()))',
+    'print("apples" in inventory)',
+  ].join('\n') + '\n';
+
+  const painted = await paintLoad(client, source, '/tmp/evalens-inventory.py');
+  assert.deepEqual(painted, [
+    "inventory: {'apples': 3, 'pears': 5}", null, null, null]);
+  assert.equal(painted.filter((line) => line !== null).length, 1,
+    'the value appears once, and the three lines below it carry nothing');
+});
+
+test('an explicit evaluation annotates whether or not it repeats', async (t) => {
+  // The exception that matters, on the same four lines. Somebody pressed a
+  // key: staying silent because the value has not changed since the line
+  // above is indistinguishable from the keypress being ignored.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = [
+    'inventory = {"apples": 3, "pears": 5}',
+    'print(inventory.get("bananas", 0))',
+    'print(list(inventory.items()))',
+    'print("apples" in inventory)',
+  ].join('\n') + '\n';
+
+  const shown = "inventory: {'apples': 3, 'pears': 5}";
+  assert.deepEqual(await paint(client, source, [0, 1, 2, 3]),
+    [shown, shown, shown, shown]);
+});
+
+test('a rebinding is painted, and the lines that only read it are not', async (t) => {
+  // The rule may not cost a changed value: that is the most interesting thing
+  // this extension can show, and the append is the whole IDEA.md example.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = [
+    'x = 1', 'print(x)', 'print(x + 1)', 'x = 2', 'print(x)',
+  ].join('\n') + '\n';
+
+  assert.deepEqual(await paintLoad(client, source, '/tmp/evalens-rebind.py'),
+    ['x: 1', null, null, 'x: 2', null]);
+});
+
+test('a mutation shows again, because the value on screen changed', async (t) => {
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'lst = [1, 2, 3]\ny = lst\ny.append(4)\nlst\n';
+
+  assert.deepEqual(await paintLoad(client, source, '/tmp/evalens-mutate.py'), [
+    'lst: [1, 2, 3]',
+    // `lst` is already above, unchanged, so `y` is all this line has to add.
+    'y: [1, 2, 3]',
+    'y: [1, 2, 3, 4]',
+    'lst: [1, 2, 3, 4]',
+  ]);
+});
+
+test('a line past the name cap says how many it left off', async (t) => {
+  // Observed on a real file: five names, four values, and no way to tell
+  // whether the fifth was omitted, unreadable, or somehow not a name.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = [
+    'lst = [1]', 'tup = (1,)', 'd = {}', 's = {1}', 'empty_set = set()',
+    'print(type(lst), type(tup), type(d), type(s), type(empty_set))',
+  ].join('\n') + '\n';
+
+  const walked = await paint(client, source, [0, 1, 2, 3, 4, 5]);
+  assert.equal(walked[5], 'lst: [1]   tup: (1,)   d: {}   s: {1}   \u2026+1 more');
+
+  // And on the same file loaded in one keystroke the cap never bites, because
+  // every one of those values is unchanged from the lines just above.
+  assert.equal((await paintLoad(client, source, '/tmp/evalens-cap.py')).at(-1), null);
 });
 
 test('a broken line does not stop the rest of the file loading', async (t) => {

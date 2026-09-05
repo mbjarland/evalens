@@ -61,7 +61,10 @@ answer the reader wanted and ``value`` is not::
         "names":[{"name":"y","value":"[1, 2, 3, 4]"}]}
 
 Each entry may carry its own ``repr`` on the same terms as the one above.
-Present only when there is something to report; see ``_named_values``.
+Present only when there is something to report; see ``_named_values``. A line
+naming more than the cap allows also carries ``more_names``, how many were
+left out, so that the extension can say the cap bit rather than let a name
+vanish without a trace.
 
 A ``for`` loop answers with one extra field, ``loop``, holding the sequence
 its target ran through rather than only the value it stopped on::
@@ -812,8 +815,8 @@ def _worth_a_pair(value: Any) -> bool:
 
 def _named_values(
     namespace: Dict[str, Any], names: Iterable[str], limit: int = NAME_LIMIT
-) -> list:
-    """What the names on a line hold, read at the moment that line ran.
+) -> Tuple[list, int]:
+    """What the names on a line hold, and how many the cap left out.
 
     A dictionary lookup and nothing else. Reading a bare name out of the
     namespace cannot run user code, which is what makes doing it unbidden
@@ -825,22 +828,34 @@ def _named_values(
     `__builtins__`, not here -- and it also covers a comprehension target that
     never escaped its scope and an `except ... as` name Python has already
     deleted.
+
+    Past the cap a name is counted rather than dropped in silence. The
+    silence is what made the cap read as a bug rather than as a limit: on
+    `print(type(lst), type(tup), type(d), type(s), type(empty_set))` the fifth
+    name simply vanished, and a reader who counts five names on the line and
+    four values beside it cannot tell whether it was omitted, unreadable, or
+    somehow not a name.
     """
     pairs = []
+    more = 0
     for name in names:
-        if len(pairs) >= limit:
-            break
         if name not in namespace:
             continue
         value = namespace[name]
         if not _worth_a_pair(value):
+            continue
+        if len(pairs) >= limit:
+            # Counted, never `repr()`-ed. The cap is what keeps a line from
+            # disappearing under a second copy of the namespace, and rendering
+            # the values it exists to leave out would defeat it.
+            more += 1
             continue
         shown, raw_repr = wire_value(value)
         pair = {"name": name, "value": shown}
         if raw_repr is not None:
             pair["repr"] = raw_repr
         pairs.append(pair)
-    return pairs
+    return pairs, more
 
 
 def _unwatched(names: Iterable[str], recorders: list) -> list:
@@ -1159,6 +1174,7 @@ class Kernel:
         loop: Optional[Dict[str, Any]] = None
         bindings: list = []
         names: list = []
+        more_names = 0
 
         with _user_io(allow_stdin, _located(form)) as (out, err):
             try:
@@ -1243,7 +1259,7 @@ class Kernel:
                 # no iteration reached, the value in the namespace is whatever
                 # an earlier evaluation left there rather than anything this
                 # statement did.
-                names = _named_values(
+                names, more_names = _named_values(
                     self.namespace, _unwatched(form.names, recorders))
             except BaseException as exc:  # noqa: BLE001
                 # BaseException, not Exception, and this catch carries more
@@ -1303,6 +1319,10 @@ class Kernel:
             # Absent rather than empty, in line with the two above: a line
             # with nothing else to say about it costs no field.
             outcome["names"] = names
+            if more_names:
+                # Only alongside the names it is a footnote to, and only when
+                # the cap actually bit -- which is nearly no line at all.
+                outcome["more_names"] = more_names
         return outcome
 
     @staticmethod

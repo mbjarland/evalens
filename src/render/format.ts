@@ -107,7 +107,30 @@ export function bindingText(binding: BindingTrace): string {
 }
 
 /**
- * The painted annotation for a successful evaluation.
+ * One thing an annotation puts on the line, before it becomes text.
+ *
+ * The breakdown is exported because the repeat rule has to know exactly what
+ * a line paints for each name -- see `repeats.ts`. Working that out a second
+ * time from `value`, `display`, `loop`, `names` and `bindings` would be a
+ * copy of the rules in `paintedSlots`, and the two would disagree the first
+ * time either changed.
+ */
+export interface Slot {
+  /** The name this reports on, or null for a bare `=> value`. */
+  readonly name: string | null;
+  /** What is painted after it: a collapsed `repr()`, or a sequence. */
+  readonly value: string;
+  /**
+   * Whether this is what the statement itself produced, rather than a name it
+   * merely read. The distinction is the repeat rule's: a statement's own value
+   * is the claim that this line did something, not context borrowed from
+   * further up the file, so it is never suppressed as a repeat.
+   */
+  readonly own: boolean;
+}
+
+/**
+ * What an annotation paints, in the order it paints it.
  *
  * Several `name: value` pairs on one line, following Rider's inline values
  * rather than one value per statement. One value per statement is right for a
@@ -143,31 +166,60 @@ export function bindingText(binding: BindingTrace): string {
  * read. The difference is that `u` used to be one value from the namespace
  * sitting beside a history, and is now the history it actually took.
  */
-export function resultText(
+export function paintedSlots(
   value: string | null, display?: string | null, loop?: LoopTrace | null,
   names?: readonly NamedValue[], bindings?: readonly BindingTrace[]
-): string {
-  const bound = (bindings ?? []).map(bindingText);
-  const pairs = (names ?? []).map(
-    (each) => `${each.name}: ${collapseLines(each.value)}`);
+): readonly Slot[] {
+  // A body binding is part of what the statement did, so it counts as the
+  // statement's own however many iterations it took.
+  const bound: Slot[] = (bindings ?? []).map((each) => ({
+    name: each.name, value: sequenceText(each), own: true,
+  }));
+  const pairs: Slot[] = (names ?? []).map((each) => ({
+    name: each.name, value: collapseLines(each.value), own: false,
+  }));
   const produced = loop
     ? sequenceText(loop)
     : value === null ? null : collapseLines(value);
-  const binds = display !== undefined && display !== null
-    && IDENTIFIER.test(display);
+  const target = display !== undefined && display !== null
+    && IDENTIFIER.test(display)
+    ? display
+    : null;
   // A loop's sequence is what the statement did, whatever its target unparses
   // to, so it leads even where `(key, value)` is too much of an expression to
   // label with.
-  const leads = binds || Boolean(loop);
+  const leads = target !== null || Boolean(loop);
 
   if (produced === null
       || (!leads && produced === 'None' && pairs.length > 0)) {
-    return preserveSpacing([...bound, ...pairs].join(GAP));
+    return [...bound, ...pairs];
   }
-  const slot = `${binds ? `${display}:` : SEPARATOR} ${produced}`;
-  return preserveSpacing(
-    (leads ? [slot, ...bound, ...pairs] : [...bound, ...pairs, slot])
-      .join(GAP));
+  const slot: Slot = { name: target, value: produced, own: true };
+  return leads ? [slot, ...bound, ...pairs] : [...bound, ...pairs, slot];
+}
+
+/**
+ * The painted annotation for a successful evaluation.
+ *
+ * `more` is how many names the kernel's per-line cap left off. Saying so is
+ * the difference between an annotation that looks wrong and one that is
+ * honest: a reader who counts five names on the line and four beside it
+ * cannot otherwise tell whether the fifth was omitted, unreadable, or somehow
+ * not a name. It goes last, because it is a footnote about the line rather
+ * than another value on it.
+ */
+export function resultText(
+  value: string | null, display?: string | null, loop?: LoopTrace | null,
+  names?: readonly NamedValue[], bindings?: readonly BindingTrace[], more = 0
+): string {
+  const painted = paintedSlots(value, display, loop, names, bindings).map(
+    (slot) => (slot.name === null
+      ? `${SEPARATOR} ${slot.value}`
+      : `${slot.name}: ${slot.value}`));
+  if (more > 0) {
+    painted.push(`…+${grouped(more)} more`);
+  }
+  return preserveSpacing(painted.join(GAP));
 }
 
 function iterations(count: number): string {

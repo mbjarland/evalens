@@ -315,6 +315,16 @@ export interface Evaluated {
   /** Present only when the line mentions names worth reporting. */
   readonly names?: readonly NamedValue[];
   /**
+   * How many further names the kernel's per-line cap left out.
+   *
+   * The cap keeps a line from disappearing under a second copy of the
+   * namespace; dropping the rest silently is what made it read as a bug. A
+   * reader who counts five names on the line and four beside it cannot tell
+   * whether the fifth was omitted, unreadable, or somehow not a name. Absent
+   * when the cap did not bite, which is nearly every line.
+   */
+  readonly more_names?: number;
+  /**
    * The module-level names this statement wrote, and the ones it consulted.
    *
    * The only fields here that say nothing about this statement's own answer.
@@ -365,6 +375,7 @@ export type StatementOutcome =
       readonly loop?: LoopTrace;
       readonly bindings?: readonly BindingTrace[];
       readonly names?: readonly NamedValue[];
+      readonly more_names?: number;
       readonly binds?: readonly string[];
       readonly reads?: readonly string[];
     }

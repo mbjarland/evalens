@@ -74,6 +74,11 @@ export interface Annotation extends Traced {
   readonly bindings?: readonly BindingTrace[];
   /** What the names on the line held; painted beside `value`, not instead. */
   readonly names?: readonly NamedValue[];
+  /**
+   * How many further names the kernel's per-line cap left out, so the line
+   * can say so rather than look as though it lost one.
+   */
+  readonly more?: number;
   readonly error?: { readonly type: string; readonly message: string };
   readonly hover?: string;
   /**
@@ -280,7 +285,7 @@ export class Decorator implements vscode.Disposable {
               // name: no value of its own, and the name is the answer.
               contentText: resultText(
                 annotation.value ?? null, annotation.display, annotation.loop,
-                annotation.names, annotation.bindings),
+                annotation.names, annotation.bindings, annotation.more),
             },
           },
         });

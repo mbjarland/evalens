@@ -1363,6 +1363,29 @@ class Names(KernelTest):
         self.assertEqual([p["name"] for p in result["names"]],
                          ["a", "b", "c", "d"])
 
+    def test_the_cap_says_how_many_names_it_left_off(self):
+        # Silently is the problem, not the cap. A reader who counts six names
+        # on the line and four beside it has no way to tell whether the rest
+        # were omitted, unreadable, or somehow not names.
+        source = ("a = 1\nb = 2\nc = 3\nd = 4\ne = 5\nf = 6\n"
+                  "[a, b, c, d, e, f]\n")
+        result = self.k.evaluate_lines(source, 0, 1, 2, 3, 4, 5, 6)
+        self.assertEqual(result["more_names"], 2)
+
+    def test_a_line_inside_the_cap_says_nothing_about_it(self):
+        result = self.k.evaluate_lines("a = 1\nb = 2\n[a, b]\n", 0, 1, 2)
+        self.assertNotIn("more_names", result)
+
+    def test_what_never_qualified_does_not_inflate_the_count(self):
+        # The count is of values the line would have shown. A module was never
+        # going to be one of them, so counting it would report an omission
+        # that did not happen.
+        source = ("import json\na = 1\nb = 2\nc = 3\nd = 4\n"
+                  "[a, b, c, d, json]\n")
+        result = self.k.evaluate_lines(source, 0, 1, 2, 3, 4, 5)
+        self.assertEqual(len(result["names"]), 4)
+        self.assertNotIn("more_names", result)
+
     def test_a_name_the_namespace_does_not_hold_is_simply_not_reported(self):
         # `caught` is deleted by Python at the end of the except block, so it
         # is gone by the time anyone looks.

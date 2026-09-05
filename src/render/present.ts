@@ -38,6 +38,8 @@ export type Presentation =
       readonly bindings?: readonly BindingTrace[];
       /** What the names on the line held when it ran. */
       readonly names?: readonly NamedValue[];
+      /** How many further names the kernel's per-line cap left out. */
+      readonly more?: number;
       /**
        * The module-level names the statement bound and read.
        *
@@ -105,6 +107,11 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
       ? {}
       : { bindings: response.bindings }),
     ...(response.names === undefined ? {} : { names: response.names }),
+    // Renamed on the way in: the wire says which cap it was, and the line
+    // only has to say that something was left off it.
+    ...(response.more_names === undefined
+      ? {}
+      : { more: response.more_names }),
     ...(response.binds === undefined ? {} : { binds: response.binds }),
     ...(response.reads === undefined ? {} : { reads: response.reads }),
     ...(speaks

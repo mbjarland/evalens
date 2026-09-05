@@ -276,6 +276,30 @@ test('a body binding is bounded exactly as the target is', () => {
     'u: 0, 2, 4, 6, 8, … (+9,994 more) … 19998');
 });
 
+test('a line says when the cap left names off it', () => {
+  // Silently is the problem, not the cap. A reader who counts five names on
+  // the line and four beside it cannot tell whether the fifth was omitted,
+  // unreadable, or somehow not a name.
+  assert.equal(
+    resultText(null, null, null,
+      pairs(['a', '1'], ['b', '2'], ['c', '3'], ['d', '4']), [], 1),
+    preserveSpacing('a: 1   b: 2   c: 3   d: 4   \u2026+1 more'));
+});
+
+test('the footnote lands after the result, not among the values', () => {
+  // It is a note about the line rather than another value on it.
+  assert.equal(
+    resultText('4', 'y.pop()', null, pairs(['y', '[1, 2, 3]']), [], 2),
+    preserveSpacing('y: [1, 2, 3]   => 4   \u2026+2 more'));
+});
+
+test('a line the cap did not touch says nothing about it', () => {
+  assert.equal(resultText(null, null, null, pairs(['a', '1']), [], 0),
+    preserveSpacing('a: 1'));
+  assert.equal(resultText(null, null, null, pairs(['a', '1'])),
+    preserveSpacing('a: 1'));
+});
+
 test('a multi-line value in a pair collapses like any other', () => {
   assert.equal(resultText(null, null, null, pairs(['p', 'Point(\n  x=1\n)'])),
     preserveSpacing('p: Point( x=1 )'));

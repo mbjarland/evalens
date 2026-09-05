@@ -12,6 +12,7 @@ import { Annotations } from './render/annotations';
 import { Annotation, sourceAt, toVsCodeRange } from './render/decorations';
 import { Flash, SNAP } from './render/flash';
 import { describeLoad, describeRun, hoverFor, present } from './render/present';
+import { PaintedAbove } from './render/repeats';
 import { Waiting, whileRunning } from './render/status';
 import { selectedLines, widenedBeyond } from './selection';
 
@@ -73,6 +74,7 @@ function annotationFor(
     ...(outcome.loop === undefined ? {} : { loop: outcome.loop }),
     ...(outcome.bindings === undefined ? {} : { bindings: outcome.bindings }),
     ...(outcome.names === undefined ? {} : { names: outcome.names }),
+    ...(outcome.more_names === undefined ? {} : { more: outcome.more_names }),
     ...(outcome.binds === undefined ? {} : { binds: outcome.binds }),
     ...(outcome.reads === undefined ? {} : { reads: outcome.reads }),
     hover: hoverFor(
@@ -354,8 +356,22 @@ export class Evaluator {
     // Printed output is not echoed here any more: it already reached the
     // output channel as each statement wrote it, and appending the captured
     // copy afterwards would print the whole load a second time.
+    //
+    // Annotating every statement is also what makes repetition the file's
+    // dominant visual problem: four consecutive lines calling methods on one
+    // dictionary each restate it. So a pair already painted above, unchanged,
+    // is dropped here -- in file order, which is the direction the reader's
+    // eye travels to find it. A run starts knowing nothing, so the first
+    // mention inside a selection is always painted; what stands above a
+    // selection was painted by some other run, and hiding a value on the
+    // strength of an annotation that may since have gone is the wrong way to
+    // be wrong.
+    //
+    // This is the one path that suppresses anything. `evaluateAtCursor` never
+    // does, because there somebody pressed a key and is owed a visible answer.
     let failed = 0;
     let annotated = 0;
+    const painted = new PaintedAbove();
     for (const outcome of response.results) {
       if (!outcome.ok) {
         failed += 1;
@@ -364,8 +380,11 @@ export class Evaluator {
         continue;
       }
       const annotation = annotationFor(document, outcome);
-      if (annotation) {
-        this.annotations.add(document, annotation);
+      const fresh = annotation === undefined
+        ? undefined
+        : painted.keep(annotation);
+      if (fresh) {
+        this.annotations.add(document, fresh);
         annotated += 1;
       }
     }
@@ -517,6 +536,9 @@ export class Evaluator {
             ...(presentation.names === undefined
               ? {}
               : { names: presentation.names }),
+            ...(presentation.more === undefined
+              ? {}
+              : { more: presentation.more }),
             ...(presentation.binds === undefined
               ? {}
               : { binds: presentation.binds }),
@@ -531,6 +553,12 @@ export class Evaluator {
     // landed in, and relying on those two to coincide is a bug waiting for
     // the first statement whose range does not cover the cursor.
     run.waiting.withdraw();
+    // Painted regardless of what stands above it. An explicit evaluation
+    // always shows its result: staying silent because the value has not
+    // changed since a line further up is indistinguishable from the keypress
+    // being ignored, which is a failure this project has already shipped. The
+    // repeat rule belongs to bulk annotation, where nobody is waiting on any
+    // one line.
     this.annotations.settle(document, annotation);
   }
 }
