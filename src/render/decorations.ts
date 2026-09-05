@@ -5,10 +5,13 @@ import {
   BindingTrace, LoopTrace, NamedValue, Range as KernelRange,
 } from '../kernel/protocol';
 import {
-  Printed, Segment, SegmentRole, alignmentGap, columnWidth, errorText,
-  hasOutput, joinSegments, opensDefinition, restatesLine, resultSegments,
+  GAP, Printed, Segment, SegmentRole, alignmentGap, columnWidth, errorText,
+  hasOutput, joinSegments, opensDefinition, preserveSpacing, restatesLine,
+  resultGroups,
 } from './format';
-import { SEGMENT_SLOTS, coalesce, paintOrder } from './layers';
+import {
+  ChipEdge, SEGMENT_SLOTS, chipSlots, coalesce, paintOrder,
+} from './layers';
 import { Marker, Traced, markerFor, normalizeSource } from './registry';
 import { Pending, pendingText } from './status';
 
@@ -40,8 +43,43 @@ export const COLOR_FLASH_REGION = 'evalens.flashRegionBackground';
  * and an error reddens it through `COLOR_ERROR` -- both already contributed
  * and already what that state's own text is painted in -- so the bar never
  * claims more confidence than the state it marks.
+ *
+ * Deliberately not `COLOR_LABEL`, though the ticket's first draft asked for
+ * "the label colour": that colour is dimmed on purpose, to recede behind the
+ * value it introduces, which makes it the quietest possible choice for a mark
+ * whose whole job is to be seen. The annotation sits beside the user's own
+ * trailing comment on real lines, often in near-identical text, and the bar
+ * is the one element that can say where one stops and the other starts -- so
+ * its default is its own saturated colour, distinct from the value's amber,
+ * the error's red, the output label's blue and the pending grey.
  */
 export const COLOR_ANNOTATION_BORDER = 'evalens.annotationBorder';
+
+/**
+ * The wash behind one chip of an annotation (#95).
+ *
+ * A bar alone read as a stray character rather than as structure: characters
+ * do not have backgrounds, so nothing about a lone stroke told the reader it
+ * was looking at a surface rather than punctuation. A tint is what a glyph
+ * cannot have, which is what makes it read as a panel instead -- but a single
+ * continuous tint across the whole annotation (#95's third revision) turned
+ * out to be the wrong shape: it erased the separation between `x: 1` and
+ * `y: 2` that lets a reader parse the line into distinct facts. The final
+ * shape paints one tint per `resultGroups` group -- a label and the value it
+ * introduces, or `printed:` and its text -- with the gap between two groups
+ * left untinted, so the panel reads as several facts rather than one blur.
+ *
+ * One colour for every group and every state rather than one per `Marker` --
+ * the bar already carries the state distinction, and a tint that also
+ * changed hue per state or per role would be a second signal for one fact.
+ * Computed faint, the way #83's palette was: low enough alpha that it cannot
+ * drop any foreground colour below the contrast floor `colors.test.ts`
+ * already asserts, so it can sit behind every role's text without needing a
+ * role of its own. It takes the value colour's own hue at low opacity rather
+ * than a hue-neutral wash, so the surface reads as part of the same palette
+ * the text already uses rather than as a fourth, unrelated colour.
+ */
+export const COLOR_ANNOTATION_TINT = 'evalens.annotationTint';
 
 /**
  * The command the hover's link runs -- the one click from the annotation to
@@ -57,47 +95,82 @@ export const SHOW_OUTPUT = 'evalens.showOutput';
 const MINIMUM_GAP = 2;
 
 /**
- * Padding and rounding for the annotation's background, smuggled through
- * `textDecoration` -- the decoration API exposes no padding of its own. Both
- * background colours default to transparent, following Rider, which gets its
- * separation from italics and a warm colour rather than from a chip; this
- * only takes effect if someone sets one through
- * `workbench.colorCustomizations`.
+ * Padding and rounding for one #95 chip, smuggled through `textDecoration` --
+ * the decoration API exposes no padding of its own. Both are given per
+ * `ChipEdge`, because a chip is now painted per `resultGroups` group rather
+ * than once across the whole annotation: each group gets its own breathing
+ * room and its own rounded corners, and the gap between two groups gets
+ * neither (see `chipShape` below, and the untinted gap segment `show` builds
+ * for it).
  *
- * Split across the segments an annotation is painted in, because padding takes
- * up width whether or not anything is drawn in it: five pixels on each of a
- * dozen segments is sixty columns of nothing, and the annotation would no
- * longer end where it used to. Only the outer edges carry it, and only the
- * outer corners are rounded, so however many pieces the line is painted in the
- * chip is one chip.
+ * Eight pixels on every outer edge -- final numbers, chosen by the maintainer
+ * against a rendering rather than by description: six read as a printing
+ * mistake, hugging the text it was meant to set off; padding only at the
+ * outer ends of the *whole run*, which an earlier attempt tried, does not fix
+ * that, because each chip is now its own box and needs its own room at both
+ * of its own edges. All horizontal, so nothing here grows the inline-block
+ * vertically -- vertical padding would push lines apart, which is worse than
+ * any width this settles on.
+ *
+ * Corners round 3px, except the one edge carrying the #95 accent bar, which
+ * is square. `border-radius` rounds whatever border is drawn on the same
+ * box, and a rounded corner under the bar made a short, curved, text-height
+ * stroke immediately before italic text -- which the maintainer correctly
+ * read as an opening parenthesis rather than as structure before this was
+ * diagnosed. `leading` (see `ChipSlot`) is true for exactly one segment
+ * across a whole annotation, so it is the only one `chipShape` ever squares.
  */
-const CHIP = 'none; padding: 0 5px; border-radius: 3px;';
-const CHIP_FIRST = 'none; padding: 0 0 0 5px; border-radius: 3px 0 0 3px;';
-const CHIP_MIDDLE = 'none; padding: 0;';
-const CHIP_LAST = 'none; padding: 0 5px 0 0; border-radius: 0 3px 3px 0;';
+const CHIP_PAD = 8;
+
+/**
+ * The `textDecoration` shape for one segment, given the `ChipEdge` it
+ * carries within its own group and whether it is the annotation's leading
+ * segment. Background and border are separate render-option fields (see
+ * `show`, below) -- this is padding and rounding only.
+ */
+function chipShape(edge: ChipEdge, leading: boolean): string {
+  switch (edge) {
+    case 'single':
+      return leading
+        ? `none; padding: 0 ${CHIP_PAD}px; border-radius: 0 3px 3px 0;`
+        : `none; padding: 0 ${CHIP_PAD}px; border-radius: 3px;`;
+    case 'first':
+      return leading
+        ? `none; padding: 0 0 0 ${CHIP_PAD}px; border-radius: 0;`
+        : `none; padding: 0 0 0 ${CHIP_PAD}px; border-radius: 3px 0 0 3px;`;
+    case 'last':
+      return `none; padding: 0 ${CHIP_PAD}px 0 0; border-radius: 0 3px 3px 0;`;
+    case 'middle':
+      return 'none; padding: 0;';
+  }
+}
+
+/**
+ * The gap `resultGroups` leaves for `show` to join back in, painted plainly:
+ * no tint, no padding, no rounding, no border. It is what separates one chip
+ * from the next, which is the whole reason #95 stopped tinting it along with
+ * its neighbour -- a gap that looked like part of a chip was not a gap a
+ * reader could see.
+ */
+const CHIP_GAP_SHAPE = 'none;';
 
 /**
  * The `border` value that makes only the leading edge visible: every side
- * reset to `none`, then the left overridden to a solid 2px rule. `border` and
+ * reset to `none`, then the left overridden to a solid rule. `border` and
  * `borderColor` are the one place this file needs no CSS smuggled through
  * `textDecoration` -- the decoration API exposes both directly, and
  * `borderColor` takes a genuine `ThemeColor` the same way `color` does -- but
  * a single side is still not a shorthand CSS has a name for, so the override
  * is written the same way the padding above is: as a second declaration
  * inside the one string the field accepts.
+ *
+ * 3px rather than a 2px hairline, on the maintainer's revision to #95 after
+ * seeing the annotation in his own editor: a bar competing with a busy
+ * syntax-highlighted line, and sitting next to the user's own trailing
+ * comment on many real lines, has to be unmissable rather than tasteful. See
+ * `COLOR_ANNOTATION_BORDER` for the colour half of the same revision.
  */
-const BORDER_LEFT = 'none; border-left: 2px solid;';
-
-/** Which chip edge a segment carries, given where it sits in the line. */
-function chipAt(index: number, count: number): string {
-  if (count === 1) {
-    return CHIP;
-  }
-  if (index === 0) {
-    return CHIP_FIRST;
-  }
-  return index === count - 1 ? CHIP_LAST : CHIP_MIDDLE;
-}
+const BORDER_LEFT = 'none; border-left: 3px solid;';
 
 /** The colour each role is painted in. */
 const COLOR_FOR: Record<SegmentRole, string> = {
@@ -233,8 +306,12 @@ export class Decorator implements vscode.Disposable {
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
     after: {
       color: new vscode.ThemeColor(COLOR_ERROR),
-      backgroundColor: new vscode.ThemeColor(COLOR_ERROR_BG),
-      textDecoration: CHIP,
+      // The #95 surface tint, not `COLOR_ERROR_BG`: the wash is one colour
+      // for every state (see `COLOR_ANNOTATION_TINT`), and an error's own
+      // loudness is the bar and the text, not a second background. An error
+      // is always a single chip that is also the annotation's leading edge.
+      backgroundColor: new vscode.ThemeColor(COLOR_ANNOTATION_TINT),
+      textDecoration: chipShape('single', true),
       fontStyle: 'italic',
       // The #95 bar takes the error colour here, never the annotation-border
       // one -- an error is exactly as loud as the text beside it already is.
@@ -251,7 +328,12 @@ export class Decorator implements vscode.Disposable {
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
     after: {
       color: new vscode.ThemeColor(COLOR_PENDING),
-      textDecoration: CHIP,
+      // The same surface tint as every other state, so a still-running
+      // statement is marked as a distinct surface exactly like a finished
+      // one -- the point the tint exists for does not stop applying just
+      // because there is nothing to read yet.
+      backgroundColor: new vscode.ThemeColor(COLOR_ANNOTATION_TINT),
+      textDecoration: chipShape('single', true),
       fontStyle: 'italic',
       // Greyed with the rest of this state, for the same reason: a bright
       // bar would be the loudest thing on a row that is saying "not yet".
@@ -291,7 +373,13 @@ export class Decorator implements vscode.Disposable {
           // user keeps editing.
           rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
           after: {
-            backgroundColor: new vscode.ThemeColor(COLOR_RESULT_BG),
+            // No background here, unlike `errorType` and `pendingType`: a
+            // segment slot in this shared pool paints a tinted chip on one
+            // annotation and the untinted gap between two chips on the next,
+            // so the #95 tint has to ride the per-range `renderOptions`
+            // `show` builds below rather than this one static config every
+            // slot would otherwise share.
+            //
             // Italic is what makes an annotation legible as not-code at a
             // glance, before colour is even processed. Rider leans on this and
             // it carries most of the separation.
@@ -413,7 +501,14 @@ export class Decorator implements vscode.Disposable {
         // A loop that ran zero times has a trace and no value, and still has
         // something to report. So does an `if` that bound a name: no value of
         // its own, and the name is the answer.
-        const segments = coalesce(resultSegments({
+        //
+        // Coalesced within each group, never across one: merging a gap into
+        // the label next to it is the economy `coalesce` exists for, and it
+        // is exactly wrong here, because it would paint the gap in that
+        // label's chip. Empty groups are dropped -- `coalesce` can produce
+        // one from a piece that was entirely non-breaking spaces, which
+        // nothing downstream expects.
+        const groups = resultGroups({
           value: annotation.value ?? null,
           display: annotation.display,
           loop: annotation.loop,
@@ -422,8 +517,25 @@ export class Decorator implements vscode.Disposable {
           printed,
           more: annotation.more,
           partialFrom: annotation.partialFrom,
-        }));
-        const text = joinSegments(segments);
+        }).map(coalesce).filter((group) => group.length > 0);
+
+        // The untinted gap between two chips, kept as its own segment rather
+        // than let `coalesce` fold it into either neighbour (#95) -- painting
+        // it in a neighbour's chip is the defect the per-group tint exists to
+        // avoid. Non-breaking, the same as every other segment: an ordinary
+        // space here would collapse exactly the way #83 measured and close
+        // the gap `resultGroups` left for it.
+        const gapSegment: Segment = {
+          role: 'nameLabel', text: preserveSpacing(GAP),
+        };
+        const flat: Segment[] = [];
+        groups.forEach((group, index) => {
+          if (index > 0) {
+            flat.push(gapSegment);
+          }
+          flat.push(...group);
+        });
+        const text = joinSegments(flat);
         // Rendered first, then compared with the line it would sit on: an
         // annotation that only restates its own line is not worth the width,
         // and the region highlight below already says that it ran. The
@@ -441,9 +553,11 @@ export class Decorator implements vscode.Disposable {
           // Beyond the pool there is no type left to paint in, so the line
           // falls back to the rendering this replaced: one attachment, one
           // colour, every character still there. Less legible, never wrong.
-          const painted: readonly Segment[] = segments.length <= results.length
-            ? segments
-            : [{ role: 'value', text }];
+          // A single chip, and it is the annotation's own leading edge.
+          const fits = flat.length <= results.length;
+          const paintedGroups: readonly (readonly Segment[])[] = fits
+            ? groups
+            : [[{ role: 'value', text }]];
           // `annotation.error` is undefined on this branch (it is handled
           // above), so `markerFor` can only answer `evaluated` or `stale`
           // here -- exactly the two the #95 bar needs to tell apart. Stale
@@ -453,30 +567,52 @@ export class Decorator implements vscode.Disposable {
           const borderColor = markerFor(annotation) === 'stale'
             ? COLOR_PENDING
             : COLOR_ANNOTATION_BORDER;
-          painted.forEach((segment, slot) => {
-            results[slot]!.push({
-              range: at,
-              renderOptions: {
-                after: {
-                  // Only the first segment is pushed out to the alignment
-                  // column, and only the first carries the #95 bar -- it is
-                  // the annotation's leading edge whether the line is one
-                  // segment or several, and `chipAt` already knows that slot
-                  // as `CHIP` or `CHIP_FIRST`. The rest follow the one before
-                  // them, which is what makes the line read as one annotation
-                  // rather than as several.
-                  ...(slot === 0
-                    ? {
-                        margin,
-                        border: BORDER_LEFT,
-                        borderColor: new vscode.ThemeColor(borderColor),
-                      }
-                    : {}),
-                  contentText: segment.text,
-                  color: new vscode.ThemeColor(COLOR_FOR[segment.role]),
-                  textDecoration: chipAt(slot, painted.length),
+
+          let slot = 0;
+          paintedGroups.forEach((group, groupIndex) => {
+            if (fits && groupIndex > 0) {
+              // The gap between two chips takes a slot of its own, painted
+              // with none of a chip's tint, padding or rounding.
+              results[slot]!.push({
+                range: at,
+                renderOptions: {
+                  after: {
+                    contentText: gapSegment.text,
+                    color: new vscode.ThemeColor(COLOR_FOR[gapSegment.role]),
+                    textDecoration: CHIP_GAP_SHAPE,
+                  },
                 },
-              },
+              });
+              slot += 1;
+            }
+            const edges = chipSlots(group.length, groupIndex === 0);
+            group.forEach((segment, index) => {
+              const chip = edges[index]!;
+              results[slot]!.push({
+                range: at,
+                renderOptions: {
+                  after: {
+                    // Only the very first segment of the whole annotation is
+                    // pushed out to the alignment column and carries the #95
+                    // bar -- `chip.leading` and `slot === 0` are the same
+                    // fact, since neither a gap nor a later group's first
+                    // segment can ever be slot 0.
+                    ...(slot === 0 ? { margin } : {}),
+                    ...(chip.leading
+                      ? {
+                          border: BORDER_LEFT,
+                          borderColor: new vscode.ThemeColor(borderColor),
+                        }
+                      : {}),
+                    contentText: segment.text,
+                    color: new vscode.ThemeColor(COLOR_FOR[segment.role]),
+                    backgroundColor: new vscode.ThemeColor(
+                      COLOR_ANNOTATION_TINT),
+                    textDecoration: chipShape(chip.edge, chip.leading),
+                  },
+                },
+              });
+              slot += 1;
             });
           });
         }

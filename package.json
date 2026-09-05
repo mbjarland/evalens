@@ -197,7 +197,7 @@
       },
       {
         "id": "evalens.resultBackground",
-        "description": "Background behind an inline evaluation result. Transparent by default; set a colour here to give results a chip.",
+        "description": "Contributed, but not currently painted anywhere: #95 gave every annotation state a shared background of its own, `evalens.annotationTint`, so this id has no effect until something is wired back to it. Left in place rather than removed, since a customization already made against it should not silently start failing.",
         "defaults": {
           "dark": "#00000000",
           "light": "#00000000",
@@ -217,7 +217,7 @@
       },
       {
         "id": "evalens.errorBackground",
-        "description": "Background behind an inline evaluation error. Transparent by default.",
+        "description": "Contributed, but not currently painted anywhere: #95 moved the error annotation's background to the same shared `evalens.annotationTint` every other state uses, so this id has no effect until something is wired back to it. Left in place rather than removed, since a customization already made against it should not silently start failing.",
         "defaults": {
           "dark": "#00000000",
           "light": "#00000000",
@@ -267,12 +267,22 @@
       },
       {
         "id": "evalens.annotationBorder",
-        "description": "Colour of the 2px border on an annotation's leading edge, marking it as a distinct surface from the source line it sits beside rather than a second comment. Defaults to the label colour, since the bar is chrome introducing the annotation, not content in it. Only for a value that is currently evaluated: a stale or still-pending annotation is greyed through `evalens.pendingForeground` instead, and an error takes `evalens.errorForeground` — both already contributed — so the bar never reads more confidently than the state it marks.",
+        "description": "Colour of the 3px border on an annotation's leading edge, marking it as a distinct surface from the source line it sits beside — and, on a line where a user's own trailing comment sits right next to near-identical annotation text, the one mark that says where one stops and the other starts. A saturated violet of its own rather than the dim `evalens.labelForeground`, which exists to recede and would make the bar the quietest thing on the row. Only for a value that is currently evaluated: a stale or still-pending annotation is greyed through `evalens.pendingForeground` instead, and an error takes `evalens.errorForeground` — both already contributed — so the bar never reads more confidently than the state it marks.",
         "defaults": {
-          "dark": "#8d7a5a",
-          "light": "#96866a",
-          "highContrast": "#cfb885",
-          "highContrastLight": "#6e5a2e"
+          "dark": "#e0a3ff",
+          "light": "#7a1fa2",
+          "highContrast": "#eab8ff",
+          "highContrastLight": "#4a1372"
+        }
+      },
+      {
+        "id": "evalens.annotationTint",
+        "description": "Background wash behind one chip of an annotation — a label and the value it introduces, or `printed:` and its text — so each chip reads as a surface rather than as punctuation. The gap between two chips is left untinted on purpose, so the line still parses into distinct facts. One colour for every state, because the accent bar already carries that distinction. Computed at 10% opacity of `evalens.resultForeground`'s own hue per theme, so the surface reads as part of the same palette as the text rather than a neutral, unrelated wash, chosen so no foreground colour this extension paints drops below the contrast ratios already asserted for it.",
+        "defaults": {
+          "dark": "#d1a35c1a",
+          "light": "#8a6a2b1a",
+          "highContrast": "#f0c6741a",
+          "highContrastLight": "#6b4a101a"
         }
       }
     ],

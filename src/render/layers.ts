@@ -55,13 +55,20 @@ const AFTER_RULE = 4;
  * The number is derived rather than guessed: the kernel caps a line at four
  * names and three loop-body bindings, which with the statement's own value,
  * two streams of output, the cap footnote and the reduced-context caveat is
- * twelve pieces -- twenty-three segments once neighbouring chrome is merged.
- * A test builds that line and checks it still fits.
+ * twelve pieces. A test builds that line and checks it still fits.
+ *
+ * Twenty-two segments once neighbouring chrome is merged within each piece,
+ * plus eleven gaps between the twelve pieces -- thirty-three. Higher than
+ * before #95's chips: a gap used to merge into whichever same-role segment
+ * sat next to it, saving a slot, and now cannot, because merging it would
+ * paint the gap in that segment's chip. The pool grew to keep paying for the
+ * merge #95 gave up rather than let the widest lines quietly fall back to one
+ * colour.
  *
  * A line that somehow wants more is painted as one string in the value colour:
  * the rendering this replaced, which is still correct, only less legible.
  */
-export const SEGMENT_SLOTS = 24;
+export const SEGMENT_SLOTS = 33;
 
 /** The class name an `after` attachment on this type will be compared under. */
 export function afterClassName(key: string): string {
@@ -118,4 +125,45 @@ export function coalesce(segments: readonly Segment[]): readonly Segment[] {
     merged.push(segment);
   }
   return merged;
+}
+
+/** Which edge of its own chip one segment of a group carries (#95). */
+export type ChipEdge = 'single' | 'first' | 'middle' | 'last';
+
+export interface ChipSlot {
+  readonly edge: ChipEdge;
+  /**
+   * True for exactly one segment across a whole annotation: the first
+   * segment of the first group, which is the annotation's leading edge and
+   * therefore the one the #95 accent bar is drawn on.
+   */
+  readonly leading: boolean;
+}
+
+/**
+ * Which chip edge every segment of one group carries, given how many
+ * segments the group has and whether it is the annotation's first group.
+ *
+ * A #95 chip is painted per `resultGroups` group rather than across the
+ * whole flattened line, so a segment's edge now depends on where it sits
+ * inside its own group -- `single` for a group of one, `first`/`last` for
+ * the two ends of a longer one and `middle` for anything between -- and
+ * `leading` depends on whether its group is the first one, not on the
+ * segment's position in the flattened annotation. A caller paints one group
+ * at a time, so both are computed together, once per group, rather than
+ * separately per segment: getting either wrong independently would let a
+ * bar or a rounded corner land on a segment that lies inside a group's
+ * middle rather than at one of its two edges.
+ */
+export function chipSlots(
+  groupSize: number, isFirstGroup: boolean
+): readonly ChipSlot[] {
+  return Array.from({ length: groupSize }, (_, index) => ({
+    edge: groupSize === 1
+      ? 'single'
+      : index === 0
+        ? 'first'
+        : index === groupSize - 1 ? 'last' : 'middle',
+    leading: isFirstGroup && index === 0,
+  }));
 }
