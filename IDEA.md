@@ -124,13 +124,67 @@ Well-documented, well-trodden.
 - **Decoration lifecycle.** Clear on edit, dismiss on Escape, reposition
   as the document changes. Fiddly rather than difficult.
 
-## Prior art worth reading
+## Prior art: take the display approach from Calva
 
-- **Calva** — `BetterThanTomorrow/calva`. Open source. Its evaluation and
-  result-decoration rendering is directly readable and is the reference
-  implementation of the exact UX being targeted here.
+**Calva is the reference implementation for the rendering, and we should
+follow its lead rather than rediscover any of this.** Not by copying code
+— by reading how it solves each problem and being guided by it. Calva is
+MIT licensed, so even direct reuse with attribution would be permitted,
+but the value here is the design, not the lines.
+
+Attribution to Calva for the rendering approach is intended and welcome.
+
+### Where to look
+
+`BetterThanTomorrow/calva`, file **`src/providers/annotations.ts`** — 217
+lines, and it is essentially the entire feature. Related:
+`src/results-output/` for result formatting and
+`src/debugger/decorations.ts`.
+
+### What it already solves that we listed as hard
+
+Reading that one file collapses several open questions:
+
+- **Whitespace is eaten.** VS Code collapses ordinary spaces in
+  decoration `contentText`. Calva substitutes non-breaking spaces
+  (`U+00A0`) into the result string before rendering. This is
+  non-obvious, and without it any alignment or indentation inside a
+  rendered value collapses.
+- **Decorations smearing as you type.** Solved with
+  `rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen` on the
+  result decoration, which controls whether the decoration absorbs text
+  inserted at its boundaries. This was on our "fiddly" list; it is a
+  one-liner.
+- **Theming.** Colours come from `new vscode.ThemeColor(...)` rather than
+  hardcoded values, so results adapt to the user's theme and remain
+  overridable through `workbench.colorCustomizations`.
+- **Two decoration layers, not one.** The result text is an `after`
+  decoration; the *evaluated region* gets a separate background
+  highlight. Keeping them separate is what makes the UX legible.
+- **Evaluation state is visible.** An `AnnotationStatus` enum
+  (`PENDING` / `SUCCESS` / `ERROR`) drives distinct region colours, so
+  the region greys while evaluating and then reads green or red. This is
+  most of what makes the feature feel alive rather than static.
+- **Overview ruler marks.** `overviewRulerColor` +
+  `OverviewRulerLane.Right` puts evaluated regions in the scrollbar, so
+  they are visible at a glance in a long file.
+- **Per-document decoration state**, keyed by `document.uri`, so
+  decorations clear and restore correctly per editor.
+- **Errors get their own colour and hover text**, rather than a separate
+  presentation mechanism.
+
+### Also worth reading
+
 - **AREPL** — `almenon/AREPL-vscode`. Solves the continuous-execution and
-  value-serialisation problems, even though it renders to a panel.
+  value-serialisation problems (`repr()` handling, truncation, nesting
+  depth), even though it renders to a panel rather than inline.
+
+### The author is reachable
+
+Calva is written by Peter Strömberg (Pez), who is known to the owner of
+this project. Design questions about *why* something is done a particular
+way can be asked directly rather than reverse-engineered — likely the
+single cheapest way to de-risk the rendering work.
 
 ## Scope of a first prototype
 
