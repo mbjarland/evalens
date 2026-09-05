@@ -316,6 +316,56 @@ test('evalens.resetOnLoad false keeps the namespace across whole-file ' +
   }
 });
 
+// -- #100: surfacing residue after a non-resetting load ----------------------
+
+test('a non-resetting load notes the residue it is running on top of ' +
+  '(#100)', async () => {
+  const fake = createFakeVscode();
+  fake.config.set('evalens', 'resetOnLoad', false);
+  const editor = createEditor('x = 1\nx\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateFile = fake.commands.registered.get('evalens.evaluateFile');
+    await (evaluateFile as () => Promise<void>)();
+    assert.ok(
+      !fake.statusBarMessages.some((m) => m.includes('earlier session')),
+      'the first load has nothing behind it yet, so nothing is residue');
+
+    // x is gone from the file's own text, but the setting keeps it in the
+    // namespace -- exactly the case #100 exists to make visible.
+    editor.document.setText('y = 2\n');
+    await (evaluateFile as () => Promise<void>)();
+    const last = fake.statusBarMessages.at(-1);
+    assert.match(last ?? '', /earlier session/);
+    assert.match(last ?? '', /\(x\)/);
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('a default, resetting load never mentions residue (#100)', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor('x = 1\nx\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateFile = fake.commands.registered.get('evalens.evaluateFile');
+    await (evaluateFile as () => Promise<void>)();
+    editor.document.setText('y = 2\n');
+    await (evaluateFile as () => Promise<void>)();
+    assert.ok(
+      !fake.statusBarMessages.some((m) => m.includes('earlier session')),
+      'the default resets first, so there is nothing left over to report');
+  } finally {
+    extension.deactivate();
+  }
+});
+
 // -- an edit invalidates what it touched, and nothing else -------------------
 
 test('a document edit clears only the statement it touched', async () => {

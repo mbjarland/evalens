@@ -429,6 +429,11 @@ _KERNEL_FILES = frozenset(
 #: Evalens has always called the namespace it has no better name for.
 NO_MODULE_NAME = "__evalens__"
 
+#: What `Kernel.reset` puts in an empty namespace, and therefore never
+#: residue -- see `evaluate_file`'s residue computation for #100. Read from
+#: here rather than repeated at each call site so the two cannot drift.
+_KERNEL_OWNED_NAMES = frozenset({"__name__", "__package__", "__builtins__"})
+
 #: Hard cap on a repr() put on the wire. This is a transport guard, not a
 #: display policy -- the extension knows the editor width and truncates for
 #: reading. Without it, one `repr()` of a large frame is a multi-megabyte JSON
@@ -3080,6 +3085,10 @@ class Kernel:
         same outcomes arriving earlier, so a caller with no control channel --
         or one that does not care to paint progressively -- reads the response
         and gets everything, exactly as before.
+
+        For a whole-file request, the response also carries ``residue``
+        (#100): the namespace's own names, after this load, that nothing in
+        the file just read binds. See the comment above where it is built.
         """
         source: str = request.get("source", "")
         filename: str = request.get("filename") or "<evalens>"
@@ -3171,6 +3180,36 @@ class Kernel:
                 "start": _position(forms[0].start_line, forms[0].start_char),
                 "end": _position(forms[-1].end_line, forms[-1].end_char),
             }
+        if selection is None:
+            # #100: what the namespace holds after this load that the file
+            # just read does not bind anywhere in its own text -- residue an
+            # earlier load, of this file or another, left behind. `#99`
+            # defaults to resetting before a whole-file load, which is why
+            # this is usually empty; it is the signal for whoever turned that
+            # off, or for the (also unconditionally reset) script run.
+            #
+            # Judged against `forms`, the statements the parser found, rather
+            # than `results`, the ones that actually got to run: a name is
+            # "in the file" whether or not this particular pass reached the
+            # statement that binds it, and residue is a property of the text
+            # on screen, not of how far an interrupted or broken load got.
+            # `form.binds` is computed statically and costs nothing to read
+            # again here; see `resolver.py`.
+            #
+            # Restricted to a whole-file request on purpose. A selection is a
+            # narrower question -- "run this part of my file" -- and nearly
+            # everything in the namespace would look like residue against a
+            # selection of three lines, which is not the fact this exists to
+            # report.
+            bound_names: set = set()
+            for form in forms:
+                bound_names.update(form.binds)
+            residue = sorted(
+                name for name in self.namespace
+                if name not in _KERNEL_OWNED_NAMES and name not in bound_names
+            )
+            if residue:
+                response["residue"] = residue
         return response
 
     def evaluate_above(self, request: Dict[str, Any]) -> Dict[str, Any]:

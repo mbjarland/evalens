@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 
 import { EvalResponse, PartialParse } from '../kernel/protocol';
 import {
-  describeAbove, describeLoad, describeRun, partialCause, present,
+  describeAbove, describeLoad, describeResidue, describeRun, partialCause,
+  present,
 } from '../render/present';
 
 const range = {
@@ -313,6 +314,25 @@ test('a selection with no complete statement in it is not an error', () => {
   // and said in the same place rather than in an error box.
   assert.equal(describeRun(0, 0, 0, false),
     'Evalens: nothing to run in the selection');
+});
+
+// -- #100: describing residue left behind by a non-resetting load ----------
+
+test('describeResidue names a single leftover, singular', () => {
+  assert.equal(describeResidue(['x']),
+    '1 name from an earlier session is still present (x)');
+});
+
+test('describeResidue names several leftovers, plural', () => {
+  assert.equal(describeResidue(['x', '_client', 'CACHE']),
+    '3 names from an earlier session are still present (x, _client, CACHE)');
+});
+
+test('describeResidue caps the list and counts the rest', () => {
+  const residue = Array.from({ length: 12 }, (_, i) => `n${i}`);
+  assert.equal(describeResidue(residue),
+    '12 names from an earlier session are still present (n0, n1, n2, n3, ' +
+    'n4, n5, n6, n7, and 4 more)');
 });
 
 test('a value from a reduced context keeps the caveat with it', () => {

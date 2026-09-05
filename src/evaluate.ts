@@ -19,7 +19,8 @@ import { Annotation, sourceAt, toVsCodeRange } from './render/decorations';
 import { Flash, SNAP } from './render/flash';
 import { printedFrom } from './render/format';
 import {
-  describeAbove, describeLoad, describeRun, hoverFor, partialCause,
+  describeAbove, describeLoad, describeResidue, describeRun, hoverFor,
+  partialCause,
   partialOf, present,
 } from './render/present';
 import { capNames, PaintedAbove } from './render/repeats';
@@ -709,9 +710,20 @@ export class Evaluator {
       return;
     }
 
-    vscode.window.setStatusBarMessage(
-      describeLoad(response.ran, response.statements, load.failed,
-        response.partial?.truncated_at, asScript), STATUS_OUTCOME_MS);
+    const summary = describeLoad(response.ran, response.statements,
+      load.failed, response.partial?.truncated_at, asScript);
+    // #100: the signal for whoever turned #99's reset off. Gated on the same
+    // two facts the kernel cannot know about its own caller -- a script run
+    // was just unconditionally reset, and an ordinary load was reset unless
+    // the setting says otherwise -- rather than on `response.residue` alone,
+    // because a namespace that was just cleared reporting a name some
+    // untracked dynamic write left behind is not "an earlier session", and
+    // would read as one.
+    const message = !asScript && !resetOnLoad()
+      && response.residue && response.residue.length > 0
+      ? `${summary}; ${describeResidue(response.residue)}`
+      : summary;
+    vscode.window.setStatusBarMessage(message, STATUS_OUTCOME_MS);
   }
 
   /**

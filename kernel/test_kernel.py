@@ -1409,6 +1409,64 @@ class LoadFile(KernelTest):
         self.assertEqual(result["statements"], 0)
 
 
+class NamespaceResidue(KernelTest):
+    """#100: what a non-resetting load's namespace holds that the file just
+    read does not bind anywhere in its own text.
+
+    `evaluate_file` itself never resets -- that is #99's job, on the caller's
+    side of the pipe -- so these tests send `eval_file` directly, the way a
+    kernel with `evalens.resetOnLoad` turned off would be driven.
+    """
+
+    def load(self, source, filename="/tmp/module.py", **kwargs):
+        return self.k.send(op="eval_file", source=source, filename=filename,
+                            **kwargs)
+
+    def test_a_deleted_binding_is_residue_after_reloading_the_same_file(self):
+        self.load("x = 1\n")
+        result = self.load("y = 2\n")
+        self.assertEqual(result.get("residue"), ["x"])
+
+    def test_residue_is_not_scoped_to_the_file_that_made_it(self):
+        # #56's sharper finding: an unrelated second file reads straight
+        # through to the first file's leftovers, and its own residue set
+        # says so.
+        self.load("x = 100\n", filename="/tmp/a.py")
+        result = self.load("z = 7\n", filename="/tmp/b.py")
+        self.assertEqual(result.get("residue"), ["x"])
+
+    def test_a_binding_the_file_still_makes_is_not_residue(self):
+        result = self.load("x = 1\nx = 2\n")
+        self.assertNotIn("residue", result)
+
+    def test_a_fresh_namespace_reports_no_residue(self):
+        result = self.load("x = 1\n")
+        self.assertNotIn("residue", result)
+
+    def test_a_reset_load_reports_no_residue(self):
+        self.load("x = 1\n")
+        self.assertTrue(self.k.send(op="reset")["ok"])
+        result = self.load("y = 2\n")
+        self.assertNotIn("residue", result)
+
+    def test_a_selection_run_reports_no_residue(self):
+        # A narrower question -- "run this part of my file" -- against which
+        # nearly everything in the namespace would look like residue. Not the
+        # fact this reports.
+        self.load("x = 1\n")
+        result = self.load("x = 1\ny = 2\n", start_line=1, end_line=1)
+        self.assertNotIn("residue", result)
+
+    def test_a_script_run_can_still_report_residue(self):
+        # The kernel does not know a script run is unconditionally preceded
+        # by a reset in the real product -- that is the extension's doing --
+        # so driven on its own, as this test drives it, residue is reported
+        # exactly as for an ordinary load.
+        self.load("x = 1\n")
+        result = self.load("y = 2\n", as_script=True)
+        self.assertEqual(result.get("residue"), ["x"])
+
+
 class ImportPath(KernelTest):
     """What the evaluated file can import, and what it must not be able to.
 

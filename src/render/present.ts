@@ -266,6 +266,36 @@ export function describeLoad(
 }
 
 /**
+ * How many of a load's residue names are listed before the rest are elided.
+ *
+ * Not a setting: this is a status-bar sentence, not a display any load ever
+ * repeats, and the honest answer to "how many names would make this
+ * unreadable" is the same for everyone the way `MAX_LOAD_ANNOTATIONS` is.
+ */
+const RESIDUE_DISPLAY_CAP = 8;
+
+/**
+ * #100: what a non-resetting load's namespace holds that the file just run
+ * does not bind anywhere in its own text.
+ *
+ * Deliberately not a sentence of its own carrying its own "Evalens: " --
+ * `evaluateFile` appends this to `describeLoad`'s own summary, the way a
+ * `partialFrom` caveat is appended, so the reader gets one status-bar line
+ * rather than the second one clobbering the first.
+ */
+export function describeResidue(residue: readonly string[]): string {
+  const count = residue.length;
+  const shown = residue.slice(0, RESIDUE_DISPLAY_CAP);
+  const remaining = count - shown.length;
+  const listed = remaining > 0
+    ? `${shown.join(', ')}, and ${remaining} more`
+    : shown.join(', ');
+  const verb = count === 1 ? 'is' : 'are';
+  return `${count} name${count === 1 ? '' : 's'} from an earlier session ` +
+    `${verb} still present (${listed})`;
+}
+
+/**
  * What running a selection did, including whether it ran more than was asked.
  *
  * "ran" rather than "loaded", because a selection is not the command that
