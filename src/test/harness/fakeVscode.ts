@@ -99,6 +99,28 @@ export class FakeMarkdownString {
   }
 }
 
+/** Enough of `vscode.Hover` for `render/hover.ts`'s `ValueHoverProvider`,
+ * which builds one from a `FakeMarkdownString` and a range. */
+export class FakeHover {
+  constructor(
+    public readonly contents: FakeMarkdownString,
+    public readonly range?: FakeRange
+  ) {}
+}
+
+/**
+ * Enough of `vscode.QuickPickItem` and the `showQuickPick` overload
+ * `render/explorer.ts` calls -- a single pick, resolved by a test rather
+ * than a person, from a queue set up in advance. `undefined` in the queue is
+ * `Escape`: nothing picked, the same answer a real cancelled QuickPick gives.
+ */
+export interface FakeQuickPickItem {
+  readonly label: string;
+  readonly description?: string;
+  readonly detail?: string;
+  readonly [key: string]: unknown;
+}
+
 export interface FakeUri {
   readonly fsPath: string;
   readonly path: string;
@@ -449,6 +471,19 @@ export interface FakeVscode {
   readonly clipboard: { readonly written: string[] };
   readonly config: FakeConfig;
   readonly extensions: Map<string, unknown>;
+  /**
+   * What `showQuickPick` should answer with, in order -- a queue of labels
+   * a test pushes onto before triggering the pick, since a real person is
+   * not here to read the list and choose one. `undefined` is `Escape`.
+   */
+  readonly quickPick: {
+    readonly picks: Array<string | undefined>;
+    readonly calls: ReadonlyArray<{
+      readonly title: string | undefined;
+      readonly placeHolder: string | undefined;
+      readonly labels: readonly string[];
+    }>;
+  };
   readonly setContextCalls: Array<{ readonly key: string; readonly value: unknown }>;
   window: {
     activeTextEditor: FakeEditor | undefined;
@@ -485,6 +520,12 @@ export function createFakeVscode(): FakeVscode {
   const clipboardWritten: string[] = [];
   const config = new FakeConfig();
   const extensions = new Map<string, unknown>();
+  const quickPickPicks: Array<string | undefined> = [];
+  const quickPickCalls: Array<{
+    readonly title: string | undefined;
+    readonly placeHolder: string | undefined;
+    readonly labels: readonly string[];
+  }> = [];
 
   const windowState: FakeVscode['window'] = {
     activeTextEditor: undefined,
@@ -552,6 +593,7 @@ export function createFakeVscode(): FakeVscode {
     ThemeColor: FakeThemeColor,
     ThemeIcon: FakeThemeIcon,
     MarkdownString: FakeMarkdownString,
+    Hover: FakeHover,
     Uri: {
       file: (fsPath: string) => makeUri(fsPath),
       joinPath: (base: FakeUri, ...segments: string[]) =>
@@ -605,6 +647,24 @@ export function createFakeVscode(): FakeVscode {
       showInformationMessage: (message: string, ...rest: unknown[]) =>
         showMessage('information', message, stringItems(rest)),
       showInputBox: () => Promise.resolve(undefined),
+      // Resolves against whatever list `render/explorer.ts` actually passed
+      // in, by label, rather than against a fixed index -- the item order
+      // changes with `trail.length` (the "Back" row only appears below the
+      // root), and matching by label is what a person clicking one does too.
+      showQuickPick: async (
+        items: readonly FakeQuickPickItem[] | Thenable<readonly FakeQuickPickItem[]>,
+        options?: { title?: string; placeHolder?: string }
+      ): Promise<FakeQuickPickItem | undefined> => {
+        const resolved = await items;
+        quickPickCalls.push({
+          title: options?.title, placeHolder: options?.placeHolder,
+          labels: resolved.map((item) => item.label),
+        });
+        const label = quickPickPicks.shift();
+        return label === undefined
+          ? undefined
+          : resolved.find((item) => item.label === label);
+      },
       withProgress: async (
         _options: unknown,
         task: (
@@ -661,6 +721,7 @@ export function createFakeVscode(): FakeVscode {
     clipboard: { written: clipboardWritten },
     config,
     extensions,
+    quickPick: { picks: quickPickPicks, calls: quickPickCalls },
     setContextCalls,
     window: windowState,
     emitters,

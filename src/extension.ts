@@ -6,8 +6,10 @@ import { resolveInterpreter } from './config';
 import { KernelClient } from './kernel/client';
 import { Announcer } from './render/announcer';
 import { Annotations } from './render/annotations';
+import { exploreValue } from './render/explorer';
 import { Flash } from './render/flash';
 import { ValueHoverProvider } from './render/hover';
+import { isInspectableName } from './render/inspector';
 
 let client: KernelClient | undefined;
 let output: vscode.OutputChannel | undefined;
@@ -47,7 +49,31 @@ export function activate(context: vscode.ExtensionContext): void {
   // rather than glued to a decoration range that nothing can ever land on.
   context.subscriptions.push(
     vscode.languages.registerHoverProvider(
-      'python', new ValueHoverProvider(annotations))
+      'python', new ValueHoverProvider(annotations, () => client))
+  );
+
+  context.subscriptions.push(
+    // The drill-down half of #23. `name` arrives already resolved from the
+    // hover's "Explore" link; from the palette or a keybinding there is
+    // none, so this falls back to the same read the hover itself used --
+    // the display name of whatever is annotated at the cursor -- rather
+    // than being reachable only after a mouse has hovered something. Like
+    // `evalens.clearInputAnswers`, this reaches for `client` directly: the
+    // value it would inspect only exists because an evaluation already
+    // spawned one.
+    vscode.commands.registerCommand(
+      'evalens.inspectValue', async (name?: string) => {
+        if (!client) {
+          return;
+        }
+        const target = name ?? inspectableAtCursor();
+        if (!target) {
+          vscode.window.setStatusBarMessage(
+            'Evalens: nothing inspectable at the cursor', STATUS_ACK_MS);
+          return;
+        }
+        await exploreValue(client, target, target);
+      })
   );
 
   context.subscriptions.push(
@@ -222,6 +248,26 @@ export function deactivate(): void {
   // and an orphaned interpreter is a bug users see in Activity Monitor and
   // never report.
   disposeClient();
+}
+
+/**
+ * The name `evalens.inspectValue` would explore for the annotation at the
+ * cursor, or `undefined` when there is none or it is not a bare name.
+ *
+ * The same read `ValueHoverProvider` performs, repeated here rather than
+ * shared, because the two reach it from different starting points: a hover
+ * already has the position VS Code resolved for it, and a palette
+ * invocation has only the active editor's selection.
+ */
+function inspectableAtCursor(): string | undefined {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    return undefined;
+  }
+  const annotation = annotations?.at(
+    editor.document, editor.selection.active.line);
+  return isInspectableName(annotation?.display) ? annotation.display
+    : undefined;
 }
 
 async function ensureClient(

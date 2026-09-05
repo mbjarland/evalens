@@ -178,11 +178,44 @@ export interface EvalAboveRequest {
   readonly limits?: DisplayLimits;
 }
 
+/**
+ * One safe access on the way from a namespace binding down to a value the
+ * explorer wants to show -- never a key or index the extension invents.
+ *
+ * Every `step` an `Inspected` child carries is handed back on the wire
+ * exactly as it arrived: the kernel is what decides whether an attribute
+ * read or a container position is safe to repeat (#73's rule, applied to
+ * `__getattr__`/`__getitem__` instead of `__repr__`), and inventing one
+ * here would be trusting the extension's own guess about a type it has
+ * never seen the definition of.
+ */
+export type InspectStep =
+  | { readonly kind: 'attr'; readonly name: string }
+  | { readonly kind: 'item'; readonly index: number };
+
+/**
+ * Ask for one level of a value's children -- the object explorer's op
+ * (#23) -- addressed by a name already sitting in the namespace and a path
+ * of `InspectStep`s below it, never by an expression to re-evaluate.
+ *
+ * `name` has to be a bare identifier: the one shape a namespace lookup can
+ * answer without running anything, which is also why `Evaluated.display`
+ * is the only source of it -- see `render/inspector.ts`. Re-sent on every
+ * request, on the same footing as `EvalRequest.source`: the kernel holds no
+ * "current" value to expand, only the namespace itself.
+ */
+export interface InspectRequest {
+  readonly op: 'inspect';
+  readonly name: string;
+  readonly path: readonly InspectStep[];
+}
+
 export type Request =
   | EvalRequest
   | EvalFileRequest
   | EvalAboveRequest
   | OutlineRequest
+  | InspectRequest
   | { readonly op: 'ping' }
   | { readonly op: 'reset' }
   /**
@@ -763,13 +796,69 @@ export type OutlineResponse = Outlined | Failed;
 
 export type EvalResponse = Unresolved | Evaluated | Failed;
 
+/**
+ * One row of an `inspect` table -- a field, an item, or a property the
+ * kernel declined to evaluate.
+ *
+ * `value` and `repr` follow the same convention `Evaluated` does: `value`
+ * is what to show, already substituted the way `wire_value` substitutes an
+ * address-shaped repr, and `repr` is the untouched original only when the
+ * two differ. `null` for `value` is reserved for the one row that has
+ * neither -- a property, where showing anything would mean calling it.
+ *
+ * `step`, present on every row but a property's, is what a further
+ * `InspectRequest.path` extends with to open that row -- see `InspectStep`.
+ * Its absence *is* "not expandable further"; `expandable` still carries the
+ * cheaper of the two questions ("would opening this find anything") so a
+ * renderer need not inspect `step`'s shape to decide whether to offer it.
+ */
+export interface InspectChild {
+  readonly name: string;
+  readonly kind: 'attr' | 'item' | 'property';
+  readonly type: string;
+  readonly value: string | null;
+  readonly repr?: string;
+  readonly expandable: boolean;
+  /** `false` only for a property; absent is equivalent to `true`. */
+  readonly evaluated?: boolean;
+  readonly step?: InspectStep;
+}
+
+/**
+ * One level of a value's children, and the value's own type and repr for
+ * the row that led to it.
+ *
+ * `children` is never the whole of a large container -- see
+ * `INSPECT_CHILD_LIMIT` in the kernel -- so `count` and `truncated` are
+ * what let a renderer say "and 4,999,900 more" honestly rather than
+ * silently showing a partial table as if it were complete.
+ */
+export interface Inspected {
+  readonly id: number;
+  readonly ok: true;
+  readonly type: string;
+  readonly value: string | null;
+  readonly repr?: string;
+  readonly children: readonly InspectChild[];
+  readonly count: number;
+  readonly truncated: boolean;
+}
+
+/**
+ * A path that no longer resolves, a name that was never bound, or a `name`
+ * that is not a bare identifier are all `Failed` rather than a crash --
+ * see `Kernel.inspect_value`.
+ */
+export type InspectResponse = Inspected | Failed;
+
 export interface Acknowledged {
   readonly id: number;
   readonly ok: true;
 }
 
 export type Response =
-  EvalResponse | FileResponse | OutlineResponse | Acknowledged;
+  EvalResponse | FileResponse | OutlineResponse | InspectResponse
+  | Acknowledged;
 
 export function isFailure(response: Response): response is Failed {
   return response.ok === false;

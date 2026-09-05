@@ -243,6 +243,28 @@ It exists so that Evaluate and Advance can step by statements rather than by
 lines without a second parser on the extension side -- and it is a separate op
 precisely so that asking where the next statement is cannot run anything.
 
+``inspect`` answers with one level of a value's children -- for the object
+explorer (#23) -- addressed by a namespace name and a path of safe accesses,
+never by an expression to re-evaluate::
+
+    -> {"id":6,"op":"inspect","name":"user","path":[]}
+    <- {"id":6,"ok":true,"type":"User","value":"<User instance>",
+        "children":[
+          {"name":"name","kind":"attr","type":"str","value":"'Jane Smith'",
+           "expandable":false,"step":{"kind":"attr","name":"name"}},
+          {"name":"email","kind":"property","type":"property","value":null,
+           "expandable":false,"evaluated":false}],
+        "count":2,"truncated":false}
+
+``name`` has to already be a key in the namespace -- the same lookup a bare
+name's own display already trusted (#68) -- and each entry in ``path`` is
+handed back verbatim in an earlier response's ``children[].step``, never
+built by the caller from a key or index it invented. A ``property`` row
+carries no ``step`` and is never expandable, because reading one would run
+its getter, which is exactly what design rule 3 forbids. See the module note
+above ``INSPECT_CHILD_LIMIT`` for the whole of how the walk stays safe and
+bounded.
+
 A buffer that does not parse whole is answered from the part that does, and
 both ``eval`` and ``eval_file`` then carry ``partial``::
 
@@ -406,8 +428,10 @@ import ast
 import builtins
 import collections
 import contextlib
+import functools
 import inspect
 import io
+import itertools
 import json
 import linecache
 import os
@@ -1254,6 +1278,55 @@ _BOUNDED_TYPES = (
 #: this runs once per element of every collection rendered.
 _BOUNDED_EXACTLY = {kind: method for kind, method in _BOUNDED_TYPES}
 
+#: The operations each formatter above actually performs on a value, beyond
+#: `__repr__` -- found by #23's own `NoExecution` test, which caught a
+#: `class Probe(dict)` overriding `__getitem__` still being walked by
+#: `repr_dict`, because the guard below used to check only `__repr__`.
+#: `_pair` reads `mapping[key]` (`__getitem__`); `_repr_iterable`'s `head`
+#: loop reads `for item in x` (`__iter__`); its `_last` calls `reversed(x)`,
+#: which uses `__reversed__` where a type defines one and the `__len__` +
+#: `__getitem__` fallback protocol where it does not; `_cut` slices
+#: `x[:keep]` (`__getitem__`). `list` and `collections.deque` define
+#: `__reversed__`, so only that slot needs checking for the `reversed()`
+#: half of the two; `tuple`, `str`, `bytes` and `bytearray` define none, so
+#: `reversed()` and slicing fall back to `__len__` and `__getitem__` for
+#: them instead, and those are what have to be unchanged. `dict` needs both:
+#: its own `__reversed__`, and `__getitem__` for `_pair`.
+_BOUNDED_DUNDERS: Dict[type, Tuple[str, ...]] = {
+    list: ("__repr__", "__len__", "__iter__", "__reversed__"),
+    collections.deque: ("__repr__", "__len__", "__iter__", "__reversed__"),
+    tuple: ("__repr__", "__len__", "__iter__", "__getitem__"),
+    dict: ("__repr__", "__len__", "__iter__", "__reversed__", "__getitem__"),
+    set: ("__repr__", "__len__", "__iter__"),
+    frozenset: ("__repr__", "__len__", "__iter__"),
+    str: ("__repr__", "__len__", "__getitem__"),
+    bytes: ("__repr__", "__len__", "__getitem__"),
+    bytearray: ("__repr__", "__len__", "__getitem__"),
+}
+
+#: Stands in for "neither type has this attribute at all" -- `tuple`, `str`,
+#: `bytes` and `bytearray` define no `__reversed__`, and two absences have to
+#: compare equal or every subclass of those four would fail `_still_the_base`
+#: on a slot that was never there to override.
+_NO_SUCH_DUNDER = object()
+
+
+def _still_the_base(kind: type, base: type) -> bool:
+    """Is every operation `base`'s formatter performs still `base`'s own on
+    `kind`, rather than something `kind` overrode?
+
+    By identity, never by name or by calling it to see what comes back --
+    the same reason `_wrote_its_own_repr` gives: an override is free to look
+    exactly like the original while doing anything at all. A metaclass that
+    makes even `getattr` raise is treated as having overridden everything,
+    by `_method`'s own outer `except`.
+    """
+    return all(
+        getattr(kind, dunder, _NO_SUCH_DUNDER)
+        is getattr(base, dunder, _NO_SUCH_DUNDER)
+        for dunder in _BOUNDED_DUNDERS[base]
+    )
+
 
 def _elision(count: int, noun: str = "") -> str:
     """``… (+9,994 more)`` -- the marker the extension already paints.
@@ -1443,13 +1516,22 @@ class _BoundedRepr(reprlib.Repr):
         return self._charged(_capped(text, max(self._left, _LEAST_ROOM * 2)))
 
     def _method(self, kind: type) -> Any:
-        """The bounded formatter for `kind`, or None to leave it alone."""
+        """The bounded formatter for `kind`, or None to leave it alone.
+
+        A subclass qualifies only when every operation that formatter
+        performs -- not only `__repr__` -- is still the base type's own; see
+        `_still_the_base` and the note above `_BOUNDED_DUNDERS`. Anything
+        that fails the check falls through to `repr_instance`, which calls
+        the object's real `repr()` instead of walking it by hand -- safe
+        whatever `kind` overrode, because `repr()` never leaves Python code
+        the C implementation is willing to run on its own account.
+        """
         name = _BOUNDED_EXACTLY.get(kind)
         if name is not None:
             return getattr(self, name)
         try:
             for base, name in _BOUNDED_TYPES:
-                if issubclass(kind, base) and kind.__repr__ is base.__repr__:
+                if issubclass(kind, base) and _still_the_base(kind, base):
                     return getattr(self, name)
         except BaseException:  # noqa: BLE001 - a metaclass can raise here
             return None
@@ -1962,6 +2044,343 @@ def wire_value_and_table(
     except BaseException:  # noqa: BLE001 - introspection runs user code too
         table = None
     return shown, raw_repr, table
+# -- #23: describing a value's children without running anything -----------
+#
+# `inspect_value` (below, on `Kernel`) is the op an explorer hovers to get
+# one level of a value's fields: name, type, bounded value, and whether
+# there is more underneath. Everything in this section exists to make that
+# answerable without doing the one thing design rule 3 forbids -- running
+# code the reader did not ask to run.
+#
+# The root is always a name already sitting in `self.namespace`, so finding
+# it is a dictionary lookup, exactly like a bare name's own display (#68).
+# Every step below the root is one of exactly two kinds of read, and both
+# are chosen to be incapable of calling anything a class defines:
+#
+# **`attr`** reads an already-built instance `__dict__` by key. That is a
+# dictionary lookup too -- `vars(x)["name"]`, not `getattr(x, "name")` --
+# so it cannot reach a `property`, a `__getattr__`, or a descriptor of any
+# kind. A `property` is listed as a row with nothing underneath it instead,
+# per the ticket's own requirement that one must never be evaluated to be
+# shown.
+#
+# **`item`** reads a position in a `dict`, `list`, `tuple`, `set` or
+# `frozenset` -- but only when `_safe_kind` finds the operations this
+# performs (`__getitem__`, `__iter__`, `__len__`) still belong to the
+# builtin rather than to a subclass's own override. That is #73's rule
+# ("type identity plus whether it is inherited, never the type's name"),
+# applied to the dunder this module actually calls instead of to
+# `__repr__`. A `class LazyRow(dict)` whose `__getitem__` hits a database
+# is exactly the shape #68 was filed for, and it is walked by neither
+# branch: `_safe_kind` answers `None` for it and nothing is opened.
+#
+# Every value handed back rides through `wire_value`, so a function, a
+# class or an address-shaped instance reads in a table exactly as it would
+# as a whole annotation, and every walk is capped at `INSPECT_CHILD_LIMIT`
+# -- #54's discipline: one level, built only as far as the cap, never
+# built whole and then sliced. `len()` on any of the four safe container
+# kinds is O(1), so the total count a truncated table reports costs
+# nothing beyond what showing the rows already cost.
+#
+# What this does not solve, by design: a value re-inspected later reads
+# whatever the namespace holds *then*, which can differ from what was
+# painted if the code ran again in between. That is the same trade the
+# ticket's own discussion settled on over a cache keyed by evaluation --
+# IPython's `Out`, and its documented habit of pinning every result
+# against garbage collection -- a labelling problem, not a leak.
+
+#: How many rows one level of `inspect_value` shows before the rest are
+#: elided. Smaller than `REPR_ITEM_LIMIT`: a repr's job is to suggest a
+#: value's shape in one line; a table's job is to be read row by row, and a
+#: hundred rows already asks more of a reader than any repr does.
+INSPECT_CHILD_LIMIT = 100
+
+#: How much of a child's own value rides along in one row. Smaller than
+#: `WIRE_REPR_LIMIT`: with up to `INSPECT_CHILD_LIMIT` rows in one response,
+#: giving every row the top-level budget would let one field's value crowd
+#: out every other field's -- `REPR_NESTED_STRING_LIMIT`'s reasoning, applied
+#: to a table instead of a repr.
+INSPECT_CHILD_REPR_LIMIT = 240
+
+
+class _Missing:
+    """Answers "not there", where `None` is a value a namespace can hold.
+
+    A path that no longer resolves -- a name reassigned, a list shrunk since
+    the row was sent -- has to say so without being confused for a step that
+    legitimately led to `None`.
+    """
+
+    def __repr__(self) -> str:
+        return "<missing>"
+
+
+_MISSING = _Missing()
+
+
+def _own_dict(value: Any) -> Optional[Dict[str, Any]]:
+    """`value.__dict__`, or None when there is nothing safe to read.
+
+    An ordinary instance's own dict is a slot read, not a call, on the same
+    footing as `_readable_name` reading `__qualname__` elsewhere in this
+    module: it cannot run `__getattr__`, and nothing about a plain object
+    can make it do anything else. The exotic case -- a metaclass that
+    replaces `__dict__` itself with a property -- gets the same benefit of
+    the doubt a broken `__repr__` gets: caught, and treated as nothing to
+    show, rather than let it run.
+    """
+    try:
+        own = getattr(value, "__dict__", None)
+    except BaseException:  # noqa: BLE001 - a metaclass can raise here
+        return None
+    return own if isinstance(own, dict) else None
+
+
+def _class_properties(value: Any) -> Dict[str, Any]:
+    """Every `property` or `functools.cached_property` declared on
+    `type(value)` or one of its bases, closest class first.
+
+    Found by reading each class's own `__dict__` in the MRO -- never by
+    `getattr` on the instance, which is exactly the call that would run the
+    getter this exists to avoid running. A subclass that shadows a base's
+    property with a plain instance attribute never reaches here for that
+    name: `_own_dict` already answered it, and `_children_of` only asks this
+    about names the instance dict did not have.
+    """
+    found: Dict[str, Any] = {}
+    try:
+        mro = type(value).__mro__
+    except BaseException:  # noqa: BLE001 - an exotic metaclass
+        return found
+    for klass in mro:
+        try:
+            members = vars(klass)
+        except BaseException:  # noqa: BLE001
+            continue
+        for key, member in members.items():
+            if key in found:
+                continue
+            if isinstance(member, (property, functools.cached_property)):
+                found[key] = member
+    return found
+
+
+def _safe_kind(value: Any) -> Optional[str]:
+    """Which walk applies to `value`, or None when nothing here is safe to
+    walk automatically.
+
+    Type identity, plus whether the dunder this walk actually calls is still
+    the builtin's own -- #73's rule for `describe` and `__repr__`, applied
+    here to the operations this module performs instead: indexing,
+    iteration, length. A `class Log(list)` that only added a method still
+    walks as a list; a mapping or sequence that overrode how it is read does
+    not, because that override is exactly the code #68 was filed for
+    running by accident.
+    """
+    try:
+        kind = type(value)
+        if kind is dict or (
+            isinstance(value, dict)
+            and kind.__getitem__ is dict.__getitem__
+            and kind.__iter__ is dict.__iter__
+            and kind.__len__ is dict.__len__
+        ):
+            return "dict"
+        for base in (list, tuple):
+            if kind is base or (
+                isinstance(value, base)
+                and kind.__getitem__ is base.__getitem__
+                and kind.__len__ is base.__len__
+            ):
+                return "sequence"
+        for base in (set, frozenset):
+            if kind is base or (
+                isinstance(value, base)
+                and kind.__iter__ is base.__iter__
+                and kind.__len__ is base.__len__
+            ):
+                return "set"
+    except BaseException:  # noqa: BLE001 - a metaclass can raise here
+        return None
+    return None
+
+
+def _is_expandable(value: Any) -> bool:
+    """Would `_children_of` find at least one row here?
+
+    Answered by the same cheap checks that build the table, so a leaf never
+    claims a chevron it cannot honour. `len()` on a known-safe container is
+    O(1); a plain instance's own dict and its class's properties cost one
+    attribute read and one walk of the MRO, whatever the object holds --
+    none of it walks a level further than `_children_of` itself would.
+    """
+    try:
+        safe = _safe_kind(value)
+        if safe is not None:
+            return len(value) > 0
+        if _own_dict(value):
+            return True
+        return bool(_class_properties(value))
+    except BaseException:  # noqa: BLE001
+        return False
+
+
+def _type_name(value: Any) -> str:
+    """`str`, `int`, `DataFrame` -- the word an explorer puts in braces.
+
+    `_readable_name` first, so a locally defined class reads by its own name
+    rather than `outer.<locals>.Config`; `type(value).__name__` is the
+    fallback for the handful of builtins that have no `__qualname__` at all.
+    """
+    try:
+        kind = type(value)
+        return _readable_name(kind) or kind.__name__
+    except BaseException:  # noqa: BLE001 - a metaclass can raise here
+        return "object"
+
+
+def _key_label(key: Any) -> str:
+    """A dict key's own display text, bounded the way any nested value is.
+
+    `builtins.repr`, not `safe_repr`: the expensive structures this module
+    guards against are not the sort of thing anybody hashes, so reserving
+    the bounded walk for that genuine exception costs nothing here.
+    """
+    try:
+        text = builtins.repr(key)
+    except BaseException:  # noqa: BLE001 - a broken __repr__ on a key
+        return "<key>"
+    return _capped(text, 80)
+
+
+def _wire_child(
+    name: str, step: Dict[str, Any], value: Any
+) -> Dict[str, Any]:
+    """One row of an `inspect_value` table.
+
+    `wire_value` is the same substitution a top-level annotation gets, so a
+    function or an address-shaped instance found inside a container reads
+    exactly as it would as the whole answer, rather than falling back to
+    Python's own `<... at 0x...>`. `step` rides along unexamined, so a
+    client asking for this row's own children later sends back exactly the
+    access that found it -- never a key or an index it reconstructed itself.
+    """
+    text, raw = wire_value(value, INSPECT_CHILD_REPR_LIMIT)
+    child: Dict[str, Any] = {
+        "name": name,
+        "kind": step["kind"],
+        "type": _type_name(value),
+        "value": text,
+        "expandable": _is_expandable(value),
+        "step": step,
+    }
+    if raw is not None:
+        child["repr"] = raw
+    return child
+
+
+def _children_of(
+    value: Any, cap: int = INSPECT_CHILD_LIMIT
+) -> Tuple[list, int]:
+    """One level of `value`'s children, built to `cap` rather than sliced
+    from the whole.
+
+    #54's discipline, applied to a table instead of a repr: a
+    five-million-element list costs the same hundred rows here that a
+    five-element one would, because `itertools.islice` never asks the
+    container for an element past the cap. The total is still exact --
+    `len()` on any of the three safe container kinds is O(1) -- so a
+    truncated table can say how much it left out without having paid to
+    find out.
+    """
+    safe = _safe_kind(value)
+    if safe == "dict":
+        total = len(value)
+        rows = [
+            _wire_child(_key_label(key), {"kind": "item", "index": index},
+                        child)
+            for index, (key, child) in
+            enumerate(itertools.islice(value.items(), cap))
+        ]
+        return rows, total
+    if safe in ("sequence", "set"):
+        total = len(value)
+        rows = [
+            _wire_child(f"[{index}]", {"kind": "item", "index": index},
+                        child)
+            for index, child in itertools.islice(enumerate(value), cap)
+        ]
+        return rows, total
+
+    # A plain instance: its own bindings first, then the properties its
+    # class declares but has not been made to run -- see the module note
+    # above for why a property stops here rather than being read.
+    own = _own_dict(value) or {}
+    rows = [
+        _wire_child(key, {"kind": "attr", "name": key}, own[key])
+        for key in itertools.islice(own, cap)
+    ]
+    remaining = max(cap - len(rows), 0)
+    props = _class_properties(value)
+    rows.extend(
+        {
+            "name": key,
+            "kind": "property",
+            "type": "property",
+            "value": None,
+            "expandable": False,
+            "evaluated": False,
+        }
+        for key in itertools.islice(props, remaining)
+    )
+    return rows, len(own) + len(props)
+
+
+def _walk_step(value: Any, step: Any) -> Any:
+    """One child of `value`, addressed exactly the way `_children_of` found
+    it -- never by re-deriving anything from a key or index the caller
+    supplies.
+
+    Every branch here performs the identical safe access `_children_of`
+    already used to list the row, so nothing is looked up by a name or a
+    key the request invents, only by the attribute name or position a
+    previous response handed out. `_MISSING` rather than raising: a value
+    reassigned or shrunk since that response answers "not there any more",
+    which is a labelling problem this project already accepts (design rule
+    4), not a crash.
+    """
+    if not isinstance(step, dict):
+        return _MISSING
+    kind = step.get("kind")
+    if kind == "attr":
+        key = step.get("name")
+        own = _own_dict(value) if isinstance(key, str) else None
+        if own is not None and key in own:
+            return own[key]
+        return _MISSING
+    if kind == "item":
+        index = step.get("index")
+        if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+            return _MISSING
+        safe = _safe_kind(value)
+        if safe == "dict":
+            source: Iterable[Any] = (child for _, child in value.items())
+        elif safe in ("sequence", "set"):
+            source = value
+        else:
+            return _MISSING
+        for position, child in enumerate(source):
+            if position == index:
+                return child
+        return _MISSING
+    return _MISSING
+
+
+def _inspect_error(kind: str, message: str) -> Dict[str, Any]:
+    return {
+        "ok": False,
+        "error": {"type": kind, "message": message, "traceback": ""},
+    }
 
 
 #: Statement kinds where a module or a callable IS the value the line means to
@@ -2946,6 +3365,8 @@ class Kernel:
             return self.evaluate_file(request)
         if op == "outline":
             return self.outline(request)
+        if op == "inspect":
+            return self.inspect_value(request)
         if op == "eval_above":
             return self.evaluate_above(request)
         return {
@@ -3451,6 +3872,67 @@ class Kernel:
                 for form in forms_in(tree, source=source)
             ],
         }
+
+    def inspect_value(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """One level of a value's children, for an explorer's hover and its
+        drill-down command (#23).
+
+        The value is never evaluated to get here. ``name`` is a namespace
+        key -- a dictionary lookup, on the same footing as reading a bare
+        name back for a loop target (#68) -- and every entry in ``path``
+        below it is one of the two accesses ``_walk_step`` performs, neither
+        of which can run anything a class defines. See the module note above
+        ``INSPECT_CHILD_LIMIT`` for the whole of why that is true.
+
+        Nothing here extends what the namespace already keeps alive: the
+        root has to be bound there before this can be asked about it, and
+        every child handed back is a reference already reachable through
+        that same binding, never copied or cached anywhere new. That is the
+        constraint the ticket's own discussion settled on in place of a
+        cache keyed by evaluation -- see the comments on #23 about IPython's
+        ``Out`` and the memory it is documented to pin.
+
+        Travels on the request channel, exactly like ``eval``: while a
+        statement is running, an ``inspect`` sent to hover a *previous*
+        result waits behind it rather than being serviced early. Jupyter's
+        own introspection shares this limitation for the same structural
+        reason -- one reader on the channel a busy kernel is not reading --
+        and fixing it needs the second, non-queued channel the ticket's
+        discussion sketches for interrupt and stdin, which is out of scope
+        here.
+        """
+        name = request.get("name")
+        path = request.get("path")
+        if not isinstance(name, str) or not name.isidentifier():
+            return _inspect_error(
+                "InvalidRequest", "name must be a bare identifier")
+        if path is None:
+            path = []
+        if not isinstance(path, list):
+            return _inspect_error("InvalidRequest", "path must be a list")
+        if name not in self.namespace:
+            return _inspect_error("NotFound", f"{name!r} is not bound")
+
+        value = self.namespace[name]
+        for step in path:
+            value = _walk_step(value, step)
+            if value is _MISSING:
+                return _inspect_error(
+                    "NotFound", "that value is no longer there")
+
+        text, raw = wire_value(value)
+        children, total = _children_of(value)
+        result: Dict[str, Any] = {
+            "ok": True,
+            "type": _type_name(value),
+            "value": text,
+            "children": children,
+            "count": total,
+            "truncated": total > len(children),
+        }
+        if raw is not None:
+            result["repr"] = raw
+        return result
 
     # -- internals ----------------------------------------------------------
 
