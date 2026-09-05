@@ -38,25 +38,32 @@ export type Answer =
  * have given is context, and that comes from marking and revealing the line
  * instead: the box is where you type, the annotation is what says which line
  * is asking and what for.
+ *
+ * `title` is `locatedTitle`'s output when the kernel said where the statement
+ * is -- `line 13 · x = input("give me a value: ")` -- and falls back to the
+ * bare extension name when it did not, which is the only way an older kernel
+ * or a request with no `range` can reach this.
  */
 export async function askForInput(
-  request: InputRequest, offerSkip = false
+  request: InputRequest, offerSkip = false, title?: string
 ): Promise<Answer> {
   if (!offerSkip) {
     // `showInputBox` for the ordinary case: the same widget with none of the
     // lifecycle to get wrong, and most prompts never see the other path.
-    const answer = await vscode.window.showInputBox(settings(request));
+    const answer = await vscode.window.showInputBox(settings(request, title));
     return answer === undefined
       ? { kind: 'eof' }
       : { kind: 'value', value: answer };
   }
-  return withSkipButton(request);
+  return withSkipButton(request, title);
 }
 
 /** Everything both boxes share, so the two cannot drift in what they say. */
-function settings(request: InputRequest): vscode.InputBoxOptions {
+function settings(
+  request: InputRequest, title?: string
+): vscode.InputBoxOptions {
   return {
-    title: 'Evalens',
+    title: title ?? 'Evalens',
     prompt: promptLabel(request.prompt),
     placeHolder: ESCAPE_HINT,
     // The read came from inside getpass. Echoing it into a visible box would
@@ -80,9 +87,11 @@ function settings(request: InputRequest): vscode.InputBoxOptions {
  * exists to contain -- every path resolves exactly once and disposes exactly
  * once, or the kernel is left blocked on an answer nobody will send.
  */
-function withSkipButton(request: InputRequest): Promise<Answer> {
+function withSkipButton(
+  request: InputRequest, title?: string
+): Promise<Answer> {
   const box = vscode.window.createInputBox();
-  const shared = settings(request);
+  const shared = settings(request, title);
   box.title = shared.title;
   box.prompt = shared.prompt;
   box.placeholder = shared.placeHolder;

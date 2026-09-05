@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  ESCAPE_HINT, LoadPrompts, SKIP_HINT, SKIP_LABEL, offersSkip, promptLabel,
-  waitingLabel,
+  ESCAPE_HINT, LoadPrompts, SKIP_HINT, SKIP_LABEL, locatedTitle, offersSkip,
+  promptLabel, waitingLabel,
 } from '../input';
 
 test('the prompt the code printed is what the box says', () => {
@@ -37,6 +37,20 @@ test('the line says something shorter than the box does', () => {
   assert.ok(waitingLabel('').length < promptLabel('').length,
     'the line cannot afford the box\'s sentence');
   assert.equal(waitingLabel('   '), 'waiting for input');
+});
+
+test('the box title names the line and the code that asked', () => {
+  // `showInputBox` floats at the top of the window while the statement that
+  // asked can be anywhere -- this is the whole of what ties the two together.
+  assert.equal(
+    locatedTitle(12, 'x = input("give me a value: ")'),
+    'line 13 · x = input("give me a value: ")');
+});
+
+test('a long line is trimmed the same way a prompt is', () => {
+  const title = locatedTitle(0, 'x'.repeat(1000));
+  assert.ok(title.length < 250, 'a title is not where to discover a bug');
+  assert.ok(title.endsWith('…'));
 });
 
 test('the first prompt of a load is not asked about the rest', () => {

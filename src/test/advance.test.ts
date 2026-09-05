@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { nextStop } from '../advance';
+import { OutlineCache, nextStop, outlinePlan } from '../advance';
 import { StatementSpan } from '../kernel/protocol';
 
 /**
@@ -167,4 +167,49 @@ test('the step is to the start of the next statement, not its anchor', () => {
 
   assert.deepEqual(nextStop(statements, 0, () => ''),
     { kind: 'move', position: { line: 1, character: 0 } });
+});
+
+/** A cache entry that would answer instantly, with statements nobody reads. */
+function cacheAt(key: string, version: number): OutlineCache {
+  return { key, version, statements: [span(0)] };
+}
+
+test('a current cache is used without asking the kernel anything', () => {
+  const cache = cacheAt('doc', 3);
+  assert.deepEqual(outlinePlan(cache, 'doc', 3, false),
+    { kind: 'cached', statements: cache.statements });
+  // Busy or not makes no difference: nothing needs to be asked either way.
+  assert.deepEqual(outlinePlan(cache, 'doc', 3, true),
+    { kind: 'cached', statements: cache.statements });
+});
+
+test('an idle kernel is asked fresh when nothing is cached', () => {
+  assert.deepEqual(outlinePlan(undefined, 'doc', 1, false), { kind: 'fetch' });
+});
+
+test('a stale cache is refreshed when the kernel is free to answer', () => {
+  const cache = cacheAt('doc', 1);
+  assert.deepEqual(outlinePlan(cache, 'doc', 2, false), { kind: 'fetch' });
+});
+
+test('#90: a busy kernel is never asked, even for a stale cache', () => {
+  // The hang. `outline` shares the request channel with `eval`, and the
+  // kernel reads that channel one request at a time -- so asking while it is
+  // busy with a statement blocked on input() would queue behind a prompt the
+  // reader may not even know is open, and Evaluate and Advance would sit
+  // waiting for an answer to a question nobody can see.
+  const cache = cacheAt('doc', 1);
+  assert.deepEqual(outlinePlan(cache, 'doc', 2, true),
+    { kind: 'cached', statements: cache.statements },
+    'the stale cache is used rather than asking a busy kernel');
+});
+
+test('busy with nothing cached answers "unknown", not a hang', () => {
+  assert.deepEqual(outlinePlan(undefined, 'doc', 1, true), { kind: 'unknown' });
+});
+
+test('a cache from a different document never answers for this one', () => {
+  const cache = cacheAt('other-doc', 1);
+  assert.deepEqual(outlinePlan(cache, 'doc', 1, true), { kind: 'unknown' });
+  assert.deepEqual(outlinePlan(cache, 'doc', 1, false), { kind: 'fetch' });
 });

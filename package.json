@@ -260,6 +260,26 @@
         }
       },
       {
+        "id": "evalens.askingForeground",
+        "description": "Colour of the marker beside a statement blocked on input() -- the reader's turn, not the tool's. Never the error colour: a prompt is not a failure.",
+        "defaults": {
+          "dark": "#e8963c",
+          "light": "#a3600a",
+          "highContrast": "#ffb04d",
+          "highContrastLight": "#7a4200"
+        }
+      },
+      {
+        "id": "evalens.askingRegionBackground",
+        "description": "Background of the region a statement is blocked on input() in. Loud rather than greyed: nothing moves until the reader answers, and this is meant to be the focal point of the screen for as long as that is true.",
+        "defaults": {
+          "dark": "#e8963c66",
+          "light": "#a3600a4d",
+          "highContrast": "#e8963c99",
+          "highContrastLight": "#a3600a66"
+        }
+      },
+      {
         "id": "evalens.flashRegionBackground",
         "description": "Brief emphasis on a region that has just finished. It decays after a moment on purpose: once every line carries a value, what says which one just ran is the change rather than the colour.",
         "defaults": {
