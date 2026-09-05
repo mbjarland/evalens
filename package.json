@@ -73,18 +73,18 @@
         "id": "evalens.resultForeground",
         "description": "Colour of an inline evaluation result.",
         "defaults": {
-          "dark": "#4ec9b0",
-          "light": "#0f766e",
-          "highContrast": "#5ff0d0",
-          "highContrastLight": "#0b5c50"
+          "dark": "#d1a35c",
+          "light": "#8a6a2b",
+          "highContrast": "#f0c674",
+          "highContrastLight": "#6b4a10"
         }
       },
       {
         "id": "evalens.resultBackground",
-        "description": "Background behind an inline evaluation result. Set to #00000000 to remove it.",
+        "description": "Background behind an inline evaluation result. Transparent by default; set a colour here to give results a chip.",
         "defaults": {
-          "dark": "#4ec9b01f",
-          "light": "#0f766e14",
+          "dark": "#00000000",
+          "light": "#00000000",
           "highContrast": "#00000000",
           "highContrastLight": "#00000000"
         }
@@ -101,10 +101,10 @@
       },
       {
         "id": "evalens.errorBackground",
-        "description": "Background behind an inline evaluation error. Set to #00000000 to remove it.",
+        "description": "Background behind an inline evaluation error. Transparent by default.",
         "defaults": {
-          "dark": "#f14c4c1f",
-          "light": "#c6282814",
+          "dark": "#00000000",
+          "light": "#00000000",
           "highContrast": "#00000000",
           "highContrastLight": "#00000000"
         }

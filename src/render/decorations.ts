@@ -22,10 +22,11 @@ const MINIMUM_GAP = 2;
 
 /**
  * Padding and rounding for the annotation's background, smuggled through
- * `textDecoration` -- the decoration API exposes no padding of its own, and
- * a background that hugs the text reads as a highlight rather than a chip.
- * The `none;` prefix is what keeps this from being read as a real
- * text-decoration value.
+ * `textDecoration` -- the decoration API exposes no padding of its own. Both
+ * background colours default to transparent, following Rider, which gets its
+ * separation from italics and a warm colour rather than from a chip; this
+ * only takes effect if someone sets one through
+ * `workbench.colorCustomizations`.
  */
 const CHIP = 'none; padding: 0 5px; border-radius: 3px;';
 
@@ -56,7 +57,10 @@ export class Decorator implements vscode.Disposable {
       color: new vscode.ThemeColor(COLOR_RESULT),
       backgroundColor: new vscode.ThemeColor(COLOR_RESULT_BG),
       textDecoration: CHIP,
-      fontStyle: 'normal',
+      // Italic is what makes an annotation legible as not-code at a glance,
+      // before colour is even processed. Rider leans on this and it carries
+      // most of the separation.
+      fontStyle: 'italic',
     },
   });
 
@@ -66,7 +70,7 @@ export class Decorator implements vscode.Disposable {
       color: new vscode.ThemeColor(COLOR_ERROR),
       backgroundColor: new vscode.ThemeColor(COLOR_ERROR_BG),
       textDecoration: CHIP,
-      fontStyle: 'normal',
+      fontStyle: 'italic',
     },
   });
 
