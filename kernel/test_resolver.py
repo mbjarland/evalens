@@ -19,8 +19,13 @@ TOUR = os.path.join(
 
 
 def resolve(src: str, line: int):
-    """Resolve at a 0-based line of `src`, which is written without indent."""
-    return form_at(ast.parse(src), line)
+    """Resolve at a 0-based line of `src`, which is written without indent.
+
+    `src` is threaded through as `source` too, on the same terms the kernel
+    always has it available: a caller here is never testing the reduced case
+    of a tree with no buffer behind it unless it calls `form_at` itself.
+    """
+    return form_at(ast.parse(src), line, source=src)
 
 
 class DisplayMapping(unittest.TestCase):
@@ -745,6 +750,49 @@ class HeaderAnchors(unittest.TestCase):
         # from `lineno` alone would anchor the class on the decorator line.
         f = resolve("class C:\n    @property\n    def m(self):\n        pass\n", 0)
         self.assertEqual(f.anchor_line, 0)
+
+    def test_a_body_opening_with_one_comment_anchors_on_the_header(self):
+        # #93: `_start_line(body[0]) - 1` counts the comment as part of the
+        # header it merely precedes, and the value used to land beside it.
+        f = resolve("if x:\n    # a comment\n    y = 1\n", 0)
+        self.assertEqual(f.anchor_line, 0)
+
+    def test_a_body_opening_with_several_comments_anchors_on_the_header(self):
+        f = resolve(
+            "if x:\n    # first\n    # second\n    # third\n    y = 1\n", 0)
+        self.assertEqual(f.anchor_line, 0)
+
+    def test_a_comment_after_a_blank_line_still_anchors_on_the_header(self):
+        # A blank line and a comment are both not-a-statement, and the walk
+        # back has to clear both, in whatever order they open the body in.
+        f = resolve("if x:\n    # a comment\n\n    y = 1\n", 0)
+        self.assertEqual(f.anchor_line, 0)
+        f = resolve("if x:\n\n    # a comment\n    y = 1\n", 0)
+        self.assertEqual(f.anchor_line, 0)
+
+    def test_the_maintainers_reported_instance(self):
+        # The exact shape #93 was filed against, reproduced rather than
+        # paraphrased: a two-comment block opening the body of a guard.
+        f = resolve(
+            'if __name__ == "__main__":\n'
+            "    # this block runs when the file is executed directly\n"
+            "    # but NOT when another module does `import this`\n"
+            "    main()\n", 0)
+        self.assertEqual(f.anchor_line, 0)
+
+    def test_a_wrapped_header_with_a_comment_opened_body_anchors_on_the_close(self):
+        # The fix cannot be "always use `node.lineno`": a header spanning
+        # several lines still ends where its own last line is, comments in
+        # the body notwithstanding.
+        f = resolve(
+            "def f(\n    a,\n    b,\n):\n    # a comment\n    return a\n", 0)
+        self.assertEqual(f.anchor_line, 3)
+
+    def test_without_source_the_old_low_anchor_is_unchanged(self):
+        # `source_lines` is optional: a caller with only a tree, no buffer,
+        # gets the guess `_start_line` always made, comments included.
+        f = form_at(ast.parse("if x:\n    # a comment\n    y = 1\n"), 0)
+        self.assertEqual(f.anchor_line, 1)
 
 
 class FormsInARange(unittest.TestCase):

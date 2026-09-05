@@ -38,7 +38,7 @@
  *   - an annotation beside a line that holds no statement (#96's class);
  *   - a line reporting fewer names than its statement bound (#92's class);
  *   - a value anchored inside a statement's body rather than its header,
- *     where the body opens with a comment (#93, unfixed as of this writing);
+ *     where the body opens with a comment (#93's class);
  *   - an annotation for a statement a partial load never reached;
  *   - a `0x` address in a painted annotation, already counted above and
  *     repeated here because the project has decided it is always wrong.

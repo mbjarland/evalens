@@ -2912,7 +2912,7 @@ class Kernel:
         partial = {} if parsed.truncated_at is None else {
             "partial": _partial_of(parsed)}
 
-        form = form_at(parsed.tree, line, character)
+        form = form_at(parsed.tree, line, character, source=source)
         if form is None:
             # A cursor on a blank line. Not an error, and deliberately not a
             # fallback to the nearest statement: that would run code the user
@@ -3080,7 +3080,7 @@ class Kernel:
         # and yields no forms, which is the whole point: the empty list is the
         # refusal, and it arrives without a special case for it.
         selection = _selected_lines(request)
-        forms = forms_in(parsed.tree, selection)
+        forms = forms_in(parsed.tree, selection, source=source)
 
         results = []
         ran = 0
@@ -3313,7 +3313,7 @@ class Kernel:
                     "range": _range_of(form),
                     **_anchor_of(form),
                 }
-                for form in forms_in(tree)
+                for form in forms_in(tree, source=source)
             ],
         }
 
