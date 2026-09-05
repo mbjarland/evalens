@@ -251,6 +251,8 @@ from __future__ import annotations
 
 import _thread
 import ast
+import builtins
+import collections
 import contextlib
 import inspect
 import io
@@ -258,6 +260,7 @@ import json
 import linecache
 import os
 import queue
+import reprlib
 import signal
 import sys
 import threading
@@ -790,16 +793,436 @@ def _capped(text: str, limit: int) -> str:
     return text
 
 
-def safe_repr(value: Any, limit: int = WIRE_REPR_LIMIT) -> str:
-    """``repr(value)``, contained.
+#: How many items one collection shows before it starts eliding. IPython's
+#: ``PlainTextFormatter.max_seq_length`` and numpy's print ``threshold`` are
+#: both 1000, so the number is the ecosystem's rather than one picked here.
+#: ``reprlib``'s own default of six is right for a *summary* of a value; this
+#: is the value, and it has the whole wire limit to spend.
+REPR_ITEM_LIMIT = 1000
 
-    A ``__repr__`` that raises is a bug in the user's code, not a reason for
-    the kernel to die -- it would take the whole session's namespace with it.
+#: How many items from the *end* of an elided collection survive -- numpy's
+#: ``edgeitems``, for numpy's reason. The end of a sequence is where its length
+#: is written: ``[0, 1, 2, … (+4,999,000 more) … 4999999]`` says which range
+#: built it, while a prefix of the same list says only that it starts at zero.
+REPR_EDGE_ITEMS = 3
+
+#: How deep the walk goes before a nested value is replaced by the marker.
+#: ``reprlib``'s own default, and the reason ``reprlib`` is fast: bounding by
+#: shape rather than by output length means the discarded part is never built.
+REPR_LEVEL_LIMIT = 6
+
+#: How much of a string nested inside a collection is kept. The same reasoning
+#: as the loop recorder's per-item cap: one fat element must not crowd out the
+#: structure it sits in. A string evaluated on its own keeps the whole wire
+#: limit, because there it *is* the value rather than one part of one.
+REPR_NESTED_STRING_LIMIT = 200
+
+#: Room the budget keeps back for the markers that say a value was cut. They
+#: are written after the walk that spent the budget has already finished, and
+#: the element that spends the last of it overshoots by its own width, so a
+#: value aimed at exactly the wire limit lands just past it and is cut a second
+#: time -- losing the tail the first cut went out of its way to fetch.
+_MARKER_ROOM = 160
+
+#: The least a single value is allowed, however little budget is left. Below
+#: about this much an element is all marker and no value, which is worse than
+#: not showing it.
+_LEAST_ROOM = 32
+
+#: The types this knows how to build to a budget, paired with the method that
+#: does it. Order matters only in that the first match wins.
+_BOUNDED_TYPES = (
+    (list, "repr_list"),
+    (tuple, "repr_tuple"),
+    (dict, "repr_dict"),
+    (set, "repr_set"),
+    (frozenset, "repr_frozenset"),
+    (collections.deque, "repr_deque"),
+    (str, "repr_str"),
+    (bytes, "repr_bytes"),
+    (bytearray, "repr_bytes"),
+)
+
+#: The same table keyed for the case that is almost always the one: an exact
+#: builtin, answered by a dict lookup rather than nine `issubclass` calls, and
+#: this runs once per element of every collection rendered.
+_BOUNDED_EXACTLY = {kind: method for kind, method in _BOUNDED_TYPES}
+
+
+def _elision(count: int, noun: str = "") -> str:
+    """``… (+9,994 more)`` -- the marker the extension already paints.
+
+    Deliberately not ``...``, which is ``Ellipsis`` and therefore a value a
+    list can genuinely contain; ``…`` is not Python at all, so an elided
+    collection cannot be read as a short one holding a real element. The count
+    is what stops it reading as a short one *at all*: it says how much is not
+    being shown, which is the same contract ``sequenceText`` states for a
+    loop's history, in the same shape, so a reader meets one convention.
+    """
+    return f"… (+{count:,} more{noun})"
+
+
+def _repr_failed(value: Any, exc: BaseException) -> str:
+    """What to show when the object's own ``__repr__`` raised.
+
+    Names the type first, because that is the durable fact about the value and
+    the thing ``<repr() raised RecursionError>`` on its own never said -- a
+    ``__repr__`` that recurses is the case where the old message told the
+    reader everything except which object they were looking at. The failure
+    stays on the end, because a ``__repr__`` that raises is a bug in the user's
+    code and swallowing it would make the annotation the last place they would
+    think to look.
     """
     try:
-        text = repr(value)
+        name = _readable_name(type(value)) or type(value).__name__
+    except BaseException:  # noqa: BLE001 - a metaclass can break even this
+        name = "?"
+    try:
+        detail = f"{type(exc).__name__}: {exc}"[:120]
+    except BaseException:  # noqa: BLE001 - so can a custom exception's str()
+        detail = type(exc).__name__
+    return f"<{name} instance: repr() raised {detail}>"
+
+
+def _last(x: Any, count: int) -> list:
+    """The final ``count`` items, cheaply, or nothing when there is no cheap
+    way.
+
+    ``reversed()`` is O(1) to start on a list, tuple, deque or dict, so the end
+    of a five-million-element sequence costs three steps rather than five
+    million -- which is the whole reason the ends are affordable at all. A set
+    raises ``TypeError`` here because it has no end to speak of, and that is
+    the honest answer: its elision simply has no tail.
+    """
+    if count <= 0:
+        return []
+    try:
+        items = []
+        for item in reversed(x):
+            items.append(item)
+            if len(items) >= count:
+                break
+    except BaseException:  # noqa: BLE001 - __reversed__ is user code too
+        return []
+    items.reverse()
+    return items
+
+
+class _BoundedRepr(reprlib.Repr):
+    """``repr()`` built to fit, rather than built whole and then cut.
+
+    The defect this exists for is that ``repr(list(range(5_000_000)))`` spends
+    a second and forty-five megabytes producing forty-four million characters
+    of which the wire keeps eight thousand. The cap was applied to a string
+    that had already been paid for, so it could not help with any of the cost
+    -- and the kernel is single threaded, so nothing else is serviced while
+    that runs. It looks exactly like a wedged kernel and it is reached by one
+    ordinary keystroke.
+
+    ``reprlib`` is the standard library's answer and the one IPython builds
+    on. It bounds by element count and nesting depth rather than by output
+    length, which is why it is fast: the discarded part is never built. Three
+    things here are deliberately not ``reprlib``'s:
+
+    **The ends are kept.** ``reprlib`` keeps a prefix. numpy and pandas both
+    keep both ends, and for a value read beside the code that made it the end
+    is the more informative half -- ``[0, 1, 2, … (+4,999,000 more) …
+    4999999]`` says which range built the list, where a prefix says only that
+    it starts at zero. It is also already this project's convention, because
+    it is what a loop's history renders as.
+
+    **Dispatch is by type identity, not by type name.** ``reprlib`` looks for
+    ``repr_`` plus ``type(x).__name__``, which misroutes in both directions:
+    ``class Stack(list)`` is not called ``list`` and so falls back to the full
+    ``repr()`` this exists to avoid, and on Python before 3.14 a class the user
+    happened to call ``list`` is formatted as one. Matching the type instead,
+    and only while it still uses the ``__repr__`` its base supplies, bounds the
+    subclass and leaves a hand-written ``__repr__`` alone -- the rule
+    ``describe`` already follows, for the same reason.
+
+    **Order is left as it is.** ``reprlib`` sorts dict keys and set elements to
+    make its truncation deterministic. A dict's order is insertion order and is
+    part of what the value *is*; showing it sorted would show something that
+    never existed, next to the code that built it.
+
+    What is not fixed: a type that wrote its own ``__repr__`` still pays for
+    it in full. That is deliberate for one somebody wrote, and the cost of it
+    for ``defaultdict`` and ``Counter``, which write their own to say what they
+    are. The wire limit still bounds what such a repr *sends*; nothing can
+    bound what it costs to produce without overruling it.
+    """
+
+    def __init__(self, budget: int) -> None:
+        # `reprlib.Repr.__init__` takes no arguments before 3.12, so the caps
+        # are set afterwards rather than passed in. Everything left untouched
+        # -- `maxlist`, `maxdict` and the rest -- keeps reprlib's own default
+        # and applies one level down, so a big structure shows its shape at
+        # every level instead of spending the whole budget on its first
+        # branch. That is numpy's `edgeitems` idea, reached from the top.
+        super().__init__()
+        self.maxlevel = REPR_LEVEL_LIMIT
+        # Aimed a marker's width short of the limit, because the marker saying
+        # a value was cut is itself written after the budget it was cut to fit
+        # has been spent. Without the headroom every elided value lands a few
+        # characters over the wire limit and gets cut a second time, by the
+        # transport guard, which throws away the tail this went to fetch.
+        self._budget = max(16, budget - _MARKER_ROOM)
+        self.maxstring = self._budget
+        self._left = self._budget
+        self._active: set = set()
+
+    def repr(self, x: Any) -> str:
+        self._left = self._budget
+        self._active = set()
+        return self.repr1(x, self.maxlevel)
+
+    def repr1(self, x: Any, level: int) -> str:
+        method = self._method(type(x))
+        if method is None:
+            return self.repr_instance(x, level)
+        try:
+            return method(x, level)
+        except Exception:  # noqa: BLE001 - a broken __len__ or __iter__
+            # A container that cannot be walked is still a value, and its own
+            # `repr()` is the one thing that definitely knows how to say it.
+            return self.repr_instance(x, level)
+
+    def _method(self, kind: type) -> Any:
+        """The bounded formatter for `kind`, or None to leave it alone."""
+        name = _BOUNDED_EXACTLY.get(kind)
+        if name is not None:
+            return getattr(self, name)
+        try:
+            for base, name in _BOUNDED_TYPES:
+                if issubclass(kind, base) and kind.__repr__ is base.__repr__:
+                    return getattr(self, name)
+        except BaseException:  # noqa: BLE001 - a metaclass can raise here
+            return None
+        return None
+
+    def _charged(self, text: str) -> str:
+        """Bill `text` to the budget, then hand it back.
+
+        Only leaves are billed for their characters; a collection is billed
+        for the punctuation it adds around them, two per element and four for
+        a dict pair. Between them that is the output length, counted exactly
+        once, which is what makes the budget stop the walk rather than merely
+        trim its result -- and why a structure of ten thousand empty lists
+        cannot spin, since an element costs something whatever it holds.
+        """
+        self._left -= len(text)
+        return text
+
+    def _cap(self, level: int, nested: int) -> int:
+        return REPR_ITEM_LIMIT if level == self.maxlevel else nested
+
+    def _cycle(self, x: Any, left: str, right: str) -> Optional[str]:
+        """``[...]`` when this container is already being rendered above.
+
+        Python's own containers carry this guard and print exactly this, so a
+        list holding itself reads the same here as it does from ``print()``.
+        Without it the walk would merely run out of depth and paint six levels
+        of brackets, which says "deeply nested" about a value whose actual
+        shape is "it is inside itself" -- and aliasing is a thing this project
+        exists to make visible rather than to disguise.
+        """
+        if id(x) in self._active:
+            return self._charged(f"{left}...{right}")
+        return None
+
+    def _repr_iterable(self, x: Any, level: int, left: str, right: str,
+                       maxiter: int, trail: str = "") -> str:
+        n = len(x)
+        if n == 0:
+            return self._charged(f"{left}{right}")
+        seen = self._cycle(x, left, right)
+        if seen is not None:
+            return seen
+        if level <= 0:
+            return self._charged(f"{left}…{right}")
+        self._left -= len(left) + len(right)
+        cap = self._cap(level, maxiter)
+        inner = level - 1
+        self._active.add(id(x))
+        try:
+            tail = []
+            # Built from the far end inwards, so that a budget which runs out
+            # part way through costs the tail its inner items rather than the
+            # last one -- the last one being the whole reason for having a
+            # tail at all.
+            for item in reversed(_last(x, min(REPR_EDGE_ITEMS, n - 1,
+                                              cap // 2))):
+                if self._left <= 0:
+                    break
+                self._left -= 2
+                tail.append(self.repr1(item, inner))
+            tail.reverse()
+            head = []
+            room = min(cap, n) - len(tail)
+            for item in x:
+                if len(head) >= room or self._left <= 0:
+                    break
+                self._left -= 2
+                head.append(self.repr1(item, inner))
+        finally:
+            self._active.discard(id(x))
+        if len(head) + len(tail) >= n:
+            body = ", ".join(head + tail)
+            # `(1,)` -- the comma is the tuple, so it is not decoration.
+            return f"{left}{body}{trail if n == 1 else ''}{right}"
+        return f"{left}{self._elided(head, tail, n)}{right}"
+
+    def _elided(self, head: list, tail: list, n: int) -> str:
+        """``0, 1, 2, … (+4,999,000 more) … 4999999`` -- what was kept, what
+        was not, and where it ended.
+
+        The count sits between the two ends rather than at the end, so the
+        elision cannot be read as the value trailing off; and a tail keeps its
+        own ``…`` on the left of it for the same reason the extension's loop
+        summary does, so the number never looks like an element.
+        """
+        marker = _elision(n - len(head) - len(tail))
+        # Charged after the fact, because until the walk stops there is no
+        # count to write. `_budget` keeps a marker's width in reserve for it.
+        self._left -= len(marker) + 5
+        body = ", ".join(head + [marker])
+        return f"{body} … {', '.join(tail)}" if tail else body
+
+    def repr_list(self, x: Any, level: int) -> str:
+        return self._repr_iterable(x, level, "[", "]", self.maxlist)
+
+    def repr_tuple(self, x: Any, level: int) -> str:
+        return self._repr_iterable(x, level, "(", ")", self.maxtuple, ",")
+
+    def repr_deque(self, x: Any, level: int) -> str:
+        return self._repr_iterable(x, level, "deque([", "])", self.maxdeque)
+
+    def repr_set(self, x: Any, level: int) -> str:
+        if not x:
+            return self._charged("set()")
+        return self._repr_iterable(x, level, "{", "}", self.maxset)
+
+    def repr_frozenset(self, x: Any, level: int) -> str:
+        if not x:
+            return self._charged("frozenset()")
+        return self._repr_iterable(x, level, "frozenset({", "})",
+                                   self.maxfrozenset)
+
+    def repr_dict(self, x: Any, level: int) -> str:
+        n = len(x)
+        if n == 0:
+            return self._charged("{}")
+        seen = self._cycle(x, "{", "}")
+        if seen is not None:
+            return seen
+        if level <= 0:
+            return self._charged("{…}")
+        self._left -= 2
+        cap = self._cap(level, self.maxdict)
+        inner = level - 1
+        self._active.add(id(x))
+        try:
+            tail = []
+            # Four rather than two: a pair pays for the `, ` between entries
+            # and the `: ` inside itself, and undercounting either is how a
+            # dict lands over the wire limit and is cut a second time, losing
+            # the tail this went to fetch. Taken from the far end inwards, for
+            # the reason `_repr_iterable` gives.
+            for key in reversed(_last(x, min(REPR_EDGE_ITEMS, n - 1,
+                                             cap // 2))):
+                if self._left <= 0:
+                    break
+                self._left -= 4
+                tail.append(self._pair(key, x, inner))
+            tail.reverse()
+            head = []
+            room = min(cap, n) - len(tail)
+            for key in x:
+                if len(head) >= room or self._left <= 0:
+                    break
+                self._left -= 4
+                head.append(self._pair(key, x, inner))
+        finally:
+            self._active.discard(id(x))
+        if len(head) + len(tail) >= n:
+            return "{%s}" % ", ".join(head + tail)
+        return "{%s}" % self._elided(head, tail, n)
+
+    def _pair(self, key: Any, mapping: Any, level: int) -> str:
+        return f"{self.repr1(key, level)}: {self.repr1(mapping[key], level)}"
+
+    def repr_str(self, x: Any, level: int) -> str:
+        return self._charged(self._cut(x, level, " chars"))
+
+    def repr_bytes(self, x: Any, level: int) -> str:
+        return self._charged(self._cut(x, level, " bytes"))
+
+    def _cut(self, x: Any, level: int, noun: str) -> str:
+        """A string or bytes kept whole, or its opening plus what it dropped.
+
+        Sliced *before* it is repr'd, which is the entire point: ``repr()`` of
+        a ten-megabyte string builds ten megabytes in order to keep eight
+        thousand characters of it.
+
+        A slice taken by length can still repr longer than the room it was cut
+        to fit, because an escape is one character in the string and two or
+        four in its repr -- fifty thousand newlines being the case that shows
+        it. The second cut scales the slice by what the first one actually
+        cost, which converges immediately and leaves the work bounded either
+        way.
+        """
+        keep = min(self.maxstring if level == self.maxlevel
+                   else REPR_NESTED_STRING_LIMIT,
+                   max(self._left, _LEAST_ROOM))
+        if len(x) <= keep:
+            text = builtins.repr(x)
+            if len(text) <= keep:
+                return text
+        text = builtins.repr(x[:keep])
+        if len(text) > keep:
+            keep = max(1, keep * keep // len(text))
+            text = builtins.repr(x[:keep])
+        if keep >= len(x):
+            return text
+        return f"{text} {_elision(len(x) - keep, noun)}"
+
+    def repr_instance(self, x: Any, level: int) -> str:
+        """Whatever the object itself says, kept as it said it.
+
+        Deliberately not bounded by element count. A ``__repr__`` somebody
+        wrote is a statement about how the object should read, and rewriting it
+        would be the extension overruling the user's own code; the libraries
+        where size is a real risk have all bounded themselves already, which is
+        why a five-million-element ``ndarray`` reprs in ninety characters. What
+        it *is* bounded by is what is left of the budget, so that one fat
+        element cannot crowd out the structure it sits in.
+        """
+        try:
+            text = builtins.repr(x)
+        except Exception as exc:  # noqa: BLE001 - user code raises anything
+            return self._charged(_repr_failed(x, exc))
+        return self._charged(_capped(text, max(self._left, _LEAST_ROOM * 2)))
+
+
+def safe_repr(value: Any, limit: int = WIRE_REPR_LIMIT) -> str:
+    """``repr(value)``, built to fit and contained.
+
+    Two guarantees, in this order. The value is rendered *to* ``limit`` rather
+    than rendered and then cut down to it, so a large one costs what its
+    annotation costs rather than what the whole object would have cost --
+    ``_BoundedRepr`` has the argument. And a ``__repr__`` that raises is a bug
+    in the user's code, not a reason for the kernel to die, which it otherwise
+    would: it would take the whole session's namespace with it.
+
+    ``_capped`` stays underneath as the transport guard it was always described
+    as. It is now the last line of defence rather than the mechanism, and what
+    reaches it is a ``__repr__`` somebody wrote that ran long, or a string
+    whose escapes outgrew the slice it was cut to.
+    """
+    try:
+        text = _BoundedRepr(limit).repr(value)
     except BaseException as exc:  # noqa: BLE001 - user code raises anything
-        return f"<repr() raised {type(exc).__name__}: {exc}>"
+        return _repr_failed(value, exc)
     return _capped(text, limit)
 
 

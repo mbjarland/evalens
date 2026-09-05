@@ -2061,7 +2061,7 @@ class Loops(KernelTest):
             "for s in ['x' * 5000, 'y' * 5000]:\n    pass\n", 0)
         for value in result["loop"]["values"]:
             self.assertLess(len(value), 400)
-            self.assertIn("truncated from", value)
+            self.assertIn("more chars)", value)
 
     def test_a_traceback_from_inside_a_loop_points_at_the_real_line(self):
         # The injected statement carries the `for` line, so the body keeps its
@@ -2182,7 +2182,7 @@ class LoopBodyBindings(KernelTest):
             "for v in [1, 2]:\n    wide = 'x' * 5000 + str(v)\n", 0)
         for value in result["bindings"][0]["values"]:
             self.assertLess(len(value), 400)
-            self.assertIn("truncated from", value)
+            self.assertIn("more chars)", value)
 
     def test_a_body_that_raises_leaves_the_line_reporting_the_failure(self):
         # The recorder is the last statement of the body, so an exception
@@ -2617,6 +2617,135 @@ class Dependencies(KernelTest):
         self.assertEqual(result["reads"], ["shout"])
 
 
+class LargeValues(KernelTest):
+    """A big value costs what its annotation costs, not what it costs whole.
+
+    The defect these pin: `repr()` was called in full and the wire limit
+    applied to the result, so `list(range(5_000_000))` spent 1.16 seconds and
+    46 MB building 44 million characters of which 8,192 survived. The kernel
+    is single threaded, so nothing else was serviced while that ran -- it
+    looked exactly like the wedged kernel the interrupt work exists for, and
+    it was reached by one ordinary keystroke rather than by a runaway loop.
+    """
+
+    #: Comfortably below what the defect costs and far above what the fix
+    #: does: the same request took over a second before and a millisecond
+    #: after, so a loaded CI runner has two orders of magnitude to be slow in
+    #: without either failing this or letting the regression back through.
+    BUDGET = 0.5
+
+    def display(self, source, line):
+        """The value of `line`, and how long the kernel took to answer.
+
+        The line before it is evaluated first and untimed, because building
+        five million integers is the test's setup rather than its subject.
+        """
+        self.k.evaluate(source, line - 1)
+        start = time.monotonic()
+        result = self.k.evaluate(source, line)
+        self.assertTrue(result["ok"], result)
+        return result["value"], time.monotonic() - start
+
+    def test_a_huge_list_is_answered_without_building_its_repr(self):
+        value, elapsed = self.display(
+            "big = list(range(5_000_000))\nbig\n", 1)
+        self.assertLess(elapsed, self.BUDGET,
+                        f"took {elapsed:.3f}s to say {len(value)} characters")
+
+    def test_a_huge_list_shows_both_ends_and_counts_the_rest(self):
+        # The three claims that stop a cut list reading as a short one: it
+        # starts where the real list starts, it ends where the real list ends,
+        # and it says in between how much is not being shown.
+        value, _ = self.display("big = list(range(5_000_000))\nbig\n", 1)
+        self.assertTrue(value.startswith("[0, 1, 2, "), value[:40])
+        self.assertTrue(value.endswith("4999998, 4999999]"), value[-40:])
+        self.assertRegex(value, r"… \(\+[\d,]+ more\) …")
+        self.assertLess(len(value), 8192)
+
+    def test_a_wide_dict_is_answered_in_its_own_order(self):
+        # `reprlib` sorts a dict's keys to make its truncation deterministic.
+        # Insertion order is part of what a dict *is*, so sorting it would
+        # paint a value that never existed next to the code that built it.
+        value, elapsed = self.display(
+            "wide = {i: i * i for i in range(3000, 0, -1)}\nwide\n", 1)
+        self.assertTrue(value.startswith("{3000: 9000000, 2999:"), value[:40])
+        self.assertTrue(value.endswith("2: 4, 1: 1}"), value[-40:])
+        self.assertLess(elapsed, self.BUDGET)
+
+    def test_a_huge_string_keeps_its_opening_and_says_what_it_dropped(self):
+        value, elapsed = self.display("s = 'ab' * 500_000\ns\n", 1)
+        self.assertTrue(value.startswith("'abab"), value[:20])
+        self.assertIn("more chars)", value)
+        self.assertLess(len(value), 8192)
+        self.assertLess(elapsed, self.BUDGET)
+
+    def test_a_deeply_nested_structure_stops_rather_than_descends(self):
+        source = ("deep = 1\n"
+                  "for _ in range(40):\n"
+                  "    deep = [deep]\n"
+                  "deep\n")
+        self.k.evaluate_lines(source, 0, 1)
+        value = self.k.evaluate(source, 3)["value"]
+        self.assertTrue(value.startswith("[[[["), value[:20])
+        self.assertTrue(value.endswith("]]]]"), value[-20:])
+        self.assertIn("…", value)
+        self.assertLess(len(value), 100)
+
+    def test_a_list_holding_itself_reads_the_way_python_prints_it(self):
+        # Python's own containers carry a recursion guard and print `[...]`.
+        # Formatting the walk ourselves would lose it and paint six levels of
+        # brackets instead, which describes a shape the value does not have.
+        src = "ring = []\nring.append(ring)\nring\n"
+        self.k.evaluate_lines(src, 0, 1)
+        self.assertEqual(self.k.evaluate(src, 2)["value"], "[[...]]")
+
+    def test_a_list_subclass_is_bounded_the_way_a_list_is(self):
+        # `reprlib` dispatches on the type's *name*, so `Stack` finds no
+        # handler and falls back to the full `repr()` this exists to avoid.
+        # Subclassing a builtin container is ordinary teaching code.
+        source = ("class Stack(list):\n    pass\n"
+                  "s = Stack(range(2_000_000))\ns\n")
+        self.k.evaluate_lines(source, 0, 2)
+        start = time.monotonic()
+        value = self.k.evaluate(source, 3)["value"]
+        self.assertLess(time.monotonic() - start, self.BUDGET)
+        self.assertLess(len(value), 8192)
+        self.assertTrue(value.endswith("1999999]"), value[-30:])
+
+    def test_a_hand_written_repr_is_shown_whole_and_not_summarised(self):
+        # Design rule 3's neighbour: a `__repr__` somebody wrote is a
+        # statement about how the object should read, and a formatter that
+        # elided it would be the extension overruling the user's own code.
+        source = ("class Grid:\n"
+                  "    def __repr__(self):\n"
+                  "        return '<' + ' '.join('#' * 40) + '>'\n"
+                  "g = Grid()\ng\n")
+        self.k.evaluate_lines(source, 0, 3)
+        self.assertEqual(self.k.evaluate(source, 4)["value"],
+                         "<" + " ".join("#" * 40) + ">")
+
+    def test_a_repr_that_recurses_says_which_value_it_could_not_show(self):
+        # `<repr() raised RecursionError>` was a correct rescue and a poor
+        # answer: it told the reader everything except what they were looking
+        # at. The type is the durable fact and belongs first.
+        source = ("class Knot:\n"
+                  "    def __repr__(self):\n"
+                  "        return repr(self)\n"
+                  "knot = Knot()\nknot\n")
+        self.k.evaluate_lines(source, 0, 3)
+        value = self.k.evaluate(source, 4)["value"]
+        self.assertTrue(value.startswith("<Knot instance:"), value)
+        self.assertIn("RecursionError", value)
+
+    def test_one_fat_element_does_not_crowd_out_the_rest(self):
+        source = "rows = [['q' * 100_000] for _ in range(20)]\nrows\n"
+        value, elapsed = self.display(source, 1)
+        self.assertLess(len(value), 8192)
+        self.assertTrue(value.endswith("]]"), value[-20:])
+        self.assertGreater(value.count("more chars)"), 1)
+        self.assertLess(elapsed, self.BUDGET)
+
+
 class Protocol(KernelTest):
     def test_responses_carry_the_request_id(self):
         self.assertEqual(self.k.send(op="ping", id=77)["id"], 77)
@@ -2640,7 +2769,7 @@ class Protocol(KernelTest):
         self.k.evaluate(src, 0)
         value = self.k.evaluate(src, 1)["value"]
         self.assertLess(len(value), 9000)
-        self.assertIn("truncated from", value)
+        self.assertIn("more chars)", value)
 
     def test_eval_above_is_reserved_not_silently_wrong(self):
         result = self.k.send(op="eval_above", source="a = 1\n", line=0)
