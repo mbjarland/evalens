@@ -431,7 +431,8 @@ without the extension offering a setting of its own:
   "evalens.evaluatedRegionBackground": "#4a9c8c22",
   "evalens.pendingForeground": "#8c8c8c",
   "evalens.pendingRegionBackground": "#8c8c8c26",
-  "evalens.flashRegionBackground": "#4a9c8c66"
+  "evalens.flashRegionBackground": "#4a9c8c66",
+  "evalens.annotationBorder": "#8d7a5a"
 }
 ```
 
@@ -451,6 +452,13 @@ is a different kind of thing from state. The two label colours sit at the same
 luminance and differ only in hue, warm against cool: that is the axis both
 common forms of colour blindness leave intact, so the two remain
 distinguishable where a red-green split would collapse.
+
+A 2px `annotationBorder` bar on the annotation's leading edge marks the whole
+of it as a surface distinct from the source line it sits beside, rather than
+a second comment; it defaults to `labelForeground` because it is chrome, not
+content. It takes on the colour of whatever state the annotation is actually
+in: `pendingForeground` while stale or still running, `errorForeground` on a
+raised statement. A bare line with no annotation never gets a bar.
 
 ## License
 
