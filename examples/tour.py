@@ -172,11 +172,13 @@ scaled = [x * multiplier for x in (1, 2)]
 x
 
 # 5. A cursor anywhere inside this def evaluates the WHOLE def, Calva-style,
-#    and annotates nothing -- which is the answer rather than the absence of
-#    one.  `def area(w, h)` beside a line reading `def area(w, h):` says only
-#    what the line says, so the region highlight reports that it ran and the
-#    width goes to something that has news.  Case 6 is the def that does
-#    annotate and says why.
+#    and annotates `def area(w, h)` -- the same characters as the line, and a
+#    different claim.  The line says *bind a function to this name when this
+#    runs*; the annotation says it HAS run and `area` now holds this.  Those
+#    coincide only after an evaluation, which is exactly the thing the reader
+#    cannot see, and a def edited without being re-evaluated is the standing
+#    hazard of working this way.  Every definition annotates for that reason:
+#    `def`, `async def` (case 24) and `class` (case 25) alike.
 #
 #    Try the `scaled` line: an inner expression would raise NameError, because
 #    `w` and `h` do not exist at module level.  Redefining a function while
@@ -193,11 +195,10 @@ area(3, 4)
 #    `FunctionDef.lineno` points at the `def`, so a cursor on the `@shout`
 #    line falls outside the node's own span and needs the start widened.
 #
-#    This is also the def that MUST annotate, where case 5 must not:
-#    `greeting: def <lambda>()` says the decorator replaced the function with
-#    something else entirely, and the line cannot show that.  It is why an
-#    annotation is dropped by comparing it against its own line rather than by
-#    recognising a `def` -- the shortcut would have deleted exactly this.
+#    This is also the def with the most to say: `greeting: def <lambda>()`
+#    reports that the decorator replaced the function with something else
+#    entirely, and the line cannot show that.  Case 5 says what it now holds;
+#    this one says it is no longer what the line describes at all.
 def shout(fn):
     return lambda: fn().upper()
 
@@ -454,8 +455,9 @@ with contextlib.suppress(KeyError):
 
 # 23. A `def` rebinds its name in the live namespace when it is evaluated
 #     again after an edit, which is the whole reason to evaluate a definition
-#     rather than restart a process.  Nothing is painted, per case 5; the
-#     region highlight is the report that it happened.
+#     rather than restart a process.  Edit the signature, evaluate, and the
+#     annotation changes with it -- which is case 5's point made visible: the
+#     annotation reports the binding that exists, not the line it sits on.
 def halve(n):
     return n / 2
 
