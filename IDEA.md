@@ -70,6 +70,20 @@ You do **not** need the notebook protocol for this. Jupyter kernels buy
 rich display (images/HTML), interrupt, restart, and multi-language
 support — none of which inline scalars and collections require.
 
+That held until Cancel. **The kernel now runs two pipes, not one**, and
+the reason is worth recording because it is not obvious from the outside:
+the pipe carrying requests has exactly one reader, and while user code is
+running that reader is busy. Anything that must be dealt with *during* an
+evaluation — an interrupt, above all — cannot travel on it, because the
+only code that could read it is the code you are trying to interrupt. So
+requests keep the standard streams and a control channel gets a second
+pair of descriptors, serviced by a thread that is never blocked.
+
+That is the shape of Jupyter's shell and control channels, arrived at the
+same way. It is not the notebook protocol and does not want to be: no ZeroMQ,
+no message signing, no session identities, four message kinds. The lesson
+taken from Jupyter here is the channel split, not the wire format.
+
 **(b) Borrow Jupyter's kernel.** The `ms-toolsai.jupyter` extension
 exposes `IExportedKernelService` / `getKernelService` to third-party
 extensions (verified present in the shipped bundle of

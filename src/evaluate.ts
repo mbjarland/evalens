@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 
+import { progressDelay } from './config';
+import { describeInterrupt, settlesWithin } from './interrupt';
 import { KernelClient } from './kernel/client';
 import {
   EvalResponse, FileResponse, LatestWins, StatementOutcome,
@@ -68,6 +70,67 @@ export class Evaluator {
   ) {}
 
   /**
+   * Stop whatever the kernel is running.
+   *
+   * One implementation behind both ways in -- the Cancel button on the
+   * progress notification and the `Evalens: Interrupt Evaluation` command --
+   * so that a user who dismissed the notification and reached for the palette
+   * gets the same thing, and neither path can drift into doing something the
+   * other does not.
+   */
+  async interrupt(): Promise<void> {
+    let outcome;
+    try {
+      outcome = await (await this.kernel()).interrupt();
+    } catch (error) {
+      // No usable interpreter, so no kernel and nothing running. Interrupting
+      // is not the moment to relitigate that.
+      this.output.appendLine(
+        error instanceof Error ? error.message : String(error));
+      return;
+    }
+    const message = describeInterrupt(outcome);
+    if (outcome === 'unconfirmed') {
+      // A kernel that did not answer is not a status-bar fact. It is the one
+      // case where the user has to decide something -- wait, or restart and
+      // lose the namespace -- so it goes somewhere they will read it.
+      void vscode.window.showWarningMessage(message);
+    } else {
+      vscode.window.setStatusBarMessage(message, 4000);
+    }
+  }
+
+  /**
+   * Await `work`, offering a way to stop it once it has proved slow.
+   *
+   * The notification is deliberately late. Nearly every evaluation finishes in
+   * milliseconds, and one that popped a notification each time would make the
+   * feature unusable -- so nothing appears until an evaluation has already
+   * failed to finish, which is exactly the moment the extension otherwise
+   * looks like it ignored the keypress.
+   */
+  private async watch<T>(work: Promise<T>, title: string): Promise<T> {
+    if (await settlesWithin(work, progressDelay())) {
+      return work;
+    }
+    void vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title,
+        cancellable: true,
+      },
+      (_progress, token) => {
+        token.onCancellationRequested(() => void this.interrupt());
+        // The notification lives exactly as long as the work does, however it
+        // ends. The caller does the reporting; swallowing here only keeps this
+        // second reference to the promise from raising on its own.
+        return work.then(() => undefined, () => undefined);
+      }
+    );
+    return work;
+  }
+
+  /**
    * Load the whole file into the namespace, the way a session starts.
    *
    * This is Calva's Load File. It reports rather than annotates: loading is
@@ -80,11 +143,14 @@ export class Evaluator {
     let response: FileResponse;
     try {
       const client = await this.kernel();
-      response = (await client.request({
-        op: 'eval_file',
-        source: document.getText(),
-        filename: document.uri.fsPath,
-      })) as FileResponse;
+      response = (await this.watch(
+        client.request({
+          op: 'eval_file',
+          source: document.getText(),
+          filename: document.uri.fsPath,
+        }),
+        'Evalens: loading the file'
+      )) as FileResponse;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.output.appendLine(message);
@@ -143,13 +209,16 @@ export class Evaluator {
     let response: EvalResponse;
     try {
       const client = await this.kernel();
-      response = (await client.request({
-        op: 'eval',
-        source: document.getText(),
-        line: cursor.line,
-        character: cursor.character,
-        filename: document.uri.fsPath,
-      })) as EvalResponse;
+      response = (await this.watch(
+        client.request({
+          op: 'eval',
+          source: document.getText(),
+          line: cursor.line,
+          character: cursor.character,
+          filename: document.uri.fsPath,
+        }),
+        'Evalens: evaluating'
+      )) as EvalResponse;
     } catch (error) {
       // A transport failure is about the extension, not the user's code, so
       // it does not belong painted next to their line.

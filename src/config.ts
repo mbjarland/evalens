@@ -5,6 +5,20 @@ import {
   Candidate, ProbeResult, chooseInterpreter, describeFailure,
 } from './python';
 
+/**
+ * How long an evaluation may run before it earns a progress notification.
+ *
+ * Read at the moment it is needed rather than cached, so editing the setting
+ * takes effect on the next keypress. Zero means show it immediately, which is
+ * useful for seeing what the notification looks like and intolerable
+ * otherwise.
+ */
+export function progressDelay(): number {
+  return vscode.workspace
+    .getConfiguration('evalens')
+    .get<number>('progressDelay', 750);
+}
+
 /** Ask an interpreter what version it is, rather than assuming. */
 export function probeInterpreter(path: string): Promise<ProbeResult> {
   return new Promise((resolve) => {

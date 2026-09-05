@@ -6,6 +6,25 @@
  * Coordinates are VS Code's throughout -- 0-based line and character. The
  * kernel converts from `ast`'s 1-based line numbers on its side, so this side
  * never adjusts an index.
+ *
+ * There are two channels, and the split is load-bearing rather than tidy.
+ *
+ * The **request channel** is the kernel's stdin and stdout: a `Request` goes
+ * down it and a `Response` carrying the same `id` comes back. Exactly one
+ * thing reads each end. While the kernel is running user code it is not
+ * reading its stdin at all, which is precisely why nothing that has to be
+ * dealt with *during* an evaluation can travel here.
+ *
+ * The **control channel** is a second pair of pipes -- the kernel's file
+ * descriptors 3 and 4 -- serviced there by a thread that is never blocked by
+ * whatever the main thread is doing. `ControlRequest` goes down it and
+ * `ControlMessage` comes back.
+ *
+ * **Nothing on the control channel is a reply to anything on the request
+ * channel.** That is what makes a message the kernel starts unmistakable: it
+ * is not told apart from a stale response by some rule applied to a shared
+ * stream, it arrives somewhere a response cannot. Jupyter splits its channels
+ * the same way and for the same reason.
  */
 
 export interface Position {
@@ -43,6 +62,36 @@ export type Request =
   | EvalFileRequest
   | { readonly op: 'ping' }
   | { readonly op: 'reset' };
+
+/**
+ * What the extension sends down the control channel.
+ *
+ * `interrupt` is here rather than on the request channel for the reason the
+ * channel exists: the kernel is busy at the moment someone wants to stop it,
+ * so a message it has to read for itself is a message it reads when it is
+ * finished -- which is never, for the loop this is meant to end.
+ */
+export type ControlRequest = { readonly op: 'interrupt' };
+
+/**
+ * What the kernel says on the control channel, unprompted.
+ *
+ * `status` reports what the kernel is doing, so the extension's progress and
+ * cancel affordances can be driven by fact rather than by "the promise has
+ * not settled yet" -- which is also true while an interpreter is still being
+ * probed and nothing is running at all.
+ *
+ * `interrupt_ack` says the kernel heard an interrupt. Note what it does not
+ * say: the acknowledgement is written by the control thread, so it means
+ * "heard", not "stopped".
+ */
+export type ControlMessage =
+  | {
+      readonly op: 'status';
+      readonly state: 'busy' | 'idle';
+      readonly id?: number | null;
+    }
+  | { readonly op: 'interrupt_ack' };
 
 /** Nothing under the cursor -- a blank line. Not an error. */
 export interface Unresolved {

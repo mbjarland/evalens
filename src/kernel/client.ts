@@ -1,10 +1,19 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 
+import { InterruptOutcome } from '../interrupt';
 import {
+  ControlMessage,
+  ControlRequest,
   LineDecoder,
   Request,
   Response,
 } from './protocol';
+
+/** How long the kernel gets to acknowledge an interrupt before we say so. */
+const DEFAULT_ACK_TIMEOUT = 2000;
+
+type Stream = NodeJS.EventEmitter & { setEncoding?(encoding: string): void };
+type Sink = { write(chunk: string): void; end(): void };
 
 /**
  * The subset of a child process this client uses.
@@ -15,9 +24,19 @@ import {
  * reaches for `child_process` directly.
  */
 export interface KernelProcess {
-  readonly stdin: { write(chunk: string): void; end(): void };
-  readonly stdout: NodeJS.EventEmitter & { setEncoding?(encoding: string): void };
-  readonly stderr: NodeJS.EventEmitter & { setEncoding?(encoding: string): void };
+  readonly stdin: Sink;
+  readonly stdout: Stream;
+  readonly stderr: Stream;
+  /**
+   * The control channel: the kernel's file descriptors 3 and 4.
+   *
+   * Named here so that nothing below has to remember the numbering. They are
+   * optional because a process can be spawned without them, and a client that
+   * throws rather than degrading would turn a missing pipe into a broken
+   * extension instead of one that cannot be interrupted.
+   */
+  readonly control?: Sink;
+  readonly controlOut?: Stream;
   on(event: 'exit', listener: (code: number | null, signal: string | null) => void): void;
   on(event: 'error', listener: (error: Error) => void): void;
   kill(): void;
@@ -39,6 +58,12 @@ export interface KernelClientOptions {
   /** Kernel-side stderr: its own crashes, not the user's code. */
   readonly onStderr?: (text: string) => void;
   readonly onExit?: (code: number | null, signal: string | null) => void;
+  /**
+   * How long an interrupt may go unacknowledged before it is reported as
+   * unconfirmed. Two seconds unless a test wants to reach that branch without
+   * waiting two seconds for it.
+   */
+  readonly ackTimeout?: number;
 }
 
 class Deferred<T> {
@@ -65,7 +90,13 @@ export class KernelClient {
   private starting?: Promise<KernelProcess>;
   private readonly pending = new Map<number, Deferred<Response>>();
   private readonly decoder = new LineDecoder();
+  /** The control channel is framed separately: it is a separate stream. */
+  private readonly controlDecoder = new LineDecoder();
   private readonly spawnFn: SpawnFn;
+  /** What the kernel last said it was doing, rather than what we assume. */
+  private busy = false;
+  /** Resolved by `interrupt_ack`, so cancel is not fire-and-forget. */
+  private acknowledged?: Deferred<void>;
   private nextId = 1;
   private disposed = false;
   /** Bumped by every stop, so a spawn in flight can tell it is orphaned. */
@@ -74,10 +105,20 @@ export class KernelClient {
   constructor(private readonly options: KernelClientOptions) {
     this.spawnFn =
       options.spawn ??
-      ((command, args) =>
-        nodeSpawn(command, [...args], {
-          stdio: ['pipe', 'pipe', 'pipe'],
-        }) as unknown as KernelProcess);
+      ((command, args) => {
+        // Five pipes, not three. Descriptors 3 and 4 are the control channel,
+        // and it exists because descriptor 0 has exactly one reader: while the
+        // kernel runs user code it is not reading its stdin at all, so
+        // anything that must be serviced *during* an evaluation cannot travel
+        // on the pipe the evaluation is standing on.
+        const child = nodeSpawn(command, [...args], {
+          stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe'],
+        });
+        return Object.assign(child, {
+          control: child.stdio[3],
+          controlOut: child.stdio[4],
+        }) as unknown as KernelProcess;
+      });
   }
 
   get running(): boolean {
@@ -99,6 +140,46 @@ export class KernelClient {
       throw error;
     }
     return deferred.promise;
+  }
+
+  /**
+   * Stop whatever is running, and keep the session.
+   *
+   * An interrupt rather than a kill. The kernel raises `KeyboardInterrupt`
+   * inside the user's loop and reports it as an ordinary failure, so the
+   * namespace -- every binding the session has built up, which is the thing
+   * worth protecting -- survives. Killing would stop the loop just as well and
+   * throw all of that away.
+   *
+   * It goes down the control channel because the request channel cannot carry
+   * it: the kernel is busy at exactly the moment someone wants to stop it, so
+   * a message it has to read for itself would be read when it has finished --
+   * which for an infinite loop is never. The kernel's control thread hears it,
+   * acknowledges, and raises the interrupt in the main thread, on every
+   * platform. There is no Windows fallback that restarts and loses the
+   * namespace, because there does not need to be one.
+   */
+  async interrupt(): Promise<InterruptOutcome> {
+    const process = this.process;
+    if (!process || (!this.busy && this.pending.size === 0)) {
+      // The race Cancel loses when the evaluation finishes first. Claiming to
+      // have stopped something that had already stopped is a small lie the
+      // status bar should not tell.
+      return 'idle';
+    }
+    if (!process.control) {
+      return 'unconfirmed';
+    }
+    const acknowledged = new Deferred<void>();
+    this.acknowledged = acknowledged;
+    try {
+      this.writeControl(process, { op: 'interrupt' });
+    } catch {
+      return 'unconfirmed';
+    }
+    return (await settled(acknowledged.promise, this.ackTimeout))
+      ? 'interrupted'
+      : 'unconfirmed';
   }
 
   /** Kill and forget. The next request starts a fresh interpreter. */
@@ -158,6 +239,13 @@ export class KernelClient {
       this.options.onStderr?.(chunk.toString());
     });
 
+    process.controlOut?.setEncoding?.('utf8');
+    process.controlOut?.on('data', (chunk: string | Buffer) => {
+      for (const line of this.controlDecoder.push(chunk.toString())) {
+        this.onControl(line);
+      }
+    });
+
     process.on('error', (error: Error) => {
       // The most common real failure: the interpreter does not exist. Name it,
       // rather than surfacing a bare ENOENT that says nothing about which
@@ -202,11 +290,55 @@ export class KernelClient {
     deferred.resolve(response);
   }
 
+  /**
+   * Handle one message the kernel started on its own account.
+   *
+   * The rule above -- unknown id, drop it -- is right for the request channel
+   * and would be wrong here, and this is why the two are separate streams
+   * rather than one stream with a marker on it. A stale response and a
+   * message the kernel began are not distinguished by inspecting the message;
+   * they cannot be confused, because a response never arrives on this pipe.
+   */
+  private onControl(line: string): void {
+    let message: ControlMessage;
+    try {
+      message = JSON.parse(line) as ControlMessage;
+    } catch {
+      this.options.onStderr?.(`unparseable control line from kernel: ${line}\n`);
+      return;
+    }
+    switch (message.op) {
+      case 'status':
+        this.busy = message.state === 'busy';
+        return;
+      case 'interrupt_ack':
+        this.acknowledged?.resolve();
+        this.acknowledged = undefined;
+        return;
+      default:
+        this.options.onStderr?.(`unknown control message from kernel: ${line}\n`);
+    }
+  }
+
+  private writeControl(process: KernelProcess, message: ControlRequest): void {
+    process.control?.write(`${JSON.stringify(message)}\n`);
+  }
+
+  private get ackTimeout(): number {
+    return this.options.ackTimeout ?? DEFAULT_ACK_TIMEOUT;
+  }
+
   private stop(reason: Error): void {
     const process = this.process;
     this.process = undefined;
     this.generation += 1;
     this.decoder.reset();
+    this.controlDecoder.reset();
+    this.busy = false;
+    // An interrupt whose kernel has gone will never be acknowledged, and the
+    // caller is waiting on that. Let the timeout say so rather than leaving a
+    // promise nothing can resolve.
+    this.acknowledged = undefined;
     // Reject before killing: a pending promise that never settles is a
     // spinner that never stops, and the caller cannot tell it from slow code.
     for (const deferred of this.pending.values()) {
@@ -218,13 +350,26 @@ export class KernelClient {
     }
   }
 
-  /** Close the pipe, then kill. A kernel is never left half-attached. */
+  /** Close the pipes, then kill. A kernel is never left half-attached. */
   private discard(process: KernelProcess): void {
-    try {
-      process.stdin.end();
-    } catch {
-      // Already gone; killing below is what matters.
+    for (const sink of [process.stdin, process.control]) {
+      try {
+        sink?.end();
+      } catch {
+        // Already gone; killing below is what matters.
+      }
     }
     process.kill();
   }
+}
+
+/** True if `work` settled within `ms`; false if the wait ran out first. */
+function settled(work: Promise<unknown>, ms: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms);
+    work.then(
+      () => { clearTimeout(timer); resolve(true); },
+      () => { clearTimeout(timer); resolve(false); }
+    );
+  });
 }

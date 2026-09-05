@@ -54,6 +54,16 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    // In the palette as well as on the progress notification's Cancel button.
+    // The notification can be dismissed; the infinite loop behind it cannot,
+    // and a stop button that exists only on a thing you have closed is not a
+    // stop button.
+    vscode.commands.registerCommand('evalens.interrupt', async () => {
+      await evaluator?.interrupt();
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand('evalens.restartKernel', async () => {
       client?.restart();
       // The interpreter may have changed since the last spawn -- a new venv

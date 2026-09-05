@@ -7,43 +7,153 @@ stdout stays a clean protocol channel, that a request cannot be eaten by
 those are observable in-process.
 """
 
+import contextlib
 import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
+import threading
+import time
 import unittest
 
 KERNEL = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                       "evalens_kernel.py")
 
+#: How long any single answer may take before the test calls it a hang.
+#: Generous, because a loaded CI runner is slow; finite, because the failure
+#: these interrupt tests guard against is a kernel that never answers, and a
+#: suite that stops instead of failing is a suite nobody runs in CI.
+ANSWER_TIMEOUT = 15
+
+
+#: Whether this harness can give the kernel its control channel.
+#:
+#: `pass_fds` is POSIX-only, and `subprocess` cannot renumber a descriptor on
+#: the way into the child -- which is why the kernel takes `--control-in` /
+#: `--control-out` rather than insisting on 3 and 4. Node, which is what
+#: actually spawns the kernel, hands over an ordered `stdio` array and has the
+#: channel on every platform; this limit is the test harness's, not the
+#: product's.
+CAN_OPEN_CONTROL = os.name != "nt"
+
 
 class KernelProcess:
     """A running kernel, spoken to one JSON line at a time."""
 
-    def __init__(self):
+    def __init__(self, control=True):
+        argv = [sys.executable, KERNEL]
+        pass_fds = ()
+        if control and CAN_OPEN_CONTROL:
+            # Two pipes: one each way. The kernel keeps requests and their
+            # responses on stdin/stdout and everything that has to be serviced
+            # *during* an evaluation on these, because a stream someone is
+            # blocked reading cannot also be read by anybody else.
+            to_kernel_read, to_kernel_write = os.pipe()
+            from_kernel_read, from_kernel_write = os.pipe()
+            argv += ["--control-in", str(to_kernel_read),
+                     "--control-out", str(from_kernel_write)]
+            pass_fds = (to_kernel_read, from_kernel_write)
+
         self.proc = subprocess.Popen(
-            [sys.executable, KERNEL],
+            argv,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, bufsize=1,
+            pass_fds=pass_fds,
         )
+        self.control_out = None
+        self.control_in = None
+        if pass_fds:
+            # The child owns its ends now; holding copies open here would keep
+            # the kernel's control reader from ever seeing end-of-file.
+            os.close(to_kernel_read)
+            os.close(from_kernel_write)
+            self.control_out = os.fdopen(to_kernel_write, "w")
+            self.control_in = os.fdopen(from_kernel_read, "r")
         self._id = 0
 
     def send(self, **request):
+        self.send_async(**request)
+        return self.read()
+
+    def send_async(self, **request):
+        """Write a request without waiting for its answer.
+
+        Anything that has to happen *while* the kernel is busy needs this --
+        an interrupt, an answer to a prompt -- and `send` cannot express it,
+        because it blocks on the response line before returning.
+        """
         self._id += 1
         request.setdefault("id", self._id)
-        self.proc.stdin.write(json.dumps(request) + "\n")
-        self.proc.stdin.flush()
-        line = self.proc.stdout.readline()
-        if not line:
-            raise AssertionError(
-                f"kernel died; stderr:\n{self.proc.stderr.read()}")
-        return json.loads(line)
+        self.write_raw(json.dumps(request))
+        return request["id"]
 
-    def send_raw(self, text):
+    def write_raw(self, text):
         self.proc.stdin.write(text + "\n")
         self.proc.stdin.flush()
-        return json.loads(self.proc.stdout.readline())
+
+    def send_raw(self, text):
+        self.write_raw(text)
+        return self.read()
+
+    def read(self, timeout=ANSWER_TIMEOUT):
+        """The next line the kernel writes, as a failure rather than a hang."""
+        with self._deadline(timeout):
+            line = self.proc.stdout.readline()
+        if not line:
+            raise AssertionError(
+                f"kernel gave no answer within {timeout}s; stderr:\n"
+                f"{self.proc.stderr.read()}")
+        return json.loads(line)
+
+    def send_control(self, **message):
+        """Write one message on the control channel."""
+        self.control_out.write(json.dumps(message) + "\n")
+        self.control_out.flush()
+
+    def read_control(self, timeout=ANSWER_TIMEOUT):
+        """The next control message, as a failure rather than a hang."""
+        with self._deadline(timeout):
+            line = self.control_in.readline()
+        if not line:
+            raise AssertionError(
+                f"kernel said nothing on the control channel within "
+                f"{timeout}s; stderr:\n{self.proc.stderr.read()}")
+        return json.loads(line)
+
+    def read_control_until(self, op, timeout=ANSWER_TIMEOUT):
+        """The next control message with this ``op``, skipping the rest.
+
+        Status messages are chatter between the messages a given test is about,
+        and a test that had to enumerate them would be pinned to the order of
+        two independent streams.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            message = self.read_control(timeout=timeout)
+            if message.get("op") == op:
+                return message
+        raise AssertionError(f"no {op!r} on the control channel in {timeout}s")
+
+    def interrupt(self):
+        self.send_control(op="interrupt")
+
+    @contextlib.contextmanager
+    def _deadline(self, timeout):
+        """Kill the kernel if it goes quiet, so a hang shows up as a failure.
+
+        `unittest` runs without a time limit, and the regression these tests
+        exist to catch -- a signal that does not arrive, a prompt nobody
+        answers -- looks exactly like a kernel that never writes another line.
+        Killing it makes the read return empty and the assertion above fire.
+        """
+        timer = threading.Timer(timeout, self.proc.kill)
+        timer.start()
+        try:
+            yield
+        finally:
+            timer.cancel()
 
     def evaluate(self, source, line, **extra):
         return self.send(op="eval", source=source, line=line, **extra)
@@ -67,7 +177,8 @@ class KernelProcess:
             self.proc.kill()
             self.proc.wait(timeout=5)
         finally:
-            for stream in (self.proc.stdout, self.proc.stderr):
+            for stream in (self.proc.stdout, self.proc.stderr,
+                           self.control_in, self.control_out):
                 if stream is not None and not stream.closed:
                     stream.close()
 
@@ -202,6 +313,142 @@ class Failures(KernelTest):
         self.assertEqual(result["error"]["type"], "ProtocolError")
         self.assertEqual(
             self.k.evaluate_lines("v = 2\nv\n", 0, 1)["value"], "2")
+
+
+def spinner(marker):
+    """A ``while`` loop that reports it has started, then runs forever.
+
+    The marker is written from *inside* the loop rather than on the line
+    before it, and that is the whole trick: a test that waits for the file to
+    appear knows the signal it then sends lands in the user's loop, not in the
+    gap before the loop began. Those are different code paths -- one is caught
+    by ``_run``, the other by the protocol loop -- and a test that could hit
+    either is a test that proves neither.
+    """
+    return (
+        "started = False\n"
+        "while True:\n"
+        "    if not started:\n"
+        f"        open({marker!r}, 'w').close()\n"
+        "        started = True\n"
+    )
+
+
+@unittest.skipUnless(CAN_OPEN_CONTROL,
+                     "this harness cannot hand the kernel a control channel")
+class Interrupt(KernelTest):
+    """Cancel, and what it costs.
+
+    Interrupting rather than killing is the entire design here: the request
+    raises KeyboardInterrupt inside the running code, the kernel reports it
+    through the same path as any other exception, and the namespace survives.
+    That last part works because of how the error handling is written rather
+    than because anything says so, which is why it is pinned.
+
+    The request arrives on the control channel because it has to: the main
+    thread is, by definition, busy at the moment someone wants to stop it, and
+    a message it has to read itself is a message it will read when it is
+    finished -- which is never, for the loop this feature exists to end.
+    """
+
+    def setUp(self):
+        super().setUp()
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.marker = os.path.join(directory.name, "running")
+
+    def wait_until_running(self, timeout=10):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if os.path.exists(self.marker):
+                return
+            time.sleep(0.01)
+        self.fail("the evaluated code never reported that it had started")
+
+    def test_an_interrupt_stops_the_loop_and_keeps_the_namespace(self):
+        # The ticket's acceptance test, end to end: bind something, run an
+        # infinite loop, interrupt it, and find the binding still there.
+        source = "x = 41\n" + spinner(self.marker)
+        self.assertEqual(self.k.evaluate(source, 0)["value"], "41")
+        self.k.evaluate(source, 1)
+
+        self.k.send_async(op="eval", source=source, line=2, character=0)
+        self.wait_until_running()
+        self.k.interrupt()
+
+        result = self.k.read()
+        self.assertFalse(result["ok"], result)
+        self.assertEqual(result["error"]["type"], "KeyboardInterrupt")
+
+        # And the reason for signalling rather than killing: everything the
+        # session had built up is still in the namespace afterwards.
+        self.assertEqual(self.k.evaluate("x\n", 0)["value"], "41")
+
+    def test_the_kernel_acknowledges_an_interrupt_before_delivering_it(self):
+        # Cancel is not fire-and-forget: the extension needs to be able to say
+        # "sent, and heard" rather than hoping. The acknowledgement is the
+        # weaker of the two available claims on purpose -- this says the kernel
+        # heard, not that the loop has stopped, which no message could honestly
+        # promise while a C extension is free to ignore the interrupt.
+        source = spinner(self.marker)
+        self.k.evaluate(source, 0)
+        self.k.send_async(op="eval", source=source, line=1, character=0)
+        self.wait_until_running()
+
+        self.k.interrupt()
+        self.assertEqual(
+            self.k.read_control_until("interrupt_ack")["op"], "interrupt_ack")
+        self.assertEqual(self.k.read()["error"]["type"], "KeyboardInterrupt")
+
+    def test_the_kernel_says_when_it_is_busy_and_when_it_is_not(self):
+        # So the extension's progress UI is driven by what the kernel is doing
+        # rather than by "the promise has not settled yet", which is also true
+        # while an interpreter is still being probed.
+        self.k.send_async(op="ping")
+        first = self.k.read_control()
+        self.assertEqual((first["op"], first["state"]), ("status", "busy"))
+        second = self.k.read_control()
+        self.assertEqual((second["op"], second["state"]), ("status", "idle"))
+        self.assertEqual(first["id"], second["id"])
+
+    def test_an_interrupt_while_idle_does_not_take_the_kernel_down(self):
+        # The race Cancel loses when the evaluation finishes first. Answering
+        # a late interrupt by dying would discard the namespace for the sake of
+        # stopping something that had already stopped.
+        self.assertEqual(self.k.evaluate_lines("y = 7\ny\n", 0, 1)["value"], "7")
+        self.k.interrupt()
+        self.k.read_control_until("interrupt_ack")
+        time.sleep(0.2)
+        self.assertTrue(self.k.send(op="ping")["ok"])
+        self.assertEqual(self.k.evaluate("y\n", 0)["value"], "7")
+
+    def test_a_kernel_with_no_control_channel_still_evaluates(self):
+        # Every existing three-pipe caller, and the harness's own default on a
+        # platform that cannot pass extra descriptors. Losing the channel loses
+        # the ability to interrupt; it must not lose the ability to run code.
+        plain = KernelProcess(control=False)
+        self.addCleanup(plain.close)
+        self.assertEqual(plain.evaluate_lines("z = 3\nz\n", 0, 1)["value"], "3")
+
+    def test_an_interrupt_stops_a_load_instead_of_failing_every_line(self):
+        # A load does not stop at a failure -- a file being explored in is
+        # expected to contain broken lines. An interrupt is not that: it is
+        # the user asking for the load to end, and carrying on into the next
+        # statement would answer "stop" by running more of their code.
+        source = spinner(self.marker) + "after = 'reached'\n"
+        self.k.send_async(op="eval_file", source=source, filename="/tmp/m.py")
+        self.wait_until_running()
+        self.k.interrupt()
+
+        result = self.k.read()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["statements"], 3)
+        self.assertEqual(result["ran"], 1, "only `started = False` completed")
+        self.assertEqual(len(result["results"]), 2, "the load stopped here")
+        self.assertEqual(
+            result["results"][-1]["error"]["type"], "KeyboardInterrupt")
+        self.assertFalse(self.k.evaluate("after\n", 0)["ok"],
+                         "the statement after the loop must not have run")
 
 
 class LoadFile(KernelTest):

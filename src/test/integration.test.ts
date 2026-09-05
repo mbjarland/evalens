@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { KernelClient } from '../kernel/client';
@@ -430,4 +432,86 @@ test('a loop stopped by break annotates the value it broke on', async (t) => {
     resultText(result.value ?? '', result.display, result.loop)
       .replace(/ /g, ' '),
     'p: 1, 2, 3');
+});
+
+/**
+ * A `while True:` that reports when it has actually started running.
+ *
+ * Waiting for the marker rather than for a fixed delay is what makes the
+ * interrupt land inside the user's loop instead of in the gap before it -- two
+ * different code paths, and a test that could hit either proves neither.
+ */
+function spinner(marker: string): string {
+  return [
+    'started = False',
+    'while True:',
+    '    if not started:',
+    `        open(${JSON.stringify(marker)}, 'w').close()`,
+    '        started = True',
+    '',
+  ].join('\n');
+}
+
+function markerPath(name: string): string {
+  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'evalens-')), name);
+}
+
+async function waitFor(marker: string): Promise<void> {
+  for (let tick = 0; tick < 1000 && !fs.existsSync(marker); tick += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(fs.existsSync(marker), 'the evaluated code never started running');
+}
+
+test('an interrupt stops a real loop and keeps the namespace', async (t) => {
+  // The ticket's acceptance test through the whole stack: the real client, the
+  // real five-pipe spawn, the real kernel. Nothing here would work if the
+  // control channel were not actually wired -- an interrupt written to stdin
+  // would sit unread behind a loop that never ends.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const marker = markerPath('running');
+  const source = `x = 41\n${spinner(marker)}`;
+
+  assert.equal((await evaluate(client, source, 0) as Evaluated).value, '41');
+  await evaluate(client, source, 1);
+
+  const spinning = evaluate(client, source, 2);
+  await waitFor(marker);
+
+  assert.equal(await client.interrupt(), 'interrupted');
+
+  const stopped = await spinning as Failed;
+  assert.equal(stopped.ok, false);
+  assert.equal(stopped.error.type, 'KeyboardInterrupt');
+
+  const survivor = await evaluate(client, 'x\n', 0) as Evaluated;
+  assert.equal(survivor.value, '41',
+    'stopping an evaluation must not cost the session its namespace');
+});
+
+test('an interrupt reaches a kernel parked in a blocking call', async (t) => {
+  // `time.sleep` is the case a flag-setting interrupt does not cover: the main
+  // thread is inside a C call and reaches no bytecode boundary to notice at.
+  // Measured, not assumed -- interrupt_main() alone sleeps the whole time.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const marker = markerPath('sleeping');
+  const source = 'import time\n'
+    + `open(${JSON.stringify(marker)}, 'w').close()\n`
+    + 'time.sleep(60)\n';
+
+  await evaluate(client, source, 0);
+  await evaluate(client, source, 1);
+
+  const started = Date.now();
+  const sleeping = evaluate(client, source, 2);
+  await waitFor(marker);
+  assert.equal(await client.interrupt(), 'interrupted');
+
+  const stopped = await sleeping as Failed;
+  assert.equal(stopped.error.type, 'KeyboardInterrupt');
+  assert.ok(Date.now() - started < 30_000, 'the sleep ran to completion');
 });

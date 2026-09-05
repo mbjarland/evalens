@@ -12,6 +12,31 @@ written down: nothing runs that was not explicitly asked for, the process can
 always be killed and restarted, and user code cannot reach the channel this
 protocol runs on.
 
+Two channels
+------------
+The request pipe (file descriptors 0 and 1) carries requests and their
+id-correlated responses, and **exactly one piece of code reads descriptor 0**:
+the protocol loop in ``main``. That is not a style preference, it is the
+invariant the whole design rests on. The moment a second reader exists --
+anything servicing a message *during* an evaluation -- the two race for lines
+on one stream, and whichever happens to be blocked wins. A request arriving
+while user code is busy would be swallowed by the wrong reader, its response
+never written, and the extension left waiting on a promise that cannot settle.
+
+So everything that must be dealt with while an evaluation is running lives on
+a second pipe, descriptors 3 and 4 (``--control-in`` / ``--control-out`` to
+move them). A daemon thread reads descriptor 3 and is never blocked by
+whatever the main thread is doing, which is the entire point.
+
+    fd 0 -> requests            fd 3 -> interrupt, input_reply
+    fd 1 <- responses           fd 4 <- interrupt_ack, status, input_request
+
+**Nothing on the control channel is a reply to anything on the request
+channel.** That is what makes a server-initiated message unmistakable: it is
+not told apart from a stale response by some rule applied to a shared stream,
+it arrives somewhere a response never can. Jupyter splits its channels the
+same way and for the same reason.
+
 Protocol
 --------
 Newline-delimited JSON, one request per line in, one response per line out.
@@ -63,20 +88,47 @@ Coordinates are VS Code's: 0-based line, 0-based character.
 Ops: ``ping``, ``reset``, ``eval``, ``eval_file``. ``eval_above`` is reserved
 and answers with an explicit not-implemented error until #13 lands.
 
+Interrupting
+------------
+An interrupt raises ``KeyboardInterrupt`` in the running code, and is
+deliberately not a kill. ``_run`` catches it exactly as it catches any other
+failure, so the evaluation comes back annotated like a ``NameError`` would --
+**with the namespace still holding everything the session had built up**.
+Killing the process would stop the loop just as well and throw that away,
+which is the thing the user was protecting when they reached for Cancel.
+
+The request arrives on the control channel and is delivered by
+``_raise_in_main_thread``. Two consequences are implemented rather than hoped
+for: an interrupt arriving while the kernel is idle (the race Cancel loses
+when the evaluation finishes first) must not take the process down, and an
+interrupt during ``eval_file`` must stop the load rather than fail one
+statement and carry on into the next.
+
+Known limit, worth stating rather than discovering: a tight loop inside a C
+extension does not check for signals, so it will not stop promptly. Ordinary
+Python loops and ``time.sleep`` will. User code that installs its own
+``SIGINT`` handler likewise takes precedence -- the kernel does not overrule
+it, because a handler someone wrote is as deliberate as any other code they
+asked to run.
+
 Requires Python 3.9 or later (``ast.unparse``).
 """
 
 from __future__ import annotations
 
+import _thread
 import ast
 import contextlib
 import inspect
 import io
 import json
 import linecache
+import os
+import signal
 import sys
+import threading
 import traceback
-from typing import Any, Dict, Iterable, Iterator, Optional
+from typing import Any, Dict, Iterable, Iterator, Optional, TextIO, Tuple
 
 import loops
 from resolver import Form, form_at, form_of
@@ -97,6 +149,139 @@ NAME_LIMIT = 4
 #: rebind `sys.stdout` permanently and doing so must not silently redirect the
 #: protocol into the user's own object.
 _PROTOCOL_OUT = sys.stdout
+
+#: The real stdin, captured for the same reason and read by the protocol loop
+#: and by nothing else. `sys.stdin` is replaced for the duration of every
+#: evaluation, and user code is free to rebind it for good; the channel
+#: requests arrive on must not follow it. One reader, forever -- see the module
+#: docstring for what a second one costs.
+_PROTOCOL_IN = sys.stdin
+
+#: Default file descriptors for the control channel. 3 and 4 because that is
+#: what `stdio: ['pipe','pipe','pipe','pipe','pipe']` hands a Node child, in
+#: declaration order.
+_CONTROL_IN_FD = 3
+_CONTROL_OUT_FD = 4
+
+#: Guards writes to the control channel. Two threads write it: the control
+#: thread acknowledging an interrupt, and the main thread announcing status.
+_CONTROL_LOCK = threading.Lock()
+
+#: Set by `_open_control`; None when the kernel was started without the extra
+#: descriptors, in which case it behaves exactly as it did before the channel
+#: existed.
+_CONTROL_OUT: Optional[TextIO] = None
+
+
+def _open_control(argv: list) -> Tuple[Optional[TextIO], Optional[TextIO]]:
+    """Open the control channel, or answer ``(None, None)``.
+
+    The descriptors are addressed by number because a number is what a parent
+    process can actually hand a child: Node's ``stdio`` array puts extra pipes
+    at 3 and 4, in order. They are overridable on the command line because
+    Python's own ``subprocess`` inherits descriptors as they are and cannot
+    renumber them, so a test harness has to be able to say where it put them --
+    and a channel no harness can open is a channel no test can cover.
+
+    A missing descriptor is not an error. A kernel started with the three
+    standard streams still evaluates code; it simply has no way to be
+    interrupted or to ask a question, which is what it was before this channel
+    existed and is what every existing three-pipe caller expects.
+    """
+    control_in, control_out = _CONTROL_IN_FD, _CONTROL_OUT_FD
+    for flag, value in zip(argv, argv[1:]):
+        try:
+            if flag == "--control-in":
+                control_in = int(value)
+            elif flag == "--control-out":
+                control_out = int(value)
+        except ValueError:
+            return None, None
+
+    try:
+        reader = os.fdopen(control_in, "r")
+    except OSError:
+        return None, None
+    try:
+        writer = os.fdopen(control_out, "w")
+    except OSError:
+        # Half a channel is no channel, and a file object left unreferenced
+        # would close the descriptor from under whoever else holds it.
+        reader.close()
+        return None, None
+    return reader, writer
+
+
+def control(payload: Dict[str, Any]) -> None:
+    """Write one message on the control channel, if there is one.
+
+    Silent when there is not. Every caller is announcing something rather than
+    asking for something, so a kernel running without the channel loses the
+    announcement and nothing else.
+    """
+    if _CONTROL_OUT is None:
+        return
+    with _CONTROL_LOCK:
+        _CONTROL_OUT.write(json.dumps(payload) + "\n")
+        _CONTROL_OUT.flush()
+
+
+def _raise_in_main_thread() -> None:
+    """Raise ``KeyboardInterrupt`` in the main thread, wherever it is.
+
+    Two mechanisms, because neither covers the ground alone.
+
+    ``_thread.interrupt_main`` sets a flag the interpreter notices at its next
+    bytecode boundary. That stops a Python loop within milliseconds and does
+    nothing whatsoever for a main thread parked inside a blocking C call:
+    measured here, ``time.sleep(5)`` interrupted this way sleeps the full five
+    seconds. A real ``SIGINT`` does break that call, because the syscall
+    returns ``EINTR``. So on any platform that can deliver a signal to itself,
+    that is what is sent.
+
+    Windows cannot -- ``os.kill`` there only speaks console control events to
+    a process group -- and is also where ``interrupt_main`` happens to cover
+    the sleeping case anyway, because CPython waits on a SIGINT event object
+    on that platform. Between them the behaviour is the same everywhere, which
+    is why there is no "Windows cannot be interrupted, so we restart and lose
+    your namespace" branch anywhere in this project.
+    """
+    if os.name == "nt":
+        _thread.interrupt_main()
+    else:
+        os.kill(os.getpid(), signal.SIGINT)
+
+
+def _control_loop(stream: TextIO) -> None:
+    """Service the control channel while the main thread is busy.
+
+    A thread, and it has to be one: the reason this channel exists is that the
+    main thread is occupied -- running a loop, or blocked waiting for someone
+    to answer a prompt -- at exactly the moments something needs saying to it.
+
+    Nothing here touches the namespace or writes a response. It hands work to
+    the main thread and gets out of the way, which is what keeps a second
+    thread from being a second way for user code to be run.
+    """
+    for line in stream:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            message = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(message, dict):
+            continue
+        if message.get("op") == "interrupt":
+            # Acknowledged before it is delivered, and deliberately so: the
+            # acknowledgement says the kernel heard the request, which is a
+            # weaker and more honest claim than "the loop has stopped". This
+            # thread cannot make the stronger one -- a C extension spinning in
+            # the main thread will not take the interrupt for as long as it
+            # cares to run.
+            control({"op": "interrupt_ack"})
+            _raise_in_main_thread()
 
 
 @contextlib.contextmanager
@@ -432,6 +617,17 @@ def _error(exc: BaseException, tb_skip: int = 0) -> Dict[str, Any]:
     }
 
 
+def _was_interrupted(outcome: Dict[str, Any]) -> bool:
+    """Did this outcome fail because someone pressed Cancel?
+
+    The error type on the wire is the record of it. ``_run`` reports an
+    interrupt through the same path as every other failure on purpose -- that
+    is what makes the namespace survive -- so the only thing left to tell the
+    two apart is the name the exception already carries.
+    """
+    return outcome.get("error", {}).get("type") == "KeyboardInterrupt"
+
+
 class Kernel:
     """The namespace and the operations that act on it."""
 
@@ -450,7 +646,7 @@ class Kernel:
     def handle(self, request: Dict[str, Any]) -> Dict[str, Any]:
         op = request.get("op")
         if op == "ping":
-            return {"ok": True, "python": sys.version, "pid": __import__("os").getpid()}
+            return {"ok": True, "python": sys.version, "pid": os.getpid()}
         if op == "reset":
             self.reset()
             return {"ok": True}
@@ -549,6 +745,13 @@ class Kernel:
             results.append(outcome)
             if outcome["ok"]:
                 ran += 1
+            elif _was_interrupted(outcome):
+                # Cancel means stop. Failures do not otherwise end a load --
+                # that is the point of the paragraph above -- but an interrupt
+                # is not the file being broken, it is the user asking for the
+                # load to end, and carrying on into the next statement would
+                # answer a request to stop by running more of their code.
+                break
 
         return {
             "ok": True,
@@ -639,10 +842,21 @@ class Kernel:
                 # finish producing it.
                 names = _named_values(self.namespace, form.names)
             except BaseException as exc:  # noqa: BLE001
-                # BaseException, not Exception: user code calling exit() raises
-                # SystemExit, and taking the kernel down over it would discard
-                # a whole session's namespace for a line someone ran by
-                # accident.
+                # BaseException, not Exception, and this catch carries more
+                # weight than it looks like it does.
+                #
+                # SystemExit is the obvious one: user code calling exit()
+                # would otherwise take the kernel down and discard a whole
+                # session's namespace for a line someone ran by accident.
+                #
+                # KeyboardInterrupt is the other, and it is how Cancel works.
+                # An interrupt asked for on the control channel is raised right
+                # here, in the middle of the user's loop; reporting it this way
+                # rather than letting it escape is what makes an interrupted
+                # evaluation fail like any other failure -- annotated, on its
+                # own line, with everything the session had bound still bound.
+                # It is tested rather than assumed, because nothing about the
+                # line above says "and this is the stop button".
                 return {
                     "ok": False,
                     "error": _error(exc, tb_skip=1),
@@ -704,8 +918,36 @@ def respond(payload: Dict[str, Any]) -> None:
 
 
 def main() -> None:
+    """Read one request per line and answer it, until the channel closes.
+
+    Written as an explicit ``readline`` loop rather than ``for raw in
+    sys.stdin`` for two reasons that both come from interrupts. It reads
+    ``_PROTOCOL_IN`` -- the stream captured at import -- so that user code
+    rebinding ``sys.stdin`` cannot redirect the request channel. And a
+    ``KeyboardInterrupt`` raised while this loop is waiting has somewhere to be
+    caught, which an iterator holding the loop does not offer.
+    """
+    global _CONTROL_OUT
+    control_in, _CONTROL_OUT = _open_control(sys.argv)
+    if control_in is not None:
+        threading.Thread(target=_control_loop, args=(control_in,),
+                         name="evalens-control", daemon=True).start()
+
     kernel = Kernel()
-    for raw in sys.stdin:
+    while True:
+        try:
+            raw = _PROTOCOL_IN.readline()
+        except KeyboardInterrupt:
+            # An interrupt that arrived with nothing running. Cancel loses
+            # this race whenever the evaluation finishes first, and it would
+            # be a poor trade to answer it by taking down the process holding
+            # the namespace that interrupting rather than killing exists to
+            # preserve.
+            continue
+        if not raw:
+            # The extension closed the pipe: the window went away, or the
+            # kernel was restarted. Exit rather than spin.
+            return
         raw = raw.strip()
         if not raw:
             continue
@@ -719,9 +961,39 @@ def main() -> None:
                           "traceback": ""},
             })
             continue
-        response = kernel.handle(request)
-        response["id"] = request.get("id")
-        respond(response)
+        if not isinstance(request, dict):
+            # `42` and `"hello"` are valid JSON and not requests. Left
+            # unchecked, `request.get("op")` raises AttributeError out of the
+            # protocol loop and takes the whole namespace with it -- which is
+            # a spectacular cost for someone else's stray line.
+            respond({
+                "id": None,
+                "ok": False,
+                "error": {"type": "ProtocolError",
+                          "message": f"expected a request object, got "
+                                     f"{type(request).__name__}",
+                          "traceback": ""},
+            })
+            continue
+
+        request_id = request.get("id")
+        try:
+            control({"op": "status", "state": "busy", "id": request_id})
+            response = kernel.handle(request)
+            response["id"] = request_id
+            # Idle before the answer, so that a client which reads the answer
+            # and immediately asks "is anything running?" cannot be told yes.
+            control({"op": "status", "state": "idle", "id": request_id})
+            respond(response)
+        except KeyboardInterrupt as exc:
+            # `_run` catches an interrupt raised inside user code, so getting
+            # here means it landed between the statements of a file load, or
+            # in the microseconds spent writing the answer. Either way the
+            # request still gets one: a request with no response is a spinner
+            # that never stops, and a duplicate response is harmless because
+            # the extension drops a reply whose id it has already settled.
+            control({"op": "status", "state": "idle", "id": request_id})
+            respond({"id": request_id, "ok": False, "error": _error(exc)})
 
 
 if __name__ == "__main__":

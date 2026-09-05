@@ -12,10 +12,18 @@ class FakeProcess extends EventEmitter implements KernelProcess {
   readonly stderr = new EventEmitter();
   killed = false;
   stdinEnded = false;
+  /** What the client has written on the control channel, in order. */
+  readonly controlWritten: string[] = [];
+  readonly controlOut = new EventEmitter();
 
   readonly stdin = {
     write: (chunk: string) => { this.written.push(chunk); },
     end: () => { this.stdinEnded = true; },
+  };
+
+  readonly control = {
+    write: (chunk: string) => { this.controlWritten.push(chunk); },
+    end: () => undefined,
   };
 
   kill(): void { this.killed = true; }
@@ -25,8 +33,18 @@ class FakeProcess extends EventEmitter implements KernelProcess {
     return this.written.map((line) => JSON.parse(line));
   }
 
+  /** The control messages the client has written, parsed. */
+  controlRequests(): Array<Record<string, unknown>> {
+    return this.controlWritten.map((line) => JSON.parse(line));
+  }
+
   reply(payload: Record<string, unknown>): void {
     this.stdout.emit('data', `${JSON.stringify(payload)}\n`);
+  }
+
+  /** Something the kernel says on its own account, not a reply to anything. */
+  says(payload: Record<string, unknown>): void {
+    this.controlOut.emit('data', `${JSON.stringify(payload)}\n`);
   }
 }
 
@@ -50,6 +68,8 @@ interface HarnessOptions {
   /** Defaults to a resolved `python3`; override to change or delay it. */
   readonly resolvePython?: () => Promise<string>;
   readonly onStderr?: (text: string) => void;
+  /** Short by default, so the unacknowledged branch is reachable in a test. */
+  readonly ackTimeout?: number;
 }
 
 function clientWith(options: HarnessOptions = {}): Harness {
@@ -59,6 +79,7 @@ function clientWith(options: HarnessOptions = {}): Harness {
     resolvePython: options.resolvePython ?? (async () => 'python3'),
     kernelPath: '/kernel/evalens_kernel.py',
     onStderr: options.onStderr,
+    ackTimeout: options.ackTimeout ?? 50,
     spawn: (command, args) => {
       calls.push({ command, args });
       const p = new FakeProcess();
@@ -233,6 +254,100 @@ test('the kernel is spawned unbuffered, with the configured interpreter', async 
   assert.equal(calls[0]!.command, 'python3');
   assert.deepEqual([...calls[0]!.args], ['-u', '/kernel/evalens_kernel.py'],
     '-u keeps a response from sitting in a buffer waiting for a fuller write');
+});
+
+test('an interrupt goes out on the control channel, never on stdin', async () => {
+  // The invariant the whole two-pipe design exists for: the kernel is not
+  // reading its stdin while it runs user code, so an interrupt written there
+  // would be read when the evaluation finished -- which for the infinite loop
+  // this feature exists to end is never.
+  const { client, started } = clientWith();
+  const pending = client.request({ op: 'ping' });
+  const proc = await started();
+  const requestsBefore = proc.written.length;
+
+  const interrupting = client.interrupt();
+  proc.says({ op: 'interrupt_ack' });
+
+  assert.equal(await interrupting, 'interrupted');
+  assert.deepEqual(proc.controlRequests(), [{ op: 'interrupt' }]);
+  assert.equal(proc.written.length, requestsBefore,
+    'nothing about an interrupt belongs on the request pipe');
+  assert.equal(proc.killed, false, 'an interrupt is not a kill');
+
+  // The request is still outstanding: the kernel answers it with the failure.
+  proc.reply({ id: 1, ok: false, error: { type: 'KeyboardInterrupt' } });
+  assert.equal((await pending).ok, false);
+});
+
+test('an interrupt the kernel never acknowledges is reported as unconfirmed', async () => {
+  // Cancel is not fire-and-forget. If the kernel says nothing the user has a
+  // decision to make -- keep waiting, or restart and lose the namespace -- and
+  // cannot make it while being told the interrupt worked.
+  const { client, started } = clientWith({ ackTimeout: 20 });
+  void client.request({ op: 'ping' }).catch(() => undefined);
+  await started();
+  assert.equal(await client.interrupt(), 'unconfirmed');
+});
+
+test('interrupting with nothing running says so and sends nothing', async () => {
+  // The race Cancel loses when the evaluation finishes first. A stray
+  // interrupt is harmless to the kernel, which swallows one that arrives while
+  // it is idle -- but claiming to have stopped something that was not running
+  // is a lie the status bar should not tell.
+  const { client, started } = clientWith();
+  void client.request({ op: 'ping' }).catch(() => undefined);
+  const proc = await started();
+  proc.reply({ id: 1, ok: true });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(await client.interrupt(), 'idle');
+  assert.deepEqual(proc.controlWritten, []);
+});
+
+test('a kernel that says it is busy can be interrupted', async () => {
+  // Status comes from the kernel rather than being inferred from an unsettled
+  // promise, which is also unsettled while an interpreter is being probed and
+  // nothing is running at all.
+  const { client, started } = clientWith();
+  void client.request({ op: 'ping' }).catch(() => undefined);
+  const proc = await started();
+  proc.says({ op: 'status', state: 'busy', id: 1 });
+  proc.reply({ id: 1, ok: true });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const interrupting = client.interrupt();
+  proc.says({ op: 'interrupt_ack' });
+  assert.equal(await interrupting, 'interrupted',
+    'the kernel had not said it was finished yet');
+
+  proc.says({ op: 'status', state: 'idle', id: 1 });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(await client.interrupt(), 'idle');
+});
+
+test('interrupting before the kernel starts is idle, not a crash', async () => {
+  const { client } = clientWith();
+  assert.equal(await client.interrupt(), 'idle');
+});
+
+test('a control message split across writes still arrives whole', async () => {
+  const { client, started } = clientWith();
+  void client.request({ op: 'ping' }).catch(() => undefined);
+  const proc = await started();
+  const interrupting = client.interrupt();
+  proc.controlOut.emit('data', '{"op":"interr');
+  proc.controlOut.emit('data', 'upt_ack"}\n');
+  assert.equal(await interrupting, 'interrupted');
+});
+
+test('an unparseable control line is reported, not thrown', async () => {
+  const seen: string[] = [];
+  const { client, started } = clientWith({ onStderr: (text) => seen.push(text) });
+  void client.request({ op: 'ping' }).catch(() => undefined);
+  const proc = await started();
+  assert.doesNotThrow(() => proc.controlOut.emit('data', 'not json\n'));
+  assert.match(seen.join(''), /unparseable control line/);
 });
 
 test('a request goes out as one JSON line carrying its id', async () => {

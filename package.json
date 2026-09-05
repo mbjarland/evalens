@@ -44,6 +44,10 @@
         "title": "Evalens: Evaluate at Cursor"
       },
       {
+        "command": "evalens.interrupt",
+        "title": "Evalens: Interrupt Evaluation"
+      },
+      {
         "command": "evalens.restartKernel",
         "title": "Evalens: Restart Kernel"
       },
@@ -63,6 +67,12 @@
           "type": "string",
           "default": "",
           "markdownDescription": "Interpreter used to run the evaluation kernel. Empty means try the interpreter the Python extension has selected, then `python3`, then `python`, and use the first that runs and reports Python 3.9 or later. A path set here is never quietly replaced: if it does not work, Evalens says so instead of falling back."
+        },
+        "evalens.progressDelay": {
+          "type": "number",
+          "default": 750,
+          "minimum": 0,
+          "markdownDescription": "Milliseconds an evaluation must still be running before Evalens shows a cancellable progress notification. Almost every evaluation finishes in a few milliseconds, and a notification on each one would be intolerable — so the notification only appears once an evaluation has already failed to finish, which is the moment the extension otherwise looks like it ignored the keypress. `0` shows it immediately."
         },
         "evalens.alignColumn": {
           "type": "number",
