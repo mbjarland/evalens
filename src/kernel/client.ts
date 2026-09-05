@@ -105,7 +105,7 @@ export class KernelClient {
   private readonly controlDecoder = new LineDecoder();
   private readonly spawnFn: SpawnFn;
   /** What the kernel last said it was doing, rather than what we assume. */
-  private busy = false;
+  private executing = false;
   /** Resolved by `interrupt_ack`, so cancel is not fire-and-forget. */
   private acknowledged?: Deferred<void>;
   private nextId = 1;
@@ -134,6 +134,19 @@ export class KernelClient {
 
   get running(): boolean {
     return this.process !== undefined;
+  }
+
+  /**
+   * Whether the kernel says it is executing something.
+   *
+   * Reported by the kernel on the control channel, not inferred from a promise
+   * that has not settled -- which is equally true while an interpreter is
+   * still being probed and nothing is running at all. Those are different
+   * facts and the user can act on them differently, which is why "taking a
+   * while" and "has not started yet" are worded apart on the line.
+   */
+  get busy(): boolean {
+    return this.executing;
   }
 
   async request(message: Request): Promise<Response> {
@@ -172,7 +185,7 @@ export class KernelClient {
    */
   async interrupt(): Promise<InterruptOutcome> {
     const process = this.process;
-    if (!process || (!this.busy && this.pending.size === 0)) {
+    if (!process || (!this.executing && this.pending.size === 0)) {
       // The race Cancel loses when the evaluation finishes first. Claiming to
       // have stopped something that had already stopped is a small lie the
       // status bar should not tell.
@@ -320,7 +333,7 @@ export class KernelClient {
     }
     switch (message.op) {
       case 'status':
-        this.busy = message.state === 'busy';
+        this.executing = message.state === 'busy';
         return;
       case 'interrupt_ack':
         this.acknowledged?.resolve();
@@ -380,7 +393,7 @@ export class KernelClient {
     this.generation += 1;
     this.decoder.reset();
     this.controlDecoder.reset();
-    this.busy = false;
+    this.executing = false;
     // An interrupt whose kernel has gone will never be acknowledged, and the
     // caller is waiting on that. Let the timeout say so rather than leaving a
     // promise nothing can resolve.

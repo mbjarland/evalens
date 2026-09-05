@@ -23,7 +23,15 @@ export function activate(context: vscode.ExtensionContext): void {
   output = vscode.window.createOutputChannel('Evalens');
   context.subscriptions.push(output);
 
-  annotations = new Annotations(context.extensionUri);
+  // One for the window, handed to both the things that flash: the annotations,
+  // for the emphasis that says a statement just re-ran, and the evaluator, for
+  // the highlight showing how far a selection snapped. Two instances would be
+  // two timers over the same editor, and those two flashes can land on the
+  // same statement.
+  const flash = new Flash();
+  context.subscriptions.push(flash);
+
+  annotations = new Annotations(context.extensionUri, flash);
   context.subscriptions.push(annotations);
 
   context.subscriptions.push(
@@ -31,9 +39,6 @@ export function activate(context: vscode.ExtensionContext): void {
       annotations?.clearAll();
     })
   );
-
-  const flash = new Flash();
-  context.subscriptions.push(flash);
 
   evaluator = new Evaluator(
     () => ensureClient(context), annotations, output, flash);

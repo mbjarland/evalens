@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
 
 import { Annotation, Decorator, sourceAt } from './decorations';
+import { Flash, SETTLED } from './flash';
 import {
   AnnotationRegistry, afterEdit, markDependents, merge, reanchor,
 } from './registry';
+import { Waiting } from './status';
 
 /**
  * Move an annotation `lines` further down the file, keeping its columns.
@@ -52,8 +54,18 @@ export class Annotations implements vscode.Disposable {
   private readonly decorator: Decorator;
   private readonly subscriptions: vscode.Disposable[] = [];
 
-  constructor(extensionUri: vscode.Uri) {
+  /**
+   * The success emphasis, shared with the selection snap rather than owned.
+   *
+   * One `Flash` exists for the window and both callers reach it, so a snap
+   * highlight and a "this just ran" emphasis cannot be up at the same time
+   * with two timers each expiring on the other's decorations.
+   */
+  private readonly flash: Flash;
+
+  constructor(extensionUri: vscode.Uri, flash: Flash) {
     this.decorator = new Decorator(extensionUri);
+    this.flash = flash;
     this.subscriptions.push(
       vscode.workspace.onDidChangeTextDocument((event) => {
         // An edit invalidates what it touched, and nothing else. An
@@ -71,8 +83,16 @@ export class Annotations implements vscode.Disposable {
           // this reads what the statement says *after* the edit -- which is
           // the only thing that can be compared with what it said when it
           // ran. Nothing is asked of the kernel.
-          (annotation) => afterEdit(
-            annotation, sourceAt(event.document, annotation.range))
+          //
+          // A mark on a statement that has not finished is exempt. Stale means
+          // "this value no longer describes the code beside it", and a mark
+          // states no value to be wrong about. Marking it would also replace
+          // the object, and the handle that has to take the mark back holds it
+          // by identity.
+          (annotation) => annotation.pending
+            ? annotation
+            : afterEdit(
+                annotation, sourceAt(event.document, annotation.range))
         );
         if (after === before) {
           return;
@@ -132,6 +152,74 @@ export class Annotations implements vscode.Disposable {
       merge(this.registry.get(uri), annotation), annotation));
   }
 
+  /**
+   * Mark a range as unfinished, and answer a handle on the mark.
+   *
+   * Called on the keypress, before the kernel is asked anything. The old value
+   * goes at that moment, which is what makes an evaluation visible even when
+   * it is about to produce exactly the string it produced last time.
+   *
+   * A handle rather than a line number because the mark is a live thing: it
+   * changes what it says while it waits, and it has to be taken back when the
+   * statement produced nothing to replace it with. Identity is what makes both
+   * safe -- an unrelated evaluation landing on the same line cannot take
+   * another's mark away.
+   */
+  pending(
+    document: vscode.TextDocument, range: vscode.Range, anchor?: number
+  ): Waiting {
+    let current: Annotation = {
+      range,
+      ...(anchor === undefined ? {} : { anchor }),
+      pending: {},
+    };
+    let withdrawn = false;
+    this.add(document, current);
+
+    return {
+      say: (message) => {
+        if (withdrawn) {
+          // The evaluation finished, or was abandoned, while something was
+          // still being said about it. Re-adding the mark now would leave a
+          // line claiming to be running something that is over.
+          return;
+        }
+        const next: Annotation = {
+          ...current,
+          pending: message === undefined ? {} : { message },
+        };
+        const kept = this.registry
+          .get(document.uri.toString())
+          .filter((each) => each !== current);
+        current = next;
+        this.show(document, merge(kept, next));
+      },
+      withdraw: () => {
+        if (withdrawn) {
+          return;
+        }
+        withdrawn = true;
+        const before = this.registry.get(document.uri.toString());
+        const after = before.filter((each) => each !== current);
+        if (after.length !== before.length) {
+          this.show(document, after);
+        }
+      },
+    };
+  }
+
+  /**
+   * Paint a finished value, with the brief emphasis that says it just changed.
+   *
+   * Separate from `add` because a file load calls that two hundred times and
+   * two hundred simultaneous flashes are a strobe, not information. This is
+   * the single-statement path, where the flash is the whole point.
+   */
+  settle(document: vscode.TextDocument, annotation: Annotation): void {
+    this.add(document, annotation);
+    this.flash.show(this.editorsFor(document), [annotation.range], SETTLED);
+  }
+
   clear(document: vscode.TextDocument): void {
     if (this.registry.clear(document.uri.toString())) {
       this.repaint(document);
@@ -159,13 +247,16 @@ export class Annotations implements vscode.Disposable {
 
   private repaint(document: vscode.TextDocument): void {
     const annotations = this.registry.get(document.uri.toString());
-    for (const editor of vscode.window.visibleTextEditors) {
-      if (editor.document === document) {
-        // Two editors on one document show the same annotations, which is
-        // what a split view should do.
-        this.decorator.show(editor, annotations);
-      }
+    // Two editors on one document show the same annotations, which is what a
+    // split view should do.
+    for (const editor of this.editorsFor(document)) {
+      this.decorator.show(editor, annotations);
     }
+  }
+
+  private editorsFor(document: vscode.TextDocument): vscode.TextEditor[] {
+    return vscode.window.visibleTextEditors.filter(
+      (editor) => editor.document === document);
   }
 
   private repaintAllVisible(): void {

@@ -5,6 +5,7 @@ import {
 } from '../kernel/protocol';
 import { alignmentGap, columnWidth, errorText, resultText } from './format';
 import { Marker, Traced, markerFor, normalizeSource } from './registry';
+import { Pending, pendingText } from './status';
 
 /**
  * Theme colour ids contributed in package.json. Colours come from the theme
@@ -19,6 +20,9 @@ export const COLOR_RESULT_BG = 'evalens.resultBackground';
 export const COLOR_ERROR = 'evalens.errorForeground';
 export const COLOR_ERROR_BG = 'evalens.errorBackground';
 export const COLOR_REGION = 'evalens.evaluatedRegionBackground';
+export const COLOR_PENDING = 'evalens.pendingForeground';
+export const COLOR_PENDING_REGION = 'evalens.pendingRegionBackground';
+export const COLOR_FLASH_REGION = 'evalens.flashRegionBackground';
 
 /** Columns between the code and its annotation when the line overruns. */
 const MINIMUM_GAP = 2;
@@ -72,6 +76,16 @@ export interface Annotation extends Traced {
   readonly names?: readonly NamedValue[];
   readonly error?: { readonly type: string; readonly message: string };
   readonly hover?: string;
+  /**
+   * Set while the statement has not finished, displacing everything above.
+   *
+   * Its presence is the state; the message it carries is what the statement is
+   * waiting for, when that is something more specific than time. Not a
+   * boolean, because "still running" and "waiting for you to type an answer to
+   * `Enter a value:`" are different things the reader has to tell apart, and a
+   * flag can only say that one of them is true.
+   */
+  readonly pending?: Pending;
 }
 
 /**
@@ -92,6 +106,11 @@ export interface Annotation extends Traced {
  * in the cell bracket since 1996, and JupyterLab's review of the same feature
  * turned down a request to mark the output. Three independent arrivals at the
  * margin is not a coincidence.
+ *
+ * A statement that has not finished displaces all three with the pending mark
+ * and a greyed region. That is a state rather than a remark, which is why it
+ * lives here and the brief emphasis on a statement that just *did* finish does
+ * not -- that one is a gesture on a timer and belongs to `Flash`.
  */
 export class Decorator implements vscode.Disposable {
   private readonly resultType = vscode.window.createTextEditorDecorationType({
@@ -120,6 +139,19 @@ export class Decorator implements vscode.Disposable {
     },
   });
 
+  /**
+   * The unfinished state: no colour of its own beyond a muted one, because
+   * what it has to say is that there is nothing to read here yet.
+   */
+  private readonly pendingType = vscode.window.createTextEditorDecorationType({
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
+    after: {
+      color: new vscode.ThemeColor(COLOR_PENDING),
+      textDecoration: CHIP,
+      fontStyle: 'italic',
+    },
+  });
+
   private readonly regionType = vscode.window.createTextEditorDecorationType({
     backgroundColor: new vscode.ThemeColor(COLOR_REGION),
     isWholeLine: false,
@@ -128,6 +160,15 @@ export class Decorator implements vscode.Disposable {
     overviewRulerColor: new vscode.ThemeColor(COLOR_REGION),
     overviewRulerLane: vscode.OverviewRulerLane.Right,
   });
+
+  /** The same region, greyed, while the kernel has not answered for it. */
+  private readonly pendingRegionType =
+    vscode.window.createTextEditorDecorationType({
+      backgroundColor: new vscode.ThemeColor(COLOR_PENDING_REGION),
+      isWholeLine: false,
+      overviewRulerColor: new vscode.ThemeColor(COLOR_PENDING_REGION),
+      overviewRulerLane: vscode.OverviewRulerLane.Right,
+    });
 
   /** One decoration type per state, because each carries a different icon. */
   private readonly markerTypes: ReadonlyMap<
@@ -150,7 +191,9 @@ export class Decorator implements vscode.Disposable {
   show(editor: vscode.TextEditor, annotations: readonly Annotation[]): void {
     const results: vscode.DecorationOptions[] = [];
     const errors: vscode.DecorationOptions[] = [];
+    const waiting: vscode.DecorationOptions[] = [];
     const regions: vscode.DecorationOptions[] = [];
+    const pendingRegions: vscode.DecorationOptions[] = [];
     const markers = new Map<Marker, vscode.DecorationOptions[]>(
       MARKERS.map((marker) => [marker, []]));
 
@@ -162,7 +205,10 @@ export class Decorator implements vscode.Disposable {
       : 4;
 
     for (const annotation of annotations) {
-      regions.push({ range: annotation.range });
+      // Greyed rather than evaluated, and the two lists are separate so that
+      // a statement cannot be painted as both at once.
+      (annotation.pending ? pendingRegions : regions)
+        .push({ range: annotation.range });
 
       // End of the LINE, not end of the statement. Anchoring mid-line would
       // insert the annotation before any trailing comment and shove it
@@ -174,9 +220,16 @@ export class Decorator implements vscode.Disposable {
       // On the line the value is written on, not on every line the statement
       // covers: the marker is a claim about that value, and a twenty-line
       // `def` with twenty markers down its side would read as twenty claims.
-      markers.get(markerFor(annotation))?.push({
-        range: new vscode.Range(host.range.start, host.range.start),
-      });
+      //
+      // A statement still running gets no marker at all. The three states are
+      // claims about how a value stands against the code beside it, and a
+      // statement that has not produced one yet is in none of them -- a green
+      // `evaluated` there would say the kernel had answered when it has not.
+      if (!annotation.pending) {
+        markers.get(markerFor(annotation))?.push({
+          range: new vscode.Range(host.range.start, host.range.start),
+        });
+      }
 
       // The gap goes in the margin rather than in the content, so it stays
       // outside the annotation's background. Padding the content instead
@@ -190,7 +243,18 @@ export class Decorator implements vscode.Disposable {
             ['```', annotation.hover, '```'].join('\n'))
         : undefined;
 
-      if (annotation.error) {
+      if (annotation.pending) {
+        // First, and displacing whatever the statement said last time. Taking
+        // the old value away is half the transition: an evaluation that
+        // produces the same string again has still visibly happened, because
+        // the string left and came back.
+        waiting.push({
+          range: at,
+          renderOptions: {
+            after: { margin, contentText: pendingText(annotation.pending) },
+          },
+        });
+      } else if (annotation.error) {
         errors.push({
           range: at,
           hoverMessage,
@@ -227,7 +291,9 @@ export class Decorator implements vscode.Disposable {
 
     editor.setDecorations(this.resultType, results);
     editor.setDecorations(this.errorType, errors);
+    editor.setDecorations(this.pendingType, waiting);
     editor.setDecorations(this.regionType, regions);
+    editor.setDecorations(this.pendingRegionType, pendingRegions);
     for (const [marker, type] of this.markerTypes) {
       // Every state is set on every paint, empty included: leaving one out
       // leaves its previous icons in the gutter, so a marker that has gone
@@ -243,7 +309,9 @@ export class Decorator implements vscode.Disposable {
   dispose(): void {
     this.resultType.dispose();
     this.errorType.dispose();
+    this.pendingType.dispose();
     this.regionType.dispose();
+    this.pendingRegionType.dispose();
     for (const type of this.markerTypes.values()) {
       type.dispose();
     }

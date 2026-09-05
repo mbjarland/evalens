@@ -132,6 +132,36 @@
           "highContrast": "#4a9c8c44",
           "highContrastLight": "#2a7d6d33"
         }
+      },
+      {
+        "id": "evalens.pendingForeground",
+        "description": "Colour of the marker beside a statement that has not finished.",
+        "defaults": {
+          "dark": "#8c8c8c",
+          "light": "#767676",
+          "highContrast": "#c6c6c6",
+          "highContrastLight": "#4a4a4a"
+        }
+      },
+      {
+        "id": "evalens.pendingRegionBackground",
+        "description": "Background of the region an evaluation is still running in. Greyed rather than coloured, because there is nothing to read there yet.",
+        "defaults": {
+          "dark": "#8c8c8c26",
+          "light": "#6a6a6a1f",
+          "highContrast": "#8c8c8c4d",
+          "highContrastLight": "#6a6a6a3d"
+        }
+      },
+      {
+        "id": "evalens.flashRegionBackground",
+        "description": "Brief emphasis on a region that has just finished. It decays after a moment on purpose: once every line carries a value, what says which one just ran is the change rather than the colour.",
+        "defaults": {
+          "dark": "#4a9c8c66",
+          "light": "#2a7d6d4d",
+          "highContrast": "#4a9c8c99",
+          "highContrastLight": "#2a7d6d66"
+        }
       }
     ],
     "keybindings": [

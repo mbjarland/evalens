@@ -295,6 +295,30 @@ Reading that one file collapses several open questions:
   (`PENDING` / `SUCCESS` / `ERROR`) drives distinct region colours, so
   the region greys while evaluating and then reads green or red. This is
   most of what makes the feature feel alive rather than static.
+
+  Two departures from Calva, both forced by loading a file painting every
+  value. **Pending goes on at the keypress**, before the kernel is asked,
+  because otherwise the fast path — nearly every evaluation — has no
+  transition at all and re-running a line repaints an identical string.
+  And **success is a brief flash rather than a standing colour**: once
+  every line carries a value, a permanent green distinguishes nothing,
+  so what says which statement just ran is the emphasis decaying. Julia's
+  extension flashes the evaluated range for about 200ms; that is the
+  shape.
+
+  **One flash mechanism, two uses.** Showing how far a selection snapped
+  outward is the same gesture over a longer window — 1,500ms, in the
+  evaluated-region colour — so it is one class parameterised by a colour
+  and a duration rather than two. Two implementations would mean two
+  timers over the same editor, and a snap highlight and a success
+  emphasis can land on the same statement; whichever expired second
+  would clear decorations the other had just painted.
+
+  Pending carries an optional message rather than being a boolean.
+  "Still running", "the kernel has not started this yet" and "waiting for
+  you to answer `Enter a value:`" are three different things the reader
+  has to tell apart, and Jupyter's inability to separate them is its
+  best-known interface complaint.
 - **Overview ruler marks.** `overviewRulerColor` +
   `OverviewRulerLane.Right` puts evaluated regions in the scrollbar, so
   they are visible at a glance in a long file.

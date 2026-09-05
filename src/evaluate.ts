@@ -8,8 +8,9 @@ import {
 } from './kernel/protocol';
 import { Annotations } from './render/annotations';
 import { Annotation, sourceAt, toVsCodeRange } from './render/decorations';
-import { Flash } from './render/flash';
+import { Flash, SNAP } from './render/flash';
 import { describeLoad, describeRun, hoverFor, present } from './render/present';
+import { whileRunning } from './render/status';
 import { selectedLines, widenedBeyond } from './selection';
 
 /**
@@ -81,6 +82,15 @@ function annotationFor(
 
 export class Evaluator {
   private readonly gate = new LatestWins<string>();
+  /**
+   * The client, once one has been resolved.
+   *
+   * Held so that "is the kernel busy?" can be asked without awaiting the
+   * handle -- the pending state has to decide what to say while an evaluation
+   * is in flight, and awaiting the client there would be waiting on the very
+   * thing being reported.
+   */
+  private connected?: KernelClient;
 
   constructor(
     private readonly kernel: () => Promise<KernelClient>,
@@ -88,6 +98,16 @@ export class Evaluator {
     private readonly output: vscode.OutputChannel,
     private readonly flash: Flash
   ) {}
+
+  /** What the kernel last said it was doing, or nothing if there is none. */
+  private busy(): boolean {
+    return this.connected?.busy ?? false;
+  }
+
+  private async client(): Promise<KernelClient> {
+    this.connected = await this.kernel();
+    return this.connected;
+  }
 
   /**
    * Stop whatever the kernel is running.
@@ -101,7 +121,7 @@ export class Evaluator {
   async interrupt(): Promise<void> {
     let outcome;
     try {
-      outcome = await (await this.kernel()).interrupt();
+      outcome = await (await this.client()).interrupt();
     } catch (error) {
       // No usable interpreter, so no kernel and nothing running. Interrupting
       // is not the moment to relitigate that.
@@ -172,7 +192,7 @@ export class Evaluator {
     const lines = selectedLines(selection);
     let response: FileResponse;
     try {
-      const client = await this.kernel();
+      const client = await this.client();
       response = (await this.watch(
         client.request({
           op: 'eval_file',
@@ -256,8 +276,10 @@ export class Evaluator {
         && widenedBeyond(executed, selection);
       if (widened) {
         // Pointing at it costs a decoration and says in one look what a
-        // sentence about line numbers says slowly.
-        this.flash.show(editor, toVsCodeRange(executed));
+        // sentence about line numbers says slowly. The same `Flash` the
+        // success emphasis uses, in the evaluated-region colour and for far
+        // longer: one mechanism, so the two cannot expire on each other.
+        this.flash.show([editor], [toVsCodeRange(executed)], SNAP);
       }
       vscode.window.setStatusBarMessage(
         describeRun(response.ran, response.statements, failed, widened), 4000);
@@ -268,45 +290,77 @@ export class Evaluator {
       describeLoad(response.ran, response.statements, failed), 4000);
   }
 
+  /**
+   * Evaluate the statement under the cursor, visibly.
+   *
+   * "Visibly" is not decoration. Since loading a file paints every value,
+   * pressing this key on an already-annotated line repaints an identical
+   * string -- nothing changes on screen, and the key reads as dead. It cost
+   * three rounds of diagnosis before it was clear that the command had been
+   * running correctly the whole time and simply left no evidence.
+   *
+   * So the line is marked *before* the kernel is asked, and the answer arrives
+   * with a brief emphasis on the range. Both halves are needed: marking on the
+   * response would give the fast path -- almost every evaluation -- no
+   * transition at all, and a permanent success colour says nothing in a file
+   * where every line already carries a value.
+   */
   async evaluateAtCursor(editor: vscode.TextEditor): Promise<void> {
     const document = editor.document;
     const cursor = editor.selection.active;
     const key = document.uri.toString();
     const token = this.gate.claim(key);
 
-    let response: EvalResponse;
+    let run;
     try {
-      const client = await this.kernel();
-      response = (await this.watch(
-        client.request({
-          op: 'eval',
-          source: document.getText(),
-          line: cursor.line,
-          character: cursor.character,
-          filename: document.uri.fsPath,
-          // Somebody pressed a key and is sitting there waiting for this line
-          // to answer, so `input()` is a conversation rather than a hang.
-          allow_stdin: true,
-        }),
-        'Evalens: evaluating'
-      )) as EvalResponse;
+      run = await whileRunning(
+        // Synchronous, and first. Resolving an interpreter and spawning it is
+        // itself slow the first time round, so a mark applied after the client
+        // handle was obtained would miss the evaluation that needs it most.
+        () => this.annotations.pending(
+          document, new vscode.Range(cursor.line, 0, cursor.line, 0)),
+        async () => {
+          const client = await this.client();
+          return (await this.watch(
+            client.request({
+              op: 'eval',
+              source: document.getText(),
+              line: cursor.line,
+              character: cursor.character,
+              filename: document.uri.fsPath,
+              // Somebody pressed a key and is sitting there waiting for this
+              // line to answer, so `input()` is a conversation, not a hang.
+              allow_stdin: true,
+            }),
+            'Evalens: evaluating'
+          )) as EvalResponse;
+        },
+        { busy: () => this.busy() }
+      );
     } catch (error) {
       // A transport failure is about the extension, not the user's code, so
-      // it does not belong painted next to their line.
+      // it does not belong painted next to their line. The mark is already
+      // gone: `whileRunning` withdraws it rather than leaving a line claiming
+      // to be running something that blew up.
       const message = error instanceof Error ? error.message : String(error);
       this.output.appendLine(message);
       void vscode.window.showErrorMessage(`Evalens: ${message}`);
       return;
     }
 
+    const response = run.value;
     if (!this.gate.isCurrent(key, token)) {
       // A newer evaluation has already claimed this document. Painting this
-      // one would leave a value beside code it did not come from.
+      // one would leave a value beside code it did not come from -- and its
+      // mark belongs to nothing now either.
+      run.waiting.withdraw();
       return;
     }
 
     const presentation = present(response, cursor.line);
     if (presentation.kind === 'nothing') {
+      // A blank line. Nothing is going to replace the mark, so it goes.
+      run.waiting.withdraw();
       vscode.window.setStatusBarMessage(presentation.message, 2000);
       return;
     }
@@ -361,6 +415,11 @@ export class Evaluator {
             ...(presentation.hover ? { hover: presentation.hover } : {}),
           };
 
-    this.annotations.add(document, annotation);
+    // Withdrawn rather than left to be displaced by overlap: the mark sits on
+    // the cursor's line and the answer's range is whatever statement that
+    // landed in, and relying on those two to coincide is a bug waiting for
+    // the first statement whose range does not cover the cursor.
+    run.waiting.withdraw();
+    this.annotations.settle(document, annotation);
   }
 }
