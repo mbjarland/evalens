@@ -53,6 +53,79 @@ export function collapseLines(text: string): string {
  */
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/;
 
+/** What a name may continue with, so a prefix match is not a partial one. */
+const NAME_CHARACTER = /[A-Za-z0-9_]/;
+
+/**
+ * Python's own words for what a value is, which a description leads with.
+ *
+ * The label has to look past them: `def greet(name)` says `greet` in second
+ * position, not first, and a check that only compared the opening characters
+ * would go on printing `greet: def greet(name)` forever.
+ */
+const KEYWORDS = ['def ', 'class '];
+
+/**
+ * Does this value's text already say the name the label was going to?
+ *
+ * `greet: greet(name)` was two features colliding -- one labels a binding with
+ * its name, the other describes a function as its signature -- and neither
+ * knew about the other, so every function definition in every file stated its
+ * name twice. The label is the half that can go: the description cannot,
+ * because it is where the arguments are.
+ *
+ * The boundary check is the whole safety of it. `Record: class
+ * SimpleNamespace(...)` keeps its label, because the alias is exactly the fact
+ * the reader needs; and `n: n_squared` is not a name said twice, which a bare
+ * `startsWith` would have called one.
+ */
+function namesItself(name: string, text: string): boolean {
+  const keyword = KEYWORDS.find((word) => text.startsWith(word));
+  const said = keyword === undefined ? text : text.slice(keyword.length);
+  return said.startsWith(name)
+    && !NAME_CHARACTER.test(said.charAt(name.length));
+}
+
+/** Whitespace folded to what a reader sees, so two spellings compare equal. */
+function squeezed(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Does this annotation say only what the line it sits on already says?
+ *
+ * `def greet(name)` beside `def greet(name):` is tidier duplication rather
+ * than information, and the evaluated-region highlight already reports that it
+ * ran. So the annotation goes and the highlight stays.
+ *
+ * **Compared against the rendered text, never against the kind of statement.**
+ * A `def` is exactly where this rule looks like it could be a shortcut, and
+ * exactly where the shortcut would destroy the one case worth keeping:
+ *
+ *     @shout
+ *     def greeting():        greeting: def <lambda>()
+ *
+ * The decorator *replaced* the function, the line cannot show that, and
+ * skipping annotations by statement kind would have taken it away. What is
+ * redundant is a piece of text, so text is what gets compared.
+ *
+ * Whitespace folds, a trailing `:` and a trailing comment are allowed to
+ * follow, and nothing else is: a match has to be the whole line. Anything
+ * looser starts suppressing annotations that differ from their line in ways
+ * the fold cannot see, and an annotation wrongly shown costs a few columns
+ * while one wrongly hidden costs the answer.
+ */
+export function restatesLine(text: string, line: string): boolean {
+  // Painted text carries the non-breaking spaces `preserveSpacing` put in it;
+  // the line it is compared against was typed with ordinary ones.
+  const said = squeezed(text.split(NBSP).join(' '));
+  const code = squeezed(line);
+  if (said === '' || !code.startsWith(said)) {
+    return false;
+  }
+  return /^\s*:?\s*(#.*)?$/.test(code.slice(said.length));
+}
+
 /**
  * Thousands separators, without asking the host what locale it is in.
  *
@@ -199,6 +272,29 @@ export function paintedSlots(
 }
 
 /**
+ * How one slot is painted: `name: value`, or a bare `=> value` for a genuine
+ * expression.
+ *
+ * **A label that the value already states is dropped.** `greet: def
+ * greet(name)` says the name twice, so the annotation is `def greet(name)`.
+ * The label survives wherever it is not a repetition -- `f: def greet(name)`
+ * is the whole point of that line, and so is `Record: class
+ * SimpleNamespace(...)`; see `namesItself`.
+ *
+ * Only what the statement itself produced or bound can lose its label. A name
+ * the line merely *read* keeps it, because several of those sit side by side
+ * and the label is the only thing telling the reader which is which.
+ */
+function slotText(slot: Slot): string {
+  if (slot.name === null) {
+    return `${SEPARATOR} ${slot.value}`;
+  }
+  return slot.own && namesItself(slot.name, slot.value)
+    ? slot.value
+    : `${slot.name}: ${slot.value}`;
+}
+
+/**
  * The painted annotation for a successful evaluation.
  *
  * `more` is how many names the kernel's per-line cap left off. Saying so is
@@ -212,10 +308,8 @@ export function resultText(
   value: string | null, display?: string | null, loop?: LoopTrace | null,
   names?: readonly NamedValue[], bindings?: readonly BindingTrace[], more = 0
 ): string {
-  const painted = paintedSlots(value, display, loop, names, bindings).map(
-    (slot) => (slot.name === null
-      ? `${SEPARATOR} ${slot.value}`
-      : `${slot.name}: ${slot.value}`));
+  const painted = paintedSlots(value, display, loop, names, bindings)
+    .map(slotText);
   if (more > 0) {
     painted.push(`…+${grouped(more)} more`);
   }

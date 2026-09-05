@@ -9,7 +9,7 @@ import { KernelClient } from '../kernel/client';
 import {
   Evaluated, EvalResponse, Failed, FileLoaded, LoopTrace, StatementOutcome,
 } from '../kernel/protocol';
-import { errorText, resultText } from '../render/format';
+import { errorText, restatesLine, resultText } from '../render/format';
 import { describeRun, present } from '../render/present';
 import { PaintedAbove } from '../render/repeats';
 import { markDependents } from '../render/registry';
@@ -296,9 +296,9 @@ test('re-evaluating a def paints the same thing every time', async (t) => {
   }
 
   assert.deepEqual(painted.map((p) => p.replace(/ /g, ' ')), [
-    'area: area(w: int, h: int = 2) -> int',
-    'area: area(w: int, h: int = 2) -> int',
-    'area: area(w: int, h: int = 2) -> int',
+    'def area(w: int, h: int = 2) -> int',
+    'def area(w: int, h: int = 2) -> int',
+    'def area(w: int, h: int = 2) -> int',
   ]);
   // The address is not lost, only moved off the line -- and it is still the
   // thing that differs between evaluations, which is why it cannot live there.
@@ -306,6 +306,93 @@ test('re-evaluating a def paints the same thing every time', async (t) => {
     assert.match(hover, /^area = <function area at 0x[0-9a-f]+>$/);
   }
   assert.notEqual(hovers[0], hovers[1]);
+});
+
+/**
+ * What the editor would paint beside `line`, and whether it would paint it.
+ *
+ * The three steps the decorator takes, in the order it takes them: the kernel
+ * answers, `resultText` renders the answer, and the rendered text is measured
+ * against the line it would sit on. Put together here because that whole path
+ * is what a reader sees, and every layer of it can be right on its own while
+ * the line still comes out saying its own name twice.
+ */
+async function painted(client: KernelClient, source: string, line: number) {
+  const shown = present(await evaluate(client, source, line), line) as {
+    value: string | null; display: string | null;
+    anchor?: number; range: { end: { line: number } };
+  };
+  const at = shown.anchor ?? shown.range.end.line;
+  const code = source.split('\n')[at] ?? '';
+  const rendered = resultText(shown.value, shown.display);
+  return {
+    code,
+    text: rendered.replace(/\u00a0/g, ' '),
+    // The raw text, non-breaking spaces and all, exactly as the decorator
+    // hands it over.
+    suppressed: restatesLine(rendered, code),
+  };
+}
+
+test('a def annotates where the line does not already say it', async (t) => {
+  // The whole ticket on two lines. The `def` states its own name and
+  // signature, so an annotation repeating them is width spent on nothing --
+  // and the region highlight still reports that it ran. `f = greet` states
+  // neither, so the same description is exactly what that line was missing.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'def greet(name):\n    return f"hello {name}"\nf = greet\n';
+
+  const definition = await painted(client, source, 0);
+  assert.equal(definition.code, 'def greet(name):');
+  assert.equal(definition.text, 'def greet(name)');
+  assert.equal(definition.suppressed, true);
+
+  const alias = await painted(client, source, 2);
+  assert.equal(alias.text, 'f: def greet(name)',
+    'the label survives where it is not a repetition');
+  assert.equal(alias.suppressed, false);
+});
+
+test('a decorated def still says what the decorator produced', async (t) => {
+  // The case that must survive, and the reason the comparison is against the
+  // rendered text rather than the statement kind: `@shout` REPLACED the
+  // function with a lambda, the line cannot show that, and a rule keyed on
+  // "skip FunctionDef" would have taken away the one annotation here worth
+  // every character of its width.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'def shout(fn):\n    return lambda: fn().upper()\n'
+    + '@shout\ndef greeting():\n    return "ok"\n';
+  await evaluate(client, source, 0);
+
+  const shown = await painted(client, source, 3);
+  assert.equal(shown.code, 'def greeting():');
+  assert.equal(shown.text, 'greeting: def <lambda>()');
+  assert.equal(shown.suppressed, false);
+});
+
+test('a definition saying more than its line keeps its annotation', async (t) => {
+  // `-> generator` is the explanation for why iterating the result a second
+  // time found it empty, and a class's signature is how to construct one.
+  // Neither is on the line, so neither is a restatement of it.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const generator = await painted(
+    client, 'def counted(n):\n    yield n\n', 0);
+  assert.equal(generator.text, 'def counted(n) -> generator');
+  assert.equal(generator.suppressed, false);
+
+  const klass = await painted(
+    client,
+    'class Config:\n    def __init__(self, name, port=8080):\n'
+    + '        self.name = name\n',
+    0);
+  assert.equal(klass.text, 'class Config(name, port=8080)');
+  assert.equal(klass.suppressed, false);
 });
 
 test('a module docstring paints nothing, a bare string still does', async (t) => {

@@ -3,7 +3,9 @@ import * as vscode from 'vscode';
 import {
   BindingTrace, LoopTrace, NamedValue, Range as KernelRange,
 } from '../kernel/protocol';
-import { alignmentGap, columnWidth, errorText, resultText } from './format';
+import {
+  alignmentGap, columnWidth, errorText, restatesLine, resultText,
+} from './format';
 import { Marker, Traced, markerFor, normalizeSource } from './registry';
 import { Pending, pendingText } from './status';
 
@@ -274,21 +276,29 @@ export class Decorator implements vscode.Disposable {
       } else if (annotation.value !== undefined
                  || annotation.loop !== undefined
                  || (annotation.names?.length ?? 0) > 0) {
-        results.push({
-          range: at,
-          hoverMessage,
-          renderOptions: {
-            after: {
-              margin,
-              // A loop that ran zero times has a trace and no value, and
-              // still has something to report. So does an `if` that bound a
-              // name: no value of its own, and the name is the answer.
-              contentText: resultText(
-                annotation.value ?? null, annotation.display, annotation.loop,
-                annotation.names, annotation.bindings, annotation.more),
-            },
-          },
-        });
+        // A loop that ran zero times has a trace and no value, and still has
+        // something to report. So does an `if` that bound a name: no value of
+        // its own, and the name is the answer.
+        const text = resultText(
+          annotation.value ?? null, annotation.display, annotation.loop,
+          annotation.names, annotation.bindings, annotation.more);
+        // Rendered first, then compared with the line it would sit on: an
+        // annotation that only restates its own line is not worth the width,
+        // and the region highlight below already says that it ran. The
+        // comparison happens here, at the last moment, because here is the
+        // only place that holds both halves of it.
+        //
+        // The hover goes with it, since the hover hangs off the text. What it
+        // would have carried is the address this feature exists to keep off
+        // the screen, and there is nothing to hover over on a line with no
+        // annotation on it.
+        if (!restatesLine(text, host.text)) {
+          results.push({
+            range: at,
+            hoverMessage,
+            renderOptions: { after: { margin, contentText: text } },
+          });
+        }
       }
       // A statement with nothing to show -- an `if`, a `del` -- still gets its
       // region highlighted. It ran; there is simply no value to report.

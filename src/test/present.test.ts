@@ -29,16 +29,16 @@ test('the hover names what was shown, not just its value', () => {
 });
 
 test('the hover keeps the untouched repr the line describes', () => {
-  // `area(w, h)` is on the line because `<function area at 0x10614a610>`
+  // `def area(w, h)` is on the line because `<function area at 0x10614a610>`
   // changed on every evaluation. The address is not wrong, only unstable, so
   // it stays one hover away rather than being thrown out.
   const response: EvalResponse = {
     id: 1, ok: true, resolved: true,
-    value: 'area(w, h)', repr: '<function area at 0x10614a610>',
+    value: 'def area(w, h)', repr: '<function area at 0x10614a610>',
     display: 'area', kind: 'FunctionDef', range, stdout: '', stderr: '',
   };
   const shown = present(response, 3);
-  assert.equal((shown as { value: string }).value, 'area(w, h)');
+  assert.equal((shown as { value: string }).value, 'def area(w, h)');
   assert.equal((shown as { hover: string }).hover,
     'area = <function area at 0x10614a610>');
 });
@@ -132,7 +132,8 @@ test('an error with an empty traceback still has something to hover', () => {
 test("a compound statement's anchor reaches the presentation", () => {
   // The range still covers the whole `def`; the anchor is the `def` line.
   const response: EvalResponse = {
-    id: 1, ok: true, resolved: true, value: 'greet(name)', display: 'greet',
+    id: 1, ok: true, resolved: true, value: 'def greet(name)',
+    display: 'greet',
     kind: 'FunctionDef', anchor: 3, stdout: '', stderr: '',
     range: { start: { line: 3, character: 0 }, end: { line: 4, character: 20 } },
   };

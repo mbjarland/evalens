@@ -130,8 +130,9 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
  *
  * The hover shows the full, unwrapped value; the inline annotation is a
  * one-line summary of it. `repr` is where that stays true for the values the
- * kernel describes rather than reprs: the line reads `area(w, h)`, and the
- * `<function area at 0x…>` it replaced is one hover away rather than gone.
+ * kernel describes rather than reprs: the line reads `def area(w, h)`, and
+ * the `<function area at 0x…>` it replaced is one hover away rather than
+ * gone.
  *
  * The substitution is the only decision made here; `hoverText` still does the
  * rendering, including a loop's sequence, so the cursor path and the file-load

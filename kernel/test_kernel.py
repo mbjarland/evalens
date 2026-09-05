@@ -914,8 +914,27 @@ class Descriptions(KernelTest):
 
     def test_a_function_shows_its_signature_not_its_address(self):
         result = self.show("def area(w, h):\n    return w * h\n")
-        self.assertEqual(result["value"], "area(w, h)")
+        self.assertEqual(result["value"], "def area(w, h)")
         self.assertNotRegex(result["value"], self.ADDRESS)
+
+    def test_a_function_says_it_is_one_the_way_a_class_does(self):
+        # Replacing the address with a signature removed the noise and also the
+        # one word that said what kind of thing this was, while classes kept
+        # Python's own keyword -- an inconsistency inside this feature rather
+        # than a missing feature. It matters most where the line does not
+        # already say it: `f = area` reads `f: def area(w, h)`, which is what
+        # tells the reader what `f` now is.
+        source = "def area(w, h):\n    return w * h\nf = area\n"
+        self.assertEqual(self.show(source)["value"], "def area(w, h)")
+
+    def test_a_bound_method_is_described_as_a_function_too(self):
+        # Nothing is special-cased to a module-level def: the same rule answers
+        # for anything Python calls a routine.
+        result = self.show("class Box:\n"
+                           "    def put(self, item):\n"
+                           "        pass\n"
+                           "handle = Box().put\n")
+        self.assertEqual(result["value"], "def Box.put(item)")
 
     def test_the_untouched_repr_is_still_available(self):
         # Nothing is lost by describing: the extension puts this on the hover.
@@ -925,7 +944,7 @@ class Descriptions(KernelTest):
     def test_annotations_and_defaults_come_through(self):
         result = self.show(
             "def area(w: int, h: int = 2) -> int:\n    return 1\n")
-        self.assertEqual(result["value"], "area(w: int, h: int = 2) -> int")
+        self.assertEqual(result["value"], "def area(w: int, h: int = 2) -> int")
 
     def test_the_kernels_own_future_import_does_not_reach_user_code(self):
         # compile() applies the future statements of the frame that calls it,
@@ -943,17 +962,18 @@ class Descriptions(KernelTest):
     def test_star_args_and_kwargs_come_through(self):
         result = self.show(
             "def call(a, *args, key=None, **kwargs):\n    pass\n")
-        self.assertEqual(result["value"], "call(a, *args, key=None, **kwargs)")
+        self.assertEqual(
+            result["value"], "def call(a, *args, key=None, **kwargs)")
 
     def test_a_generator_function_says_what_calling_it_returns(self):
         # The trap worth surfacing: this is the explanation for why iterating
         # the result a second time found it empty.
         result = self.show("def counted(n):\n    yield n\n")
-        self.assertEqual(result["value"], "counted(n) -> generator")
+        self.assertEqual(result["value"], "def counted(n) -> generator")
 
     def test_a_coroutine_function_says_so_too(self):
         result = self.show("async def fetch(url):\n    return url\n")
-        self.assertEqual(result["value"], "fetch(url) -> coroutine")
+        self.assertEqual(result["value"], "def fetch(url) -> coroutine")
 
     def test_a_class_shows_how_to_construct_one(self):
         result = self.show("class Config:\n"
@@ -1010,7 +1030,7 @@ class Descriptions(KernelTest):
         self.assertTrue(result["ok"], result)
         self.assertEqual(
             result["value"],
-            "min(iterable, *[, default=obj, key=func]) -> value")
+            "def min(iterable, *[, default=obj, key=func]) -> value")
         # And the substitution still hides nothing: the hover has the original.
         self.assertEqual(result["repr"], "<built-in function min>")
 
@@ -1073,7 +1093,7 @@ class Descriptions(KernelTest):
         first = self.k.evaluate(source, 0)["value"]
         second = self.k.evaluate(source, 0)["value"]
         self.assertEqual(first, second)
-        self.assertEqual(first, "area(w, h)")
+        self.assertEqual(first, "def area(w, h)")
 
     def test_re_binding_an_instance_gives_the_same_annotation(self):
         source = ("class Config:\n"

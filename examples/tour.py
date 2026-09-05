@@ -147,10 +147,15 @@ scaled = [x * multiplier for x in (1, 2)]
 x
 
 # 5. A cursor anywhere inside this def evaluates the WHOLE def, Calva-style,
-#    and the annotation shows the bound name.  Try the `scaled` line: an inner
-#    expression would raise NameError, because `w` and `h` do not exist at
-#    module level.  Redefining a function while poking at it is the reason to
-#    resolve outward rather than inward.
+#    and annotates nothing -- which is the answer rather than the absence of
+#    one.  `def area(w, h)` beside a line reading `def area(w, h):` says only
+#    what the line says, so the region highlight reports that it ran and the
+#    width goes to something that has news.  Case 6 is the def that does
+#    annotate and says why.
+#
+#    Try the `scaled` line: an inner expression would raise NameError, because
+#    `w` and `h` do not exist at module level.  Redefining a function while
+#    poking at it is the reason to resolve outward rather than inward.
 def area(w, h):
     scaled = w * h
     return scaled
@@ -162,6 +167,12 @@ area(3, 4)
 # 6. A decorator line resolves to its function rather than to nothing.
 #    `FunctionDef.lineno` points at the `def`, so a cursor on the `@shout`
 #    line falls outside the node's own span and needs the start widened.
+#
+#    This is also the def that MUST annotate, where case 5 must not:
+#    `greeting: def <lambda>()` says the decorator replaced the function with
+#    something else entirely, and the line cannot show that.  It is why an
+#    annotation is dropped by comparing it against its own line rather than by
+#    recognising a `def` -- the shortcut would have deleted exactly this.
 def shout(fn):
     return lambda: fn().upper()
 
@@ -329,9 +340,10 @@ with contextlib.suppress(KeyError):
     del shelf['coffee']
 
 
-# 23. A `def` shows the name it bound.  Evaluating it again after an edit
-#     rebinds the name in the live namespace, which is the whole reason to
-#     evaluate a definition rather than restart a process.
+# 23. A `def` rebinds its name in the live namespace when it is evaluated
+#     again after an edit, which is the whole reason to evaluate a definition
+#     rather than restart a process.  Nothing is painted, per case 5; the
+#     region highlight is the report that it happened.
 def halve(n):
     return n / 2
 
@@ -346,9 +358,11 @@ async def drain(stream):
             return chunk
 
 
-# 25. A `class` shows the name it bound, and a cursor on any line of the body
-#     -- the docstring, `dimensions`, either method -- resolves to the whole
-#     class.  Evaluating half a class body would leave a broken type behind.
+# 25. A `class` shows how to construct one -- `class Point(x, y)`, read off
+#     `__init__` -- which is the question asked of a class and is not on the
+#     header line.  A cursor on any line of the body, the docstring and either
+#     method included, resolves to the whole class: evaluating half a class
+#     body would leave a broken type behind.
 class Point:
     """A point, and a class body to put the cursor inside."""
 

@@ -189,6 +189,37 @@ puts the cursor on a line and presses a key, something must visibly
 happen: silence because the value is unchanged and mentioned above is
 indistinguishable from the keypress being ignored.
 
+**An annotation earns its place by differing from what the reader can
+already see.** That is the one rule the paragraph above and several others
+are each an instance of — a docstring annotated with its own text, a value
+repeated from a line above, and a `def` annotated `greet: greet(name)`,
+which says the name twice and what kind of thing it is not at all. The
+rule itself, and the three separate arrivals at it, are recorded as rule 2
+of [`docs/development/design-rules.md`](docs/development/design-rules.md);
+what belongs here is what it decides about the display.
+
+Three consequences, all from that one sentence. A description leads with
+Python's own keyword — `def greet(name)` beside `class Config(name,
+port=8080)` — because the word is the part a signature cannot say, and it
+is what makes `f = greet` read `f: def greet(name)`. The `name:` label is
+dropped when the description already opens with that name. And an
+annotation whose text merely restates its own line is not painted at all;
+the evaluated-region highlight is what still reports that the statement
+ran.
+
+**The last of those compares rendered text, never the kind of statement.**
+A `def` is where the shortcut looks safest and would do the most damage:
+
+```
+@shout
+def greeting():        greeting: def <lambda>()
+```
+
+The decorator *replaced* the function, the line cannot show that, and this
+is the most valuable annotation on the page. A rule that skipped function
+definitions would have deleted exactly it. What is redundant is a piece of
+text, so text is what gets compared.
+
 ### 3. Rendering the overlay
 
 `vscode.window.createTextEditorDecorationType({ after: { contentText: ' => [1, 2, 3]' } })`

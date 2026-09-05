@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { BindingTrace, LoopTrace, NamedValue } from '../kernel/protocol';
 import {
   SEPARATOR, alignmentGap, bindingText, collapseLines, columnWidth, errorText,
-  hoverText, preserveSpacing, resultText, sequenceText,
+  hoverText, preserveSpacing, restatesLine, resultText, sequenceText,
 } from '../render/format';
 
 function trace(
@@ -111,6 +111,42 @@ test('an expression keeps the arrow instead of being echoed', () => {
 test('no display at all falls back to the arrow', () => {
   assert.equal(resultText('42'), preserveSpacing('=> 42'));
   assert.equal(resultText('42', null), preserveSpacing('=> 42'));
+});
+
+test('a value that already says the name is not labelled with it as well', () => {
+  // `greet: def greet(name)` was two features colliding: one labels a binding
+  // with its name, the other describes a function as its signature. Neither
+  // knew about the other, so every function definition in every file said its
+  // name twice.
+  assert.equal(resultText('def greet(name)', 'greet'),
+    preserveSpacing('def greet(name)'));
+  assert.equal(resultText('class Config(name, port=8080)', 'Config'),
+    preserveSpacing('class Config(name, port=8080)'));
+});
+
+test('a label that is not a repetition is exactly what the line needs', () => {
+  // The case the whole `def` prefix exists for: this line does not say what
+  // `f` now is, and the annotation does.
+  assert.equal(resultText('def greet(name)', 'f'),
+    preserveSpacing('f: def greet(name)'));
+  // And an alias, where the label carries the only fact the reader is short
+  // of -- that `Record` is a `SimpleNamespace`.
+  assert.equal(resultText('class SimpleNamespace(**kwargs)', 'Record'),
+    preserveSpacing('Record: class SimpleNamespace(**kwargs)'));
+});
+
+test('a name that merely starts the value is not the value saying it', () => {
+  // `greeting` opens `greeting_card` and is not the name it binds. A bare
+  // prefix test would drop the label here and leave the reader guessing.
+  assert.equal(resultText('def greeting_card(to)', 'greeting'),
+    preserveSpacing('greeting: def greeting_card(to)'));
+});
+
+test('the dropped label leaves everything else on the line alone', () => {
+  // The reads still follow what the statement did, in the same order.
+  assert.equal(
+    resultText('def greet(name)', 'greet', null, pairs(['salutation', "'hi'"])),
+    preserveSpacing("def greet(name)   salutation: 'hi'"));
 });
 
 test('a loop shows the sequence, not the value it stopped on', () => {
@@ -303,6 +339,56 @@ test('a line the cap did not touch says nothing about it', () => {
 test('a multi-line value in a pair collapses like any other', () => {
   assert.equal(resultText(null, null, null, pairs(['p', 'Point(\n  x=1\n)'])),
     preserveSpacing('p: Point( x=1 )'));
+});
+
+test('an annotation that only restates its own line is not worth painting', () => {
+  // Even with the name said once and the `def` in front of it, this is tidier
+  // duplication rather than information. The evaluated-region highlight is
+  // what still reports that it ran.
+  const painted = resultText('def greet(name)', 'greet');
+  assert.equal(restatesLine(painted, 'def greet(name):'), true);
+  assert.equal(restatesLine(painted, '    def greet(name):'), true,
+    'indentation is not something the reader is being told');
+  assert.equal(restatesLine(painted, 'def greet(name):  # says hello'), true,
+    'a trailing comment is not part of the statement');
+  assert.equal(restatesLine(painted, 'def  greet(name) :'), true,
+    'spacing folds, the way it does everywhere else here');
+});
+
+test('a decorated function still says what the decorator produced', () => {
+  // The case a naive "skip FunctionDef" would have destroyed, and the reason
+  // the comparison is against the rendered text rather than the statement
+  // kind: the decorator REPLACED the function and the line cannot show that.
+  assert.equal(
+    restatesLine(resultText('def <lambda>()', 'greeting'), 'def greeting():'),
+    false);
+});
+
+test('a line the annotation only half restates keeps its annotation', () => {
+  // Each of these says something the line does not: what awaiting gives you,
+  // what constructing one takes, and what the other names on the line held.
+  assert.equal(
+    restatesLine(resultText('def drain(stream) -> coroutine', 'drain'),
+      'async def drain(stream):'),
+    false);
+  assert.equal(
+    restatesLine(resultText('class Config(name, port=8080)', 'Config'),
+      'class Config:'),
+    false);
+  assert.equal(
+    restatesLine(resultText('def greet(name)', 'greet', null,
+      pairs(['salutation', "'hi'"])), 'def greet(name):'),
+    false);
+});
+
+test('an ordinary binding is never mistaken for a restatement', () => {
+  // `x: 1` and `x = 1` are the same fact said twice only to someone who
+  // already knows the answer, which is the reader this extension is not for.
+  assert.equal(restatesLine(resultText('1', 'x'), 'x = 1'), false);
+  assert.equal(restatesLine(resultText('30', 'sum([10, 20])'),
+    'sum([10, 20])'), false);
+  assert.equal(restatesLine('', 'def greet(name):'), false,
+    'an empty annotation is a prefix of everything');
 });
 
 test('a hover carries the production a line suppressed', () => {

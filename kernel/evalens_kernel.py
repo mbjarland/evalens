@@ -690,7 +690,8 @@ _CALL_RESULTS = (
 
 
 def _describe_callable(value: Any) -> Optional[str]:
-    """``area(w, h)``, or ``area(w: int, h: int) -> int`` when annotated.
+    """``def area(w, h)``, or ``def area(w: int, h: int) -> int`` when
+    annotated.
 
     Strictly more information than the address it replaces, in fewer
     characters, and identical on every evaluation. Generator and coroutine
@@ -698,6 +699,14 @@ def _describe_callable(value: Any) -> Optional[str]:
     real trap and the annotation is where it can still be cheap to learn: it
     is the explanation for why iterating the result a second time found it
     empty, and for why awaiting was required.
+
+    The ``def`` carries the one word the signature dropped. Replacing
+    ``<function area at 0x…>`` with ``area(w, h)`` removed the noise and the
+    only thing that said what kind of value this was, while ``_describe_class``
+    next door kept Python's own keyword -- so a class read as a class and a
+    function read as a call to one. It matters most where the line does not
+    already say it: ``f = area`` annotates ``f: def area(w, h)``, which is what
+    tells the reader what ``f`` now is.
     """
     name = _readable_name(value)
     if name is None:
@@ -711,8 +720,9 @@ def _describe_callable(value: Any) -> Optional[str]:
         # key=func]) -> value`. That line already states what calling returns,
         # so the generator/coroutine suffix below would have nothing to add to
         # it; anything without such a line keeps its repr, as before.
-        return _documented_signature(value, name)
-    text = f"{name}{signature}"
+        documented = _documented_signature(value, name)
+        return None if documented is None else f"def {documented}"
+    text = f"def {name}{signature}"
     produces = next(
         (word for test, word in _CALL_RESULTS if test(value)), None)
     if produces is None:
