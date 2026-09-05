@@ -1,0 +1,4 @@
+# No blank issues: every ticket goes through a template, because the templates
+# are what enforce a TL;DR, a stated consequence, and an estimate. A blank
+# issue is how a one-line "fix the thing" ends up as the whole record.
+blank_issues_enabled: false

@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# commit-msg — refuse a commit that does not name the issue it belongs to,
+# and refuse a message whose lines run past 80 columns.
+#
+# The house rule is in docs/development/issue-tracking.md: every commit
+# belongs to a GitHub issue, and `fixes #NNN` is what closes it. The rule is a
+# gate rather than a convention because the sibling Azuros project ran it as a
+# convention and it held exactly as long as everyone remembered it -- 89
+# commits reached master in three days without a single reference, which left
+# forty register entries describing merged work as still in progress. A rule
+# that depends on remembering holds until work is delegated at volume, and
+# then stops.
+#
+# The issue check is deliberately dumb: it looks for `#NNN` anywhere in the
+# message, because a reference that is present but not in a closing keyword is
+# still a reference a human can follow. It is the ABSENCE that breaks the
+# record, not the grammar.
+#
+#   bypass once, deliberately:  git commit --no-verify
+#   never bypass by inventing a number: an unlinked commit is recoverable,
+#   a commit pointing at the wrong issue is worse than one pointing at none.
+set -euo pipefail
+
+msg_file="$1"
+msg="$(cat "$msg_file")"
+
+# Strip the comment lines git adds to the template; they can carry a branch
+# name containing a number and would otherwise satisfy the check by accident.
+body="$(grep -v '^#' <<<"$msg" || true)"
+subject="$(head -1 <<<"$body")"
+
+# Git's own machinery writes these, and none of them is a unit of work.
+# A merge records a set of commits that each carried their own reference.
+case "$subject" in
+  "Merge "*|"Revert "*|"fixup! "*|"squash! "*|"amend! "*|"Rebase "*) exit 0 ;;
+esac
+
+# An empty message means git will abort anyway; do not add a second error.
+[[ -z "${body//[[:space:]]/}" ]] && exit 0
+
+fail=0
+
+if ! grep -Eq '#[0-9]+' <<<"$body"; then
+  fail=1
+  cat >&2 <<'MSG'
+
+  commit refused: the message names no issue.
+
+  Every commit belongs to an issue, and the reference is what keeps the
+  tracker true. Without it the board says work is in progress that is
+  already shipped.
+
+  Add one of:
+
+      fixes #123        closes the issue when this lands on master
+      refs #123         links it without closing -- for partial work
+
+  Put it in the body, on its own line, after the prose.
+
+  If this genuinely belongs to no issue, that is usually a sign the issue is
+  missing rather than the rule. File it -- it costs a minute, and it is the
+  thing that explains the commit six months from now.
+
+MSG
+fi
+
+# Wrapping: `git log` indents the message by four columns in its default
+# format, so anything past 80 wraps in an ordinary terminal and reads as a
+# ragged block. Comment lines are git's, not the author's.
+long="$(awk 'length > 80 { printf "  line %d (%d cols): %s\n", NR, length, $0 }' <<<"$body")"
+if [[ -n "$long" ]]; then
+  fail=1
+  cat >&2 <<'MSG'
+
+  commit refused: the message has lines over 80 columns.
+
+  One concise summary line, one empty line, then the body -- every line
+  hard-wrapped at 80 or less, summary included.
+
+MSG
+  printf '%s\n\n' "$long" >&2
+fi
+
+if [[ "$fail" -ne 0 ]]; then
+  echo "  To bypass this once, deliberately:  git commit --no-verify" >&2
+  echo >&2
+  exit 1
+fi
