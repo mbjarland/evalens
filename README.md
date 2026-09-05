@@ -1,15 +1,55 @@
 # Evalens — Inline Python Values
 
-Put the cursor on a line, press a key, and see the value painted inline next
-to the code. No `print()`, no debugger, no notebook.
+Put the cursor on a line, press a key, and see what that line produced,
+painted beside the code. No `print()`, no debugger, no notebook.
+
+## Demo
+
+<p align="center">
+  <img src="media/demo/tour-still.png" width="620" alt="Four lines of
+    Python from examples/tour.py, each annotated inline with the value it
+    produced, after four presses of Evaluate and Advance">
+</p>
+
+*This is a rendered stand-in, not a screen recording — see below.* The
+picture is `examples/tour.py`'s aliasing example (the block `IDEA.md` opens
+with), painted after four presses of **Evaluate and Advance**. The text on
+it is genuine: it was produced by actually driving `kernel/evalens_kernel.py`
+through the same path the extension uses to paint a line
+(`render/present.ts`, `render/format.ts`), not by typing what the extension
+is supposed to say — `src/test/integration.test.ts` asserts the same four
+strings against the running kernel. What is not genuine yet is the
+*animation*. A GIF is the goal — `IDEA.md` argues, correctly, that one above
+the fold outsells the name — and recording it needs a human driving a real
+editor in front of a screen capture, which nothing writing this README can
+do on its own. [`docs/development/demo-shooting-script.md`](docs/development/demo-shooting-script.md)
+is the exact recipe waiting for that recording: the file, the four lines,
+the keystrokes, and the target length.
+
+> **The notebook feedback loop, on a file that never stops being source
+> code, with the state visible instead of hidden.**
 
 A VS Code extension: a TypeScript front end and a small Python kernel that
-holds a namespace between evaluations, so what you evaluate next sees what you
-evaluated last. Evaluation is explicitly triggered and never continuous —
-nothing in your buffer runs until you ask for it.
+holds a namespace between evaluations, so what you evaluate next sees what
+you evaluated last. **Evaluation is explicitly triggered and never
+continuous** — nothing in your buffer runs until you ask for it. That is a
+deliberate choice, not a missing feature: beginner code is full of `input()`
+prompts and infinite loops, and an evaluate-as-you-type mode relaunches a
+program blocked on stdin every time typing pauses. See
+[`IDEA.md`](IDEA.md) for the rest of the design and why each part of it is
+the way it is.
 
-This is the working README. The marketplace listing is a separate piece of
-work; what the project is and why it exists is in [`IDEA.md`](IDEA.md).
+**This category is not empty, and this README says so rather than pretend
+otherwise.** `python.REPL.enableREPLSmartSend` (shipped in `ms-python.python`,
+on by default) sends the statement under your cursor to a persistent REPL —
+most of what this does, minus the answer staying in the file. VS Code's own
+`debug.inlineValues` (also on by default) paints variable values inline
+while a debug session is paused at a breakpoint — real inline values,
+first-party, no extension required. What neither does is show what *each
+line* produced, in file order, beside the code, without a terminal or a
+paused debugger. `IDEA.md` names exactly which parts of this are already
+covered by Microsoft and which are not, at the length the question
+deserves.
 
 ## Requirements
 
@@ -23,7 +63,29 @@ the first that runs and reports 3.9 or later. Naming one in the
 
 ## Install
 
-There is no marketplace listing yet, so install the `.vsix` you build:
+There is no marketplace listing yet. Two ways to get the extension onto a
+machine, most-assumed first.
+
+**If someone handed you a `.vsix` file** — the path for a machine that has
+nothing else set up, a first-year student's laptop being the motivating
+case. You need VS Code and Python (see Requirements above) and nothing
+beyond them.
+
+1. Get `python-inline-values-<version>.vsix` however it reaches you — a
+   shared file, a USB stick, a link to a GitHub Release.
+2. In VS Code, open the Extensions view (`Cmd+Shift+X` / `Ctrl+Shift+X`),
+   open its `···` menu, and choose **Install from VSIX...**, then pick the
+   file. From a terminal instead:
+   ```bash
+   code --install-extension python-inline-values-0.0.1.vsix
+   ```
+3. Reload the window when VS Code asks, open a Python file, and press
+   `Alt+Enter` on a line. If nothing happens, read the keybinding section
+   below before anything else — a dead key is the expected symptom of a
+   conflict, not of a broken install.
+
+**Building the `.vsix` yourself** — for anyone who already has Node and
+wants the current branch rather than a shared file:
 
 ```bash
 npm ci
@@ -32,10 +94,8 @@ code --install-extension python-inline-values-0.0.1.vsix
 ```
 
 `npm run package` writes `python-inline-values-<version>.vsix` into the
-repository root; the version comes from `package.json`. Reload the window
-afterwards, open a Python file, and press `Alt+Enter` on a line. If nothing
-happens, read the keybinding section below before anything else — a dead key
-is the expected symptom of a conflict, not of a broken install.
+repository root; the version comes from `package.json`. The rest is step 3
+above.
 
 ## Commands
 

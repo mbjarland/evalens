@@ -1,10 +1,15 @@
 {
   "name": "python-inline-values",
   "displayName": "Evalens \u2014 Inline Python Values",
-  "description": "See values inline as you type. No print(), no debugger, no notebook.",
+  "description": "See what a line of Python produced, painted beside the code \u2014 on demand, never as you type. No print(), no debugger, no notebook.",
   "version": "0.0.1",
   "publisher": "mbjarland",
   "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/mbjarland/evalens.git"
