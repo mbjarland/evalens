@@ -108,7 +108,7 @@ without a way to run these.
 |---|---|
 | Evalens: Evaluate at Cursor | Evaluates the form the cursor is in and paints its value beside it |
 | Evalens: Evaluate and Advance | The same, then moves to the next top-level statement — hold the key to walk a file |
-| Evalens: Evaluate File | Runs the file top to bottom, annotating each statement — or the selected statements, when there is a selection |
+| Evalens: Evaluate File | Clears the namespace, then runs the file top to bottom, annotating each statement — or the selected statements, when there is a selection, which never resets |
 | Evalens: Run File as Script | Runs the whole file the way `python3 file.py` would, so an `if __name__ == "__main__":` block runs |
 | Evalens: Evaluate Above Cursor | Resets the namespace and runs everything above the statement the cursor is in, stopping at the first failure |
 | Evalens: Clear Inline Results | Removes the annotations from the active editor |
@@ -118,6 +118,22 @@ without a way to run these.
 | Evalens: Clear Input Answers | Forgets every replayed `input()` answer, keeping the namespace |
 | Evalens: Show Output | Opens the Evalens output channel without taking the cursor out of the editor |
 | Evalens: Fix Keybinding Conflict | Hands you the user keybinding described below |
+
+**Evaluate File clears the namespace before it runs the whole file, by
+default.** A binding a deleted line left behind, or a name a completely
+different file loaded earlier, used to survive silently in the namespace —
+the notebook trap this project exists to argue against, and worse than it
+first looks: it is not scoped to the file that made it, so an unrelated
+second file can read it back. `evalens.resetOnLoad` is the way out, and it
+defaults to on. Turn it off to keep expensive setup — a slow import block, a
+cache built at the top of the file — from being re-paid on every load;
+Evalens then paints a status-bar note whenever the namespace still holds
+something the file on screen no longer binds, so the cost stays visible
+rather than silent. It governs a whole-file run only: a run over a
+selection never resets, whatever this setting says, because resetting and
+then running three lines would leave everything above them unbound.
+**Evalens: Run File as Script** always resets too, for a reason of its own —
+see below.
 
 **Evaluate File runs a selection, and runs whole statements.** Select the
 first twenty lines and press the key: those statements run, in order,
@@ -141,10 +157,11 @@ that did.
 
 **Evalens: Run File as Script is the separate, deliberate command that runs
 it.** `__name__` is `"__main__"` for that one run and nothing else about the
-file changes: it still runs top to bottom, into the same session, and the
-namespace is not reset first — running it twice, or running it right after an
-ordinary load, simply runs the file again on top of whatever was already
-there, exactly as pressing Evaluate File twice does. `sys.argv` is
+file changes: it still runs top to bottom, into the same session. Unlike
+Evaluate File, this always clears the namespace first, whatever
+`evalens.resetOnLoad` says — it exists to answer whether the file matches
+what `python3 file.py` would do, and a namespace carrying an earlier run's
+leftovers makes that comparison meaningless. `sys.argv` is
 `[the file's path]` for the run, matching what `python3 file.py` gives the
 script. There is no default keybinding, deliberately: reaching for this command
 is meant to be a choice, and it is always one press away in the Command
@@ -528,6 +545,7 @@ description says what the option *costs* rather than what it is called.
 | `evalens.printedLabel` | `"printed"` | What the annotation calls the output a statement printed. The word keeps the `label: value` grammar the rest of the line uses; `»` is the terse marker, and the one that survives every font VS Code falls back to |
 | `evalens.advanceSkipsComments` | `true` | Whether Evaluate and Advance steps over comment lines. Off, it stops once per comment block — one more press each, and that press evaluates nothing |
 | `evalens.announceResults` | `"auto"` | Whether a result is announced as well as painted, for a screen reader. `auto` follows `editor.accessibilitySupport`; `always` announces every one; `never` announces none. See above |
+| `evalens.resetOnLoad` | `true` | Whether Evaluate File clears the namespace before running the whole file. On, a deleted binding is actually gone and a second file cannot read back an earlier one's leftovers. Off keeps expensive setup from an earlier load, at the cost of the namespace remembering more than the file defines — Evalens then notes it in the status bar. A selection never resets regardless; Run File as Script always does |
 
 Two of them are off switches on purpose. Loop sequences and read-name
 annotations are the two things Evalens adds that a reader might not want, and

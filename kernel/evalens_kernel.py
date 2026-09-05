@@ -2974,15 +2974,30 @@ class Kernel:
         through this same method, in the same namespace, with its own
         outcome in ``results``. See `_as_module`.
 
-        A script run does not reset the namespace, and running one twice does
-        not either -- it is Load File with one bit flipped, not a second
-        command with its own rules. Whatever was bound before the request
-        stays bound going into it, exactly as a second ordinary load leaves
-        the first load's namespace in place and simply runs the file again on
-        top of it. The alternative -- resetting first -- would make a script
-        run silently discard whatever the session had built, on a command
-        whose entire premise is running *more* of the file the reader is
-        already looking at.
+        This method never resets the namespace on its own account, for a
+        script run or an ordinary load alike -- whatever was bound before the
+        request stays bound going into it, exactly as a second ordinary load
+        leaves the first load's namespace in place and simply runs the file
+        again on top of it. That is still the right behaviour for the op
+        itself: a test or another caller that sends ``eval_file`` twice with
+        ``as_script: true`` and nothing in between gets Load File with one bit
+        flipped, not a second command with its own rules about what survives
+        -- see the `RunFileAsScript` tests below, which drive exactly that and
+        would break if this method reset behind their back.
+
+        The decision that a script run's namespace should be fresh
+        (`docs/development/namespace-reset.md`, superseded by the setting
+        recorded on #99) is therefore kept out of here and made by the
+        caller instead: Evalens: Run File as Script always sends ``op:
+        reset`` immediately ahead of this request, whatever
+        ``evalens.resetOnLoad`` says -- see `evaluateFile` in
+        `src/evaluate.ts`. It has to be unconditional there, because the
+        command exists to answer whether the file matches what ``python3
+        file.py`` would do, and a namespace carrying an earlier run's
+        leftovers makes that comparison meaningless. An ordinary load reset
+        is what the setting actually governs, and it is the same one-line
+        wiring: a `reset` request ahead of this one, sent or not sent by the
+        extension, never by this method.
 
         Every statement goes through the same ``_run`` a single evaluation
         uses. That is deliberate rather than incidental: a bare ``exec`` loop

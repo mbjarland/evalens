@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { OutlineCache, nextStop, outlinePlan } from './advance';
 import {
   advanceSkipsComments, displayLimits, nameDisplayCap, progressDelay,
+  resetOnLoad,
 } from './config';
 import { LoadPrompts, locatedTitle, waitingLabel } from './input';
 import { describeInterrupt, settlesWithin } from './interrupt';
@@ -535,6 +536,20 @@ export class Evaluator {
    * runs. A selection is a different question -- "run this part of my file"
    * -- that a script run does not ask, so it is ignored here: this always
    * runs the whole file, the way `python3 <file>` would.
+   *
+   * **A whole-file run resets the namespace first**, per `evalens.resetOnLoad`
+   * (#99), because a namespace carrying a binding this file no longer makes
+   * is the exact trap `docs/development/namespace-reset.md` records -- one
+   * that crosses file boundaries, not only reloads of the same file. A
+   * script run resets unconditionally, whatever the setting says: it exists
+   * to answer whether the file matches `python3 <file>`, and a namespace
+   * left over from an earlier run makes that comparison meaningless. A
+   * selection never resets, regardless of either: resetting and then
+   * running three lines would leave everything above them unbound, which is
+   * worse than doing nothing. The reset is a separate, awaited request
+   * ahead of `eval_file` rather than a flag on it -- the kernel processes
+   * its stdin one line at a time, so awaiting the reset's own response is
+   * what guarantees it lands first.
    */
   async evaluateFile(
     editor: vscode.TextEditor, options?: { readonly asScript?: boolean }
@@ -543,6 +558,9 @@ export class Evaluator {
     const document = editor.document;
     const selection = editor.selection;
     const lines = asScript ? undefined : selectedLines(selection);
+    // See the doc comment above: a selection never resets, a script run
+    // always does, and an ordinary whole-file load follows the setting.
+    const shouldReset = lines === undefined && (asScript || resetOnLoad());
     let response: FileResponse;
     // The load's paint state, built before the request because the first
     // statement can report before the await has yielded once.
@@ -552,6 +570,16 @@ export class Evaluator {
     this.asking = { document, load: new LoadPrompts(), blocked };
     try {
       const client = await this.client();
+      if (shouldReset) {
+        // Awaited on its own, not raced with `eval_file`: the kernel reads
+        // its stdin one request at a time, so the response settling is what
+        // proves the namespace was empty before the load below started
+        // filling it back in. This also clears #86's input-replay store --
+        // `Kernel.reset` already does that as part of clearing the
+        // namespace -- so nothing further is needed to keep that state in
+        // step with this one.
+        await client.request({ op: 'reset' });
+      }
       const running = client.request(
         {
           op: 'eval_file',

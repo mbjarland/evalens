@@ -262,6 +262,60 @@ test('evaluateFile paints one annotation per statement', async () => {
   }
 });
 
+// -- #99: a whole-file load resets the namespace by default -----------------
+
+test('evaluateFile resets the namespace before a whole-file load, by ' +
+  'default (#99)', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor('x = 1\nx\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateFile = fake.commands.registered.get('evalens.evaluateFile');
+    await (evaluateFile as () => Promise<void>)();
+    assert.match(paintedLineText(editor, 1), /\b1\b/,
+      'setup: x is bound to 1 after the first load');
+
+    // The line that bound x is gone. A namespace that did not reset would
+    // still answer for it -- #56's exact failure, and the one #99 exists to
+    // close.
+    editor.document.setText('x\n');
+    await (evaluateFile as () => Promise<void>)();
+    assert.match(paintedLineText(editor, 0), /NameError/,
+      'x survived a reload that no longer binds it, so the namespace was ' +
+      'not reset');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('evalens.resetOnLoad false keeps the namespace across whole-file ' +
+  'loads (#99)', async () => {
+  const fake = createFakeVscode();
+  fake.config.set('evalens', 'resetOnLoad', false);
+  const editor = createEditor('x = 1\nx\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateFile = fake.commands.registered.get('evalens.evaluateFile');
+    await (evaluateFile as () => Promise<void>)();
+    assert.match(paintedLineText(editor, 1), /\b1\b/,
+      'setup: x is bound to 1 after the first load');
+
+    editor.document.setText('x\n');
+    await (evaluateFile as () => Promise<void>)();
+    assert.match(paintedLineText(editor, 0), /\b1\b/,
+      'x should still be readable: the setting is off, so the load did ' +
+      'not reset the namespace');
+  } finally {
+    extension.deactivate();
+  }
+});
+
 // -- an edit invalidates what it touched, and nothing else -------------------
 
 test('a document edit clears only the statement it touched', async () => {
