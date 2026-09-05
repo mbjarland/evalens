@@ -100,9 +100,24 @@ export interface EvalFileRequest {
   readonly end_line?: number;
 }
 
+/**
+ * Where every top-level statement in a file is, without running any of them.
+ *
+ * Asked on every press of Evaluate and Advance, which is why it is its own op
+ * rather than a field on an evaluation: the answer has to be available before
+ * the evaluation is dispatched, and a question about the shape of a file must
+ * never be a reason to execute part of it.
+ */
+export interface OutlineRequest {
+  readonly op: 'outline';
+  readonly source: string;
+  readonly filename: string;
+}
+
 export type Request =
   | EvalRequest
   | EvalFileRequest
+  | OutlineRequest
   | { readonly op: 'ping' }
   | { readonly op: 'reset' };
 
@@ -420,6 +435,29 @@ export interface FileLoaded {
 
 export type FileResponse = FileLoaded | Failed;
 
+/**
+ * One top-level statement, as the parser sees it and before anything runs.
+ *
+ * The same `range` and `anchor` an evaluation of that statement would report,
+ * which is the point: stepping through a file and evaluating in it must agree
+ * about where the statements are, and they do because one parser answers both.
+ */
+export interface StatementSpan {
+  readonly kind: string;
+  readonly range: Range;
+  /** The line the value belongs on, when that is not the end of `range`. */
+  readonly anchor?: number;
+}
+
+export interface Outlined {
+  readonly id: number;
+  readonly ok: true;
+  readonly statements: readonly StatementSpan[];
+}
+
+/** A syntax error is the only failure: nothing ran, so nothing else can fail. */
+export type OutlineResponse = Outlined | Failed;
+
 export type EvalResponse = Unresolved | Evaluated | Failed;
 
 export interface Acknowledged {
@@ -427,7 +465,8 @@ export interface Acknowledged {
   readonly ok: true;
 }
 
-export type Response = EvalResponse | FileResponse | Acknowledged;
+export type Response =
+  EvalResponse | FileResponse | OutlineResponse | Acknowledged;
 
 export function isFailure(response: Response): response is Failed {
   return response.ok === false;

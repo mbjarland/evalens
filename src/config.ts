@@ -19,6 +19,19 @@ export function progressDelay(): number {
     .get<number>('progressDelay', 750);
 }
 
+/**
+ * Whether Evaluate and Advance steps over comment lines on its way to the
+ * next statement.
+ *
+ * Read per press for the same reason as the delay above: a setting whose
+ * effect waits for a reload is one the user changes twice before believing it.
+ */
+export function advanceSkipsComments(): boolean {
+  return vscode.workspace
+    .getConfiguration('evalens')
+    .get<boolean>('advanceSkipsComments', true);
+}
+
 /** Ask an interpreter what version it is, rather than assuming. */
 export function probeInterpreter(path: string): Promise<ProbeResult> {
   return new Promise((resolve) => {

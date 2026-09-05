@@ -26,6 +26,7 @@ without a way to run these.
 | Command | What it does |
 |---|---|
 | Evalens: Evaluate at Cursor | Evaluates the form the cursor is in and paints its value beside it |
+| Evalens: Evaluate and Advance | The same, then moves to the next top-level statement — hold the key to walk a file |
 | Evalens: Evaluate File | Runs the file top to bottom, annotating each statement — or the selected statements, when there is a selection |
 | Evalens: Clear Inline Results | Removes the annotations from the active editor |
 | Evalens: Interrupt Evaluation | Stops a running evaluation and keeps the namespace it built |
@@ -48,6 +49,7 @@ in the status bar and runs nothing.
 |---|---|---|
 | `Alt+Enter` | `Alt+Enter` | Evalens: Evaluate at Cursor — the top-level form |
 | `Cmd+Enter` | `Ctrl+Enter` | Evalens: Evaluate at Cursor — the same command |
+| `Cmd+Shift+Enter` | `Ctrl+Shift+Enter` | Evalens: Evaluate and Advance |
 | `Cmd+Alt+Enter` | `Ctrl+Alt+Enter` | Evalens: Evaluate File |
 | `Escape` | `Escape` | Evalens: Clear Inline Results |
 
@@ -135,6 +137,45 @@ default. Adding `Alt+Enter` is not ceding it — it is binding the key the
 top-level semantics always implied, and both keys run the same command until
 the inner-form command exists to take `Ctrl+Enter` back.
 
+### The advance key, and why it is not `Shift+Enter`
+
+**Evaluate and Advance is on `Cmd+Shift+Enter` / `Ctrl+Shift+Enter`, and
+`Shift+Enter` is deliberately not used.** `Shift+Enter` is what the convention
+wants — it is run-and-advance in Jupyter, Spyder, MATLAB and VS Code's own
+Interactive Window — and in a Python file it is claimed four times over, by
+`python.execSelectionInTerminal`, `python.execInREPL`,
+`jupyter.execSelectionInteractive` and `jupyter.runcurrentcelladvance`. Taking
+it would reproduce the AREPL defect above exactly, and against extensions even
+more widely installed. A key that dies on load order is worse than a key
+nobody's fingers know yet.
+
+`Cmd+Shift+Enter` is claimed by no extension of the sixty-one measured. VS
+Code holds it as a core default for `editor.action.insertLineBefore`, which an
+extension binding outranks — a core default is not a tie.
+
+**`Ctrl+Shift+Enter` is contested, so Windows and Linux need the same fix
+AREPL needs.** `ms-toolsai.jupyter` binds `jupyter.runAndDebugCell` there with
+**no `when` clause at all**, so unlike its two bindings above it is not gated
+on `# %%` cells: it matches unconditionally, in any editor, in any file. The
+user keybinding that wins:
+
+```jsonc
+  {
+    "key": "ctrl+shift+enter",
+    "command": "evalens.evaluateAndAdvance",
+    "when": "editorTextFocus && editorLangId == python && !findWidgetVisible"
+  },
+  {
+    "key": "ctrl+shift+enter",
+    "command": "-jupyter.runAndDebugCell"
+  }
+```
+
+The removal carries no `when` because the binding it cancels carries none;
+a removal only cancels a binding it matches exactly. On macOS neither entry is
+needed — `Cmd+Shift+Enter` is ours uncontested — and **Evalens: Evaluate and
+Advance** is in the palette on every platform regardless.
+
 ## What print() shows
 
 Printed output goes on the line, next to the code that printed it:
@@ -207,6 +248,11 @@ which is the one thing this extension does not do behind your back.
 | `evalens.pythonPath` | `""` | Interpreter to run the kernel with. Empty means the Python extension's choice, then `python3`, then `python` |
 | `evalens.alignColumn` | `0` | Column to align results to. `0` places each result just after the code that produced it |
 | `evalens.printedLabel` | `"printed"` | What the annotation calls printed output. Set `»` for a terse marker |
+| `evalens.advanceSkipsComments` | `true` | Whether Evaluate and Advance steps over comment lines. Off, it stops once per comment block — one more press each, and that press evaluates nothing |
+
+Keys are not settings here: VS Code rebinds every command in this README from
+its own keybindings editor, and a setting for the key would be a worse copy of
+something the editor already does well.
 
 Result colours are themeable: `evalens.resultForeground`,
 `evalens.errorForeground`, `evalens.evaluatedRegionBackground` and their

@@ -44,6 +44,10 @@
         "title": "Evalens: Evaluate at Cursor"
       },
       {
+        "command": "evalens.evaluateAndAdvance",
+        "title": "Evalens: Evaluate and Advance"
+      },
+      {
         "command": "evalens.interrupt",
         "title": "Evalens: Interrupt Evaluation"
       },
@@ -77,6 +81,11 @@
           "default": 750,
           "minimum": 0,
           "markdownDescription": "Milliseconds an evaluation must still be running before Evalens shows a cancellable progress notification. Almost every evaluation finishes in a few milliseconds, and a notification on each one would be intolerable — so the notification only appears once an evaluation has already failed to finish, which is the moment the extension otherwise looks like it ignored the keypress. `0` shows it immediately."
+        },
+        "evalens.advanceSkipsComments": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Whether **Evalens: Evaluate and Advance** steps over comment lines on its way to the next statement. Leaving this on costs you the comment: in a file written to be read, the paragraph above a statement is the explanation, and the cursor goes past it without stopping. Turning it off buys that pause back at one extra keypress per comment block — and that press evaluates nothing, because a comment is not a statement. Blank lines and the body of a multi-line statement are always stepped over; only comments are a matter of taste."
         },
         "evalens.alignColumn": {
           "type": "number",
@@ -189,6 +198,12 @@
       {
         "command": "evalens.evaluateAtCursor",
         "key": "alt+enter",
+        "when": "editorTextFocus && editorLangId == python && !findWidgetVisible"
+      },
+      {
+        "command": "evalens.evaluateAndAdvance",
+        "key": "ctrl+shift+enter",
+        "mac": "cmd+shift+enter",
         "when": "editorTextFocus && editorLangId == python && !findWidgetVisible"
       },
       {

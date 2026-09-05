@@ -896,6 +896,88 @@ class LoadSelection(KernelTest):
         self.assertEqual(self.bound("a"), "NameError")
 
 
+class Outline(KernelTest):
+    """Where the statements are, for a walk that steps by statements.
+
+    The whole reason this op exists rather than a scan of line text on the
+    extension side: only the parser knows that a comment inside a list literal
+    is not a gap between statements, that a decorator belongs to the `def`
+    under it, and that a ten-line body is one step.
+    """
+
+    def outline(self, source):
+        return self.k.send(op="outline", source=source,
+                           filename="/tmp/module.py")
+
+    def test_every_top_level_statement_is_reported_once(self):
+        result = self.outline("a = 1\nb = 2\nc = 3\n")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(
+            [s["range"]["start"]["line"] for s in result["statements"]],
+            [0, 1, 2])
+
+    def test_a_body_is_part_of_its_statement_not_a_statement(self):
+        # The case that decides the feature: eleven lines, one step.
+        result = self.outline(
+            "def area(w, h):\n"
+            "    scaled = w * h\n"
+            "    return scaled\n"
+            "\n"
+            "area(3, 4)\n")
+        spans = [(s["range"]["start"]["line"], s["range"]["end"]["line"])
+                 for s in result["statements"]]
+        self.assertEqual(spans, [(0, 2), (4, 4)])
+
+    def test_a_decorated_definition_starts_at_its_decorator(self):
+        # `FunctionDef.lineno` points at the `def`, so a walk that used it
+        # would drop the cursor below the decorator it is about to run.
+        result = self.outline("@shout\ndef greeting():\n    return 'ok'\n")
+        span = result["statements"][0]
+        self.assertEqual(span["range"]["start"]["line"], 0)
+        self.assertEqual(span["range"]["end"]["line"], 2)
+
+    def test_the_anchor_is_the_one_an_evaluation_would_report(self):
+        # Stepping and evaluating have to agree about where a statement is,
+        # and they do because one parser answers both.
+        source = "def area(w, h):\n    return w * h\n"
+        outlined = self.outline(source)["statements"][0]
+        evaluated = self.k.evaluate(source, 0)
+        self.assertEqual(outlined["anchor"], evaluated["anchor"])
+        self.assertEqual(outlined["range"], evaluated["range"])
+        self.assertEqual(outlined["kind"], evaluated["kind"])
+
+    def test_a_comment_inside_a_statement_does_not_split_it(self):
+        result = self.outline(
+            "matrix = [\n"
+            "    [1, 2],\n"
+            "    # a comment in the middle of a statement\n"
+            "    [3, 4],\n"
+            "]\n")
+        self.assertEqual(len(result["statements"]), 1)
+        self.assertEqual(result["statements"][0]["range"]["end"]["line"], 4)
+
+    def test_nothing_runs(self):
+        # An outline is asked for on every press of Evaluate and Advance. If it
+        # executed anything, the command that exists to walk a file would run
+        # each statement twice -- and a question about the shape of a file
+        # would become a reason to trigger side effects.
+        self.assertTrue(self.outline("marker = 'ran'\n")["ok"])
+        after = self.k.evaluate("marker\n", 0)
+        self.assertFalse(after["ok"])
+        self.assertEqual(after["error"]["type"], "NameError")
+
+    def test_a_file_of_comments_outlines_to_nothing(self):
+        result = self.outline("\n# only a comment\n\n")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["statements"], [])
+
+    def test_a_syntax_error_is_reported_with_its_position(self):
+        result = self.outline("a = 1\ndef (\n")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["type"], "SyntaxError")
+        self.assertEqual(result["range"]["start"]["line"], 1)
+
+
 class Descriptions(KernelTest):
     """What a value shows when its repr is a memory address.
 

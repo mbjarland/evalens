@@ -65,6 +65,20 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    // The same evaluation, plus a step to the next statement, so a file can be
+    // walked by repeating one key. Both commands exist because both are
+    // wanted: staying put suits iterating on one statement, advancing suits
+    // reading a file you did not write.
+    vscode.commands.registerCommand('evalens.evaluateAndAdvance', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        return;
+      }
+      await evaluator?.evaluateAndAdvance(editor);
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand('evalens.evaluateFile', async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {

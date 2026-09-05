@@ -1,11 +1,13 @@
 import * as vscode from 'vscode';
 
-import { progressDelay } from './config';
+import { nextStop } from './advance';
+import { advanceSkipsComments, progressDelay } from './config';
 import { LoadPrompts, waitingLabel } from './input';
 import { describeInterrupt, settlesWithin } from './interrupt';
 import { KernelClient } from './kernel/client';
 import {
-  EvalResponse, FileResponse, InputRequest, LatestWins, StatementOutcome,
+  EvalResponse, FileResponse, InputRequest, LatestWins, OutlineResponse,
+  StatementOutcome, StatementSpan,
 } from './kernel/protocol';
 import { askForInput } from './prompt';
 import { Annotations } from './render/annotations';
@@ -123,6 +125,21 @@ export class Evaluator {
    * thing being reported.
    */
   private connected?: KernelClient;
+
+  /**
+   * The last outline asked for, kept against the document version it came from.
+   *
+   * One entry, because a file is walked one at a time and an unbounded map
+   * would hold every document a window ever opened. It matters because of the
+   * rhythm: holding the key down while a slow statement runs must still move
+   * the cursor, and a fresh outline request would queue behind that statement
+   * on the request pipe and stall exactly the keypress it was meant to serve.
+   */
+  private outline?: {
+    readonly key: string;
+    readonly version: number;
+    readonly statements: readonly StatementSpan[];
+  };
 
   constructor(
     private readonly kernel: () => Promise<KernelClient>,
@@ -431,11 +448,25 @@ export class Evaluator {
    * response would give the fast path -- almost every evaluation -- no
    * transition at all, and a permanent success colour says nothing in a file
    * where every line already carries a value.
+   *
+   * `at` is where the cursor was when the key was pressed, for the caller that
+   * is about to move it. Evaluate and Advance dispatches this and then steps
+   * on without waiting, so "the cursor" has already changed by the time the
+   * kernel answers; passing the position makes that explicit rather than
+   * resting on this method reading `selection` before its first `await`.
    */
-  async evaluateAtCursor(editor: vscode.TextEditor): Promise<void> {
+  async evaluateAtCursor(
+    editor: vscode.TextEditor, at?: vscode.Position
+  ): Promise<void> {
     const document = editor.document;
-    const cursor = editor.selection.active;
-    const key = document.uri.toString();
+    const cursor = at ?? editor.selection.active;
+    // Keyed by line as well as document. Two presses on one line race, and the
+    // newer one is the answer -- but two presses on different lines are not
+    // competitors at all: they annotate different statements, and Evaluate and
+    // Advance dispatches exactly that in a stream. Keyed by document alone, a
+    // walk held down over a slow file would discard every annotation but the
+    // last one, which is the feature failing quietly.
+    const key = `${document.uri.toString()}#${cursor.line}`;
     const token = this.gate.claim(key);
 
     let run;
@@ -485,9 +516,9 @@ export class Evaluator {
 
     const response = run.value;
     if (!this.gate.isCurrent(key, token)) {
-      // A newer evaluation has already claimed this document. Painting this
-      // one would leave a value beside code it did not come from -- and its
-      // mark belongs to nothing now either.
+      // A newer evaluation has already claimed this line. Painting this one
+      // would leave a value beside code it did not come from -- and its mark
+      // belongs to nothing now either.
       run.waiting.withdraw();
       return;
     }
@@ -572,5 +603,99 @@ export class Evaluator {
     // repeat rule belongs to bulk annotation, where nobody is waiting on any
     // one line.
     this.annotations.settle(document, annotation);
+  }
+
+  /**
+   * Evaluate the statement under the cursor, then step to the next one.
+   *
+   * The second of two commands rather than a change to the first, because both
+   * behaviours are wanted and they are wanted at different moments. Staying put
+   * is right while iterating on one statement -- edit, re-run, edit, re-run.
+   * Advancing is right while reading a file you did not write, which is the
+   * case this project is aimed at: a worked example walked one statement at a
+   * time with the values appearing as you go. Jupyter, Spyder, MATLAB and VS
+   * Code's own Interactive Window all ship the pair.
+   *
+   * The cursor moves as soon as the evaluation is **dispatched**, not when it
+   * comes back. Waiting would mean a statement that takes two seconds holds the
+   * cursor for two seconds, and holding the key down would silently drop the
+   * presses that arrived meanwhile -- the rhythm this command exists for is the
+   * first thing a slow statement would break.
+   */
+  async evaluateAndAdvance(editor: vscode.TextEditor): Promise<void> {
+    const document = editor.document;
+    const cursor = editor.selection.active;
+    const statements = await this.statementsOf(document);
+    const stop = statements
+      ? nextStop(
+          statements,
+          cursor.line,
+          (line) => document.lineAt(line).text,
+          !advanceSkipsComments())
+      : undefined;
+
+    const evaluation = this.evaluateAtCursor(editor, cursor);
+
+    // No stop at all means the file does not parse, so there is no next
+    // statement to speak of. The evaluation reports the syntax error; moving
+    // the cursor on a guess would be the one unhelpful thing left to add.
+    if (stop?.kind === 'end') {
+      // Said out loud, because "the key did nothing" and "there is nothing
+      // after this" look identical from the keyboard.
+      vscode.window.setStatusBarMessage(
+        'Evalens: last statement in the file', 2000);
+    } else if (stop?.kind === 'move') {
+      const position = new vscode.Position(
+        stop.position.line, stop.position.character);
+      editor.selection = new vscode.Selection(position, position);
+      // Only when it is off screen, and then centred: stepping past the fold
+      // has to scroll, and a statement already in view must not jump.
+      editor.revealRange(
+        new vscode.Range(position, position),
+        vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+    }
+
+    await evaluation;
+  }
+
+  /**
+   * Every top-level statement in `document`, as the kernel's parser sees them.
+   *
+   * `undefined` when the file does not parse or the kernel cannot be reached;
+   * both are the evaluation's business to report, and neither is a reason for
+   * this to raise on a keypress.
+   */
+  private async statementsOf(
+    document: vscode.TextDocument
+  ): Promise<readonly StatementSpan[] | undefined> {
+    const key = document.uri.toString();
+    if (this.outline?.key === key && this.outline.version === document.version) {
+      return this.outline.statements;
+    }
+
+    let response: OutlineResponse;
+    try {
+      const client = await this.kernel();
+      response = (await client.request({
+        op: 'outline',
+        source: document.getText(),
+        filename: document.uri.fsPath,
+      })) as OutlineResponse;
+    } catch {
+      // Whatever went wrong reaching the kernel, the evaluation dispatched a
+      // moment from now runs into it too and reports it properly. Saying it
+      // twice in the output channel is how a log stops being read.
+      return undefined;
+    }
+    if (!response.ok) {
+      // A syntax error, and the only failure this op has. Same reasoning: the
+      // evaluation paints it where the user can see it.
+      return undefined;
+    }
+
+    this.outline = {
+      key, version: document.version, statements: response.statements,
+    };
+    return response.statements;
   }
 }

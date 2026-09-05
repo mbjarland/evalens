@@ -43,6 +43,9 @@ export type Platform = 'mac' | 'other';
 /** The command the collision costs us, and the reason this file exists. */
 export const EVALUATE_AT_CURSOR = 'evalens.evaluateAtCursor';
 
+/** Evaluate, then step to the next top-level statement. */
+export const EVALUATE_AND_ADVANCE = 'evalens.evaluateAndAdvance';
+
 /**
  * The context the manifest binds it under. The fix repeats it verbatim so a
  * user keybinding behaves exactly like the default it is replacing --
@@ -76,6 +79,27 @@ export function evaluateKeys(platform: Platform): readonly string[] {
   return [evaluateKey(platform), TOP_LEVEL_KEY];
 }
 
+/**
+ * The key `evalens.evaluateAndAdvance` answers on.
+ *
+ * `shift+enter` is what the convention wants -- it is run-and-advance in
+ * Jupyter, Spyder, MATLAB and VS Code's own Interactive Window -- and it is
+ * unusable. In a Python file it is claimed four times over:
+ * `python.execSelectionInTerminal`, `python.execInREPL`,
+ * `jupyter.execSelectionInteractive` and `jupyter.runcurrentcelladvance`.
+ * Taking it would reproduce the AREPL defect exactly: a tie between extension
+ * bindings, broken by load order, dead or alive depending on nothing the user
+ * can see.
+ *
+ * `cmd+shift+enter` is claimed by no extension of the sixty-one measured. VS
+ * Code's own `editor.action.insertLineBefore` holds it as a core default,
+ * which an extension binding outranks -- a core default is not a tie.
+ * `ctrl+shift+enter` is a different matter, and the table below says so.
+ */
+export function advanceKey(platform: Platform): string {
+  return platform === 'mac' ? 'cmd+shift+enter' : 'ctrl+shift+enter';
+}
+
 export interface KnownConflict {
   readonly extensionId: string;
   readonly extensionName: string;
@@ -88,8 +112,16 @@ export interface KnownConflict {
    * every platform, and deriving the key from ours would have hidden it.
    */
   readonly key: Readonly<Record<Platform, string>>;
-  /** That binding's `when` clause, as the other extension ships it. */
-  readonly when: string;
+  /**
+   * That binding's `when` clause, as the other extension ships it -- absent
+   * when it ships none.
+   *
+   * Absent is not the same as empty, and modelling it as a string would have
+   * lost the distinction: a binding with no `when` matches unconditionally,
+   * everywhere, and the removal that cancels it must carry no `when` either.
+   * `jupyter.runAndDebugCell` is that shape.
+   */
+  readonly when?: string;
   /** Platforms where it lands on the same key as ours. */
   readonly platforms: readonly Platform[];
   /** Whether finding it installed justifies interrupting the user. */
@@ -108,13 +140,19 @@ export interface KnownConflict {
  * uncontested. Both of AREPL's bindings are listed here now, and a conflict
  * carries the key it takes rather than inheriting ours.
  *
- * Jupyter is listed and documented but not notified about. Its overlap is
- * real -- `runcurrentcell` on ctrl+enter, `runcurrentcellandaddbelow` on
- * alt+enter, the second with no `mac` override, which means the `key` field
- * applies on macOS too rather than being absent there. But both bite only
- * inside a file with `# %%` cells; Jupyter is installed on a large share of
- * Python setups, and a notification most of those users cannot act on is how
- * an extension teaches people to dismiss the one that matters.
+ * Jupyter is listed and documented but not notified about, on three rows now.
+ * `runcurrentcell` on ctrl+enter and `runcurrentcellandaddbelow` on alt+enter
+ * bite only inside a file with `# %%` cells -- the second with no `mac`
+ * override, which means the `key` field applies on macOS too rather than being
+ * absent there -- and a notification most users cannot act on is how an
+ * extension teaches people to dismiss the one that matters. `runAndDebugCell`
+ * on ctrl+shift+enter is a stronger conflict than either: no `when` clause at
+ * all, so it is live in any file on Windows and Linux. It stays silent anyway,
+ * for a different reason. It costs the *second* command rather than the
+ * primary interaction, Jupyter is installed on a large share of Python setups,
+ * and the notification's own wording is about Evaluate at Cursor. The README
+ * carries its fix instead, beside the keybinding table where it is read before
+ * the damage rather than after it.
  */
 export const KNOWN_CONFLICTS: readonly KnownConflict[] = [
   {
@@ -168,6 +206,21 @@ export const KNOWN_CONFLICTS: readonly KnownConflict[] = [
       'binds alt+enter with no `mac` override, so it overlaps on every ' +
       'platform, and only in a file that has `# %%` cells',
   },
+  {
+    extensionId: 'ms-toolsai.jupyter',
+    extensionName: 'Jupyter',
+    command: 'jupyter.runAndDebugCell',
+    key: { mac: 'ctrl+shift+enter', other: 'ctrl+shift+enter' },
+    // No `when` at all, which is the whole point of this row: unlike the two
+    // above it is not gated on `# %%` cells, so it is live in an ordinary
+    // Python file -- and in every other editor in the window.
+    platforms: ['other'],
+    notify: false,
+    summary:
+      'takes ctrl+shift+enter with no `when` clause at all, so on Windows ' +
+      'and Linux it matches unconditionally rather than only in a file with ' +
+      '`# %%` cells',
+  },
 ];
 
 /**
@@ -191,7 +244,34 @@ export function detectConflicts(
 export interface KeybindingEntry {
   readonly key: string;
   readonly command: string;
-  readonly when: string;
+  /** Absent when the binding being cancelled carries no `when` of its own. */
+  readonly when?: string;
+}
+
+/**
+ * The entry that cancels one other extension's binding.
+ *
+ * On that binding's own key and its own `when`, not ours: a removal is aimed
+ * at somebody else's manifest, and a removal written against our context
+ * removes nothing.
+ */
+function removal(
+  conflict: KnownConflict, platform: Platform
+): KeybindingEntry {
+  return {
+    key: conflict.key[platform],
+    command: `-${conflict.command}`,
+    ...(conflict.when === undefined ? {} : { when: conflict.when }),
+  };
+}
+
+/** The known conflicts that land on `key` on this platform. */
+function conflictsOn(
+  key: string, platform: Platform
+): readonly KnownConflict[] {
+  return KNOWN_CONFLICTS.filter(
+    (conflict) => conflict.platforms.includes(platform)
+      && conflict.key[platform] === key);
 }
 
 /**
@@ -213,11 +293,30 @@ export function keybindingEntries(
       command: EVALUATE_AT_CURSOR,
       when: EVALUATE_WHEN,
     })),
-    ...conflicts.map((conflict) => ({
-      key: conflict.key[platform],
-      command: `-${conflict.command}`,
-      when: conflict.when,
-    })),
+    ...conflicts.map((conflict) => removal(conflict, platform)),
+  ];
+}
+
+/**
+ * The user keybinding that settles the advance key, where anything contests it.
+ *
+ * Separate from the pair above because the conflict is: nothing claims
+ * `cmd+shift+enter` on macOS, so there it is one entry restating the default,
+ * while on Windows and Linux `jupyter.runAndDebugCell` sits on
+ * `ctrl+shift+enter` with no `when` clause and the removal is the half that
+ * matters. This is the same answer #45 arrived at for AREPL -- a user
+ * keybinding is resolved after every extension's, so it is the only thing that
+ * settles a tie deterministically.
+ */
+export function advanceEntries(platform: Platform): readonly KeybindingEntry[] {
+  return [
+    {
+      key: advanceKey(platform),
+      command: EVALUATE_AND_ADVANCE,
+      when: EVALUATE_WHEN,
+    },
+    ...conflictsOn(advanceKey(platform), platform)
+      .map((conflict) => removal(conflict, platform)),
   ];
 }
 

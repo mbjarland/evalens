@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  EVALUATE_AT_CURSOR, EVALUATE_WHEN, KNOWN_CONFLICTS, KnownConflict,
-  TOP_LEVEL_KEY, conflictMessage, describeConflicts, detectConflicts,
-  evaluateKey, evaluateKeys, keybindingEntries, keybindingSnippet,
-  keybindingsQuery, platformOf,
+  EVALUATE_AND_ADVANCE, EVALUATE_AT_CURSOR, EVALUATE_WHEN, KNOWN_CONFLICTS,
+  KnownConflict, TOP_LEVEL_KEY, advanceEntries, advanceKey, conflictMessage,
+  describeConflicts, detectConflicts, evaluateKey, evaluateKeys,
+  keybindingEntries, keybindingSnippet, keybindingsQuery, platformOf,
 } from '../keybindings';
 
 const AREPL = 'almenon.arepl';
@@ -107,6 +107,7 @@ test('Jupyter\'s alt+enter binding overlaps on macOS as well', () => {
   assert.ok(addBelow, 'Jupyter\'s alt+enter binding must be in the table');
   assert.deepEqual(addBelow.platforms, ['mac', 'other']);
   assert.equal(addBelow.key.mac, TOP_LEVEL_KEY);
+  assert.ok(addBelow.when, 'this one does ship a when clause');
   assert.match(addBelow.when, /jupyter\.hascodecells/);
 });
 
@@ -181,6 +182,58 @@ test('the snippet names what each removal removes', () => {
   assert.match(prose, /AREPL's extension\.executeAREPLBlock from cmd\+enter/);
   assert.match(prose, /AREPL's extension\.printDir from alt\+enter/);
   assert.match(prose, /Delete this entry to keep it/);
+});
+
+test('the advance key is shift+enter with a modifier, never shift+enter', () => {
+  // shift+enter is the convention -- Jupyter, Spyder, MATLAB and the
+  // Interactive Window all put run-and-advance there -- and it is claimed four
+  // times over in a Python file, so it would be a dead key decided by load
+  // order. cmd+shift+enter is claimed by no extension of the sixty-one
+  // measured, and VS Code's own default on it is a core binding, which an
+  // extension binding outranks.
+  assert.equal(advanceKey('mac'), 'cmd+shift+enter');
+  assert.equal(advanceKey('other'), 'ctrl+shift+enter');
+  assert.notEqual(advanceKey('mac'), 'shift+enter');
+  assert.notEqual(advanceKey('other'), 'shift+enter');
+});
+
+test('Jupyter contests the advance key off macOS, with no when clause', () => {
+  // The reason this row is here at all. Its two siblings bite only in a file
+  // with `# %%` cells; this one ships no `when` whatsoever, so on Windows and
+  // Linux it matches in every editor and every file.
+  const runAndDebug = conflictOn(JUPYTER, 'jupyter.runAndDebugCell');
+  assert.ok(runAndDebug, 'the ctrl+shift+enter conflict must be in the table');
+  assert.equal(runAndDebug.when, undefined,
+    'an empty when is not the same as none, and this binding has none');
+  assert.deepEqual(runAndDebug.platforms, ['other']);
+  assert.equal(runAndDebug.key.other, advanceKey('other'));
+  // On macOS ours is cmd+shift+enter and this stays ctrl+shift+enter, so the
+  // two never meet -- the same reading as jupyter.runcurrentcell.
+  assert.notEqual(runAndDebug.key.mac, advanceKey('mac'));
+});
+
+test('the advance fix binds our command, and removes what contests it', () => {
+  assert.deepEqual(advanceEntries('other'), [
+    {
+      key: 'ctrl+shift+enter',
+      command: EVALUATE_AND_ADVANCE,
+      when: EVALUATE_WHEN,
+    },
+    // No `when`, because the binding it cancels has none: a removal only
+    // cancels a binding it matches exactly, and inventing a context here would
+    // leave the real one answering.
+    { key: 'ctrl+shift+enter', command: '-jupyter.runAndDebugCell' },
+  ]);
+});
+
+test('on macOS the advance fix is one entry, because nothing contests it', () => {
+  assert.deepEqual(advanceEntries('mac'), [
+    {
+      key: 'cmd+shift+enter',
+      command: EVALUATE_AND_ADVANCE,
+      when: EVALUATE_WHEN,
+    },
+  ]);
 });
 
 test('the keybindings query filters that editor to our key', () => {

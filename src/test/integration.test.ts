@@ -4,10 +4,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { nextStop } from '../advance';
 import { LoadPrompts } from '../input';
 import { KernelClient } from '../kernel/client';
 import {
-  Evaluated, EvalResponse, Failed, FileLoaded, LoopTrace, StatementOutcome,
+  Evaluated, EvalResponse, Failed, FileLoaded, LoopTrace, Outlined,
+  StatementOutcome,
 } from '../kernel/protocol';
 import {
   errorText, hasOutput, printedFrom, restatesLine, resultText,
@@ -1353,4 +1355,69 @@ test('printed output arrives while the statement is still running', async (t) =>
   assert.equal(result.value, "'yes'");
   assert.equal(result.stdout, 'working\ndone? ',
     'and the response still carries the whole of it');
+});
+
+test('the advance walk visits every top-level statement of the tour', async (t) => {
+  // The end-to-end claim of #65: hold the key from the top of a real file and
+  // it steps through the statements -- over the comment blocks, over the blank
+  // lines, over a `def` body in one press -- and stops at the bottom. The
+  // fixture is `examples/tour.py` because it is the file the manual test and
+  // the demo use, and it contains every statement shape the resolver knows.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const file = path.resolve(__dirname, '..', '..', 'examples', 'tour.py');
+  const source = fs.readFileSync(file, 'utf8');
+  const lines = source.split('\n');
+
+  const outlined = await client.request({
+    op: 'outline', source, filename: file,
+  }) as Outlined;
+  assert.equal(outlined.ok, true);
+
+  const visited: number[] = [];
+  let cursor = 0;
+  for (;;) {
+    const step = nextStop(outlined.statements, cursor, (line) => lines[line]!);
+    if (step.kind === 'end') {
+      break;
+    }
+    cursor = step.position.line;
+    visited.push(cursor);
+    assert.ok(visited.length <= outlined.statements.length,
+      'the walk is not making progress towards the end of the file');
+  }
+
+  // Every statement reached, in order, exactly once. Distinct lines rather
+  // than statements because case 46 writes two statements on one line, and a
+  // cursor gives a line: stopping there twice would evaluate the first of
+  // them twice and never reach the second (#18).
+  assert.deepEqual(
+    visited,
+    [...new Set(outlined.statements.map((s) => s.range.start.line))],
+    'the walk must reach each statement line once, in file order');
+
+  // Independent of the outline: nothing it stopped on is a blank line or a
+  // comment, and no stop is inside a statement it has already run.
+  for (const line of visited) {
+    const text = lines[line]!;
+    assert.notEqual(text.trim(), '', `stopped on a blank line (${line + 1})`);
+    assert.ok(!text.trimStart().startsWith('#'),
+      `stopped on a comment line (${line + 1})`);
+  }
+
+  // The `def area` of case 5 is three lines; the walk crosses it in one step.
+  const area = lines.findIndex((line) => line.startsWith('def area('));
+  assert.ok(visited.includes(area), 'the def itself is a stop');
+  for (const inside of [area + 1, area + 2]) {
+    assert.ok(!visited.includes(inside),
+      `a def body must not be a stop (line ${inside + 1})`);
+  }
+
+  // And the last stop is the last statement in the file, not a wrap.
+  const last = outlined.statements[outlined.statements.length - 1]!;
+  assert.equal(visited[visited.length - 1], last.range.start.line);
+  assert.deepEqual(
+    nextStop(outlined.statements, last.range.start.line, (line) => lines[line]!),
+    { kind: 'end' });
 });

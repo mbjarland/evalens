@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import {
-  KNOWN_CONFLICTS, detectConflicts, keybindingSnippet,
+  KNOWN_CONFLICTS, advanceEntries, detectConflicts, keybindingSnippet,
 } from '../keybindings';
 
 const root = path.resolve(__dirname, '..', '..');
@@ -65,4 +65,35 @@ test('the README documents the key the manifest actually binds', () => {
   const keybindings = section('Keybindings');
   assert.match(keybindings, /Cmd\+Enter/);
   assert.match(keybindings, /Ctrl\+Enter/);
+  assert.match(keybindings, /Cmd\+Shift\+Enter/);
+  assert.match(keybindings, /Ctrl\+Shift\+Enter/);
+});
+
+test('the README says why the advance key is not shift+enter', () => {
+  // The convention says shift+enter, so a reader who knows the neighbourhood
+  // will assume we simply got it wrong. The four commands already sitting
+  // there are the answer, and they belong beside the table rather than in a
+  // commit message nobody reads.
+  const keybindings = section('Keybindings');
+  assert.match(keybindings, /Shift\+Enter/);
+  for (const command of [
+    'python.execSelectionInTerminal', 'python.execInREPL',
+    'jupyter.execSelectionInteractive', 'jupyter.runcurrentcelladvance',
+  ]) {
+    assert.ok(keybindings.includes(command),
+      `${command} is not named as a claimant of shift+enter`);
+  }
+});
+
+test('the README shows the user binding that settles the advance key', () => {
+  // Windows and Linux get what #45 gave AREPL: the fix stated where the
+  // conflict is, in a form that can be pasted. Built from the same constants
+  // the manifest is checked against, so the block cannot drift from the key,
+  // the command or the context.
+  for (const entry of advanceEntries('other')) {
+    const json = JSON.stringify(entry, null, 2)
+      .split('\n').map((line) => `  ${line}`).join('\n');
+    assert.ok(readme.includes(json),
+      `the README does not show this entry verbatim:\n${json}`);
+  }
 });

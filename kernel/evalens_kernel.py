@@ -130,8 +130,21 @@ the user is looking at. ``statements`` counts what the request covered, and
 the response's ``range`` is what actually ran -- wider than the selection
 whenever a statement was only partly inside it, and absent when nothing was.
 
-Ops: ``ping``, ``reset``, ``eval``, ``eval_file``. ``eval_above`` is reserved
-and answers with an explicit not-implemented error until #13 lands.
+``outline`` answers with the same ranges and anchors for every top-level
+statement in a file, and runs none of them::
+
+    -> {"id":4,"op":"outline","source":"...","filename":"/abs/path.py"}
+    <- {"id":4,"ok":true,"statements":[
+        {"kind":"Assign","range":{...}},
+        {"kind":"FunctionDef","anchor":3,"range":{...}}]}
+
+It exists so that Evaluate and Advance can step by statements rather than by
+lines without a second parser on the extension side -- and it is a separate op
+precisely so that asking where the next statement is cannot run anything.
+
+Ops: ``ping``, ``reset``, ``eval``, ``eval_file``, ``outline``.
+``eval_above`` is reserved and answers with an explicit not-implemented
+error until #13 lands.
 
 Interrupting
 ------------
@@ -1028,6 +1041,8 @@ class Kernel:
             return self.evaluate(request)
         if op == "eval_file":
             return self.evaluate_file(request)
+        if op == "outline":
+            return self.outline(request)
         if op == "eval_above":
             # Reserved so the protocol shape is settled; the feature is #13.
             return {
@@ -1172,6 +1187,44 @@ class Kernel:
                 "end": _position(forms[-1].end_line, forms[-1].end_char),
             }
         return response
+
+    def outline(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Where every top-level statement is, without running any of them.
+
+        The parser already works this out on the way to evaluating anything:
+        a statement's range covers the whole of it, decorators included, and
+        its anchor is the line its value belongs beside. Answering "where does
+        the next statement start" from that is one lookup; deriving it from
+        line text on the extension side would be a second, worse parser -- one
+        that reads a comment inside a list literal as a gap between
+        statements, and a ``def`` body as ten separate steps.
+
+        **Nothing here executes.** That is why this is a separate op rather
+        than another field on an evaluation: Evaluate and Advance asks where
+        to go next on every keypress, and a question about the shape of a file
+        must never be a reason to run part of it.
+        """
+        source: str = request.get("source", "")
+        filename: str = request.get("filename") or "<evalens>"
+
+        try:
+            tree = ast.parse(source, filename=filename)
+        except SyntaxError as exc:
+            return self._syntax_error(exc)
+
+        # The same `forms_in` a load walks, so an outline cannot disagree with
+        # an evaluation about where a statement begins and ends.
+        return {
+            "ok": True,
+            "statements": [
+                {
+                    "kind": form.kind,
+                    "range": _range_of(form),
+                    **_anchor_of(form),
+                }
+                for form in forms_in(tree)
+            ],
+        }
 
     # -- internals ----------------------------------------------------------
 
