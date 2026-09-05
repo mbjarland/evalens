@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import { BindingTrace, LoopTrace, NamedValue } from '../kernel/protocol';
 import {
   GAP, Rendered, SEPARATOR, alignmentGap, bindingText, collapseLines,
-  columnWidth, errorText, hasOutput, hoverText, joinSegments, outputPieces,
-  partialNote, preserveSpacing, printedFrom, restatesLine, resultSegments,
-  resultText, sequenceText,
+  columnWidth, errorText, hasOutput, hoverText, joinSegments, opensDefinition,
+  outputPieces, partialNote, preserveSpacing, printedFrom, restatesLine,
+  resultSegments, resultText, sequenceText,
 } from '../render/format';
 
 function trace(
@@ -389,10 +389,10 @@ test('a multi-line value in a pair collapses like any other', () => {
     preserveSpacing('p: Point( x=1 )'));
 });
 
-test('an annotation that only restates its own line is not worth painting', () => {
-  // Even with the name said once and the `def` in front of it, this is tidier
-  // duplication rather than information. The evaluated-region highlight is
-  // what still reports that it ran.
+test('an annotation that only restates its own line is recognised as one', () => {
+  // The question this answers is about text and its answer here is still yes.
+  // Whether the line is therefore left bare is the caller's decision, and for
+  // a definition it is no -- see `opensDefinition` and the test below it.
   const painted = resultText({ value: 'def greet(name)', display: 'greet' });
   assert.equal(restatesLine(painted, 'def greet(name):'), true);
   assert.equal(restatesLine(painted, '    def greet(name):'), true,
@@ -404,13 +404,42 @@ test('an annotation that only restates its own line is not worth painting', () =
 });
 
 test('a decorated function still says what the decorator produced', () => {
-  // The case a naive "skip FunctionDef" would have destroyed, and the reason
-  // the comparison is against the rendered text rather than the statement
-  // kind: the decorator REPLACED the function and the line cannot show that.
+  // The decorator REPLACED the function and the line cannot show that, so this
+  // one differs from its line as text and would paint on those terms alone --
+  // which is why the exemption below can be added without putting this case at
+  // anybody's mercy.
   assert.equal(
     restatesLine(resultText({ value: 'def <lambda>()', display: 'greeting' }),
       'def greeting():'),
     false);
+});
+
+test('a definition is exempt from the question, whatever its answer', () => {
+  // Every shape of definition header, so the family cannot split again on
+  // whether one description happens to be a prefix of its own line.
+  assert.equal(opensDefinition('def greet(name):'), true);
+  assert.equal(opensDefinition('async def fetch(url):'), true);
+  assert.equal(opensDefinition('class Config:'), true);
+  assert.equal(opensDefinition('    def inner(k):'), true,
+    'a nested def is a definition wherever it is indented to');
+  assert.equal(opensDefinition('\tclass Inner:'), true,
+    'a file indented with tabs is still Python');
+});
+
+test('the exemption reads the line, and only Python at the start of it', () => {
+  // The defect this exemption exists to repair, arriving from the other side:
+  // an object of the user's own whose repr begins with `def ` must not collect
+  // it, and nothing that merely contains the word may either.
+  assert.equal(opensDefinition('handler = registry.lookup()'), false,
+    'the annotation may read `def run(x)`; the line is still an assignment');
+  assert.equal(opensDefinition('default = 3'), false,
+    'a word that starts with def is not the keyword');
+  assert.equal(opensDefinition('classes = []'), false);
+  assert.equal(opensDefinition('x = "def greet(name):"'), false,
+    'a definition inside a string is a string');
+  assert.equal(opensDefinition('async for row in cursor:'), false,
+    '`async` qualifies `def` here and nothing else');
+  assert.equal(opensDefinition('async with lock:'), false);
 });
 
 test('a line the annotation only half restates keeps its annotation', () => {

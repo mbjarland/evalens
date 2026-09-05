@@ -5,7 +5,8 @@ import {
 } from '../kernel/protocol';
 import {
   PRINTED_LABEL, Printed, Segment, SegmentRole, alignmentGap, columnWidth,
-  errorText, hasOutput, joinSegments, restatesLine, resultSegments,
+  errorText, hasOutput, joinSegments, opensDefinition, restatesLine,
+  resultSegments,
 } from './format';
 import { SEGMENT_SLOTS, coalesce, paintOrder } from './layers';
 import { Marker, Traced, markerFor, normalizeSource } from './registry';
@@ -410,7 +411,15 @@ export class Decorator implements vscode.Disposable {
         // would have carried is the address this feature exists to keep off
         // the screen, and there is nothing to hover over on a line with no
         // annotation on it.
-        if (!restatesLine(text, host.text)) {
+        //
+        // A definition never asks the question. `def greet(name)` and `def
+        // greet(name):` are the same characters and a different claim -- the
+        // line says what happens when it runs, the annotation says it has run
+        // -- so the whole family paints, rather than the four members of it
+        // whose descriptions happen not to be prefixes of their own lines.
+        // The exemption is here, on the kind of statement, and not inside
+        // `restatesLine`, which is right about text and stays that way.
+        if (opensDefinition(host.text) || !restatesLine(text, host.text)) {
           // Beyond the pool there is no type left to paint in, so the line
           // falls back to the rendering this replaced: one attachment, one
           // colour, every character still there. Less legible, never wrong.

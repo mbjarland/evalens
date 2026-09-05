@@ -329,15 +329,16 @@ function squeezed(text: string): string {
  * ran. So the annotation goes and the highlight stays.
  *
  * **Compared against the rendered text, never against the kind of statement.**
- * A `def` is exactly where this rule looks like it could be a shortcut, and
- * exactly where the shortcut would destroy the one case worth keeping:
+ * What is redundant is a piece of text, so text is what gets compared -- which
+ * is what keeps
  *
  *     @shout
  *     def greeting():        greeting: def <lambda>()
  *
- * The decorator *replaced* the function, the line cannot show that, and
- * skipping annotations by statement kind would have taken it away. What is
- * redundant is a piece of text, so text is what gets compared.
+ * saying what the decorator produced. Whether a statement is *exempt* from the
+ * question is a separate matter and is settled by the caller: see
+ * `opensDefinition`, which is why a plain `def` reaches the screen even though
+ * this answers true for it.
  *
  * Whitespace folds, a trailing `:` and a trailing comment are allowed to
  * follow, and nothing else is: a match has to be the whole line. Anything
@@ -354,6 +355,58 @@ export function restatesLine(text: string, line: string): boolean {
     return false;
   }
   return /^\s*:?\s*(#.*)?$/.test(code.slice(said.length));
+}
+
+/**
+ * The three ways Python opens a statement that brings a name into existence.
+ *
+ * `async` qualifies `def` and nothing else here: `async for` and `async with`
+ * are ordinary compound statements and are exempt from nothing.
+ */
+const DEFINITION = /^[ \t]*(?:async[ \t]+def|def|class)\b/;
+
+/**
+ * Does the line this annotation sits on open a definition?
+ *
+ * The exemption from `restatesLine`, and the whole of the ticket. `def
+ * greet(name)` beside `def greet(name):` is the same characters and it is not
+ * the same claim: the source says *when this runs, bind a function to this
+ * name*, while the annotation says *a function of this signature exists now,
+ * and `greet` refers to it*. Those coincide only once the line has actually
+ * been evaluated -- which is the fact the reader cannot see, most needs, and
+ * has nowhere else to get. A definition edited and not re-evaluated is the
+ * classic hazard of working this way, and an inline annotation is the one
+ * thing positioned to answer it.
+ *
+ * There is a teaching argument on top of it. `def` in Python is a statement
+ * that runs and binds, not a declaration, and a tool whose whole thesis is
+ * state made visible taught the opposite by showing nothing there.
+ *
+ * Without the exemption the family split on an accident of prefix matching:
+ * `class Config()` escaped on its parentheses, `def gen(n) -> generator` on an
+ * arrow that runs past the end of its own line, and the plain synchronous
+ * function -- the one form a beginner writes on page one -- was the only thing
+ * on screen that said nothing at all.
+ *
+ * **The line, never the annotation.** An object of the user's own whose
+ * `repr()` begins with `def ` would collect an exemption that read the
+ * rendered text, and that is precisely the class of defect this exists to
+ * repair. What is read here is Python the user typed, anchored at the start of
+ * the line.
+ *
+ * Read off the line rather than off the kernel's own word for the statement,
+ * which is the one compromise here and is worth naming. The wire already
+ * carries `"kind": "FunctionDef"`; what it does not have is a way to the
+ * renderer, because every annotation is built from a response somewhere else
+ * again, so keying on `annotation.kind` is a change across three files rather
+ * than this one. Two shapes are invisible to a line and would not be to the
+ * kind -- a signature wrapped over several lines, which anchors on its `):`,
+ * and a `def` whose body opens with a comment, which anchors on the comment.
+ * Neither costs anything today: a line like that is not a prefix of its own
+ * annotation, so nothing was suppressing it in the first place.
+ */
+export function opensDefinition(line: string): boolean {
+  return DEFINITION.test(line);
 }
 
 /**

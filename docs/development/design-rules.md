@@ -43,9 +43,19 @@ Arrived at independently three times before being written down:
 - `def greet(name):` annotated `greet: greet(name)` (#50)
 
 If the annotation restates the line, it is noise competing with the code. If
-it restates a value already visible above, the same. The exception that
-proves it: a *decorated* definition must still annotate, because the
-decorator replaced the function and the line cannot show that.
+it restates a value already visible above, the same.
+
+**"The same characters" is not the test; "the same claim" is.** Definitions
+are the exception, and #87 is what taught it: `def greet(name)` beside `def
+greet(name):` is character-for-character the line, and a different assertion.
+The source says *bind a function to this name when this runs*; the annotation
+says *it has run, and the name holds this*. Those coincide only after an
+evaluation — the fact the reader cannot see and most needs, since a definition
+edited and not re-evaluated is the standing hazard of working this way. So
+every definition annotates: `def`, `async def`, `class`, decorated or not.
+Before that, the family split on an accident of prefix matching, and the one
+form a first-year student writes on page one was the only thing on screen
+saying nothing at all.
 
 ## 3. Annotating must never execute user code
 

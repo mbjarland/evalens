@@ -13,8 +13,8 @@ import {
   StatementOutcome,
 } from '../kernel/protocol';
 import {
-  GAP, errorText, hasOutput, partialNote, preserveSpacing, printedFrom,
-  restatesLine, resultText,
+  GAP, errorText, hasOutput, opensDefinition, partialNote, preserveSpacing,
+  printedFrom, restatesLine, resultText,
 } from '../render/format';
 import {
   describeLoad, describeRun, partialCause, present,
@@ -410,11 +410,12 @@ test('re-evaluating a def paints the same thing every time', async (t) => {
 /**
  * What the editor would paint beside `line`, and whether it would paint it.
  *
- * The three steps the decorator takes, in the order it takes them: the kernel
- * answers, `resultText` renders the answer, and the rendered text is measured
- * against the line it would sit on. Put together here because that whole path
- * is what a reader sees, and every layer of it can be right on its own while
- * the line still comes out saying its own name twice.
+ * The four steps the decorator takes, in the order it takes them: the kernel
+ * answers, `resultText` renders the answer, the line is asked whether it opens
+ * a definition, and only if it does not is the rendered text measured against
+ * it. Put together here because that whole path is what a reader sees, and
+ * every layer of it can be right on its own while the line still comes out
+ * blank or saying its own name twice.
  */
 async function painted(client: KernelClient, source: string, line: number) {
   const shown = present(await evaluate(client, source, line), line) as {
@@ -429,37 +430,65 @@ async function painted(client: KernelClient, source: string, line: number) {
     text: rendered.replace(/\u00a0/g, ' '),
     // The raw text, non-breaking spaces and all, exactly as the decorator
     // hands it over.
-    suppressed: restatesLine(rendered, code),
+    suppressed: !opensDefinition(code) && restatesLine(rendered, code),
   };
 }
 
-test('a def annotates where the line does not already say it', async (t) => {
-  // The whole ticket on two lines. The `def` states its own name and
-  // signature, so an annotation repeating them is width spent on nothing --
-  // and the region highlight still reports that it ran. `f = greet` states
-  // neither, so the same description is exactly what that line was missing.
+/** Every definition form, in one file, so the family can be read at once. */
+const DEFINITIONS = [
+  'def greet(name):',                 // 0
+  '    return f"hello {name}"',
+  'def area(w, h=1):',                // 2
+  '    return w * h',
+  'class Config:',                    // 4
+  '    pass',
+  'def gen(n):',                      // 6
+  '    yield n',
+  'async def fetch(url):',            // 8
+  '    return url',
+  'lam = lambda q: q * 2',            // 10
+  'f = greet',                        // 11
+  '',
+].join('\n');
+
+test('every definition paints, and the family is uniform', async (t) => {
+  // The seven cases together, because apart they looked like six correct
+  // behaviours and one deliberate silence. They were not: a class escaped
+  // suppression on its parentheses, a generator on an arrow that runs past the
+  // end of its line, a lambda and an alias on their labels -- and the plain
+  // synchronous function, the one form a first-year student writes on page
+  // one, was suppressed for being a character-for-character prefix of itself.
+  //
+  // What each of these annotations claims is not what its line says. The line
+  // says *bind a function to this name when this runs*; the annotation says
+  // *it has run, and here is what the name now holds*. That is the fact the
+  // reader cannot see, and a definition edited without being re-evaluated is
+  // the hazard this whole style of working has.
   const client = connect();
   t.after(() => client.dispose());
 
-  const source = 'def greet(name):\n    return f"hello {name}"\nf = greet\n';
+  const shown = [];
+  for (const line of [0, 2, 4, 6, 8, 10, 11]) {
+    const { code, text, suppressed } = await painted(client, DEFINITIONS, line);
+    shown.push([suppressed ? 'silent' : 'paints', code, text]);
+  }
 
-  const definition = await painted(client, source, 0);
-  assert.equal(definition.code, 'def greet(name):');
-  assert.equal(definition.text, 'def greet(name)');
-  assert.equal(definition.suppressed, true);
-
-  const alias = await painted(client, source, 2);
-  assert.equal(alias.text, 'f: def greet(name)',
-    'the label survives where it is not a repetition');
-  assert.equal(alias.suppressed, false);
+  assert.deepEqual(shown, [
+    ['paints', 'def greet(name):', 'def greet(name)'],
+    ['paints', 'def area(w, h=1):', 'def area(w, h=1)'],
+    ['paints', 'class Config:', 'class Config()'],
+    ['paints', 'def gen(n):', 'def gen(n) -> generator'],
+    ['paints', 'async def fetch(url):', 'def fetch(url) -> coroutine'],
+    ['paints', 'lam = lambda q: q * 2', 'lam: def <lambda>(q)'],
+    ['paints', 'f = greet', 'f: def greet(name)'],
+  ]);
 });
 
 test('a decorated def still says what the decorator produced', async (t) => {
-  // The case that must survive, and the reason the comparison is against the
-  // rendered text rather than the statement kind: `@shout` REPLACED the
-  // function with a lambda, the line cannot show that, and a rule keyed on
-  // "skip FunctionDef" would have taken away the one annotation here worth
-  // every character of its width.
+  // The case that must survive whatever else changes: `@shout` REPLACED the
+  // function with a lambda and the line cannot show that, so this annotation
+  // is worth every character of its width. It differs from its line as text
+  // as well as by exemption, which is what makes it a check on both.
   const client = connect();
   t.after(() => client.dispose());
 
@@ -473,10 +502,11 @@ test('a decorated def still says what the decorator produced', async (t) => {
   assert.equal(shown.suppressed, false);
 });
 
-test('a definition saying more than its line keeps its annotation', async (t) => {
+test('a definition saying more than its line says it anyway', async (t) => {
   // `-> generator` is the explanation for why iterating the result a second
   // time found it empty, and a class's signature is how to construct one.
-  // Neither is on the line, so neither is a restatement of it.
+  // These were the members of the family that painted by accident; they still
+  // paint, now for the same reason the rest of it does.
   const client = connect();
   t.after(() => client.dispose());
 

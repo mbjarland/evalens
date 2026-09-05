@@ -416,6 +416,24 @@ The decorator replaced the function, the line cannot show that, and this is
 the most valuable annotation on the page. A rule that skipped function
 definitions would have deleted exactly it.
 
+**But a plain, undecorated definition needed the opposite move.** `def
+greet(name)` beside `def greet(name):` is the same characters and a
+different claim: the line says *bind a function to this name when this
+runs*, while the annotation says *it has run, and the name holds this*.
+Comparing text answers that they are the same and withholds the
+annotation — right about the text, wrong about what the reader needs,
+because a definition edited and not re-evaluated is the standing hazard
+of working this way, and `def` in Python is a statement that runs and
+binds rather than a declaration. Left to the text comparison alone, the
+family split on an accident of prefix matching: a class escaped it on
+its parentheses, a generator on an arrow that runs past the end of its
+own line, and the plain synchronous function — the one form a beginner
+writes first — was the only thing on screen that said nothing at all. So
+a `def`, `async def` or `class` is exempted at the call site, on the
+*kind* of statement rather than on its rendered text, and everything
+above about `@shout` is untouched: a decorated definition still earns its
+annotation by differing, because there the difference is real.
+
 ### Rendering
 
 `createTextEditorDecorationType({ after: { contentText } })` plus
