@@ -50,6 +50,7 @@ without a way to run these.
 | Evalens: Evaluate and Advance | The same, then moves to the next top-level statement — hold the key to walk a file |
 | Evalens: Evaluate File | Runs the file top to bottom, annotating each statement — or the selected statements, when there is a selection |
 | Evalens: Clear Inline Results | Removes the annotations from the active editor |
+| Evalens: Announce Result at Cursor | Puts what is painted on the cursor's line into a notification, where a screen reader reads it |
 | Evalens: Interrupt Evaluation | Stops a running evaluation and keeps the namespace it built |
 | Evalens: Restart Kernel | Throws away the namespace and starts a fresh interpreter |
 | Evalens: Show Output | Opens the Evalens output channel without taking the cursor out of the editor |
@@ -277,6 +278,79 @@ change through an alias — `y = lst` followed by `lst.append(4)` leaves `y`
 looking current. Marking that too would mean running your code to find out,
 which is the one thing this extension does not do behind your back.
 
+## Screen readers
+
+An inline result is a text decoration, and **the VS Code API gives a
+decoration no accessibility label of any kind** — no `label`, no `role`,
+nothing. `AccessibilityInformation` exists and is accepted by status bar
+items, tree items and notebook cell status items; it is accepted by no
+decoration type. So without a second channel, pressing the evaluate key
+produces silence that sounds exactly like a dead keybinding.
+
+Evalens adds that second channel. **The annotation is unchanged** — the answer
+still goes on the line, and this is an addition for readers the line cannot
+reach rather than a panel that moves it.
+
+- **Evalens: Announce Result at Cursor** reads out what is painted on the
+  cursor's line, whenever you ask for it. It needs no setting, it says
+  `no result on this line` when there is nothing there, and it says `stale,
+  edited since it ran` when the value no longer describes the code beside it —
+  the caveat the gutter marker carries in a picture.
+- **`evalens.announceResults`** makes that automatic for `Evaluate at Cursor`
+  and `Evaluate and Advance`: each result is put into a notification, which VS
+  Code raises an aria alert for, and the last one is kept in the status bar
+  with an accessibility label on it. Set it to `always` to turn it on. It is
+  on already if `editor.accessibilitySupport` is set to `on`, which is what VS
+  Code's own accessibility documentation tells you to set when its detection
+  does not find your screen reader.
+- **A file load never announces.** Two hundred annotations from one keypress
+  would be worse than announcing nothing.
+
+Three limits are worth knowing before you rely on this.
+
+**Notifications filtered to Do Not Disturb are not announced.** VS Code marks
+them silent and skips the alert, so the announced channel goes quiet with
+them.
+
+**Announced results accumulate in the notification centre.** Each toast
+dismisses itself after a few seconds, but the bell keeps a copy. Nothing about
+`always` is free; it is the only surface VS Code announces from, and this is
+what it costs.
+
+**The status-bar summaries are silent.** `Evaluate File` reports what it
+loaded through `setStatusBarMessage`, and that is backed by a shared status bar
+item with no accessibility label — the status bar footer is rendered
+`aria-live="off"`, so nothing there is announced when it changes. Reach the
+last announced result with `workbench.action.focusStatusBar` and arrow onto
+the Evalens entry; the load summary itself is not reachable at all yet.
+
+Spoken text is not the painted text with the glyphs left in. `=>` is
+punctuation a screen reader skips or spells out, a colon is silent, and the
+three non-breaking spaces that separate two values on a line are heard as one
+pause — so the announced form says `lst is [1, 2, 3]. x is 5`, leads a failure
+with the word `error` because the colour carrying that distinction is
+invisible, and stops after about three hundred characters rather than reading
+out an eight-thousand-character list.
+
+The command has **no default keybinding**. Every chord worth having in a
+Python file is already claimed by something (see above), and picking one
+without checking what owns it is how this project shipped a dead `Cmd+Enter`.
+Bind it yourself:
+
+```json
+{
+  "key": "ctrl+alt+a",
+  "command": "evalens.announceResultAtCursor",
+  "when": "editorTextFocus && editorLangId == python"
+}
+```
+
+**None of this has been tested with a screen reader.** The wording, the
+truncation and the caveats are covered by unit tests, and that VS Code fires
+an aria alert for every notification was read out of its source — but nobody
+on this project has turned VoiceOver, NVDA or JAWS on and listened to the
+result.
+
 ## Settings
 
 | Setting | Default | What it does |
@@ -285,6 +359,7 @@ which is the one thing this extension does not do behind your back.
 | `evalens.alignColumn` | `0` | Column to align results to. `0` places each result just after the code that produced it |
 | `evalens.printedLabel` | `"printed"` | What the annotation calls printed output. Set `»` for a terse marker |
 | `evalens.advanceSkipsComments` | `true` | Whether Evaluate and Advance steps over comment lines. Off, it stops once per comment block — one more press each, and that press evaluates nothing |
+| `evalens.announceResults` | `"auto"` | Whether a result is announced as well as painted, for a screen reader. `auto` follows `editor.accessibilitySupport`; `always` announces every one; `never` announces none. See above |
 
 Keys are not settings here: VS Code rebinds every command in this README from
 its own keybindings editor, and a setting for the key would be a worse copy of

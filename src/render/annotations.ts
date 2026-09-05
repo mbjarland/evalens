@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 
+import { annotationAt } from './announce';
+import { Announcer } from './announcer';
 import { Annotation, Decorator, sourceAt } from './decorations';
 import { Flash, SETTLED } from './flash';
 import {
@@ -63,9 +65,22 @@ export class Annotations implements vscode.Disposable {
    */
   private readonly flash: Flash;
 
-  constructor(extensionUri: vscode.Uri, flash: Flash) {
+  /**
+   * The channel a screen reader can reach, which the decorations cannot be.
+   *
+   * Held here rather than called from the evaluator because `settle` is
+   * already the precise thing that has to be announced -- one statement, run
+   * because somebody pressed a key and is waiting for the answer -- and `add`
+   * is already the bulk path that must stay silent. Routing the announcement
+   * off those two methods means there is no code path from a file load to the
+   * announcer to get wrong later.
+   */
+  private readonly announcer: Announcer;
+
+  constructor(extensionUri: vscode.Uri, flash: Flash, announcer: Announcer) {
     this.decorator = new Decorator(extensionUri);
     this.flash = flash;
+    this.announcer = announcer;
     this.subscriptions.push(
       vscode.workspace.onDidChangeTextDocument((event) => {
         // An edit invalidates what it touched, and nothing else. An
@@ -218,6 +233,22 @@ export class Annotations implements vscode.Disposable {
   settle(document: vscode.TextDocument, annotation: Annotation): void {
     this.add(document, annotation);
     this.flash.show(this.editorsFor(document), [annotation.range], SETTLED);
+    // The flash and the announcement are the same event told twice, to two
+    // readers. Both say "this happened here, just now", and one of them is the
+    // only version of that a screen-reader user gets.
+    this.announcer.announce(annotation);
+  }
+
+  /**
+   * What is painted on `line`, for a reader who has to ask rather than look.
+   *
+   * A read of what is already in the registry and nothing more: no kernel
+   * request, no re-evaluation, no re-reading of the buffer. An annotation is a
+   * trace of what its statement produced when it ran, and it does not become a
+   * watch by being spoken instead of painted.
+   */
+  at(document: vscode.TextDocument, line: number): Annotation | undefined {
+    return annotationAt(this.registry.get(document.uri.toString()), line);
   }
 
   clear(document: vscode.TextDocument): void {
@@ -231,6 +262,11 @@ export class Annotations implements vscode.Disposable {
     this.registry.clearAll();
     this.repaintAllVisible();
     this.updateContext();
+    // The announced channel goes with them. A value still sitting in the
+    // status bar after the annotations were dismissed is a reading of
+    // something that is no longer on screen, and the one place a
+    // screen-reader user goes back to is the worst place to leave one.
+    this.announcer.silence();
   }
 
   dispose(): void {

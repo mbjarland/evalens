@@ -4,6 +4,7 @@ import { Evaluator } from './evaluate';
 import { fixKeybindingConflict, reportKeybindingConflicts } from './conflicts';
 import { resolveInterpreter } from './config';
 import { KernelClient } from './kernel/client';
+import { Announcer } from './render/announcer';
 import { Annotations } from './render/annotations';
 import { Flash } from './render/flash';
 
@@ -30,12 +31,38 @@ export function activate(context: vscode.ExtensionContext): void {
   const flash = new Flash();
   context.subscriptions.push(flash);
 
-  annotations = new Annotations(context.extensionUri, flash);
+  // The channel for a reader who cannot see a decoration. A decoration takes
+  // no accessibility label -- the VS Code API simply has no field for one --
+  // so the answer has to be said somewhere else as well as painted on the
+  // line. It is never said *instead*: the line keeps the answer, and this is
+  // an addition for people the line cannot reach.
+  const announcer = new Announcer();
+  context.subscriptions.push(announcer);
+
+  annotations = new Annotations(context.extensionUri, flash, announcer);
   context.subscriptions.push(annotations);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('evalens.clearResults', () => {
       annotations?.clearAll();
+    })
+  );
+
+  context.subscriptions.push(
+    // The on-demand half, and the half that needs no configuration: whatever
+    // the announce setting says, this reads out what is painted on the line
+    // the cursor is on. It answers when there is nothing there too -- silence
+    // in reply to a command is exactly the failure this exists to remove.
+    // Registered by its literal id, the way every other command here is: the
+    // manifest and the source declare it in two places and a test compares the
+    // two, which a constant would hide from that check.
+    vscode.commands.registerCommand('evalens.announceResultAtCursor', () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        return;
+      }
+      announcer.read(
+        annotations?.at(editor.document, editor.selection.active.line));
     })
   );
 
