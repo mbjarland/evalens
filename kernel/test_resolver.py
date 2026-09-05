@@ -221,6 +221,53 @@ class AnnotatedNames(unittest.TestCase):
             self.names("for p in squares:\n    seen = p\n"),
             ("seen", "squares"))
 
+    def test_a_comprehension_target_is_bound_not_read(self):
+        # The defect this class of test exists for. `x` here is scoped to the
+        # comprehension and never leaves it, so offering it makes the caller
+        # read an unrelated module-level `x` and paint it as part of the line.
+        self.assertEqual(self.names("squares = [x**2 for x in range(10)]\n"),
+                         ("range",))
+        self.assertEqual(
+            self.names("pairs = [(x, y) for x in range(3) for y in range(2)]\n"),
+            ("range",))
+
+    def test_every_comprehension_form_scopes_its_target(self):
+        # Four node types, one rule. A set or dict comprehension leaks no more
+        # than a list one does, and a generator expression leaks least of all.
+        self.assertEqual(self.names("s = {c for c in word}\n"), ("word",))
+        self.assertEqual(self.names("m = {k: v for k, v in d.items()}\n"),
+                         ("d",))
+        self.assertEqual(self.names("g = (n for n in nums)\n"), ("nums",))
+
+    def test_a_comprehension_still_offers_what_it_reads_from_outside(self):
+        # Only the loop targets are scoped away. `factor` and `data` are read
+        # from the enclosing scope and are the context the line needs.
+        self.assertEqual(self.names("out = [x * factor for x in data]\n"),
+                         ("factor", "data"))
+
+    def test_nested_comprehensions_shadow_independently(self):
+        self.assertEqual(self.names("grid = [[y for y in row] for row in m]\n"),
+                         ("m",))
+
+    def test_a_tuple_comprehension_target_binds_every_name_in_it(self):
+        self.assertEqual(self.names("keys = [k for k, v in d.items()]\n"),
+                         ("d",))
+        self.assertEqual(self.names("firsts = [a for a, *b in rows]\n"),
+                         ("rows",))
+
+    def test_a_name_read_outside_a_comprehension_survives_the_same_line(self):
+        # The scope ends where the comprehension does. A stack rather than one
+        # set of excluded names is what keeps the second `x` here reportable.
+        self.assertEqual(self.names("t = sum(x for x in xs) + x\n"),
+                         ("sum", "xs", "x"))
+
+    def test_a_walrus_in_a_comprehension_really_does_bind_outside_it(self):
+        # The exception that proves the body is walked rather than skipped the
+        # way a `def` body is: `:=` inside a comprehension binds in the
+        # enclosing scope, so `y` exists afterwards and is worth reporting.
+        self.assertEqual(self.names("r = [(y := f(a)) for a in items]\n"),
+                         ("y", "f", "items"))
+
     def test_a_deleted_name_is_offered_neither_way(self):
         # It is gone; reading it back would raise where the statement worked.
         self.assertEqual(self.names("del scratch\n"), ())

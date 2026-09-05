@@ -125,6 +125,26 @@ config = {'host': 'localhost', 'port': 8080, 'debug': True}
 squares = [x ** 2 for x in range(5)]
 noise = lst.append(99)
 
+# 4a. A comprehension whose variable shadows one that already exists, which is
+#     the classic scope exercise and was the classic wrong annotation.  `x`
+#     below holds [1, 2, 3] and keeps holding it: in Python 3 a comprehension
+#     runs in a scope of its own and its `x` never leaves it.  So the only
+#     honest annotation here names `powers` and nothing else -- reporting `x`
+#     would show an unrelated variable as though it were part of the line, and
+#     a plausible-looking wrong value is worse than an empty column.  Evaluate
+#     the last line to see that the outer `x` really is untouched.
+#
+#     The nested case shadows at two levels and must lose both targets.  What
+#     the comprehension reads from outside is a different matter and is still
+#     shown: `multiplier` on the fourth line is read from here, not bound
+#     there, and it is the context that makes the line make sense.
+x = [1, 2, 3]
+powers = [x ** 2 for x in range(10)]
+combos = [(x, y) for x in range(3) for y in range(2)]
+multiplier = 10
+scaled = [x * multiplier for x in (1, 2)]
+x
+
 # 5. A cursor anywhere inside this def evaluates the WHOLE def, Calva-style,
 #    and the annotation shows the bound name.  Try the `scaled` line: an inner
 #    expression would raise NameError, because `w` and `h` do not exist at

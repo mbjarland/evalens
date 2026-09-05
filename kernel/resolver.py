@@ -107,6 +107,28 @@ def _first_bound_name(alias: ast.alias) -> str:
     return alias.name.split(".")[0]
 
 
+def _pattern_names(target: ast.expr) -> Set[str]:
+    """Every name a binding pattern puts in scope.
+
+    A target is rarely just one name: `for k, v in d.items()` binds two, and
+    `head, *rest` binds through a `Starred`. Walking the pattern is what makes
+    both fall out of one rule instead of two special cases.
+
+    `obj.attr` and `d[k]` deliberately contribute nothing. They bind into an
+    object that already exists rather than creating a name, and the `obj` in
+    front of them is a genuine read of the enclosing scope -- so answering
+    "no names here" is what keeps that read reportable.
+    """
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, ast.Starred):
+        return _pattern_names(target.value)
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return {name for element in target.elts
+                for name in _pattern_names(element)}
+    return set()
+
+
 def is_docstring(node: ast.stmt, first_in_body: bool) -> bool:
     """Is this statement a docstring rather than a value someone asked for?
 
@@ -213,8 +235,16 @@ class _Names(ast.NodeVisitor):
         self.for_display = for_display
         self.bound: List[str] = []
         self.read: List[str] = []
+        #: One set of shadowed names per comprehension currently being walked.
+        #: A stack rather than a set because comprehensions nest and shadow
+        #: independently, and because a name is only shadowed *inside* the
+        #: comprehension that binds it -- `sum(x for x in xs) + x` reads the
+        #: enclosing `x` in its second half and must still say so.
+        self._shadowed: List[Set[str]] = []
 
     def visit_Name(self, node: ast.Name) -> None:
+        if any(node.id in scope for scope in self._shadowed):
+            return
         if isinstance(node.ctx, ast.Store):
             self._record(self.bound, node.id)
         elif isinstance(node.ctx, ast.Load):
@@ -288,6 +318,43 @@ class _Names(ast.NodeVisitor):
         # runs later; the defaults do not, and are a small deliberate miss
         # rather than a case worth a branch.
         return
+
+    # A comprehension is the same situation one step further out, and it was
+    # missed because it is an expression rather than a statement. In Python 3
+    # `[x**2 for x in range(10)]` runs in a scope of its own and its `x` never
+    # leaves it -- so beside a file that also has a module-level `x`, reporting
+    # `x` reads that unrelated variable and presents it as part of the line.
+    # That is worse than reporting nothing, because the value looks plausible:
+    # comprehensions are where a beginner first meets scope, and an `x`
+    # shadowing an outer `x` is the classic exercise, so it misleads exactly
+    # where the reader is least equipped to notice.
+    #
+    # Only the loop targets go. `[x * factor for x in data]` still reports
+    # `factor` and `data`, which are read from the enclosing scope and are the
+    # context that makes the line make sense. A walrus inside a comprehension
+    # is not a target and really does bind outside it, so it is still reported
+    # -- which is the whole point of walking the body rather than skipping it
+    # the way a `def` is skipped.
+    #
+    # The one name given up that a rule splitting hairs would keep is the
+    # outermost iterable of `[x for x in x]`, which Python does evaluate in the
+    # enclosing scope. Keeping it would put `x: ...` beside a line where `x` is
+    # also the loop variable, leaving the reader to work out which `x` was
+    # meant -- the confusion this exists to remove, so it goes too.
+    def _visit_comprehension(self, node: ast.expr) -> None:
+        generators = node.generators  # every comprehension node has these
+        shadowed = {name for generator in generators
+                    for name in _pattern_names(generator.target)}
+        self._shadowed.append(shadowed)
+        try:
+            self.generic_visit(node)
+        finally:
+            self._shadowed.pop()
+
+    visit_ListComp = _visit_comprehension
+    visit_SetComp = _visit_comprehension
+    visit_DictComp = _visit_comprehension
+    visit_GeneratorExp = _visit_comprehension
 
     def _record(self, into: List[str], name: str) -> None:
         if self.for_display and (name in self.bound or name in self.read):

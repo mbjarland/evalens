@@ -162,6 +162,40 @@ test('the teaching file from the ticket annotates the lesson, not None', async (
   ]);
 });
 
+test('a comprehension does not paint an unrelated variable of the same name', async (t) => {
+  // The screenshot the ticket was filed from, driven through the real kernel.
+  // A comprehension has a scope of its own in Python 3 and its `x` never
+  // leaves it, so `x: [1, 2, 3]` beside these lines is a different variable
+  // presented as part of the statement -- a false claim, and worse than an
+  // empty column because the value looks plausible.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = [
+    'x = [1, 2, 3]',
+    'squares = [x**2 for x in range(10)]',
+    'pairs = [(x, y) for x in range(3) for y in range(2)]',
+    'factor = 10',
+    'data = [1, 2]',
+    'scaled = [x * factor for x in data]',
+  ].join('\n') + '\n';
+
+  assert.deepEqual(await paint(client, source, [0, 1, 2, 3, 4, 5]), [
+    'x: [1, 2, 3]',
+    'squares: [0, 1, 4, 9, 16, 25, 36, 49, 64, 81]',
+    'pairs: [(0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)]',
+    'factor: 10',
+    'data: [1, 2]',
+    // Only the loop target is scoped away; what the line reads from the
+    // enclosing scope is still the context that makes it make sense.
+    'scaled: [10, 20]   factor: 10   data: [1, 2]',
+  ]);
+
+  const outer = await evaluate(client, 'x\n', 0) as Evaluated;
+  assert.equal(outer.value, '[1, 2, 3]',
+    'the comprehensions never touched it, which is the whole point');
+});
+
 test('an expression keeps its arrow, and a call keeps its result', async (t) => {
   // The three shapes that look alike and are not. `sum([10, 20]): 30` would
   // repeat the line back at the reader, so it keeps the arrow. `y.pop()`

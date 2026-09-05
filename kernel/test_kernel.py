@@ -1320,6 +1320,34 @@ class Names(KernelTest):
         self.assertEqual(self.pairs(second), [("y", "[1, 2, 3, 4, 4]")],
                          "each evaluation reports the namespace it left")
 
+    def test_a_comprehension_does_not_report_a_variable_of_the_same_name(self):
+        # The ticket's case, with the namespace that makes it a false
+        # statement rather than a display preference: `x` still holds
+        # [1, 2, 3] afterwards, untouched, because the comprehension's `x`
+        # lived and died in a scope of its own. Reporting it paints an
+        # unrelated variable as part of the line, and it looks plausible.
+        source = "x = [1, 2, 3]\nsquares = [x**2 for x in range(10)]\n"
+        result = self.k.evaluate_lines(source, 0, 1)
+        self.assertEqual(result["display"], "squares")
+        self.assertEqual(self.pairs(result), [])
+        self.assertEqual(self.k.evaluate("x\n", 0)["value"], "[1, 2, 3]",
+                         "the comprehension must not have touched it")
+
+    def test_a_nested_comprehension_reports_neither_of_its_targets(self):
+        source = ("x = [1, 2, 3]\ny = [1, 2, 3, 4]\n"
+                  "pairs = [(x, y) for x in range(3) for y in range(2)]\n")
+        result = self.k.evaluate_lines(source, 0, 1, 2)
+        self.assertEqual(self.pairs(result), [])
+
+    def test_a_comprehension_still_reports_what_it_read_from_outside(self):
+        # The other half of the rule: only the loop targets are scoped away.
+        source = ("factor = 10\ndata = [1, 2]\n"
+                  "out = [x * factor for x in data]\n")
+        result = self.k.evaluate_lines(source, 0, 1, 2)
+        self.assertEqual(result["value"], "[10, 20]")
+        self.assertEqual(self.pairs(result),
+                         [("factor", "10"), ("data", "[1, 2]")])
+
     def test_a_line_with_nothing_to_add_carries_no_names_at_all(self):
         self.assertNotIn("names", self.k.evaluate("x = 1 + 1\n", 0))
         self.assertNotIn("names", self.k.evaluate("sum([10, 20])\n", 0))
