@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-import { Evaluator } from './evaluate';
+import { Evaluator, STATUS_ACK_MS } from './evaluate';
 import { fixKeybindingConflict, reportKeybindingConflicts } from './conflicts';
 import { resolveInterpreter } from './config';
 import { KernelClient } from './kernel/client';
@@ -132,7 +132,8 @@ export function activate(context: vscode.ExtensionContext): void {
       // selected, a setting edited -- so the next client is built fresh.
       client?.dispose();
       client = undefined;
-      vscode.window.setStatusBarMessage('Evalens: kernel restarted', 2000);
+      vscode.window.setStatusBarMessage(
+        'Evalens: kernel restarted', STATUS_ACK_MS);
     })
   );
 

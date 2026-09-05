@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 
+import { announceResults } from '../config';
 import {
-  AnnounceSetting, Announceable, NOTHING_HERE, announcement,
+  Announceable, NOTHING_HERE, announcement,
   announcesAutomatically, spokenText, statusText,
 } from './announce';
 
@@ -149,19 +150,18 @@ export class Announcer implements vscode.Disposable {
 
   // -- internals ------------------------------------------------------------
 
-  /** Whether a result speaks for itself without being asked. */
+  /**
+   * Whether a result speaks for itself without being asked.
+   *
+   * The Evalens half of the question comes from `config.ts`, which is where
+   * every read of an `evalens.` setting lives so that no default can drift
+   * from the manifest's. The other half is VS Code's own
+   * `editor.accessibilitySupport` and is read here, because it belongs to the
+   * editor rather than to us and `config.ts` has nothing to check it against.
+   */
   private automatic(): boolean {
-    const configured = vscode.workspace
-      .getConfiguration('evalens')
-      .get<string>('announceResults', 'auto');
-    const setting: AnnounceSetting =
-      configured === 'always' || configured === 'never' ? configured : 'auto';
-    // Read per announcement rather than cached, like every other setting here:
-    // one a user has to reload the window to try is one they change twice
-    // before believing it, and this is a setting somebody turns on *because*
-    // nothing is being said to them.
     return announcesAutomatically(
-      setting,
+      announceResults(),
       vscode.workspace
         .getConfiguration('editor')
         .get<string>('accessibilitySupport'));

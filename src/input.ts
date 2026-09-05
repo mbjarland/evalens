@@ -9,7 +9,14 @@
  * Nothing here imports `vscode`.
  */
 
-/** Longest prompt shown above the box before it is trimmed. */
+/**
+ * Longest prompt shown above the box before it is trimmed.
+ *
+ * Not a setting. The box belongs to VS Code and stops showing the label at
+ * whatever width the window is, well short of this; raising the number would
+ * only move where an already-invisible string is cut. A preference has to be
+ * for something the person setting it can see.
+ */
 const LABEL_LIMIT = 200;
 
 /**

@@ -244,6 +244,20 @@ Cancelling a prompt sends a null answer, which reads as end-of-file and
 raises ``EOFError`` -- today's behaviour, kept deliberately, because a student
 who cannot get out of a prompt is worse off than one whose program errors.
 
+How much to show
+----------------
+An ``eval`` or ``eval_file`` request may carry ``limits``: ``loop_values``,
+how many of a loop's iterations to keep, and ``names``, how many of a line's
+names to read. Both are user preferences and both are sent per request rather
+than configured into the kernel, because a preference changed between two
+keypresses has to apply to the second one, and the only way to reconfigure a
+kernel that remembered them would be to restart it -- which discards the
+namespace, the one thing a session cannot get back. Zero means off, and it
+turns the *work* off rather than the display: an uninstrumented loop costs
+nothing per iteration, and a line whose names nobody wants is a line the
+namespace is never read for. Absent limits mean this module's defaults, so a
+caller that says nothing gets what it always got.
+
 Requires Python 3.9 or later (``ast.unparse``).
 """
 
@@ -295,16 +309,39 @@ NO_MODULE_NAME = "__evalens__"
 #: display policy -- the extension knows the editor width and truncates for
 #: reading. Without it, one `repr()` of a large frame is a multi-megabyte JSON
 #: line.
+#:
+#: Not a setting. Nobody has a preference about how large a JSON line may be;
+#: what a reader might want is a longer annotation, and this is not the number
+#: that decides that. A cap the far end is allowed to raise is not a guard, it
+#: is a suggestion -- and what it guards against is an editor hanging on a
+#: value nobody asked to see whole.
 WIRE_REPR_LIMIT = 8192
 
 #: How many `name: value` pairs one line may carry. A line that reports every
 #: name it mentions stops being an annotation and becomes a second copy of the
 #: namespace, and the code it is written beside disappears under it.
+#:
+#: A preference, and the default behind `evalens.readNamesPerLine`. How much
+#: of a line to spend on names depends on the file being read and the width of
+#: the window reading it, neither of which this end knows. The number arrives
+#: on the request instead -- see `_limits` -- so changing the setting takes
+#: effect on the next keypress rather than the next kernel.
 NAME_LIMIT = 4
 
 #: How many names a star import may name before it settles for counting them.
-#: The same reasoning as `NAME_LIMIT`: the annotation shares its line with the
-#: code it describes, and `from math import *` binds sixty.
+#: It shares `NAME_LIMIT`'s starting point -- the annotation shares its line
+#: with the code it describes, and `from math import *` binds sixty -- and
+#: stops being the same question there, which is why one became a setting and
+#: this did not.
+#:
+#: `NAME_LIMIT` is a cap: past it, names are dropped and counted, so raising it
+#: buys more of the same kind of information for more width. This is a
+#: threshold between two different annotations. Under it the line names every
+#: name; over it the line says `20 names` and no more, because the first four
+#: of sixty are wherever the module happened to define them rather than a
+#: sample of anything. There is no setting to be had in between, and a number
+#: in the settings UI that flips the annotation's whole shape at some value
+#: would read as a cap and behave as something else.
 STAR_NAME_LIMIT = 4
 
 #: The name a captured assignment stores its value through. Installed in the
@@ -351,6 +388,11 @@ _CONTROL_OUT: Optional[TextIO] = None
 #: Hard cap on prompt text put on the wire. A prompt is a sentence someone
 #: typed into `input()`; a megabyte of it is a bug, and a dialog is not where
 #: to discover that.
+#:
+#: Not a setting, for the same reason as `WIRE_REPR_LIMIT` and one more: the
+#: box this text ends up in is VS Code's, and it stops showing the prompt long
+#: before 500 characters whatever this says. A preference here would configure
+#: something the user cannot see.
 PROMPT_LIMIT = 500
 
 #: Answers to `input_request`, put here by the control thread and taken by
@@ -1450,6 +1492,10 @@ def _named_values(
     name simply vanished, and a reader who counts five names on the line and
     four values beside it cannot tell whether it was omitted, unreadable, or
     somehow not a name.
+
+    A `limit` of zero is the off switch for `evalens.readNames`. Nothing is
+    read: every name goes to the count, which is the honest thing for a line
+    that was asked to report none of them to say.
     """
     pairs = []
     more = 0
@@ -1480,6 +1526,12 @@ def _unwatched(names: Iterable[str], recorders: list) -> list:
     what stops one name appearing twice on a line saying two different things.
     `u` recorded as `4, 8, 12` and read back out of the namespace as `12` are
     both true, and side by side one of them reads as a correction of the other.
+
+    A loop with no recorders subtracts nothing, which is the right answer for
+    `evalens.loopValues` turned off as well as for the statement kinds that
+    were never instrumented: with no sequence being painted there is nothing
+    for the namespace reading to contradict, and suppressing it too would take
+    away the last thing left that can say what the body bound.
     """
     if not recorders:
         return list(names)
@@ -1487,7 +1539,9 @@ def _unwatched(names: Iterable[str], recorders: list) -> list:
     return [name for name in names if name not in watched]
 
 
-def _instrumented(node: ast.stmt) -> tuple[ast.stmt, list]:
+def _instrumented(
+    node: ast.stmt, head_limit: int = loops.HEAD_LIMIT
+) -> tuple[ast.stmt, list]:
     """`node` rewritten to announce each iteration, plus its recorders.
 
     Only a loop is touched, and only the loop the user pointed at -- the
@@ -1497,12 +1551,48 @@ def _instrumented(node: ast.stmt) -> tuple[ast.stmt, list]:
 
     Anything else comes back unchanged with no recorders, which is what makes
     the loop support cost the other statement kinds nothing at all.
+
+    A `head_limit` of zero is the off switch for `evalens.loopValues`, and it
+    turns the rewrite off rather than the display: an off switch that still
+    instrumented the loop would stop showing the sequence and keep charging
+    one `repr()` per iteration for it.
     """
-    if not isinstance(node, (ast.For, ast.AsyncFor)):
+    if head_limit <= 0 or not isinstance(node, (ast.For, ast.AsyncFor)):
         return node, []
     rewritten, plan = loops.instrument(node)
     return rewritten, loops.traces(
-        plan, lambda value: safe_repr(value, loops.ITEM_LIMIT))
+        plan, lambda value: safe_repr(value, loops.ITEM_LIMIT), head_limit)
+
+
+#: What one request asks its annotations to look like. The kernel holds no
+#: configuration of its own and deliberately learns none: a preference changed
+#: between two keypresses has to apply to the second one, and a kernel that
+#: remembered it would need restarting -- which throws away the namespace, the
+#: one thing a session cannot get back.
+_DEFAULT_LIMITS = {"loop_values": loops.HEAD_LIMIT, "names": NAME_LIMIT}
+
+
+def _limits(request: Dict[str, Any]) -> Dict[str, int]:
+    """The display limits on `request`, with this module's defaults behind them.
+
+    Anything missing, non-integral or negative falls back to the default. A
+    malformed limit must not be able to silence an annotation: a settings file
+    with a typo in it would then look exactly like a broken extension, and the
+    user has no reason to connect the two.
+    """
+    resolved = dict(_DEFAULT_LIMITS)
+    given = request.get("limits")
+    if not isinstance(given, dict):
+        return resolved
+    for key in resolved:
+        value = given.get(key)
+        # `isinstance(True, int)` is True, and a boolean here means the far
+        # end sent a flag where a count belongs -- a bug worth ignoring rather
+        # than reading as 0 or 1.
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            continue
+        resolved[key] = value
+    return resolved
 
 
 def _capturing(node: ast.Assign) -> ast.Assign:
@@ -2065,7 +2155,8 @@ class Kernel:
         # and names what the same line would under `python3 file.py`.
         with self._as_module(filename):
             outcome = self._run(form, filename,
-                                allow_stdin=bool(request.get("allow_stdin")))
+                                allow_stdin=bool(request.get("allow_stdin")),
+                                limits=_limits(request))
         outcome.update(partial)
         return outcome
 
@@ -2202,6 +2293,10 @@ class Kernel:
 
         results = []
         ran = 0
+        # Resolved once for the whole load rather than per statement: every
+        # statement in one request is answering the same keypress, so they had
+        # better be shown on the same terms.
+        limits = _limits(request)
         # Once for the whole load rather than once per statement: the imports
         # at the top of a file and the function bodies further down that import
         # lazily are the same file, and get the same name and the same path.
@@ -2211,7 +2306,8 @@ class Kernel:
                 # evaluation does. The flag is the caller's decision either
                 # way; nothing about running many statements makes the person
                 # watching them go away.
-                outcome = self._run(form, filename, allow_stdin=allow_stdin)
+                outcome = self._run(form, filename, allow_stdin=allow_stdin,
+                                    limits=limits)
                 results.append(outcome)
                 # Announced immediately after it is collected, so the two can
                 # never disagree about what happened, and in the loop rather
@@ -2298,8 +2394,10 @@ class Kernel:
     # -- internals ----------------------------------------------------------
 
     def _run(self, form: Form, filename: str,
-             allow_stdin: bool = False) -> Dict[str, Any]:
-        node, recorders = _instrumented(form.node)
+             allow_stdin: bool = False,
+             limits: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
+        limits = _DEFAULT_LIMITS if limits is None else limits
+        node, recorders = _instrumented(form.node, limits["loop_values"])
         if form.captured:
             # An assignment to an attribute or a subscript. The value has to
             # come from the statement, because the only other way to it is
@@ -2358,6 +2456,15 @@ class Kernel:
                         # taken the same way as the rest of it -- as that
                         # iteration began.
                         #
+                        # This branch is first, and that ordering is the whole
+                        # of the kernel's half of the loop question. The
+                        # resolver says a bare-name target *may* be read back,
+                        # because looking a name up is a dictionary lookup;
+                        # whether it is worth reading is dynamic and only this
+                        # frame knows the answer, because only this frame
+                        # knows whether the rewrite went in. It did, so the
+                        # trace is the answer and nothing is read.
+                        #
                         # Already text, recorded through `safe_repr` as each
                         # iteration began, so there is nothing left to
                         # describe and no untouched repr to send beside it.
@@ -2382,13 +2489,16 @@ class Kernel:
                         # in hand or is not shown at all -- see
                         # `resolver._value_source`, and #68 for what this
                         # branch did when it took anything it was given.
-                        expression = ast.Expression(
-                            ast.parse(form.display, mode="eval").body)
-                        value = eval(  # noqa: S307
-                            compile(expression, filename, "eval",
-                                    dont_inherit=True),
-                            self.namespace)
-                        shown, raw_repr = wire_value(value)
+                        #
+                        # Reaching here from a loop means `evalens.loopValues`
+                        # is off, and then this is the only thing left that
+                        # can say what the line did. `for p in []:` is the one
+                        # shape where even that has nothing: no iteration ran,
+                        # so `p` was never bound, and the lookup raised the
+                        # extension's own NameError in red beside a loop that
+                        # had worked. Nothing bound is nothing to say, which
+                        # is what `count: int` already answers.
+                        shown, raw_repr = self._read_back(form, filename)
                     else:
                         # A star import is the one statement with no display
                         # that still has something to say, and what it says
@@ -2412,8 +2522,16 @@ class Kernel:
                 # no iteration reached, the value in the namespace is whatever
                 # an earlier evaluation left there rather than anything this
                 # statement did.
+                #
+                # Which names to leave out and how many to keep are separate
+                # questions and stay separate calls: the first is about not
+                # contradicting the sequence beside it, the second is how much
+                # of a line the reader is willing to spend. `limits["names"]`
+                # of zero is `evalens.readNames` turned off, and what the cap
+                # leaves out is counted rather than dropped in silence.
                 names, more_names = _named_values(
-                    self.namespace, _unwatched(form.names, recorders))
+                    self.namespace, _unwatched(form.names, recorders),
+                    limits["names"])
             except BaseException as exc:  # noqa: BLE001
                 # BaseException, not Exception, and this catch carries more
                 # weight than it looks like it does.
@@ -2477,6 +2595,43 @@ class Kernel:
                 # the cap actually bit -- which is nearly no line at all.
                 outcome["more_names"] = more_names
         return outcome
+
+    def _read_back(self, form: Form,
+                   filename: str) -> Tuple[Optional[str], Optional[str]]:
+        """`form.display` looked up in the namespace, or nothing if unbound.
+
+        Only ever called for a display the resolver marked readable, which is
+        a bare name or a tuple of bare names. That is what makes the narrow
+        `except` honest as well as safe: a name lookup has exactly one way to
+        fail, so catching `NameError` here cannot swallow anything else, and
+        the one thing it does catch means the statement bound nothing.
+
+        `for p in []:` is the shape that needs it, and only with
+        `evalens.loopValues` off -- an instrumented loop answers from its
+        recorders and never arrives here. Nothing ran, so nothing is claimed;
+        painting `NameError: name 'p' is not defined` beside a loop that
+        completed is the extension reporting its own failure as the user's.
+
+        **The known gap, named rather than papered over.** That covers a loop
+        that ran zero times over a name nothing had bound. If the name *was*
+        bound before -- `q = 5` and then `for q in []:` -- there is no way to
+        tell "the loop bound this" from "something earlier did", and the line
+        reports `q: 5`, which the statement did not produce. Every way of
+        closing it costs more than it saves: instrumenting the loop is what
+        `evalens.loopValues` off exists not to do, sentinel-marking the target
+        makes `for q in f(q):` see the sentinel, and comparing identity
+        answers by whether CPython happened to intern the value. It needs
+        all three of an off switch nobody has on by default, an empty
+        sequence, and a name already bound; the default reports
+        `(no iterations)` correctly, because there the recorders counted.
+        """
+        expression = ast.Expression(ast.parse(form.display, mode="eval").body)
+        code = compile(expression, filename, "eval", dont_inherit=True)
+        try:
+            value = eval(code, self.namespace)  # noqa: S307
+        except NameError:
+            return None, None
+        return wire_value(value)
 
     @staticmethod
     def _syntax_error(exc: SyntaxError) -> Dict[str, Any]:

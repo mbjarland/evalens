@@ -1,12 +1,12 @@
 import * as vscode from 'vscode';
 
+import { printedLabel as printedLabelSetting, resultColumn } from '../config';
 import {
   BindingTrace, LoopTrace, NamedValue, Range as KernelRange,
 } from '../kernel/protocol';
 import {
-  PRINTED_LABEL, Printed, Segment, SegmentRole, alignmentGap, columnWidth,
-  errorText, hasOutput, joinSegments, opensDefinition, restatesLine,
-  resultSegments,
+  Printed, Segment, SegmentRole, alignmentGap, columnWidth, errorText,
+  hasOutput, joinSegments, opensDefinition, restatesLine, resultSegments,
 } from './format';
 import { SEGMENT_SLOTS, coalesce, paintOrder } from './layers';
 import { Marker, Traced, markerFor, normalizeSource } from './registry';
@@ -285,15 +285,10 @@ export class Decorator implements vscode.Disposable {
     const markers = new Map<Marker, vscode.DecorationOptions[]>(
       MARKERS.map((marker) => [marker, []]));
 
-    const targetColumn = vscode.workspace
-      .getConfiguration('evalens')
-      .get<number>('alignColumn', 80);
+    const targetColumn = resultColumn();
     // Read here rather than captured, so editing the setting takes effect on
     // the next paint the way the alignment column does.
-    const printedLabel = vscode.workspace
-      .getConfiguration('evalens')
-      .get<string>('printedLabel', PRINTED_LABEL)
-      .trim() || PRINTED_LABEL;
+    const label = printedLabelSetting();
     const tabSize = typeof editor.options.tabSize === 'number'
       ? editor.options.tabSize
       : 4;
@@ -334,7 +329,7 @@ export class Decorator implements vscode.Disposable {
 
       const printed = annotation.printed === undefined
         ? undefined
-        : { ...annotation.printed, label: printedLabel };
+        : { ...annotation.printed, label };
 
       // One click from the annotation to the channel, and only where there is
       // something in it to reach. The channel is overflow rather than the

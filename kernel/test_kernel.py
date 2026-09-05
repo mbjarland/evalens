@@ -302,6 +302,37 @@ CONTAINER = (
     "led = Leds()\n"
 )
 
+#: A value that announces every description taken of it, and a module-level
+#: ledger of them in order.
+#:
+#: Looking a bare name up is a dictionary lookup and is silent by
+#: construction, which is exactly why it is allowed -- so a read-back of one
+#: is only observable where it ends, in the `repr()` the kernel takes to put
+#: the value on the wire. That is the whole of the read-back, and this makes
+#: it announce itself the way #68's property getter did.
+#:
+#: `seen` is the half that cannot be argued with: it says which objects were
+#: described and in what order, from inside the user's namespace, and it is
+#: read on a later line whose own annotation adds nothing to it.
+WATCHED = (
+    "seen = []\n"
+    "class Watched:\n"
+    "    def __init__(self, n):\n"
+    "        self.n = n\n"
+    "    def __repr__(self):\n"
+    "        seen.append(self.n)\n"
+    "        print('DESCRIBED', self.n)\n"
+    "        return 'w%d' % self.n\n"
+    "def three():\n"
+    "    return [Watched(0), Watched(1), Watched(2)]\n"
+)
+
+#: The loop under test, and the ledger read afterwards. Lines 10 and 12.
+WATCHED_LOOP = WATCHED + "for w in three():\n    pass\nseen\n"
+
+#: Every line of `WATCHED_LOOP` up to and including the loop.
+WATCHED_LINES = (0, 1, 8, 10)
+
 
 class AnnotatingRunsNothing(KernelTest):
     """An annotation may not execute code the statement did not.
@@ -371,6 +402,60 @@ class AnnotatingRunsNothing(KernelTest):
         self.assertTrue(loop["ok"], loop)
         self.assertIsNone(loop["value"])
         self.assertEqual(self.k.evaluate(src, 4)["value"], "[20]")
+
+    def test_an_instrumented_loop_does_not_read_a_target_it_could(self):
+        # The other half, and the one neither branch had. `w` is a bare name,
+        # so reading it back is a dictionary lookup and the resolver permits
+        # it -- this asserts the kernel declines anyway, because it installed
+        # recorders and the sequence they collected is the better answer.
+        #
+        # Three iterations, three descriptions, each taken inside the loop as
+        # its iteration began. A fourth entry would be the annotation reading
+        # the target back after the loop, which is the re-entry #68 is about
+        # and which no assertion on the painted value can distinguish: the
+        # sequence and the final value agree here on purpose.
+        loop = self.k.evaluate_lines(WATCHED_LOOP, *WATCHED_LINES)
+        self.assertTrue(loop["ok"], loop)
+        self.assertEqual(loop["loop"]["values"], ["w0", "w1", "w2"])
+        self.assertEqual(loop["value"], "w2")
+        self.assertEqual(loop["stdout"],
+                         "DESCRIBED 0\nDESCRIBED 1\nDESCRIBED 2\n")
+        self.assertEqual(self.k.evaluate(WATCHED_LOOP, 12)["value"],
+                         "[0, 1, 2]", "one description per iteration, no more")
+
+    def test_an_uninstrumented_loop_reads_the_target_exactly_once(self):
+        # `evalens.loopValues` off, so there are no recorders and nothing was
+        # described during the loop. The single entry is the read-back, which
+        # is what makes the assertion above mean something: the ledger can
+        # tell the two paths apart, so the empty tail there is evidence and
+        # not an artefact of the fixture.
+        loop = self.k.evaluate_lines(WATCHED_LOOP, *WATCHED_LINES,
+                                     limits={"loop_values": 0})
+        self.assertTrue(loop["ok"], loop)
+        self.assertNotIn("loop", loop)
+        self.assertEqual(loop["value"], "w2")
+        self.assertEqual(loop["stdout"], "DESCRIBED 2\n")
+        self.assertEqual(
+            self.k.evaluate(WATCHED_LOOP, 12, limits={"loop_values": 0})
+            ["value"], "[2]")
+
+    def test_a_loop_that_never_ran_reports_nothing_rather_than_failing(self):
+        # `for p in []:` binds nothing, so with the recorders off there is
+        # nothing to look up and the read-back raised NameError -- the
+        # extension's own failure, in red, against the loop's own line, on a
+        # statement that completed. The same answer `count: int` gets.
+        empty = self.k.evaluate("for p in []:\n    pass\n", 0,
+                                limits={"loop_values": 0})
+        self.assertTrue(empty["ok"], empty)
+        self.assertEqual(empty["display"], "p")
+        self.assertIsNone(empty["value"])
+
+    def test_an_unpacking_loop_that_never_ran_reports_nothing_either(self):
+        empty = self.k.evaluate("for k, v in {}.items():\n    pass\n", 0,
+                                limits={"loop_values": 0})
+        self.assertTrue(empty["ok"], empty)
+        self.assertEqual(empty["display"], "(k, v)")
+        self.assertIsNone(empty["value"])
 
     def test_a_bare_annotation_binds_nothing_and_reports_nothing(self):
         # `count: int` runs and binds nothing, so reading `count` back raised
@@ -2489,6 +2574,87 @@ class StarImports(KernelTest):
         self.assertTrue(loaded["ok"], loaded)
         self.assertEqual(loaded["ran"], loaded["statements"])
         self.assertEqual([r for r in loaded["results"] if not r["ok"]], [])
+
+
+class Limits(KernelTest):
+    """How much to show is the reader's call, and it arrives per request.
+
+    Both numbers are user settings. They are not configured into the kernel
+    because the only way to change a kernel's mind about them would be to
+    restart it, and restarting discards the namespace -- so adjusting a
+    display preference would cost a session.
+    """
+
+    def sequence(self, source, **extra):
+        return self.k.evaluate(source, 0, **extra)
+
+    def test_a_request_may_ask_for_more_names_than_the_default(self):
+        source = ("a = 1\nb = 2\nc = 3\nd = 4\ne = 5\n"
+                  "print(a, b, c, d, e)\n")
+        result = self.k.evaluate_lines(source, 0, 1, 2, 3, 4, 5,
+                                       limits={"names": 5})
+        self.assertEqual([p["name"] for p in result["names"]],
+                         ["a", "b", "c", "d", "e"])
+
+    def test_the_default_still_stops_at_four(self):
+        source = ("a = 1\nb = 2\nc = 3\nd = 4\ne = 5\n"
+                  "print(a, b, c, d, e)\n")
+        result = self.k.evaluate_lines(source, 0, 1, 2, 3, 4, 5)
+        self.assertEqual([p["name"] for p in result["names"]],
+                         ["a", "b", "c", "d"])
+
+    def test_zero_names_reports_none_at_all(self):
+        # The off switch for `evalens.readNames`. The line still evaluates and
+        # still says what it produced; it just stops repeating the namespace.
+        result = self.k.evaluate_lines(
+            "y = [1, 2, 3]\nprint('y:', y)\n", 0, 1, limits={"names": 0})
+        self.assertEqual(result["value"], "None")
+        self.assertNotIn("names", result)
+
+    def test_a_request_may_ask_for_more_loop_iterations(self):
+        result = self.sequence("for p in range(20):\n    pass\n",
+                               limits={"loop_values": 8})
+        self.assertEqual(result["loop"]["values"],
+                         ["0", "1", "2", "3", "4", "5", "6", "7"])
+        self.assertEqual(result["loop"]["count"], 20)
+
+    def test_zero_loop_values_leaves_the_loop_uninstrumented(self):
+        # The off switch for `evalens.loopValues`, and it has to turn off the
+        # rewrite rather than the rendering: hiding the sequence while still
+        # taking one repr() per iteration would charge for a feature nobody
+        # asked for.
+        #
+        # The target's final value is then reported the way any other bare
+        # name's is. Reporting nothing instead would leave the line blank, and
+        # a blank line reads as "nothing happened" -- a worse falsehood than a
+        # final value, which is one true binding in the shape every other
+        # binding is shown in. Nothing here is dressed up as a history,
+        # because with no recorders there is no history on the line to confuse
+        # it with. The safety half of that split is the resolver's and stays
+        # there: see `WhereTheValueComesFrom` in `test_resolver`.
+        result = self.sequence("for p in range(1000):\n    pass\n",
+                               limits={"loop_values": 0})
+        self.assertTrue(result["ok"], result)
+        self.assertNotIn("loop", result)
+        self.assertEqual(result["value"], "999")
+
+    def test_a_malformed_limit_falls_back_rather_than_silencing(self):
+        # A typo in settings.json must not look like a broken extension. The
+        # user has no reason to connect the two, and "it stopped annotating"
+        # is the least diagnosable symptom this extension has.
+        for bad in ({"names": "four"}, {"names": -1}, {"names": True},
+                    {"names": None}, "not a mapping"):
+            with self.subTest(bad=bad):
+                result = self.k.evaluate_lines(
+                    "y = [1, 2, 3]\nprint('y:', y)\n", 0, 1, limits=bad)
+                self.assertEqual(
+                    [p["name"] for p in result.get("names", [])], ["y"])
+
+    def test_a_file_load_honours_the_same_limits(self):
+        result = self.k.send(
+            op="eval_file", source="y = [1, 2]\nprint('y:', y)\n",
+            filename="/tmp/module.py", limits={"names": 0})
+        self.assertNotIn("names", result["results"][1])
 
 
 class Docstrings(KernelTest):

@@ -73,12 +73,25 @@ RECORDERS = "__evalens_loops__"
 #: How many leading values a summary keeps before it starts counting. Small on
 #: purpose: this ends up on one line beside the code, and the first few values
 #: plus the last is what tells you the shape of a run.
+#:
+#: A preference, not an invariant: this is how much of a line the reader is
+#: willing to spend on one loop, and nobody but the reader knows that. It is
+#: the default behind `evalens.loopIterations`, which arrives per request --
+#: the kernel keeps no configuration of its own, so a setting changed between
+#: two keypresses takes effect on the second one without a restart.
 HEAD_LIMIT = 5
 
 #: Per-value cap, applied by whoever supplies the `repr()`. The wire has its
 #: own, much larger, limit; this one stops a single fat `repr()` from crowding
 #: out the other five. This module deliberately holds no `repr()` policy of its
 #: own -- taking one would mean importing the kernel, which imports this.
+#:
+#: Not a setting, and it is the one on this list that looks most like one. The
+#: cap is applied at capture time, inside the user's loop, to a string that is
+#: kept and an object that is not -- so a display preference has nothing left
+#: to apply to afterwards. Raising it would not widen an annotation, it would
+#: buy a million-iteration loop a longer `repr()` per iteration for a value
+#: that gets elided anyway.
 ITEM_LIMIT = 200
 
 #: How many names bound in the body one loop may report, on the same principle
@@ -86,6 +99,14 @@ ITEM_LIMIT = 200
 #: code it describes, and the target's own sequence is already on it. A body
 #: binding five names would bury the loop under five more histories. Naming a
 #: specific one is what a watch expression is for.
+#:
+#: Not a setting, though it is the same kind of number as `HEAD_LIMIT`, which
+#: is one. This multiplies rather than adds: three body names at five
+#: iterations each is fifteen values on a line that also carries the target's
+#: own five, and the number of them the reader can stand is already governed
+#: by `evalens.loopIterations` above it. A second dial behind the same off
+#: switch would be one nobody finds and everybody has to reason about
+#: alongside the first.
 BINDING_LIMIT = 3
 
 #: `sys._getframe`, looked up once. See `LoopTrace.bind` for why the body
@@ -511,10 +532,22 @@ def instrument(node: ast.stmt) -> Tuple[ast.stmt, List[Tuple[str, ...]]]:
     return ast.fix_missing_locations(rewritten), instrumenter.plan
 
 
-def traces(plan: List[Tuple[str, ...]],
-           repr_fn: Callable[[Any], str]) -> List[LoopTrace]:
-    """One recorder per instrumented loop, in the order they were allocated."""
-    return [LoopTrace(repr_fn, names=names) for names in plan]
+def traces(plan: List[Tuple[str, ...]], repr_fn: Callable[[Any], str],
+           limit: int = HEAD_LIMIT) -> List[LoopTrace]:
+    """One recorder per instrumented loop, in the order they were allocated.
+
+    Two independent things arrive here. The `plan` says *what* each recorder
+    watches -- one entry per loop, holding that loop's body names -- and is
+    positional because a recorder is no longer interchangeable with the next
+    one. `limit` says *how much* of what it watched to keep, and comes from the
+    request so that `evalens.loopIterations` applies to the next keypress
+    rather than to the next kernel.
+
+    The limit reaches the body's traces too: `LoopTrace` hands it to the child
+    it builds per watched name, so a binding and the target beside it are cut
+    off at the same iteration instead of drifting apart on one line.
+    """
+    return [LoopTrace(repr_fn, limit, names) for names in plan]
 
 
 class installed:  # noqa: N801 - reads as a context manager, and is one
