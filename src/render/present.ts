@@ -1,5 +1,6 @@
 import {
   BindingTrace, EvalResponse, LoopTrace, NamedValue, PartialParse, Range,
+  TableWire,
 } from '../kernel/protocol';
 import { Printed, hasOutput, hoverText, printedFrom } from './format';
 
@@ -68,6 +69,14 @@ export type Presentation =
       readonly names?: readonly NamedValue[];
       /** How many further names the kernel's per-line cap left out. */
       readonly more?: number;
+      /**
+       * A bounded table description of `value`, when it duck-types as one
+       * of the shapes #24 covers -- see `TableWire`. Never rendered here:
+       * `render/table.ts`'s `tableMarkdown` is the one place that turns it
+       * into text, so there is exactly one answer for what a table looks
+       * like, reached from wherever ends up showing one.
+       */
+      readonly table?: TableWire;
       /**
        * What the statement printed, when it printed anything.
        *
@@ -186,6 +195,7 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
     ...(response.more_names === undefined
       ? {}
       : { more: response.more_names }),
+    ...(response.table === undefined ? {} : { table: response.table }),
     ...(response.binds === undefined ? {} : { binds: response.binds }),
     ...(response.reads === undefined ? {} : { reads: response.reads }),
     ...(speaks

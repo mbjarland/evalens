@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 import { printedLabel as printedLabelSetting, resultColumn } from '../config';
 import {
-  BindingTrace, LoopTrace, NamedValue, Range as KernelRange,
+  BindingTrace, LoopTrace, NamedValue, Range as KernelRange, TableWire,
 } from '../kernel/protocol';
 import {
   GAP, Printed, Segment, SegmentRole, alignmentGap, columnWidth, errorText,
@@ -231,6 +231,16 @@ export interface Annotation extends Traced {
    * can say so rather than look as though it lost one.
    */
   readonly more?: number;
+  /**
+   * A bounded table description of `value`, for #24 -- a `pandas.DataFrame`,
+   * or a list/tuple of dicts, `namedtuple`s, or same-length lists/tuples.
+   * Never painted here: it is an elaboration reached from the hover
+   * (`render/hover.ts`, via `render/table.ts`'s `tableMarkdown`), not a
+   * second thing beside the line. Set by whoever turns a `Presentation`
+   * into an `Annotation` -- see `Presentation`'s own `table` field in
+   * `render/present.ts` for where it comes from on the wire.
+   */
+  readonly table?: TableWire;
   /**
    * What the statement printed; painted after everything else, not instead.
    *
