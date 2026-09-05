@@ -7,6 +7,7 @@ import { KernelClient } from './kernel/client';
 import { Announcer } from './render/announcer';
 import { Annotations } from './render/annotations';
 import { Flash } from './render/flash';
+import { ValueHoverProvider } from './render/hover';
 
 let client: KernelClient | undefined;
 let output: vscode.OutputChannel | undefined;
@@ -41,6 +42,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
   annotations = new Annotations(context.extensionUri, flash, announcer);
   context.subscriptions.push(annotations);
+
+  // #46: the full value, reachable by hovering the statement it came from,
+  // rather than glued to a decoration range that nothing can ever land on.
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      'python', new ValueHoverProvider(annotations))
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('evalens.clearResults', () => {

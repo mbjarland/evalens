@@ -157,6 +157,13 @@ export interface Annotation extends Traced {
    */
   readonly printed?: Printed;
   readonly error?: { readonly type: string; readonly message: string };
+  /**
+   * The full, untruncated answer -- read by `render/hover.ts`'s
+   * `HoverProvider`, not painted here. See #46: a decoration's own
+   * `hoverMessage` cannot do this job, because it keys off `range`, and this
+   * type's `range` is deliberately real while the paint position (`at`,
+   * below) is a zero-width point built only to host `after` content.
+   */
   readonly hover?: string;
   /**
    * Set while the statement has not finished, displacing everything above.
@@ -363,23 +370,13 @@ export class Decorator implements vscode.Disposable {
         ? undefined
         : { ...annotation.printed, label };
 
-      // One click from the annotation to the channel, and only where there is
-      // something in it to reach. The channel is overflow rather than the
-      // destination -- opening a panel would put the answer somewhere other
-      // than the code, which is the notebook's mistake -- so it is offered
-      // here and never forced.
-      const hoverMessage = annotation.hover
-        ? new vscode.MarkdownString(
-            ['```', annotation.hover, '```',
-              ...(hasOutput(printed)
-                ? [`[Show all output](command:${SHOW_OUTPUT})`]
-                : [])].join('\n'))
-        : undefined;
-      if (hoverMessage) {
-        // Narrow rather than a blanket `true`: a hover that can run one named
-        // command is a link, and a hover that can run anything is a hole.
-        hoverMessage.isTrusted = { enabledCommands: [SHOW_OUTPUT] };
-      }
+      // The one click from the annotation to the channel used to hang off a
+      // `hoverMessage` here, on a range with no width -- see #46. A
+      // `DecorationOptions.range` the API itself documents as "must not be
+      // empty" cannot be what a mouse or a keyboard ever lands on, so nothing
+      // here was ever reachable. `render/hover.ts` answers the same question
+      // from a real `HoverProvider`, registered on the position instead of on
+      // this paint, and reads `annotation.hover` for itself.
 
       if (annotation.pending) {
         // First, and displacing whatever the statement said last time. Taking
@@ -395,7 +392,6 @@ export class Decorator implements vscode.Disposable {
       } else if (annotation.error) {
         errors.push({
           range: at,
-          hoverMessage,
           renderOptions: {
             after: {
               margin,
@@ -434,11 +430,6 @@ export class Decorator implements vscode.Disposable {
         // comparison happens here, at the last moment, because here is the
         // only place that holds both halves of it.
         //
-        // The hover goes with it, since the hover hangs off the text. What it
-        // would have carried is the address this feature exists to keep off
-        // the screen, and there is nothing to hover over on a line with no
-        // annotation on it.
-        //
         // A definition never asks the question. `def greet(name)` and `def
         // greet(name):` are the same characters and a different claim -- the
         // line says what happens when it runs, the annotation says it has run
@@ -465,10 +456,6 @@ export class Decorator implements vscode.Disposable {
           painted.forEach((segment, slot) => {
             results[slot]!.push({
               range: at,
-              // On every segment rather than only the first: the hover hangs
-              // off the text, and a reader pointing at a value should not have
-              // to find the piece of it that happens to carry the shelf.
-              hoverMessage,
               renderOptions: {
                 after: {
                   // Only the first segment is pushed out to the alignment

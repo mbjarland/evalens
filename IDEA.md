@@ -606,10 +606,12 @@ reasoning for why this is a trace at all.
 
 **Value formatting.** Truncation limits, nesting depth, hover-for-full, and
 sensible handling of large or cyclic structures. Partly done, and the open
-tickets are the honest status: #12 truncation, #46 (the hover is implemented
-and attached to a zero-width range, so nobody sees it), #54 (`repr()` builds
-the whole string before the wire cap discards it), #73 (memory addresses
-inside containers).
+tickets are the honest status: #12 truncation, #54 (`repr()` builds the whole
+string before the wire cap discards it), #73 (memory addresses inside
+containers). #46 (the hover was built and attached to a zero-width range, so
+nobody ever saw it) is fixed: a `HoverProvider` answers the position instead,
+which is also the path VS Code's Accessible View and keyboard-triggered hover
+use.
 
 ## Why reactive re-evaluation is closed
 
