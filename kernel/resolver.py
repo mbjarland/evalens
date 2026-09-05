@@ -104,6 +104,21 @@ def _start_line(node: ast.stmt) -> int:
     return node.lineno
 
 
+def form_of(node: ast.stmt) -> Form:
+    """Describe a statement: what to run, what to show, and where it is."""
+    start = _start_line(node) - 1
+    end = (node.end_lineno or node.lineno) - 1
+    return Form(
+        node=node,
+        kind=type(node).__name__,
+        display=display_expr(node),
+        start_line=start,
+        start_char=0 if start < node.lineno - 1 else node.col_offset,
+        end_line=end,
+        end_char=node.end_col_offset or 0,
+    )
+
+
 def form_at(tree: ast.Module, line: int, character: int = 0) -> Optional[Form]:
     """The top-level statement containing 0-based `line`, or None.
 
@@ -117,13 +132,5 @@ def form_at(tree: ast.Module, line: int, character: int = 0) -> Optional[Form]:
         start = _start_line(node) - 1
         end = (node.end_lineno or node.lineno) - 1
         if start <= line <= end:
-            return Form(
-                node=node,
-                kind=type(node).__name__,
-                display=display_expr(node),
-                start_line=start,
-                start_char=0 if start < node.lineno - 1 else node.col_offset,
-                end_line=end,
-                end_char=node.end_col_offset or 0,
-            )
+            return form_of(node)
     return None

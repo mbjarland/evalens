@@ -42,7 +42,7 @@ import sys
 import traceback
 from typing import Any, Dict, Iterator, Optional
 
-from resolver import Form, form_at
+from resolver import Form, form_at, form_of
 
 #: Hard cap on a repr() put on the wire. This is a transport guard, not a
 #: display policy -- the extension knows the editor width and truncates for
@@ -203,7 +203,7 @@ class Kernel:
         return self._run(form, filename)
 
     def evaluate_file(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Run a whole module body in the namespace, as an import would.
+        """Run a whole module body, reporting what each statement produced.
 
         This is Calva's Load File. Its Clojure form is safe because a
         namespace is almost all definitions; a Python module body genuinely
@@ -213,10 +213,19 @@ class Kernel:
         means *import the module*, and an imported module does not run its
         ``if __name__ == "__main__":`` block. ``__name__`` here is
         ``"__evalens__"``, so that guard is False without anything special
-        being done about it -- no heuristic, no list of statements to skip.
-        ``test_kernel`` pins it, because it is currently true as a
+        being done about it. ``test_kernel`` pins it, because it is true as a
         consequence of the namespace setup and would be easy to break by
         making ``__name__`` look more realistic.
+
+        Every statement goes through the same ``_run`` a single evaluation
+        uses. That is deliberate rather than incidental: a bare ``exec`` loop
+        would reintroduce the double-execution bug across an entire file,
+        which is a far worse version of it than the single-statement case.
+
+        Failures do not stop the load. A file being explored in is expected
+        to contain broken lines -- that is why you are poking at it -- and
+        abandoning everything below the first mistake means the command that
+        sets up a session refuses to set one up.
         """
         source: str = request.get("source", "")
         filename: str = request.get("filename") or "<evalens>"
@@ -230,34 +239,19 @@ class Kernel:
         except SyntaxError as exc:
             return self._syntax_error(exc)
 
-        with _user_io() as (out, err):
-            for index, statement in enumerate(tree.body):
-                module = ast.Module(body=[statement], type_ignores=[])
-                try:
-                    exec(compile(module, filename, "exec"), self.namespace)
-                except BaseException as exc:  # noqa: BLE001
-                    # Stop at the failure rather than pressing on. Continuing
-                    # would build a namespace half from this file and half
-                    # from whatever ran before, which nobody can reason about.
-                    return {
-                        "ok": False,
-                        "error": _error(exc, tb_skip=1),
-                        "statements": index,
-                        "range": {
-                            "start": _position(statement.lineno - 1, 0),
-                            "end": _position(
-                                (statement.end_lineno or statement.lineno) - 1,
-                                statement.end_col_offset or 0),
-                        },
-                        "stdout": out.getvalue(),
-                        "stderr": err.getvalue(),
-                    }
+        results = []
+        ran = 0
+        for statement in tree.body:
+            outcome = self._run(form_of(statement), filename)
+            results.append(outcome)
+            if outcome["ok"]:
+                ran += 1
 
         return {
             "ok": True,
             "statements": len(tree.body),
-            "stdout": out.getvalue(),
-            "stderr": err.getvalue(),
+            "ran": ran,
+            "results": results,
         }
 
     # -- internals ----------------------------------------------------------

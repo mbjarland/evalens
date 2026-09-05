@@ -236,19 +236,50 @@ class LoadFile(KernelTest):
         self.assertEqual(
             self.k.evaluate("__name__\n", 0)["value"], "'__evalens__'")
 
-    def test_loading_stops_at_the_first_failure(self):
-        source = "a = 1\nraise ValueError('stop here')\nb = 2\n"
+    def test_loading_continues_past_a_failure(self):
+        # A file being explored in is expected to contain broken lines; that
+        # is why you are poking at it. Abandoning everything below the first
+        # mistake means the command that sets up a session refuses to.
+        source = "a = 1\nundefined_one\nb = 2\nundefined_two\nc = 3\n"
         result = self.load(source)
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["error"]["type"], "ValueError")
-        self.assertEqual(result["statements"], 1, "one statement ran before it")
-        self.assertEqual(result["range"]["start"]["line"], 1)
-        # Everything before the failure is in the namespace; nothing after is.
-        self.assertEqual(self.k.evaluate("a\n", 0)["value"], "1")
-        self.assertFalse(self.k.evaluate("b\n", 0)["ok"])
+        self.assertTrue(result["ok"], "a broken line is not a broken load")
+        self.assertEqual(result["statements"], 5)
+        self.assertEqual(result["ran"], 3)
+        failed = [r for r in result["results"] if not r["ok"]]
+        self.assertEqual(len(failed), 2)
+        self.assertEqual([f["range"]["start"]["line"] for f in failed], [1, 3])
+        # Including the statement BELOW both failures.
+        for name, expected in (("a", "1"), ("b", "2"), ("c", "3")):
+            self.assertEqual(self.k.evaluate(name + "\n", 0)["value"], expected)
 
-    def test_output_during_a_load_is_captured(self):
-        self.assertEqual(self.load("print('loading')\n")["stdout"], "loading\n")
+    def test_loading_reports_a_value_for_every_statement(self):
+        # Load File exists to remove the tedium of walking down a file
+        # pressing a key. Running the statements and showing nothing removes
+        # nothing.
+        result = self.load("a = 1\nb = a + 1\nb\n")
+        shown = [(r["display"], r["value"]) for r in result["results"]]
+        self.assertEqual(shown, [("a", "1"), ("b", "2"), ("b", "2")])
+
+    def test_a_statement_with_no_value_still_reports_that_it_ran(self):
+        result = self.load("x = 0\nif True:\n    x = 5\nx\n")
+        conditional = result["results"][1]
+        self.assertTrue(conditional["ok"])
+        self.assertIsNone(conditional["value"])
+        self.assertEqual(conditional["kind"], "If")
+        self.assertEqual(result["results"][2]["value"], "5")
+
+    def test_loading_does_not_double_execute_expression_statements(self):
+        # A bare exec loop would reintroduce the double-execution bug across
+        # a whole file, which is a far worse version of it.
+        result = self.load("xs = []\nxs.append(7)\nxs\n")
+        self.assertEqual(result["results"][2]["value"], "[7]")
+
+    def test_output_is_captured_and_attributed_per_statement(self):
+        # Per statement rather than for the whole load: with twenty prints in
+        # a file, one merged blob says nothing about which line wrote what.
+        result = self.load("print('first')\nprint('second')\n")
+        self.assertEqual(
+            [r["stdout"] for r in result["results"]], ["first\n", "second\n"])
 
     def test_a_syntax_error_is_reported_with_its_position(self):
         result = self.load("a = 1\ndef (\n")

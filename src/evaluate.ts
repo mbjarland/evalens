@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
 
 import { KernelClient } from './kernel/client';
-import { EvalResponse, FileResponse, LatestWins } from './kernel/protocol';
+import {
+  EvalResponse, FileResponse, LatestWins, StatementOutcome,
+} from './kernel/protocol';
 import { Annotations } from './render/annotations';
 import { Annotation, toVsCodeRange } from './render/decorations';
-import { present } from './render/present';
+import { describeLoad, present } from './render/present';
 
 /**
  * Turns a keypress into an annotation.
@@ -17,6 +19,38 @@ import { present } from './render/present';
  * sidesteps the whole problem. Changing this is a decision ticket, not a
  * commit.
  */
+/**
+ * One missing import at the top can fail every statement below it, and a long
+ * file has a lot of statements. This is a guard against painting a thousand
+ * annotations in one keystroke, not a considered display limit.
+ */
+const MAX_LOAD_ANNOTATIONS = 200;
+
+/** The annotation for one loaded statement, or none if it has nothing to say. */
+function annotationFor(outcome: StatementOutcome): Annotation | undefined {
+  if (!outcome.ok) {
+    return outcome.range
+      ? {
+          range: toVsCodeRange(outcome.range),
+          error: { type: outcome.error.type, message: outcome.error.message },
+          hover: outcome.error.traceback || outcome.error.message,
+        }
+      : undefined;
+  }
+  if (outcome.value === null) {
+    // It ran; an `if` or a `del` simply has no value to report.
+    return undefined;
+  }
+  return {
+    range: toVsCodeRange(outcome.range),
+    value: outcome.value,
+    display: outcome.display,
+    hover: outcome.display
+      ? `${outcome.display} = ${outcome.value}`
+      : outcome.value,
+  };
+}
+
 export class Evaluator {
   private readonly gate = new LatestWins<string>();
 
@@ -51,29 +85,46 @@ export class Evaluator {
       return;
     }
 
-    if (response.ok) {
-      const n = response.statements;
-      vscode.window.setStatusBarMessage(
-        `Evalens: loaded ${n} statement${n === 1 ? '' : 's'}`, 3000);
-      if (response.stdout) {
-        this.output.append(response.stdout);
+    if (!response.ok) {
+      // Only a syntax error reaches here: nothing could run, so there is
+      // nothing partial to report.
+      void vscode.window.showErrorMessage(
+        `Evalens: ${response.error.type}: ${response.error.message}`);
+      if (response.range) {
+        this.annotations.add(document, {
+          range: toVsCodeRange(response.range),
+          error: { type: response.error.type, message: response.error.message },
+          hover: response.error.traceback || response.error.message,
+        });
       }
       return;
     }
 
-    // A failure DOES get annotated: it has a place on screen, and the user
-    // needs to see which statement stopped the load.
-    const ran = response.statements ?? 0;
-    void vscode.window.showErrorMessage(
-      `Evalens: load stopped after ${ran} statement${ran === 1 ? '' : 's'} ` +
-      `- ${response.error.type}: ${response.error.message}`);
-    if (response.range) {
-      this.annotations.add(document, {
-        range: toVsCodeRange(response.range),
-        error: { type: response.error.type, message: response.error.message },
-        hover: response.error.traceback || response.error.message,
-      });
+    // Loading paints values. Load File exists to remove the tedium of
+    // walking down a file pressing a key; if it runs fifteen statements and
+    // shows nothing, the user has to walk down the file pressing a key to
+    // find out what it did, and the command has removed nothing.
+    let failed = 0;
+    let annotated = 0;
+    for (const outcome of response.results) {
+      if (outcome.stdout) {
+        this.output.append(outcome.stdout);
+      }
+      if (!outcome.ok) {
+        failed += 1;
+      }
+      if (annotated >= MAX_LOAD_ANNOTATIONS) {
+        continue;
+      }
+      const annotation = annotationFor(outcome);
+      if (annotation) {
+        this.annotations.add(document, annotation);
+        annotated += 1;
+      }
     }
+
+    vscode.window.setStatusBarMessage(
+      describeLoad(response.ran, response.statements, failed), 4000);
   }
 
   async evaluateAtCursor(editor: vscode.TextEditor): Promise<void> {

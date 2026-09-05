@@ -67,3 +67,19 @@ function hoverFor(display: string | null, value: string): string {
   // one-line summary of it.
   return display ? `${display} = ${value}` : value;
 }
+
+/**
+ * What a file load did, said as an outcome rather than as an abort.
+ *
+ * "load stopped after 13 statements" described the abort, and was read as
+ * "nothing loaded" -- when in fact thirteen statements' bindings were sitting
+ * in the namespace, ready to use.
+ */
+export function describeLoad(
+  ran: number, total: number, failed: number
+): string {
+  if (failed === 0) {
+    return `Evalens: loaded ${total} statement${total === 1 ? '' : 's'}`;
+  }
+  return `Evalens: loaded ${ran} of ${total} statements, ${failed} failed`;
+}

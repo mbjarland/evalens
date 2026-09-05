@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import * as path from 'node:path';
 
 import { KernelClient } from '../kernel/client';
-import { Evaluated, EvalResponse, Failed } from '../kernel/protocol';
+import {
+  Evaluated, EvalResponse, Failed, FileLoaded,
+} from '../kernel/protocol';
 import { errorText, resultText } from '../render/format';
 import { present } from '../render/present';
 
@@ -143,7 +145,7 @@ test('loading a file makes a line near the bottom evaluate straight away', async
 
   const loaded = await client.request({
     op: 'eval_file', source, filename: '/tmp/evalens-load.py',
-  }) as { ok: boolean; statements: number };
+  }) as FileLoaded;
   assert.equal(loaded.ok, true);
 
   const called = await evaluate(client, source, 6) as Evaluated;
@@ -162,9 +164,47 @@ test('the __main__ guard does not run on load', async (t) => {
   const source = "import sys\nif __name__ == '__main__':\n    sys.exit(9)\n";
   const loaded = await client.request({
     op: 'eval_file', source, filename: '/tmp/evalens-main.py',
-  }) as { ok: boolean };
+  }) as FileLoaded;
   assert.equal(loaded.ok, true, 'sys.exit would have made this a failure');
 
   const name = await evaluate(client, '__name__\n', 0) as Evaluated;
   assert.equal(name.value, "'__evalens__'");
+});
+
+test('loading a file paints what walking down it would have', async (t) => {
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'lst = [1, 2, 3]\ny = lst\ny.append(4)\nlst\n';
+  const loaded = await client.request({
+    op: 'eval_file', source, filename: '/tmp/evalens-tour.py',
+  }) as FileLoaded;
+
+  assert.equal(loaded.ok, true);
+  assert.equal(loaded.ran, 4);
+  assert.deepEqual(
+    loaded.results.map((r) => (r.ok ? [r.display, r.value] : ['!', r.error.type])),
+    [['lst', '[1, 2, 3]'], ['y', '[1, 2, 3]'],
+     ['y.append(4)', 'None'], ['lst', '[1, 2, 3, 4]']],
+    'one keystroke should produce the same four values as four keystrokes');
+});
+
+test('a broken line does not stop the rest of the file loading', async (t) => {
+  // The tour file contains a deliberate NameError two thirds of the way down,
+  // and stopping there made Load File refuse to set up a session.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'a = 1\nundefined_one\nb = 2\nundefined_two\nc = 3\n';
+  const loaded = await client.request({
+    op: 'eval_file', source, filename: '/tmp/evalens-partial.py',
+  }) as FileLoaded;
+
+  assert.equal(loaded.ok, true, 'a broken line is not a broken load');
+  assert.equal(loaded.ran, 3);
+  assert.equal(loaded.results.filter((r) => !r.ok).length, 2);
+
+  // The statement below BOTH failures is usable.
+  const c = await evaluate(client, source, 4) as Evaluated;
+  assert.equal(c.value, '3');
 });

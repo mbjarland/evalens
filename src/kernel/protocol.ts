@@ -76,13 +76,41 @@ export interface Failed {
   readonly statements?: number;
 }
 
-/** A whole module body executed into the namespace. */
+/** What one statement produced while a file was being loaded. */
+export type StatementOutcome =
+  | {
+      readonly ok: true;
+      readonly resolved: true;
+      readonly value: string | null;
+      readonly display: string | null;
+      readonly kind: string;
+      readonly range: Range;
+      readonly stdout: string;
+      readonly stderr: string;
+    }
+  | {
+      readonly ok: false;
+      readonly error: KernelError;
+      readonly kind?: string;
+      readonly range?: Range;
+      readonly stdout?: string;
+      readonly stderr?: string;
+    };
+
+/**
+ * A whole module body executed into the namespace.
+ *
+ * `ok` says the file could be parsed and attempted, not that every statement
+ * succeeded -- a file being explored in is expected to contain broken lines,
+ * and the ones that worked are in the namespace regardless. Per-statement
+ * success lives in `results`.
+ */
 export interface FileLoaded {
   readonly id: number;
   readonly ok: true;
   readonly statements: number;
-  readonly stdout: string;
-  readonly stderr: string;
+  readonly ran: number;
+  readonly results: readonly StatementOutcome[];
 }
 
 export type FileResponse = FileLoaded | Failed;
