@@ -307,12 +307,18 @@ test('the teaching file from the ticket annotates the lesson, not None', async (
   ]);
 });
 
-test('a comprehension does not paint an unrelated variable of the same name', async (t) => {
+test('a comprehension shows its own loop, not an unrelated variable', async (t) => {
   // The screenshot the ticket was filed from, driven through the real kernel.
   // A comprehension has a scope of its own in Python 3 and its `x` never
-  // leaves it, so `x: [1, 2, 3]` beside these lines is a different variable
-  // presented as part of the statement -- a false claim, and worse than an
-  // empty column because the value looks plausible.
+  // leaves it, so `x: [1, 2, 3]` beside these lines would be a different
+  // variable presented as part of the statement -- a false claim, and worse
+  // than an empty column because the value looks plausible.
+  //
+  // #75 turns that emptiness into the sequence the comprehension's own `x`
+  // actually ran through, which is a different value again: the outer `x`
+  // stays `[1, 2, 3]`, untouched, while the annotation shows what the
+  // comprehension iterated -- 0 through 9 for `squares`, not the list `x`
+  // holds outside it.
   const client = connect();
   t.after(() => client.dispose());
 
@@ -327,13 +333,22 @@ test('a comprehension does not paint an unrelated variable of the same name', as
 
   assert.deepEqual(await paint(client, source, [0, 1, 2, 3, 4, 5]), [
     'x: [1, 2, 3]',
-    'squares: [0, 1, 4, 9, 16, 25, 36, 49, 64, 81]',
-    'pairs: [(0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)]',
+    // The value the comprehension produced, and beside it the sequence its
+    // own `x` drew from `range(10)` -- ten iterations, bounded the same way
+    // a `for` loop's are.
+    'squares: [0, 1, 4, 9, 16, 25, 36, 49, 64, 81]   '
+      + 'x: 0, 1, 2, 3, 4, … (+4 more) … 9',
+    // Two `for` clauses, two sequences: the outer ran three times, the inner
+    // six -- once per outer iteration -- which is the nesting lesson #75
+    // asks for rather than a bug to zip away.
+    'pairs: [(0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)]   '
+      + 'x: 0, 1, 2   y: 0, 1, 0, 1, 0, 1',
     'factor: 10',
     'data: [1, 2]',
-    // Only the loop target is scoped away; what the line reads from the
-    // enclosing scope is still the context that makes it make sense.
-    'scaled: [10, 20]   factor: 10   data: [1, 2]',
+    // Only the loop target ever had a scope of its own to report; what the
+    // line reads from the enclosing scope is still the context that makes it
+    // make sense, and now sits beside the trace rather than in place of it.
+    'scaled: [10, 20]   x: 1, 2   factor: 10   data: [1, 2]',
   ]);
 
   const outer = await evaluate(client, 'x\n', 0) as Evaluated;

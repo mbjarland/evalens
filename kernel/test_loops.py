@@ -540,5 +540,194 @@ class Positions(unittest.TestCase):
         self.assertEqual(instrumented.body[1].lineno, 2)
 
 
+def run_comprehension(source, instrument=True, namespace=None):
+    """`run`'s counterpart for `instrument_comprehensions`.
+
+    Executes every statement of `source`, and returns the namespace plus the
+    `(label, LoopTrace)` pairs of the *last* one, which is the comprehension
+    in every test below.
+    """
+    namespace = fresh_namespace() if namespace is None else namespace
+    recorders = []
+    for statement in ast.parse(source).body:
+        if instrument:
+            statement, labels = loops.instrument_comprehensions(statement)
+            recorders = loops.comprehension_traces(labels, repr)
+        with loops.installed(namespace, [trace for _, trace in recorders]):
+            exec(compiled(statement), namespace)
+    return namespace, recorders
+
+
+class Comprehensions(unittest.TestCase):
+    """The rewrite #75 makes for a comprehension's `for` clauses.
+
+    A comprehension has no body statement to inject a recorder into -- it
+    compiles to its own tiny function built entirely from expressions -- so
+    what gets wrapped is each clause's *iterable* instead. See
+    `loops.LoopTrace.trace` and `loops._ComprehensionInstrumenter`.
+    """
+
+    def test_a_list_comprehension_records_what_its_target_drew(self):
+        namespace, recorders = run_comprehension(
+            "squares = [x**2 for x in range(10)]\n")
+        self.assertEqual(namespace["squares"], [x**2 for x in range(10)])
+        self.assertEqual([label for label, _ in recorders], ["x"])
+        self.assertEqual(
+            recorders[0][1].wire(),
+            {"values": ["0", "1", "2", "3", "4"], "last": "9", "count": 10})
+
+    def test_a_filter_records_what_it_iterated_not_what_survived(self):
+        # The gap between the two numbers is the filter explaining itself:
+        # twenty iterations, ten survivors -- and #75 is explicit that
+        # reporting the ten would be the wrong half of the lesson.
+        namespace, recorders = run_comprehension(
+            "evens = [x for x in range(20) if x % 2 == 0]\n")
+        self.assertEqual(namespace["evens"], list(range(0, 20, 2)))
+        self.assertEqual(recorders[0][1].count, 20)
+
+    def test_each_for_clause_gets_its_own_recorder(self):
+        # The inner clause legitimately repeats -- once per outer iteration --
+        # which is itself the lesson about nesting, not a bug to average away.
+        _, recorders = run_comprehension(
+            "pairs = [(x, y) for x in range(3) for y in range(2)]\n")
+        self.assertEqual([label for label, _ in recorders], ["x", "y"])
+        self.assertEqual(recorders[0][1].head, ["0", "1", "2"])
+        self.assertEqual(recorders[1][1].head, ["0", "1", "0", "1", "0"])
+        self.assertEqual(recorders[1][1].count, 6)
+
+    def test_a_tuple_target_records_the_tuple(self):
+        # As `for k, v in d.items()` already does for a `for` statement --
+        # here for free, because the raw item drawn from the iterable *is*
+        # the tuple, before the clause ever unpacks it.
+        _, recorders = run_comprehension(
+            "ks = [k for k, v in [(1, 'a'), (2, 'b')]]\n")
+        self.assertEqual([label for label, _ in recorders], ["(k, v)"])
+        self.assertEqual(recorders[0][1].head, ["(1, 'a')", "(2, 'b')"])
+
+    def test_a_nested_comprehension_records_both_targets(self):
+        _, recorders = run_comprehension(
+            "out = [[y for y in row] for row in [[1, 2], [3, 4]]]\n")
+        self.assertEqual([label for label, _ in recorders], ["row", "y"])
+        self.assertEqual(recorders[0][1].head, ["[1, 2]", "[3, 4]"])
+        self.assertEqual(recorders[1][1].head, ["1", "2", "3", "4"])
+
+    def test_a_dict_comprehension_is_instrumented(self):
+        namespace, recorders = run_comprehension(
+            "d = {k: v for k, v in [(1, 'a'), (2, 'b')]}\n")
+        self.assertEqual(namespace["d"], {1: "a", 2: "b"})
+        self.assertEqual([label for label, _ in recorders], ["(k, v)"])
+
+    def test_a_set_comprehension_is_instrumented(self):
+        namespace, recorders = run_comprehension("s = {x for x in range(5)}\n")
+        self.assertEqual(namespace["s"], {0, 1, 2, 3, 4})
+        self.assertEqual([label for label, _ in recorders], ["x"])
+
+    def test_a_generator_expression_is_left_untouched(self):
+        # #75 is explicit: forcing it to find out what it would draw is
+        # exactly the consumption an annotation may never cause.
+        _, plan = loops.instrument_comprehensions(
+            ast.parse("g = (x for x in range(5))\n").body[0])
+        self.assertEqual(plan, [])
+
+    def test_a_generator_expression_is_not_consumed(self):
+        namespace, recorders = run_comprehension(
+            "g = (x for x in range(5))\n")
+        self.assertEqual(recorders, [])
+        self.assertEqual(next(namespace["g"]), 0, "still lazy, still whole")
+        self.assertEqual(next(namespace["g"]), 1)
+
+    def test_a_comprehension_nested_in_a_generator_is_also_left_alone(self):
+        # Instrumenting what is inside a generator expression on the chance it
+        # turns out to be consumed synchronously is the same hazard one level
+        # removed -- left untouched, root to leaves.
+        _, plan = loops.instrument_comprehensions(ast.parse(
+            "g = (sum(y for y in row) for row in grid)\n").body[0])
+        self.assertEqual(plan, [])
+
+    def test_a_list_comprehension_beside_a_consumed_generator_is_still_found(self):
+        # The generator expression `sum` consumes immediately is left alone on
+        # the rule above; a list comprehension elsewhere on the same line is a
+        # different construct and is instrumented regardless.
+        _, recorders = run_comprehension(
+            "total = sum(x for x in range(5)) + len([y for y in range(3)])\n")
+        self.assertEqual([label for label, _ in recorders], ["y"])
+
+    def test_a_comprehension_inside_a_nested_def_is_left_alone(self):
+        # It runs when the function is called, which may be long after this
+        # evaluation finished and the recorders were uninstalled.
+        namespace, recorders = run_comprehension(
+            "def f():\n    return [x * x for x in range(3)]\n")
+        self.assertEqual(recorders, [])
+        self.assertEqual(namespace["f"](), [0, 1, 4])
+
+    def test_a_comprehension_inside_a_lambda_is_left_alone(self):
+        namespace, recorders = run_comprehension(
+            "f = lambda: [x * x for x in range(3)]\n")
+        self.assertEqual(recorders, [])
+        self.assertEqual(namespace["f"](), [0, 1, 4])
+
+    def test_a_comprehension_in_a_default_argument_is_also_left_alone(self):
+        # A default value genuinely runs now, where the `def` is written, and
+        # is still missed: the class docstring above states the trade-off --
+        # nothing else in this module opens one argument of a `def` while
+        # leaving its body closed, and this rewrite does not start.
+        _, recorders = run_comprehension(
+            "def f(x=[n * n for n in range(3)]):\n    return x\n")
+        self.assertEqual(recorders, [])
+
+    def test_an_async_clause_is_left_untouched(self):
+        # Unreachable from the cursor today -- an `async for` comprehension
+        # clause only appears inside an `async def`, a scope this rewrite
+        # already declines to enter -- and guarded anyway: wrapping one would
+        # call `trace`'s ordinary `__iter__` machinery against an iterable
+        # that only offers `__aiter__`, breaking the clause outright rather
+        # than merely leaving it untraced.
+        tree = ast.parse(
+            "async def collect(source):\n"
+            "    return [x async for x in source]\n")
+        listcomp = tree.body[0].body[0].value
+        _, plan = loops.instrument_comprehensions(listcomp)
+        self.assertEqual(plan, [])
+
+    def test_the_rewrite_is_transparent(self):
+        # Mirrors `Additive`: the rewrite must change nothing about the
+        # namespace a statement leaves behind.
+        sources = (
+            "squares = [x**2 for x in range(10)]\n",
+            "evens = [x for x in range(20) if x % 2 == 0]\n",
+            "pairs = [(x, y) for x in range(3) for y in range(2)]\n",
+            "out = [[y for y in row] for row in [[1, 2], [3, 4]]]\n",
+            "d = {k: v for k, v in [(1, 'a'), (2, 'b')]}\n",
+            "s = {x for x in range(5)}\n",
+            "ks = [k for k, v in [(1, 'a'), (2, 'b')]]\n",
+        )
+        for source in sources:
+            with self.subTest(source=source):
+                plain, _ = run_comprehension(source, instrument=False)
+                traced, _ = run_comprehension(source, instrument=True)
+                self.assertEqual(visible(plain), visible(traced))
+
+
+class ComprehensionPositions(unittest.TestCase):
+    def test_every_synthesised_node_carries_a_position(self):
+        instrumented, _ = loops.instrument_comprehensions(
+            ast.parse("squares = [x**2 for x in range(10)]\n").body[0])
+        for node in ast.walk(instrumented):
+            if isinstance(node, (ast.stmt, ast.expr)):
+                self.assertIsInstance(getattr(node, "lineno", None), int,
+                                      ast.dump(node))
+
+    def test_the_iterables_own_position_is_not_overwritten(self):
+        # `_trace_call` wraps the iterable rather than rebuilding it, so a
+        # traceback through it has to keep quoting the clause's own line, not
+        # the line of the statement that happens to contain it.
+        source = "squares = [\n    x**2\n    for x in range(10)\n]\n"
+        original = ast.parse(source).body[0]
+        instrumented, _ = loops.instrument_comprehensions(original)
+        original_iter = original.value.generators[0].iter
+        wrapped_call = instrumented.value.generators[0].iter
+        self.assertEqual(wrapped_call.args[0].lineno, original_iter.lineno)
+
+
 if __name__ == "__main__":
     unittest.main()
