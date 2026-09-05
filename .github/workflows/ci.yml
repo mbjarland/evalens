@@ -66,8 +66,9 @@ jobs:
           node-version: '20'
           cache: npm
 
-      # Needed by the integration tests, which drive the real kernel over a
-      # real pipe -- the only check that the TypeScript and the Python agree.
+      # Needed by the tests that drive the real kernel over a real pipe --
+      # audit.test.ts and extension.test.ts -- which are the only checks that
+      # the TypeScript and the Python agree.
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
