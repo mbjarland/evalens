@@ -2847,10 +2847,14 @@ class Names(KernelTest):
 
     def test_the_number_of_names_on_one_line_is_capped(self):
         # A line that reports every name it mentions becomes a second copy of
-        # the namespace and buries the code it is written beside.
+        # the namespace and buries the code it is written beside. `NAME_LIMIT`
+        # itself is a generous transport bound now (#85), so the cap this
+        # exercises is the one a request asks for explicitly -- the same
+        # mechanism the renderer's display cap relies on downstream.
         source = ("a = 1\nb = 2\nc = 3\nd = 4\ne = 5\nf = 6\n"
                   "[a, b, c, d, e, f]\n")
-        result = self.k.evaluate_lines(source, 0, 1, 2, 3, 4, 5, 6)
+        result = self.k.evaluate_lines(source, 0, 1, 2, 3, 4, 5, 6,
+                                       limits={"names": 4})
         self.assertEqual(len(result["names"]), 4)
         self.assertEqual([p["name"] for p in result["names"]],
                          ["a", "b", "c", "d"])
@@ -2861,7 +2865,8 @@ class Names(KernelTest):
         # were omitted, unreadable, or somehow not names.
         source = ("a = 1\nb = 2\nc = 3\nd = 4\ne = 5\nf = 6\n"
                   "[a, b, c, d, e, f]\n")
-        result = self.k.evaluate_lines(source, 0, 1, 2, 3, 4, 5, 6)
+        result = self.k.evaluate_lines(source, 0, 1, 2, 3, 4, 5, 6,
+                                       limits={"names": 4})
         self.assertEqual(result["more_names"], 2)
 
     def test_a_line_inside_the_cap_says_nothing_about_it(self):
@@ -3138,12 +3143,19 @@ class StarImports(KernelTest):
 
 
 class Limits(KernelTest):
-    """How much to show is the reader's call, and it arrives per request.
+    """How much to show is the reader's call, and it mostly arrives per request.
 
-    Both numbers are user settings. They are not configured into the kernel
-    because the only way to change a kernel's mind about them would be to
-    restart it, and restarting discards the namespace -- so adjusting a
-    display preference would cost a session.
+    `loop_values` is still a user setting sent whole on every request: the
+    kernel is not configured with it because the only way to change a
+    kernel's mind would be to restart it, and restarting discards the
+    namespace. `names` is different since #85: the kernel's own default is a
+    generous transport bound rather than a display preference, because the
+    kernel has no way to know which of a line's names the reader has already
+    seen painted above it, and choosing by position instead throws away
+    whichever one changed most recently -- see `PaintedAbove` in
+    `src/render/repeats.ts` for where that decision moved to. A request may
+    still ask for a smaller `names` limit than the default, which is what the
+    off switch for `evalens.readNames` does.
     """
 
     def sequence(self, source, **extra):
@@ -3157,12 +3169,16 @@ class Limits(KernelTest):
         self.assertEqual([p["name"] for p in result["names"]],
                          ["a", "b", "c", "d", "e"])
 
-    def test_the_default_still_stops_at_four(self):
+    def test_the_default_is_generous_rather_than_a_display_cap(self):
+        # Five names is nowhere near NAME_LIMIT now: the wire is not where
+        # "how many names per line" gets decided any more, so a request that
+        # says nothing gets every name the line read, not four of them.
         source = ("a = 1\nb = 2\nc = 3\nd = 4\ne = 5\n"
                   "print(a, b, c, d, e)\n")
         result = self.k.evaluate_lines(source, 0, 1, 2, 3, 4, 5)
         self.assertEqual([p["name"] for p in result["names"]],
-                         ["a", "b", "c", "d"])
+                         ["a", "b", "c", "d", "e"])
+        self.assertNotIn("more_names", result)
 
     def test_zero_names_reports_none_at_all(self):
         # The off switch for `evalens.readNames`. The line still evaluates and

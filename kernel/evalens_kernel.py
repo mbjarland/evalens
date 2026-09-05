@@ -361,31 +361,39 @@ NO_MODULE_NAME = "__evalens__"
 #: value nobody asked to see whole.
 WIRE_REPR_LIMIT = 8192
 
-#: How many `name: value` pairs one line may carry. A line that reports every
-#: name it mentions stops being an annotation and becomes a second copy of the
-#: namespace, and the code it is written beside disappears under it.
+#: Hard cap on how many `name: value` pairs one line's response may carry over
+#: the wire. This used to double as the display cap, and #85 is the record of
+#: why that was wrong: the kernel does not know which of these names the
+#: reader has already seen painted above, so a cap enforced here can only
+#: choose by position -- keep whichever names came first and drop the rest --
+#: and position is exactly the wrong rule. A name reassigned inside a function
+#: and never seen again until it is read back on a later line is the one
+#: worth painting, and a position-based cap drops it precisely when it
+#: differs from four names the reader has already seen.
 #:
-#: A preference, and the default behind `evalens.readNamesPerLine`. How much
-#: of a line to spend on names depends on the file being read and the width of
-#: the window reading it, neither of which this end knows. The number arrives
-#: on the request instead -- see `_limits` -- so changing the setting takes
-#: effect on the next keypress rather than the next kernel.
-NAME_LIMIT = 4
+#: So this is a transport guard now, answering the same question
+#: `WIRE_REPR_LIMIT` answers for one value rather than the question
+#: `evalens.readNamesPerLine` answers: generous enough that an ordinary line
+#: never reaches it, and only there so one response cannot grow without
+#: bound. How many of the names that arrive are actually painted is decided
+#: afterwards, by the renderer, once repeat suppression has told it which of
+#: them are new -- see `PaintedAbove` in `src/render/repeats.ts`.
+NAME_LIMIT = 64
 
 #: How many names a star import may name before it settles for counting them.
-#: It shares `NAME_LIMIT`'s starting point -- the annotation shares its line
-#: with the code it describes, and `from math import *` binds sixty -- and
-#: stops being the same question there, which is why one became a setting and
-#: this did not.
+#: Its own number, not tied to `NAME_LIMIT` -- the two only ever shared a
+#: starting value of four by coincidence, and `NAME_LIMIT` becoming a
+#: generous transport bound is not a reason to widen this one too: `from
+#: math import *` binds sixty, and there is no reader waiting to see a list
+#: that long named in full.
 #:
-#: `NAME_LIMIT` is a cap: past it, names are dropped and counted, so raising it
-#: buys more of the same kind of information for more width. This is a
-#: threshold between two different annotations. Under it the line names every
-#: name; over it the line says `20 names` and no more, because the first four
-#: of sixty are wherever the module happened to define them rather than a
-#: sample of anything. There is no setting to be had in between, and a number
-#: in the settings UI that flips the annotation's whole shape at some value
-#: would read as a cap and behave as something else.
+#: `STAR_NAME_LIMIT` is a threshold between two different annotations, not a
+#: cap in `NAME_LIMIT`'s sense: under it the line names every name; over it
+#: the line says `20 names` and no more, because the first four of sixty are
+#: wherever the module happened to define them rather than a sample of
+#: anything. There is no setting to be had in between, and a number in the
+#: settings UI that flips the annotation's whole shape at some value would
+#: read as a cap and behave as something else.
 STAR_NAME_LIMIT = 4
 
 #: The name a captured assignment stores its value through. Installed in the

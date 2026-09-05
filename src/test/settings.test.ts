@@ -144,8 +144,13 @@ test('the kernel defaults to what the manifest says the defaults are', () => {
   // caller that sends none -- which makes them exactly the kind of duplicate
   // that drifts unnoticed. They are the same numbers on purpose: a request
   // that says nothing has to behave like a request that says the defaults.
+  //
+  // `evalens.readNamesPerLine` used to be paired here with the kernel's
+  // `NAME_LIMIT`. #85 is why it left: the two stopped being the same number
+  // on purpose the day the kernel's cap became a transport bound and the
+  // display cap it used to double as moved to the renderer -- see
+  // `nameDisplayCap` below and `capNames` in `render/repeats.ts`.
   const constants: ReadonlyArray<readonly [string, string, string]> = [
-    ['evalens.readNamesPerLine', 'evalens_kernel.py', 'NAME_LIMIT'],
     ['evalens.loopIterations', 'loops.py', 'HEAD_LIMIT'],
   ];
 
@@ -156,6 +161,39 @@ test('the kernel defaults to what the manifest says the defaults are', () => {
     assert.equal(Number(match![1]), properties[id]!.default,
       `${constant} and ${id} disagree about the default`);
   }
+});
+
+test('nameDisplayCap reads evalens.readNamesPerLine, not the wire limit', () => {
+  // The setting still has to be read somewhere; #85 moved where. This checks
+  // the number rather than the plumbing -- `fallbacks()` above already checks
+  // that whichever function reads it uses the manifest's default -- so what
+  // is left to pin down is that it is `nameDisplayCap`, not `displayLimits`,
+  // that owns it now.
+  assert.match(configSource,
+    /function nameDisplayCap\(\)[\s\S]*?'readNamesPerLine'/,
+    'readNamesPerLine has moved out of nameDisplayCap');
+  const displayLimitsBody =
+    /function displayLimits\(\)[\s\S]*?\n}/.exec(configSource)?.[0] ?? '';
+  assert.doesNotMatch(displayLimitsBody, /readNamesPerLine/,
+    'displayLimits still sends the display preference as the wire limit');
+});
+
+test('the transport bound is the same number on both sides of the pipe', () => {
+  // Not a user setting -- see `TRANSPORT_NAME_LIMIT` in `config.ts` -- but
+  // still two numbers that exist to agree, the same way the settings above
+  // do: a request that sends no `limits` at all should behave like one that
+  // asks for exactly what the extension would have asked for anyway.
+  const kernelSource = fs.readFileSync(
+    path.join(root, 'kernel', 'evalens_kernel.py'), 'utf8');
+  const kernelMatch = /^NAME_LIMIT = (\d+)$/m.exec(kernelSource);
+  assert.ok(kernelMatch, 'NAME_LIMIT not found in kernel/evalens_kernel.py');
+
+  const configMatch =
+    /^export const TRANSPORT_NAME_LIMIT = (\d+);$/m.exec(configSource);
+  assert.ok(configMatch, 'TRANSPORT_NAME_LIMIT not found in src/config.ts');
+
+  assert.equal(Number(kernelMatch![1]), Number(configMatch![1]),
+    'NAME_LIMIT and TRANSPORT_NAME_LIMIT disagree about the transport bound');
 });
 
 test('the formatter defaults to what the manifest says the default is', () => {

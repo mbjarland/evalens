@@ -19,7 +19,7 @@ import {
 import {
   describeLoad, describeRun, partialCause, present,
 } from '../render/present';
-import { PaintedAbove } from '../render/repeats';
+import { PaintedAbove, capNames } from '../render/repeats';
 import { markDependents } from '../render/registry';
 import { LineRange, selectedLines, widenedBeyond } from '../selection';
 
@@ -189,11 +189,17 @@ async function paint(
 ): Promise<string[]> {
   const painted: string[] = [];
   for (const line of lines) {
-    const shown = present(await evaluate(client, source, line), line);
-    if (shown.kind !== 'value') {
-      painted.push(`!! ${shown.kind}`);
+    const evaluated = present(await evaluate(client, source, line), line);
+    if (evaluated.kind !== 'value') {
+      painted.push(`!! ${evaluated.kind}`);
       continue;
     }
+    // The kernel's own cap is a transport bound now (#85) -- see `NAME_LIMIT`
+    // in `evalens_kernel.py` -- so capping to what the setting actually asks
+    // for is `evaluateAtCursor`'s job on the real path, same as it is here.
+    // `4` is `readNamesPerLine`'s own default; none of these tests touch the
+    // setting, so this is what the real path would cap to as well.
+    const shown = capNames(evaluated, 4);
     painted.push(
       resultText({ value: shown.value, display: shown.display, loop: shown.loop,
         names: shown.names, bindings: shown.bindings, printed: shown.printed,
@@ -236,12 +242,14 @@ function paintOutcome(
       && !outcome.names?.length && !hasOutput(printed)) {
     return null;
   }
-  const kept = above.keep({ ...outcome, printed });
+  // Renamed on the way in, exactly as `annotationFor` renames it on the real
+  // path: the wire says which cap it was, `keep` only ever adds to `more`.
+  const kept = above.keep({ ...outcome, printed, more: outcome.more_names });
   return kept === undefined
     ? null
     : resultText({ value: kept.value, display: kept.display,
       loop: kept.loop, names: kept.names, bindings: kept.bindings,
-      printed: kept.printed, more: kept.more_names })
+      printed: kept.printed, more: kept.more })
       .replace(/ /g, ' ');
 }
 

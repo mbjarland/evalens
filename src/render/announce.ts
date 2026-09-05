@@ -215,9 +215,11 @@ function spokenSlots(annotation: Announceable): string[] {
   const said = slots.map(
     (slot) => slot.name === null ? slot.value : `${slot.name} is ${slot.value}`);
   said.push(...outputPieces(annotation.printed));
-  // The same guard the painted footnote carries: it counts names, so it needs
-  // a name on the line to be a footnote to.
-  if ((annotation.more ?? 0) > 0 && slots.some((slot) => !slot.own)) {
+  // The same guard the painted footnote carries -- see `resultSegments` in
+  // `format.ts`. `more` is only ever positive because a cap left something
+  // off this line, so it needs nothing else on screen to be worth saying; a
+  // surviving name slot was never what made it true.
+  if ((annotation.more ?? 0) > 0) {
     said.push(`and ${annotation.more} more names`);
   }
   return said;
