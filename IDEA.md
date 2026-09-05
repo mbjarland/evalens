@@ -1,586 +1,787 @@
-# Evalens — Calva-style inline evaluation for Python in VS Code
+# Evalens — inline evaluation for Python in VS Code
+
+> Status: Current
+> Audience: AI agents, the maintainer, and anyone deciding whether this is
+> worth building
+> Source of truth for: what Evalens is, what it is not, and why it exists
+> Last verified: 2026-09-05
 
 ## The idea
 
-Put the cursor on a line, hit a key, and see the resulting value painted
-**inline in the buffer** next to the code — not in a side panel, not in a
-terminal, not in a notebook cell, and without starting a debugger.
+Put the cursor on a line, press a key, and see what that line produced painted
+**in the buffer beside the code**. Press it again on the next line. Keep
+going, and the file fills up with its own values, top to bottom, each one
+sitting where it was computed.
 
 ```python
-lst = [1, 2, 3]                    => [1, 2, 3]
-y = lst
-y.append(4)
-lst                                 => [1, 2, 3, 4]
-squares = [x**2 for x in range(5)]  => [0, 1, 4, 9, 16]
+lst = [1, 2, 3]        lst: [1, 2, 3]
+y = lst                y: [1, 2, 3]   lst: [1, 2, 3]
+y.append(4)            y: [1, 2, 3, 4]
+lst                    lst: [1, 2, 3, 4]
 ```
 
-This is precisely what [Calva](https://calva.io) gives Clojure developers,
-and what Python does not have.
+That is real output, not a sketch: it is what the kernel, the resolver and the
+renderer produce end to end, and `src/test/integration.test.ts` asserts those
+four annotation strings against the running kernel.
 
-## Why this doesn't already exist
+Read the block rather than the mechanism. Four lines, four answers, all
+visible at once, in the order they appear in the file — and the fourth line is
+the lesson, because `lst` changed without `lst` ever being on the left of
+anything. A terminal shows those four values one after another and then
+scrolls them away. A debugger shows the last one. Neither shows the *shape* of
+what happened, which is what someone learning aliasing is trying to see.
 
-Not because it's hard. Because the demand got absorbed by notebooks.
+## The claim
 
-Clojure's inline evaluation exists because the community standardised on
-**nREPL** — a network REPL *protocol*. Any editor can connect to a live,
-stateful runtime, send a form, get a value back, and render it. REPL-driven
-development is Clojure's defining cultural practice, so every editor
-plugin implements it.
+> **The notebook feedback loop, on a file that never stops being source code,
+> with the state visible instead of hidden.**
 
-Python has an equivalent protocol — the **Jupyter kernel protocol**
-(ZeroMQ, stateful out-of-process runtime). It's good. But the UX the
-community built on top of it went to *notebooks* and the Interactive
-Window (`# %%` cells), never to editor overlays. The energy that produced
-Calva in Clojure produced Jupyter in Python.
+Every part of that has to be earned, and two thirds of it is already available
+from Microsoft. What follows says exactly which.
 
-### Marketplace evidence (September 2026)
+## What already exists
 
-The entire "live Python evaluation" category:
+This category is not empty. It is occupied differently than an earlier draft
+of this document claimed, and being precise about the difference matters,
+because a plan built on "nothing does this" is a plan built on a falsehood.
+
+### Smart Send — the closest thing, and it ships turned on
+
+`python.REPL.enableREPLSmartSend`, in `ms-python.python`, default `true` since
+the November 2023 release. Verified here against the installed extension
+(`ms-python.python-2026.4.0`), whose own description reads:
+
+> "Toggle Smart Send for the Python REPL. Smart Send enables sending the
+> smallest runnable block of code to the REPL on Shift+Enter and moves the
+> cursor accordingly."
+
+Read that carefully, because it describes most of this project. It resolves
+the smallest runnable chunk under the cursor using stdlib `ast` — the
+implementing ticket is titled *"Implement smart shift+enter using AST"*
+(microsoft/vscode-python#21778) — sends it to a live, stateful REPL, and
+advances the cursor. One key, cursor-based, persistent namespace, no changes
+to the file, first-party, already installed on every machine that has the
+Python extension.
+
+**So AST form resolution is not the clever part, and this document used to
+claim it was.** It is forty lines of stdlib, and Microsoft shipped it first.
+`kernel/resolver.py` is 861 lines rather than forty because of what it decides
+*after* resolving — which value may be read back without running user code,
+which names a line should report, where a compound statement's answer belongs,
+how to answer from a file that does not parse — not because finding the
+statement is hard. Anyone proposing work on the grounds that form resolution
+is the differentiator should be pointed here.
+
+What Smart Send withholds is the answer's location. It goes to a terminal:
+somewhere other than the code, in execution order rather than file order, and
+gone as soon as the next thing scrolls past. Evaluate line 5, then line 20,
+and line 5's answer no longer exists anywhere.
+
+There is a second thing, which is evidence rather than argument and belongs in
+the record because of who this is for. **On the maintainer's machine, Smart
+Send did not work at all.** `Python: Run Selection/Line in Python Terminal`
+answered *"Invalid arguments to create terminal"*, and selecting an
+interpreter did not fix it. Evalens ran in the same window, because #29 made
+interpreter resolution probe each candidate and use the first that actually
+runs rather than trusting what the environment reports. One machine is not a
+study and this is not offered as one; it is offered as the reason design rule
+6 exists.
+
+### The Jupyter Interactive Window — a notebook wearing a `.py` extension
+
+`# %%` cells give a `.py` file the notebook loop: a persistent kernel, rich
+output, run-this-block-and-move-on. It ships with the Python extension and it
+genuinely works.
+
+An earlier version of this document had it in the competitor table as "the
+persistent namespace on a plain source file", and that was wrong. The
+maintainer's reaction on being shown how to use it settles it:
+
+> *"oh you are essentially talking about making a notebook and just using the
+> code blocks"*
+
+Exactly so. Without percent markers the context key `jupyter.hascodecells` is
+false and the Run Cell keybindings do not fire at all; the markerless route is
+to select code and press `Shift+Enter`, which is not a cursor workflow, because
+you must say what runs every single time. Using it properly means
+notebook-ifying the file: markers that exist only for the tool, that Black
+merges or destroys inside indented blocks (jupytext#562), and the habit of
+running blocks in whatever order you like while the state that results is
+visible nowhere. And the answers still land in a side panel.
+
+### `debug.inlineValues` — first-party inline values, and stronger than assumed
+
+VS Code paints variable values inline, greyed, at the end of lines. This is
+not a plan; it shipped, and it is **on by default**. Verified in VS Code
+1.136.1: `debug.inlineValues` has `enum: ["on", "off", "auto"]` and
+`default: "auto"`, where auto means *"Show variable values inline in editor
+while debugging when the language supports inline value locations"*. Python
+supports them — both `ms-python.debugpy` (2026.6.0) and `ms-python.python`
+call `registerInlineValuesProvider`.
+
+The honest position is therefore worse for Evalens than the ticket that
+commissioned this rewrite assumed. There is no flag to set. Put a breakpoint
+in a first-year student's short top-to-bottom script, press F5, and values
+appear inline, with a Variables pane, hovers and a debug REPL alongside,
+having installed nothing.
+
+What it is not, statable from the API rather than from argument — from the
+`@types/vscode` in this repository's own `node_modules`:
+
+- `InlineValuesProvider.provideInlineValues` is documented as called
+  *"whenever debugging stops in the given document"*.
+- `InlineValueContext` requires a DAP `frameId` and a `stoppedLocation`.
+
+It is structurally step-shaped. It repaints when execution halts somewhere and
+it shows the current frame's current values — the state *now*, not what each
+line produced when it ran. A paused frame has exactly one moment and it is the
+last one, which is why this document's own opening example is invisible to it:
+by the time you are stopped after `y.append(4)`, `lst` and `y` both read
+`[1, 2, 3, 4]` and the thing worth learning has already happened.
+
+Underneath sits the property a debug session structurally cannot have: **the
+namespace survives edits.** A debug session cannot redefine a function and
+carry on; it restarts and re-runs from the top. That is the Lisp workflow, and
+it is why this is a REPL rather than a viewer.
+
+That said, this is where the margin is thinnest, and pretending otherwise
+would defeat the purpose of rewriting this document. On the exact motivating
+case — a beginner's short script that runs top to bottom — a breakpoint on the
+last line and F5 gets a long way for free, and the two advantages left are a
+value per line rather than final state, and a namespace that survives edits,
+the second of which a first-year student barely exercises. The first
+advantage is real and is the aliasing lesson in the opening example. Whether
+it is worth an install to somebody who is not already convinced is a question
+for #77 and its real course, not for this paragraph.
+
+### AREPL and the rest of the marketplace category
+
+The extensions that set out to do this specific thing. The install counts
+below were gathered when this document was first written, in September 2026,
+and have **not** been re-verified since; treat them as an order of magnitude
+rather than a measurement.
 
 | Extension | Installs | Last updated |
 |---|---:|---|
 | `almenon.arepl` | 2,131,982 | 2024-11-19 |
-| `xirider.livecode` | 1,355,020 | **2020-06-26** |
+| `xirider.livecode` | 1,355,020 | 2020-06-26 |
 | `VentureCasserole.python-live-evaluator` | 1,486 | 2025-09-15 |
 | `wuhy.live-coding` | 980 | 2026-02-07 |
 | `srejv.python-inline-eval` | 63 | 2026-04-14 |
 | `gideonnnalue.pyroo` | 18 | 2026-08-07 |
 
-One project won the category (AREPL, 4.9★) and then stopped being
-updated. Everything else is a rounding error. Critically, **none of them
-render values inline** — AREPL's own `inlineResults` setting is
-documented as *"(Currently just error icons)"*. Values go to a side panel.
+One project won the category and then stopped being updated; the rest are
+rounding errors. None of them render values inline — AREPL's own
+`inlineResults` setting is documented as *"(Currently just error icons)"*, and
+its values go to a side panel. AREPL also runs continuously, which is why it
+needs an `unsafeKeywords` blocklist guessing which code is unsafe to re-run: a
+hack that exists only because it made the opposite trigger decision. Design
+rule 5 is the same finding from this side.
 
-So the gap is real, and it is not crowded.
+AREPL matters to this project for a second, entirely practical reason. It
+binds both of the keys Evalens wants, under the same `when` clause, and VS
+Code breaks extension-against-extension ties by load order, which nothing
+makes deterministic. The symptom is a silently dead key. `README.md` carries
+the diagnosis and the fix; `src/keybindings.ts` carries five such conflicts
+read off shipped manifests, so the fix cannot drift from what the extension
+hands out.
 
-## Architecture
+### Hydrogen — the encouraging fact
 
-Three pieces. All three are available; two were verified before writing
-this document.
+`nteract/hydrogen`, for Atom: *"Run code interactively, inspect data, and
+plot. All the power of Jupyter kernels, inside your favorite text editor."*
+Inline result bubbles, watch expressions, completions from the running kernel,
+interrupt and restart, rich output, roughly 4k stars.
 
-### 1. A live, stateful runtime
+**This exact UX already succeeded in Python once.** Hydrogen was not abandoned
+for lack of interest and did not lose on the merits; its repository carries an
+Atom Sunset Notice and points users at nteract, VS Code with the Jupyter
+extension, or PyCharm. The workflow lost its editor, not its argument. That is
+the single most encouraging data point available to this project — and also a
+warning about what the competition looks like, because the displaced Hydrogen
+users went to the notebook stack rather than to a replacement.
 
-Two viable options:
+### What none of them do
 
-**(a) Roll your own — ~30 lines, zero dependencies.** A subprocess running
-a loop: read code over a pipe, `exec()` it into a persistent namespace
-dict, write back the `repr()` of the requested target.
+Three things, and the claim is only ever in the combination:
 
-You do **not** need the notebook protocol for this. Jupyter kernels buy
-rich display (images/HTML), interrupt, restart, and multi-language
-support — none of which inline scalars and collections require.
+1. Evaluation is **explicitly triggered** — the user decides when their code
+   runs.
+2. Values are painted **in file order, beside the code that produced them**,
+   and they stay there.
+3. The file stays a plain `.py` that anyone can `python file.py` — no cell
+   markers, no saved outputs, nothing on disk that exists for the tool.
 
-That held until Cancel. **The kernel now runs two pipes, not one**, and
-the reason is worth recording because it is not obvious from the outside:
-the pipe carrying requests has exactly one reader, and while user code is
-running that reader is busy. Anything that must be dealt with *during* an
-evaluation — an interrupt, above all — cannot travel on it, because the
-only code that could read it is the code you are trying to interrupt. So
-requests keep the standard streams and a control channel gets a second
-pair of descriptors, serviced by a thread that is never blocked.
+Smart Send has 1 and 3 and puts the answer in a terminal. The Interactive
+Window has 1 and something like 2, and buys them by turning the file into a
+notebook. `debug.inlineValues` has 2 and 3 and needs a paused debug session,
+which is a different activity with different ergonomics, and shows now rather
+than then.
 
-That is the shape of Jupyter's shell and control channels, arrived at the
-same way. It is not the notebook protocol and does not want to be: no ZeroMQ,
-no message signing, no session identities, four message kinds. The lesson
-taken from Jupyter here is the channel split, not the wire format.
+State it narrowly and it is defensible: **nothing shows what each line of an
+ordinary Python file did, in place, without changing the file first.** State it
+as "see values inline" and it is false, and this document has to keep saying
+so, because the broad version is what a marketing sentence naturally collapses
+to.
 
-**Everything the user's code prints leaves on the control channel, and it
-does so for the life of the process rather than the life of a statement.**
-That correction cost a wedged session to learn. Replacing `sys.stdout` only
-while a statement runs leaves a thread started on line 4 still writing on
-line 40 — onto the pipe every response travels on, where a trailing newline
-gets the user's own `print` reported back to them as a kernel fault and the
-absence of one splices their text onto the front of the next response and
-destroys it. Concurrency is on the syllabus this is aimed at, so a `print`
-inside a thread is not an edge case. Output that arrives with nothing running
-is sent marked as belonging to no line: which statement started the thread is
-not knowable, and the reader needs to see the text more than they need it
-labelled.
+One more property was earned rather than designed and belongs in the claim:
+**nothing is configured before a value appears.** No interpreter selection, no
+`ipykernel`, no terminal profile, no `launch.json`, no cell markers. Python
+3.9 or later on `PATH` is the whole requirement. That is now design rule 6,
+and it decides architecture questions rather than describing them — an
+approach that needs configuration first is off-strategy however elegant it is.
 
-**(b) Borrow Jupyter's kernel.** The `ms-toolsai.jupyter` extension
-exposes `IExportedKernelService` / `getKernelService` to third-party
-extensions (verified present in the shipped bundle of
-`ms-toolsai.jupyter-2025.8.0`). This hands you a managed kernel rather
-than babysitting a process, at the cost of depending on the notebook
-stack.
+## Who this is for, and the constraint that decides everything
 
-Start with (a). Graduate to (b) only if rich display becomes worth it.
+The first user is a first-year university student, at the start of a five-year
+programme, who is **forbidden notebooks for the first few years**.
 
-### 2. Deciding what to evaluate
+The maintainer considers that rule correct, and the reasoning is why this
+project exists rather than a preference about editors:
 
-This looks like the hard part, because Clojure gets it free from
-s-expressions: "the current form" is unambiguous when everything is
-parenthesised. Python needs real parsing.
+> *"we are creating a generation of python programmers who think that you can
+> submit an algorithm that is to be shipped on the mars lander as a
+> notebook... or a trading app in real time trading"*
 
-It turns out to be easy. `ast` has exact end positions (`end_lineno`,
-`end_col_offset`) since Python 3.8. Roughly 40 lines of stdlib resolves
-the form under a cursor — see `prototype/form_at_cursor.py`, which was
-run against real files and produces:
+A generation that learns to ship an algorithm as a notebook will try to ship a
+lander that way. So the tool has to teach on real source files, or it teaches
+the wrong habit.
+
+This is what removes the squeeze. The deflating argument against this project
+is that the cases where a persistent namespace matters already belong to
+Jupyter — true, for people who may use Jupyter. For someone who must edit a
+real source file, by policy now and by professional necessity later, nothing
+covers it. Design rule 8 is the same sentence from the other end: the file is
+only ever Python, annotations are decorations, and they evaporate. A notebook
+saves its outputs into the document, which is the reproducibility failure in
+one line — the file carries results computed in a state nobody can
+reconstruct. This cannot.
+
+Three obligations follow, and they are commitments rather than opinions:
+
+- **Stale marking is core, not polish.** Hidden state is the notebook's
+  original sin; a value out of sync with its code has to be visibly out of
+  sync. Shipped as #51 and #59.
+- **Load-versus-re-evaluate semantics have to be decided rather than
+  defaulted.** "Restart and run all" is the discipline notebook users are
+  supposed to remember and mostly do not. Open as #56.
+- **Out-of-order execution is inherent to a REPL and cannot be prevented, so
+  it must be legible.** A standing obligation on every feature, not a ticket.
+
+## What got built
+
+All of this is in the repository and runs. Where a claim has not been checked
+by a human looking at a screen, it says so — design rule 11.
+
+### The kernel
+
+`kernel/evalens_kernel.py` is about 2,100 lines, `resolver.py` 861 and
+`loops.py` 562: roughly 3,500 lines of Python with 4,200 lines of tests behind
+them. Stdlib only — no ZeroMQ, and `package.json` has no runtime dependencies
+at all. One process, one namespace dict, alive across requests until told to
+reset. The persistence is the whole point: it is what lets line 40 see what
+line 3 bound, and it is the difference between this and a fancier `print()`.
+
+The protocol is newline-delimited JSON — one request per line in, one response
+per line out; JSON escapes newlines, so line framing is safe for arbitrary
+source text. The ops are `ping`, `reset`, `eval`, `eval_file` and `outline`.
+`eval_above` is reserved and answers an explicit not-implemented error naming
+#13, which is the ticket that would land it.
+
+**It runs two pipes, not one**, and the reason is the part worth recording
+because it is invisible from outside. The request pipe (descriptors 0 and 1)
+has exactly one reader, and while user code is running that reader is busy.
+Anything that must be dealt with *during* an evaluation — an interrupt, above
+all — cannot travel on it, because the only code that could read it is the
+code you are trying to interrupt. So a control channel gets descriptors 3 and
+4, serviced by a daemon thread that is never blocked:
 
 ```
-cursor line 9   ->  exec 'tup = (1, 2, 3)'                  then show  tup
-cursor line 33  ->  exec 'evens = [x for x in range(20)...]' then show  evens
+fd 0 -> requests    fd 3 -> interrupt, input_reply
+fd 1 <- responses   fd 4 <- interrupt_ack, status, input_request, stream
 ```
 
-This also solves the **statement-vs-expression problem**. In Clojure
-everything returns a value; in Python `x = [1, 2, 3]` is a statement that
-returns nothing. The resolution: exec the statement, then separately
-evaluate the assignment *target* and display that. For a bare expression
-statement, just display its value.
+Nothing on the control channel is ever a reply to anything on the request
+channel, which is what makes a server-initiated message unmistakable: it is
+not told apart from a stale response by a rule applied to a shared stream, it
+arrives somewhere a response never can. That is the shape of Jupyter's shell
+and control channels, arrived at independently and for the same reason. The
+lesson taken from Jupyter is the channel split, not the wire format — no
+ZeroMQ, no message signing, no session identities.
 
-**"Evaluate the target" holds only while the target is a bare name**, which
-is the correction the first real corpus forced. Reading `x` back is a
-dictionary lookup and cannot run anything; reading `acct.balance` back calls
-a property getter the assignment never called, and `led['a']` calls
-`__getitem__` — user code the *annotation* chose to run, in a design whose
-whole premise is that the user chooses. So an assignment to an attribute or
-a subscript reports the value it stored, kept as the statement stored it,
-and a statement with no value that can be had safely shows none.
-`kernel/resolver.py` decides which of the three applies, per statement kind,
-and the kernel obeys it rather than deciding for itself.
+**Everything the user's code prints leaves on the control channel, and it does
+so for the life of the process rather than the life of a statement.** That
+correction cost a wedged session to learn. Replacing `sys.stdout` only while a
+statement runs leaves a thread started on line 4 still writing on line 40 —
+onto the pipe every response travels on, where a trailing newline gets the
+user's own `print` reported back to them as a kernel fault, and the absence of
+one splices their text onto the front of the next response and destroys it.
+Concurrency is on the syllabus this is aimed at, so a `print` inside a thread
+is not an edge case. Output that arrives with nothing running is marked
+unattributed: which statement started the thread is not knowable, and the
+reader needs to see the text more than they need it labelled.
 
-A `for` loop is the exception, and the interesting one. Its target holds
-only the last element once the loop is over, so reading it afterwards
-throws away every iteration but one — which is the thing you ran the loop
-to watch. The body is instrumented instead: a recorder injected as its
-first statement takes `repr()` of the target as each iteration begins, and
-the annotation shows the sequence, bounded — `p: 1, 2, 3, 4`, or
-`p: 0, 1, 2, 3, 4, … (+9,994 more) … 9999` for a long one. It is the one
-place a value is shown without the target being re-read afterwards;
-`kernel/loops.py` carries the reasoning.
+Design rule 9 — the kernel's own choices must not be observable from user code
+— has two implementations here worth knowing about before touching either. The
+evaluated module is named after the file's own stem rather than after Evalens,
+so `__name__` reads the way it would if Python had run the file. And the
+kernel's own directory is removed from `sys.path` at startup, with `resolver`
+and `loops` lifted out of `sys.modules`, so a user's `import resolver` cannot
+silently get ours.
 
-A second recorder, injected as the **last** statement of the body, watches
-the names the body binds — because the target is usually the *input* being
-iterated and the body binding is usually the *computed result*, which is
-the half the reader came for. `for v in x:` with `u = 4 * v` inside
-annotates `v: 1, 2, 3   u: 4, 8, 12`, where `u` used to be one value read
-out of the namespace, sitting beside a history and reading as its last
-entry. Last rather than first, because `u` does not exist yet at the top of
-the first pass. The consequence to design for rather than paper over: an
-iteration that hit `continue` or `break` computed no result, so the two
-sequences are **not** the same length — and a filter loop is where anything
-that renders them as parallel columns gets caught.
+Python 3.9 is the support floor, set by `ast.unparse`. CI runs the kernel
+suite on 3.9, 3.11 and 3.13; it was run locally on 3.9 through 3.14 before
+that claim was made.
 
-**One value per statement is the wrong unit**, though, and that is the
-second half of the answer. It is right for a binding and has nothing to
-say for everything else, which is most lines: `print("y unaffected by
-rebind:", y)` returns `None`, and `None` is true, useless and misleading
-on the line whose whole point is `y`. So Rider's model rather than a
-REPL's — annotate the *names on a line*, several of them, as separate
-`name: value` pairs:
+Jupyter's `IExportedKernelService` remains the documented escape hatch if rich
+display ever justifies the dependency — `ms-toolsai.jupyter` exposes it to
+third-party extensions, verified present in the shipped bundle of
+`ms-toolsai.jupyter-2025.8.0`. It is deliberately not the starting point and
+nothing has since made it more attractive.
 
-```
-x = [1, 2, 3]                              x: [1, 2, 3]
-y = x                                      y: [1, 2, 3]   x: [1, 2, 3]
-y.append(4)                                y: [1, 2, 3, 4]
-print("y unaffected:", y)                  y: [1, 2, 3, 4]   printed: y unaffected: [1, 2, 3, 4]
-```
+### Deciding what to evaluate, and what to say about it
 
-The names come from the AST — what the statement binds, then what it
-reads — and their values from a plain dictionary lookup in the namespace,
-which cannot run user code and so is safe to do unbidden. Bare names
-only, for that reason: `obj.attr` may be a property with a body. Callables
-and modules are skipped as noise, and the count per line is capped — with
-the line saying `…+1 more` where the cap bit, since a reader who counts
-five names on the line and four values beside it cannot otherwise tell
-whether the fifth was omitted, unreadable, or somehow not a name.
+`kernel/resolver.py` resolves the enclosing top-level statement from a cursor
+position using `end_lineno` / `end_col_offset`, which is the part Smart Send
+also does. Everything else it does is the part that is actually load-bearing.
 
-`=>` survives for a genuine expression that is not a binding, because
-`sum([10, 20]): 30` would repeat the line back at the reader. A produced
-`None` gives way when the line has anything else to show, and stays when
-it does not — `d.get('missing')` on its own really did answer `None`. What
-is suppressed moves to the hover rather than away.
+The statement-versus-expression problem: in Clojure everything returns a
+value; in Python `x = [1, 2, 3]` returns nothing. Exec the statement, then
+show the assignment *target*. But **that holds only while the target is a bare
+name.** Reading `x` back is a dictionary lookup and cannot run anything;
+reading `acct.balance` back calls a property getter the assignment never
+called, and `led['a']` calls `__getitem__` — user code the *annotation* chose
+to run, in a design whose premise is that the user chooses. So there are three
+sources for a value rather than one: read the display name back out of the
+namespace; evaluate an expression statement exactly once and report that; or,
+for an attribute or subscript target, report what was stored, captured as it
+was stored. `resolver._value_source` decides which applies, per statement
+kind, and the kernel obeys it rather than deciding for itself. This is design
+rule 3, and it has been violated three times by three different mechanisms.
 
-**A pair already shown above is not repeated.** Annotating every statement
-makes repetition, not the annotation, the dominant visual problem: four
-consecutive lines calling methods on one dict each restate it, and the
-file reads as a log rather than as a worked example. So a `name: value`
-pair whose value has not changed since that name was last painted above is
-dropped, and a line left with nothing new carries nothing at all. Three
-parts of that are load-bearing. A **changed** value always appears — it is
-the most interesting thing this can show, and `lst` becoming
-`[1, 2, 3, 4]` above is the example the whole design is built on. The
-comparison is on the **rendered string**, not on object identity: a line
-calling a method may have mutated what it read, and what the reader needs
-to know is whether the shown value changed. And **above means earlier in
-the file**, scrolled into view or not — annotations that appeared and
-vanished as the file scrolled would be worse than the repetition they
-removed.
+**One value per statement is the wrong unit.** It is right for a binding and
+has nothing to say for most lines: `print("y unaffected:", y)` returns `None`,
+which is true, useless and misleading on the line whose whole point is `y`. So
+Rider's model rather than a REPL's — annotate the *names on a line*, several
+of them, as separate `name: value` pairs. The names come from the AST (what
+the statement binds, then what it reads) and the values from a plain namespace
+lookup, which cannot run user code. Bare names only, for the same reason.
+Callables and modules are skipped as noise, the count per line is capped, and
+the line says so where the cap bit — a reader who counts five names on the
+line and four values beside it cannot otherwise tell whether the fifth was
+omitted, unreadable, or not a name at all. That last part is imperfect today
+and is filed as #74 and #85.
 
-**An explicit evaluation is exempt from it.** The rule belongs to bulk
-annotation, where nobody is waiting on any particular line. When somebody
-puts the cursor on a line and presses a key, something must visibly
-happen: silence because the value is unchanged and mentioned above is
-indistinguishable from the keypress being ignored.
+A `for` loop is the exception, and the interesting one. Its target holds only
+the last element once the loop is over, so reading it afterwards throws away
+every iteration but one — the thing you ran the loop to watch.
+`kernel/loops.py` instruments the body instead: a recorder injected as its
+first statement takes `repr()` of the target as each iteration begins, and the
+annotation shows the sequence, bounded — `p: 1, 2, 3, 4`, or
+`p: 0, 1, 2, 3, 4, … (+9,994 more) … 9999`. A second recorder, injected as the
+**last** statement of the body, watches the names the body binds, because the
+target is usually the *input* being iterated and the body binding is usually
+the *computed result*, which is the half the reader came for. Last rather than
+first, because the result does not exist yet on the first pass. The
+consequence to design for rather than paper over: an iteration that hit
+`continue` or `break` computed no result, so the two sequences are **not** the
+same length, and anything rendering them as parallel columns gets caught by a
+filter loop. `repr()` is taken at capture time rather than the object being
+kept, or a loop over mutables reports its final state N times; a million-row
+loop leaves six strings behind, not a million.
 
-**An annotation earns its place by differing from what the reader can
-already see.** That is the one rule the paragraph above and several others
-are each an instance of — a docstring annotated with its own text, a value
-repeated from a line above, and a `def` annotated `greet: greet(name)`,
-which says the name twice and what kind of thing it is not at all. The
-rule itself, and the three separate arrivals at it, are recorded as rule 2
-of [`docs/development/design-rules.md`](docs/development/design-rules.md);
-what belongs here is what it decides about the display.
+What an annotation may say beyond that is design-rules territory rather than
+architecture, and restating it here is how two documents drift apart.
+`docs/development/design-rules.md` holds it: an annotation must never assert
+more than we know (1), it earns its place by differing from what the reader
+can already see (2), annotating must never execute user code (3), annotations
+are a trace and never a watch (4), the answer goes on the line and the output
+channel is overflow (7). Each rule records the defect that produced it. Read
+them before designing anything that renders.
 
-Three consequences, all from that one sentence. A description leads with
-Python's own keyword — `def greet(name)` beside `class Config(name,
-port=8080)` — because the word is the part a signature cannot say, and it
-is what makes `f = greet` read `f: def greet(name)`. The `name:` label is
-dropped when the description already opens with that name. And an
-annotation whose text merely restates its own line is not painted at all;
-the evaluated-region highlight is what still reports that the statement
-ran.
-
-**The last of those compares rendered text, never the kind of statement.**
-A `def` is where the shortcut looks safest and would do the most damage:
+Two consequences of rule 2 belong here because they are about the display
+rather than the principle. A description leads with Python's own keyword —
+`def greet(name)` beside `class Config(name, port=8080)` — because the keyword
+is the part a signature cannot say, and it is what makes `f = greet` read
+`f: def greet(name)`. And the redundancy test compares **rendered text, never
+the kind of statement**, because a `def` is where the shortcut looks safest and
+would do the most damage:
 
 ```
 @shout
 def greeting():        greeting: def <lambda>()
 ```
 
-The decorator *replaced* the function, the line cannot show that, and this
-is the most valuable annotation on the page. A rule that skipped function
-definitions would have deleted exactly it. What is redundant is a piece of
-text, so text is what gets compared.
+The decorator replaced the function, the line cannot show that, and this is
+the most valuable annotation on the page. A rule that skipped function
+definitions would have deleted exactly it.
 
-**What a statement printed is another label in the same grammar**, and it
-is the one the audience needs most: for a first-year student `print()` is
-not one feature among many, it is the tool. `print("hello")` annotates
-`printed: hello` and suppresses the `None` it returned, on exactly the
-rule above. Several lines show the first plus a count —
-`printed: warming up …(3 lines)` — with the whole of it on the hover and
-in the output channel. Output never displaces a binding and a binding
-never displaces it: `x = compute()` where `compute` prints wants both,
-because they answer different questions. `printed` rather than `stdout`
-because the second is jargon a beginner has not met, and a word rather
-than a glyph because `▸` and `▶` are missing from Monaco and Courier New
-and substitute at a different advance width — misaligning the lines the
-marker exists to clarify. `stderr:` keeps its name and is not coloured as
-an error; writing to it is not a failure.
+### Rendering
 
-The output channel is overflow, not the destination. It never opens
-itself and never takes focus, and one click from the annotation reaches
-it. A view would put the answer somewhere other than the code, which is
-the notebook's mistake and the gap this project exists to close.
+`createTextEditorDecorationType({ after: { contentText } })` plus
+`setDecorations` — the same mechanism Calva, Error Lens and inlay hints use.
+`src/render/` carries it in seven modules: annotations, decorations, a flash,
+formatting, presentation, a registry, and the repeat suppression. Most of them
+have no `vscode` import at all, which is why they are testable.
 
-### 3. Rendering the overlay
+Calva is the reference implementation and the prior-art section below says
+what reading it settled. Two additions came from problems this project made
+for itself by painting every line. **Pending goes on at the keypress**, before
+the kernel is asked, because otherwise the fast path — nearly every evaluation
+— has no transition at all and re-running a line repaints an identical string.
+And **success is a brief flash rather than a standing colour**, because once
+every line carries a value a permanent green distinguishes nothing; what says
+which statement just ran is the emphasis decaying. One flash class is
+parameterised by colour and duration and used for both the success emphasis
+and the selection-snap highlight, because two timers over one editor would
+clear each other's decorations.
 
-`vscode.window.createTextEditorDecorationType({ after: { contentText: ' => [1, 2, 3]' } })`
-followed by `editor.setDecorations(...)`.
+Three-state gutter markers — evaluated, stale, error — live in `media/gutter/`
+as light and dark SVGs, separate files rather than theme colours because
+`gutterIconPath` takes an image and there is no gutter `ThemeColor`. The
+marker goes in the gutter and not on the annotation: dimming the value would
+put a claim about the value in competition with the value, in the one place on
+screen the reader is reading. JupyterLab was asked for exactly that and
+declined.
 
-This is the same mechanism Calva uses, and Error Lens, and inlay hints.
-Well-documented, well-trodden.
+**No part of the rendering has been signed off in this document's record by a
+human looking at a screen.** The suites assert ranges and strings, which prove
+a range and a string. Design rule 11 and `CLAUDE.md` say the same thing:
+anything that renders gets looked at, and a passing decoration test is not
+that.
 
-## The genuinely hard parts
+### The surface a user touches
 
-- **Ordering and state.** Evaluating line 40 requires lines 1–39 to have
-  run. Calva has this exact problem and solves it socially: you evaluate
-  top-down and the REPL holds state. The same answer works here. An
-  optional "run everything above this line" command covers the rest.
-- **Side effects on re-evaluation.** Re-running `db.execute(...)` is bad.
-  Manual trigger (Calva's model) sidesteps this entirely — which is
-  exactly why AREPL, running continuously, needs its `unsafeKeywords`
-  blocklist hack. Prefer explicit evaluation.
-- **`input()` settles the continuous-vs-manual argument.** Beginner and
-  course code is full of `input()` prompts, and beginners write infinite
-  loops constantly. Any evaluate-as-you-type mode relaunches a program
-  that is *blocked waiting on stdin* every time the user pauses typing.
-  This is not a tuning problem, it is a category error: continuous
-  evaluation is only coherent for pure, terminating code. **Manual
-  trigger must be the default**, and any continuous mode should be
-  opt-in per file rather than global.
+Eight commands, all in the Command Palette under `Evalens:` — Evaluate at
+Cursor, Evaluate and Advance, Evaluate File, Clear Inline Results, Interrupt
+Evaluation, Restart Kernel, Show Output, Fix Keybinding Conflict. Five
+settings — `pythonPath`, `progressDelay`, `advanceSkipsComments`,
+`alignColumn`, `printedLabel` — and eight themeable colour ids. Keys, the
+AREPL conflict, and the reason the advance key is not `Shift+Enter` are all in
+`README.md`, which is the user-facing document and the one to change when any
+of that moves.
 
-  This was discovered empirically while setting up a first-year student's
-  environment: a `watchfiles`-based run-on-save loop had to be abandoned
-  for exactly this reason, on a file named `intrprog.py`.
+**The advance question was decided against a default a great many people
+already have installed.** Smart Send advances the cursor after sending;
+`evaluateAtCursor` does not. Advancing is a separate command on a second key.
+That follows Calva, whose evaluate commands do not advance, and Spyder and
+Jupyter, which both put run-and-advance on a *second* binding rather than
+changing the first. Making the primary key move the cursor would mean the same
+key cannot be pressed twice on one line, which is the natural thing to do
+while editing it. Recorded because it is a deliberate divergence from a
+first-party default, not an oversight.
 
-  With manual triggering settled, prompting is answerable, and it is
-  answered: a `sys.stdin` that asks the extension for a line and blocks
-  for the reply. **The interception point is stdin and nothing else** —
-  one object, through which `input()`, `readline()` and `read()` all
-  pass. Anything demanding a real terminal (`getpass` where a tty exists,
-  `curses`, GUI toolkits) is out of scope and stays out; the failure to
-  avoid was never "too many functions to hook", it was hooking something
-  that needs a terminal and half-succeeding.
+The build is deliberately plain, and the earlier plan to scaffold with
+`yo code` was not followed: `tsc -p .` compiles, `node --test` runs the suite,
+four devDependencies, no runtime dependencies, no bundler. `npm run package`
+produces `python-inline-values-0.0.1.vsix`, 35 files. There is no marketplace
+listing.
 
-  Both commands prompt, because in both cases someone is sitting there.
-  Loading a file refused to for a while, citing Jupyter — where the flag
-  is false for `nbconvert` and `papermill`. That was a misreading:
-  those are *unattended*, and the flag exists so that a batch conversion
-  nobody is watching fails loudly instead of deadlocking. `Cmd+Alt+Enter`
-  is a person pressing a key. Refusing produced a red `EOFError` on the
-  prompt line and a cascade of `NameError` under it, because nothing
-  downstream had the value — the command that exists to set up a session
-  refusing to, on exactly the teaching files it was built for.
+### The prototype
 
-  Twenty prompts in a file is still a real worry, and it is answered
-  where the person is: the blocked line is marked and revealed so the box
-  is never disembodied, and from the second prompt of a load the box
-  carries a way to skip the rest. Cancelling one prompt still sends
-  end-of-file and raises `EOFError` for that statement alone; the load
-  continues, because a broken line is not a broken load.
+`prototype/form_at_cursor.py` is 48 lines, still runs, and is now **history**.
+It proved the piece that looked hard and isn't, before there was anything else
+to run; `kernel/resolver.py` superseded it, and `kernel/test_resolver.py` pins
+the two answers the prototype produced so that the superseding is checkable
+rather than assumed. It has a rough edge — a cursor on a line holding no
+statement crashes it instead of reporting nothing — which is acceptable for
+what it now is, and would not be if anything depended on it.
 
-  The box stays at the top of the window. A genuinely inline editable
-  field needs the Comments API, whose zone widget pushes every line below
-  it down — reflowing the column of values the reader is in the middle
-  of. `WebviewEditorInset` is the right shape and is not in the stable
-  API.
-- **A file that does not parse.** `ast` is all-or-nothing, so one
-  half-typed line makes every line in the file unevaluable — and a
-  half-typed line is what a file being explored in *has*, because that is
-  why anyone is evaluating anything. The recovery is to drop trailing
-  lines until what is left parses, and answer from that.
+## The hard parts, and where each stands
 
-  **From the end, and never around the cursor.** The tempting alternative
-  is a window that shrinks towards the cursor until it parses, and it
-  retreats into precisely the constructs that defeat parsing in the first
-  place: compound statement headers, backslash continuations, a bracketed
-  method chain, a dict literal spanning a dozen lines. Microsoft
-  enumerated that list from the other direction in vscode-jupyter#1471 and
-  answered it by parsing rather than guessing. The dangerous outcome is
-  not the window that fails to parse — it is the window that parses into
-  something valid meaning something *else*, because that produces an
-  answer instead of an error. Truncating from the end cannot cut through a
-  construct the cursor is inside, and it handles the case the complaint is
-  actually about: the broken line is the one being typed.
+**Ordering and state.** Evaluating line 40 requires lines 1–39 to have run.
+Calva has the same problem and solves it socially: evaluate top-down, and the
+REPL holds state. Evaluate File covers the bulk case; "run everything above
+the cursor" is #13, and the kernel already reserves the op for it.
 
-  Two things follow and are not optional. A value computed without the
-  rest of the file is a weaker claim than one computed with it, so the
-  annotation says so. And the break is reported on the line that broke,
-  not on whichever line the cursor happened to be on — a message about
-  line 19 delivered beside line 1 sends the reader to the wrong end of the
-  file.
-- **Value formatting.** Truncation limits, nesting depth, hover-for-full,
-  and sensible `repr()` handling of large or cyclic structures.
-- **Decoration lifecycle.** Reposition annotations as the document
-  changes, dismiss on Escape, and *mark* what an edit touched rather than
-  clearing it. Fiddly rather than difficult.
-- **Staleness, which is the price of the trace.** An annotation shows
-  what a statement produced when it ran and is never re-read, so an edit
-  puts the value and the code out of step — the notebook's oldest
-  failure, reproduced in a text file with two statements. The answer
-  every tool that met this converged on is *mark stale, never re-run*:
-  CIDER turns its green fringe marker amber when a form is edited,
-  meaning "out of sync with what the REPL has" rather than "wrong", and
-  Mathematica has carried per-unit state in the cell bracket since 1996.
-  So Evalens paints a three-state marker — evaluated, stale, error — in
-  the **gutter**, and not on the annotation: dimming the value would put
-  a claim about the value in competition with the value, in the one place
-  on screen the reader is reading. JupyterLab was asked for exactly that
-  and declined. Re-evaluating clears the mark and nothing else does, undo
-  included — the buffer can be put back, the kernel cannot, and only an
-  evaluation is entitled to say the two agree again.
+**Side effects on re-evaluation.** Re-running `db.execute(...)` is bad.
+Explicit triggering sidesteps it rather than managing it, which is the whole
+of design rule 5.
 
-  Marking an annotation when its own text changes catches the obvious
-  case and misses the common one. `x = 1` / `y = x + 1`: edit and re-run
-  the first line and the second still reads `y: 2`, untouched by the
-  edit, correctly positioned, and describing a world that no longer
-  exists. Its own text never changed, so nothing about it can catch this.
-  So the kernel also reports, per statement, the module-level names it
-  bound and the ones it read — the same `ast` walk that resolves the
-  form, asked a second question — and re-evaluating a statement that
-  binds `x` marks every annotation *below it in the file* that reads `x`.
-  Same marker, same vocabulary; the reader does not need to know which of
-  the two reasons produced it.
+**`input()` settles the continuous-versus-manual argument.** Beginner and
+course code is full of prompts, and beginners write infinite loops constantly,
+so any evaluate-as-you-type mode relaunches a program *blocked waiting on
+stdin* every time typing pauses. That is a category error, not a debounce
+interval to tune. It was discovered empirically while setting up a first-year
+student's environment, on a file named `intrprog.py`, where a
+`watchfiles`-based run-on-save loop had to be abandoned for exactly this
+reason.
 
-  **It marks and it never runs anything.** That boundary is the whole
-  design and it is one increment from being lost: a marker plus "and
-  re-run the dependant" is a reactive notebook, which #40 ruled out and
-  which cannot be made reliable in Python anyway. The analysis is
-  deliberately unsound in the safe direction — aliasing and mutation
-  defeat it, and `lst = [1, 2, 3]` / `y = lst` / `lst.append(4)`, this
-  document's own opening example, is precisely the case it cannot see.
-  That is affordable because the output is one grey pixel. It would not
-  be if the output were an execution, which is exactly why marimo's
-  documentation says tracking mutations reliably is impossible in Python,
-  and why nbsafety pays a 1.44× median slowdown for the version that
-  catches them.
-- **A decoration cannot be labelled, so the whole product is invisible to
-  a screen reader.** `AccessibilityInformation` — `{ label, role }` —
-  exists in the VS Code API and is accepted by `StatusBarItem`,
-  `NotebookCellStatusBarItem` and `TreeItem`. It is accepted by no
-  decoration type, and there is no `aria`, `role` or label field anywhere
-  on `DecorationRenderOptions`. That is the API's shape rather than an
-  oversight to work around, so the answer has to be a *second channel*
-  rather than an attribute — and an addition, never a replacement, because
-  moving the answer off the line is the notebook's mistake and the thing
-  this project exists to stop.
+With manual triggering settled, prompting became answerable and is answered: a
+`sys.stdin` replacement that asks the extension for a line and blocks for the
+reply. **The interception point is stdin and nothing else** — one object,
+through which `input()`, `readline()` and `read()` all pass. Anything
+demanding a real terminal (`getpass` where a tty exists, `curses`, GUI
+toolkits) is out of scope and stays out; the failure to avoid was never "too
+many functions to hook", it was hooking something that needs a terminal and
+half-succeeding. Both commands prompt, because in both cases someone is
+sitting there. Loading a file refused to for a while, citing Jupyter's flag
+being false for `nbconvert` and `papermill` — a misreading, because those are
+*unattended*, and the flag exists so a batch conversion nobody is watching
+fails loudly instead of deadlocking. `Cmd+Alt+Enter` is a person pressing a
+key, and refusing produced a red `EOFError` on the prompt line and a cascade
+of `NameError` under it. Twenty prompts in one file is still a real worry and
+is answered where the person is: the blocked line is marked and revealed so
+the box is never disembodied, and from the second prompt of a load the box
+carries a way to skip the rest. Cancelling one prompt sends end-of-file and
+raises `EOFError` for that statement alone; the load continues, because a
+broken line is not a broken load. The box stays at the top of the window,
+because a genuinely inline editable field needs the Comments API, whose zone
+widget pushes every line below it down and reflows the column of values the
+reader is in the middle of, and `WebviewEditorInset` is the right shape and is
+not in the stable API.
 
-  Nobody in this category has bothered. Jupyter's own accessibility audit
-  has listed "status changes are not announced for assistive
-  technologies" among its critical failures since 2019, and JupyterLab's
-  per-cell prompt still renders as `textContent` with no role and no live
-  region. Doing it cheaply here is a real differentiator, and it lands on
-  the audience this was written for: university software carries
-  accessibility obligations a personal tool does not.
+**A file that does not parse.** `ast` is all-or-nothing, so one half-typed
+line makes every line in the file unevaluable — and a half-typed line is what
+a file being explored in *has*, because that is why anyone is evaluating
+anything. The recovery, `resolver.parse_prefix`, drops trailing lines until
+what is left parses and answers from that. **From the end, and never around
+the cursor.** A window that shrinks towards the cursor retreats into precisely
+the constructs that defeat parsing in the first place: compound statement
+headers, backslash continuations, a bracketed method chain, a dict literal
+spanning a dozen lines. Microsoft enumerated that list from the other
+direction in vscode-jupyter#1471 and answered it by parsing rather than
+guessing. The dangerous outcome is not the window that fails to parse — it is
+the window that parses into something valid meaning something *else*, because
+that produces an answer instead of an error. Truncating from the end cannot
+cut through a construct the cursor is inside, and it handles the case the
+complaint is actually about: the broken line is the one being typed. Two
+things follow and are not optional. A value computed without the rest of the
+file is a weaker claim than one computed with it, so the annotation says so.
+And the break is reported on the line that broke, not on whichever line the
+cursor happened to be on.
 
-  What makes it awkward is that **VS Code exposes no way for an extension
-  to learn that a screen reader is attached.** There is no
-  `env.isScreenReaderOptimized`, and the editor's own auto-detection
-  leaves `editor.accessibilitySupport` reading `auto` whether it found
-  one or not — so that setting answers the question only when the user
-  set it to `on` themselves. The announced channel therefore follows `on`
-  automatically and is otherwise opt-in, which is design rule 6 honoured
-  for as much of the audience as the API permits and stated plainly for
-  the rest.
+**Staleness, which is the price of the trace.** An annotation shows what a
+statement produced when it ran and is never re-read, so an edit puts the value
+and the code out of step — the notebook's oldest failure, reproduced in a text
+file with two statements. The answer every tool that met this converged on is
+*mark stale, never re-run*: CIDER turns its green fringe marker amber when a
+form is edited, meaning "out of sync with what the REPL has" rather than
+"wrong", and Mathematica has carried per-unit state in the cell bracket since
+1996. Marking an annotation when its own text changes catches the obvious case
+and misses the common one. `x = 1` / `y = x + 1`: edit and re-run the first
+line and the second still reads `y: 2`, untouched by the edit, correctly
+positioned, and describing a world that no longer exists. So the kernel also
+reports, per statement, the module-level names it bound and the ones it read —
+the same `ast` walk that resolves the form, asked a second question — and
+re-evaluating a statement that binds `x` marks every annotation *below it in
+the file* that reads `x`. File order, not execution order; same marker, same
+vocabulary, because the reader does not need to know which of the two reasons
+produced it. Re-evaluating clears the mark and nothing else does, undo
+included: the buffer can be put back, the kernel cannot, and only an
+evaluation is entitled to say the two agree again. Design rule 4 carries the
+reasoning for why this is a trace at all.
 
-## Prior art: take the display approach from Calva
+**Value formatting.** Truncation limits, nesting depth, hover-for-full, and
+sensible handling of large or cyclic structures. Partly done, and the open
+tickets are the honest status: #12 truncation, #46 (the hover is implemented
+and attached to a zero-width range, so nobody sees it), #54 (`repr()` builds
+the whole string before the wire cap discards it), #73 (memory addresses
+inside containers).
 
-**Calva is the reference implementation for the rendering, and we should
-follow its lead rather than rediscover any of this.** Not by copying code
-— by reading how it solves each problem and being guided by it. Calva is
-MIT licensed, so even direct reuse with attribution would be permitted,
-but the value here is the design, not the lines.
+## Why reactive re-evaluation is closed
 
-Attribution to Calva for the rendering approach is intended and welcome.
+The adjacent question every contributor eventually asks — *why not re-run the
+annotations that just went stale?* — has an answer, and it is evidence rather
+than taste.
 
-### Where to look
+**Evalens marks and it never runs anything.** That boundary is the whole
+design and it is one increment from being lost: a marker plus "and re-run the
+dependant" is a reactive notebook, which #40 ruled out and which cannot be
+made reliable in Python. The dependency analysis here is deliberately unsound
+in the safe direction — it is a parse, not a trace, so aliasing and mutation
+defeat it. **This document's own opening example is precisely the case it
+cannot see.** `lst = [1, 2, 3]` / `y = lst` / `lst.append(4)` is a mutation
+through an alias, the counterexample that defeats every reactive notebook in
+existence. That is a useful thing to know about your own hero example.
 
-`BetterThanTomorrow/calva`, file **`src/providers/annotations.ts`** — 217
-lines, and it is essentially the entire feature. Related:
-`src/results-output/` for result formatting and
-`src/debugger/decorations.ts`.
+Being unsound is affordable here because the output is one grey pixel. It
+would not be if the output were an execution. marimo's own documentation says
+so:
 
-### What it already solves that we listed as hard
+> "marimo does not track mutations to objects, e.g., mutations like
+> `my_list.append(42)` … don't trigger reactive re-runs of other cells." …
+> "Tracking mutations reliably is impossible in Python."
 
-Reading that one file collapses several open questions:
+And it is now a benchmark rather than an opinion. Lu, Zheng, Crichton,
+Narayan, Raghavan and Vasilakis, *When Do Reactive Notebooks Fail to React?*
+(arxiv.org/abs/2511.21994) tested marimo, Observable and IPyflow: *"within any
+definition, we find simple notebook modifications that can break each
+system."* Mutation was the largest category in their real-world corpus, 25 of
+38 modifications, and is exactly what marimo and Observable neither support
+nor detect. nbsafety pays a 1.44× median slowdown for the version that catches
+them.
 
-- **Whitespace is eaten.** VS Code collapses ordinary spaces in
-  decoration `contentText`. Calva substitutes non-breaking spaces
-  (`U+00A0`) into the result string before rendering. This is
-  non-obvious, and without it any alignment or indentation inside a
-  rendered value collapses.
-- **Decorations smearing as you type.** Solved with
-  `rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen` on the
-  result decoration, which controls whether the decoration absorbs text
-  inserted at its boundaries. This was on our "fiddly" list; it is a
-  one-liner.
-- **Theming.** Colours come from `new vscode.ThemeColor(...)` rather than
-  hardcoded values, so results adapt to the user's theme and remain
-  overridable through `workbench.colorCustomizations`.
-- **Two decoration layers, not one.** The result text is an `after`
-  decoration; the *evaluated region* gets a separate background
-  highlight. Keeping them separate is what makes the UX legible.
-- **Evaluation state is visible.** An `AnnotationStatus` enum
-  (`PENDING` / `SUCCESS` / `ERROR`) drives distinct region colours, so
-  the region greys while evaluating and then reads green or red. This is
-  most of what makes the feature feel alive rather than static.
+Pluto.jl is the counterexample worth naming, and it does not transfer. Its
+reactivity is sound because Julia code in a Pluto notebook is constrained —
+one definition per cell, no hidden state — and because Pluto owns the document
+format. Neither is available to something whose whole premise is that the file
+stays an ordinary `.py` nobody agreed to constrain.
 
-  Two departures from Calva, both forced by loading a file painting every
-  value. **Pending goes on at the keypress**, before the kernel is asked,
-  because otherwise the fast path — nearly every evaluation — has no
-  transition at all and re-running a line repaints an identical string.
-  And **success is a brief flash rather than a standing colour**: once
-  every line carries a value, a permanent green distinguishes nothing,
-  so what says which statement just ran is the emphasis decaying. Julia's
-  extension flashes the evaluated range for about 200ms; that is the
-  shape.
+## Prior art worth reading before solving anything
 
-  **One flash mechanism, two uses.** Showing how far a selection snapped
-  outward is the same gesture over a longer window — 1,500ms, in the
-  evaluated-region colour — so it is one class parameterised by a colour
-  and a duration rather than two. Two implementations would mean two
-  timers over the same editor, and a snap highlight and a success
-  emphasis can land on the same statement; whichever expired second
-  would clear decorations the other had just painted.
+### Calva, for the rendering
 
-  Pending carries an optional message rather than being a boolean.
-  "Still running", "the kernel has not started this yet" and "waiting for
-  you to answer `Enter a value:`" are three different things the reader
-  has to tell apart, and Jupyter's inability to separate them is its
-  best-known interface complaint.
-- **Overview ruler marks.** `overviewRulerColor` +
-  `OverviewRulerLane.Right` puts evaluated regions in the scrollbar, so
-  they are visible at a glance in a long file.
-- **Per-document decoration state**, keyed by `document.uri`, so
-  decorations clear and restore correctly per editor.
-- **Errors get their own colour and hover text**, rather than a separate
-  presentation mechanism.
+`BetterThanTomorrow/calva`, `src/providers/annotations.ts` — 217 lines, and it
+is essentially the entire feature. Related: `src/results-output/` for result
+formatting and `src/debugger/decorations.ts`. Calva is MIT licensed, so even
+direct reuse with attribution would be permitted, but the value is the design
+rather than the lines; attribution for the rendering approach is intended and
+welcome, and matching the licence is the plain form of it. Its author, Peter
+Strömberg, is known to the maintainer, which makes a design question cheaper
+than a reverse-engineering session.
 
-### Also worth reading
+Reading that one file collapses several questions that look open. VS Code
+collapses ordinary spaces in decoration `contentText`, so Calva substitutes
+non-breaking spaces (U+00A0) — without which any alignment inside a rendered
+value collapses. Decorations smearing as you type is
+`rangeBehavior: DecorationRangeBehavior.ClosedOpen`, a one-liner. Colours come
+from `ThemeColor` rather than hardcoded values, so results follow the theme and
+stay overridable through `workbench.colorCustomizations`. There are two
+decoration layers, not one: the result text is an `after` decoration and the
+evaluated region gets its own background highlight, and keeping them separate
+is what makes the UX legible. An `AnnotationStatus` enum
+(`PENDING`/`SUCCESS`/`ERROR`) drives distinct region colours, which is most of
+what makes the feature feel alive rather than static. Overview-ruler marks put
+evaluated regions in the scrollbar. Decoration state is per document, keyed by
+`document.uri`. Errors get their own colour and hover text rather than a
+separate presentation mechanism.
 
-- **AREPL** — `almenon/AREPL-vscode`. Solves the continuous-execution and
-  value-serialisation problems (`repr()` handling, truncation, nesting
-  depth), even though it renders to a panel rather than inline.
-- **VS Code itself.** Setting `"debug.inlineValues": "on"` makes the
-  editor paint variable values inline, greyed, beside the code while a
-  debug session is paused. That is a *first-party* implementation of
-  precisely the rendering this project wants, already solving placement,
-  theming, truncation and update-on-step. It is worth studying how the
-  debug adapter feeds it before designing a decoration layer from
-  scratch — and it is also the honest answer to "what can I use today",
-  its only cost being that it requires a paused debug session.
+One departure worth stating as a departure: pending here carries an optional
+message rather than being a boolean, because "still running", "the kernel has
+not started this yet" and "waiting for you to answer `Enter a value:`" are
+three different things the reader has to tell apart — and Jupyter's inability
+to separate them is its best-known interface complaint.
 
-### The author is reachable
+### CIDER, for staleness
 
-Calva is written by Peter Strömberg (Pez), who is known to the owner of
-this project. Design questions about *why* something is done a particular
-way can be asked directly rather than reverse-engineered — likely the
-single cheapest way to de-risk the rendering work.
+The amber fringe marker, described above. The vocabulary matters as much as
+the mechanism: *out of sync with what the REPL has*, not *wrong*.
 
-## Scope of a first prototype
+### Hydrogen, for the shape of the win
 
-The smallest thing that proves or kills the idea:
+Covered above. Read it as evidence that this UX has an audience in Python, and
+as a caution that the audience goes back to notebooks when the tool
+disappears.
 
-1. 30-line subprocess kernel holding a persistent namespace.
-2. The AST resolver (already written and working).
-3. `Cmd+Enter` → evaluate the statement under the cursor → paint the
-   value inline as a decoration.
+### AREPL, for value serialisation
 
-No continuous mode, no rich display, no kernel management. If that feels
-good to use, the rest is incremental. If it doesn't, very little was
-spent finding out.
+`almenon/AREPL-vscode` solves `repr()` handling, truncation and nesting depth
+for a continuously-executing evaluator, even though it renders to a panel. Its
+`unsafeKeywords` blocklist is the artefact to study rather than copy: it is
+what continuous evaluation costs.
 
-Estimated effort: a weekend for the prototype, a few more to reach
-something daily-drivable. `yo code` scaffolds the TypeScript extension.
+### Rider, for the annotation grammar
+
+Several named values per line rather than one result per statement. This is
+where the `name: value` model came from, and it is the single decision that
+made annotations useful on the lines that are not assignments.
+
+### marimo and Pluto.jl, for the road not taken
+
+Covered above, under reactive re-evaluation.
+
+## What would kill this
+
+Named so the project can be stopped on evidence rather than drift.
+
+**Microsoft points Smart Send's output at a decoration.** This is the real
+one. Every piece is already first-party and shipped: the AST chunking, the
+persistent REPL, the inline value rendering, the provider API. Nothing stands
+between those and this product except somebody at Microsoft deciding to wire
+them together. If that ships, the correct response is to stop, not to
+differentiate.
+
+**Nobody wants values in the buffer.** Plausible, and testable. The failure
+looks like people trying it, liking the demo, and going back to `print()`
+inside a week because the annotations are noise on a file they are trying to
+read. #77 exists to measure this against a real course rather than by
+impression, and it is the most important open ticket in the repository for
+that reason.
+
+**Annotations turn out to be untrustworthy in practice.** Not wrong in
+principle — wrong often enough that people stop reading them. Design rule 1
+exists because that defect has already appeared in five disguises. A tool that
+shows a value which is not true is worse than no tool, because the whole pitch
+is that the state is visible instead of hidden.
+
+**The notebook prohibition goes away.** If universities stop forbidding
+notebooks in first year, the motivating constraint evaporates and what is left
+is a nicer Smart Send. Worth watching; not worth acting on pre-emptively.
+
+**Or the project drifts into the market it says it is not competing for.**
+The open epics for rich display — #24, a table view for DataFrames, and #23,
+an inline object explorer — are aimed squarely at data-science work, and they
+are the features most likely to make Jupyter's kernel worth the dependency.
+Neither is wrong on its own; both should be weighed against the audience this
+document names, because a plain-source-file tool that grows a DataFrame
+viewer has started competing with notebooks on the ground notebooks win.
+
+**Notebooks themselves are not the threat**, and that is worth saying
+explicitly because the instinct is to fear them. The market they own is one
+this is not competing for, and their users report this project's pitch as a
+pain point in their own words: *"the only way to debug in most notebooks is
+through the use of print statements"*, and *"Debugging is a horrible
+experience, copying the code over to do the debugging outside [in the IDE],
+and copying it back"* (Chattopadhyay et al., CHI 2020 — 20 interviews and a
+156-person survey, alongside refactoring, deployment and history as the top
+reported pains).
+
+## What is not decided
+
+Two spikes are open and either could move architecture:
+
+- **#33 and #52** — whether rendering should go through VS Code's debug inline
+  values, and whether a debug session can be made genuinely invisible. Design
+  rule 6 already constrains the answer: if it needs a `launch.json` or an
+  interpreter selection before a value appears, it fails regardless of what
+  the spike finds about UI leakage.
+- **#56** — whether loading a file resets the namespace. This is the "restart
+  and run all" discipline question, and letting it default silently is the
+  notebook mistake in miniature.
+
+And one thing is settled but unevidenced, restated because it is the easiest
+claim in this document to start believing: **no part of the rendering has been
+signed off by a human looking at it in this document's record.** Everything
+above about how it looks is an assertion about strings and ranges.
 
 ## Naming and marketplace positioning
 
-The name is **Evalens** (eval + lens). A marketplace search for "evalens"
-returns zero results, so it is unclaimed.
+The name is **Evalens** (eval + lens), and a marketplace search returned zero
+results for it. `*-Lens` has become recognised shorthand for "paints
+information into your editor" — Error Lens has 9,780,508 installs — and
+landing in that mental category is free positioning.
+`TylerLeonhardt.vscode-inline-values-powershell` has 115,525 installs, which
+says the "inline values for X" framing sells in a language with a fraction of
+Python's user base. Both figures come from the same September 2026 gathering
+as the table above and are not re-verified.
 
-The reasoning: **Error Lens has 9,780,508 installs**, and `*-Lens` has
-become recognised shorthand for "paints information into your editor."
-Landing in that mental category is free positioning. As a second data
-point, `TylerLeonhardt.vscode-inline-values-powershell` has 115,525
-installs — the "inline values for X" framing demonstrably sells, in a
-language with a fraction of Python's user base.
+`package.json` uses both name fields, so brandability and searchability are not
+a trade-off: `"name": "python-inline-values"` is the id and the marketplace URL
+slug, and `"displayName": "Evalens — Inline Python Values"` is what humans see.
+`keywords` includes `calva` and `arepl` deliberately — people searching those
+terms are precisely the target audience — and `categories` is
+`["Debuggers", "Visualization", "Programming Languages"]`.
 
-### Use both name fields
+**The marketplace `description` currently reads "See values inline as you
+type", and that is the broad claim this document exists to stop making.**
+Evaluation is explicitly triggered and never continuous; "as you type" says
+the opposite, in the one line a search result shows, and it is a sentence
+AREPL could use more truthfully than Evalens can. Fixing it belongs with the
+rest of the listing work in #15.
 
-`package.json` exposes two separate fields, so brandability and
-searchability are not a trade-off:
-
-```jsonc
-"name":        "python-inline-values",           // id + marketplace URL slug: pure SEO
-"displayName": "Evalens — Inline Python Values",  // shown to humans: brand + keywords
-```
-
-### Other listing metadata that matters
-
-- **`keywords`** are indexed by marketplace search:
-  `python, repl, inline, live, values, evaluate, calva, nrepl, arepl,
-  print debugging`. Including `calva` and `arepl` is deliberate — people
-  searching those terms are precisely the target audience.
-- **`categories`**: `["Debuggers", "Visualization", "Programming Languages"]`
-- **`description`** renders as the single line under the name in search
-  results, so it should be the pitch rather than a summary. Something
-  like: *"See values inline as you type. No print(), no debugger, no
-  notebook."*
-
-### What actually converts
-
-For a visual extension, an **animated GIF at the top of the README**
-outsells the name by a wide margin. Every extension that has won this
-category leads with one above the fold, Error Lens included. A viewer
-scrolling search results decides in about two seconds, and a five-second
-loop of values appearing on `Cmd+Enter` does that work. This deserves
-more effort than the naming did.
+For a visual extension, an **animated GIF at the top of the README** outsells
+the name by a wide margin. Every extension that has won this category leads
+with one above the fold, Error Lens included. A viewer scrolling search
+results decides in about two seconds, and a five-second loop of values
+appearing on a keypress does that work. `examples/tour.py` exists to be
+recorded from, and no recording exists yet. This deserves more effort than the
+naming did.
 
 ## Motivation
 
 Written while setting up a Python development environment for a student
-beginning a five-year university programme. The absence of this workflow
-in Python — coming from Clojure, where it is table stakes — was the
-prompt.
+beginning a five-year university programme, coming from Clojure, where inline
+evaluation is table stakes. The original prompt was "Python doesn't have
+this". That turned out to be half wrong, and this document is what is left
+after checking.

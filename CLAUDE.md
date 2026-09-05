@@ -1,9 +1,12 @@
 # Evalens — AI operating contract
 
-Calva-style inline evaluation for Python in VS Code: put the cursor on a line,
-hit a key, see the value painted inline next to the code. **What this is and
-why it doesn't already exist is in [`IDEA.md`](IDEA.md)** — read it before
-proposing anything about architecture, naming, or scope.
+Inline evaluation for Python in VS Code: put the cursor on a line, hit a key,
+see the value painted inline next to the code. **What this is, what already
+does part of it, and what would kill it are in [`IDEA.md`](IDEA.md)** — read
+it before proposing anything about architecture, naming, or scope. Smart Send
+and `debug.inlineValues` are shipped Microsoft features that cover most of the
+pitch separately; a proposal that ignores them is a proposal against a market
+description that is wrong.
 
 > **AI-facing docs live in [`docs/ai/`](docs/ai/).** Read
 > [`docs/ai/README.md`](docs/ai/README.md) and
@@ -53,36 +56,46 @@ with one is off-strategy even when it is convenient.
 
 ## Status
 
-**Nothing is scaffolded yet.** The repo currently holds the design document
-and one working proof:
+**The extension is built, tested and installable.** It is not published —
+there is no marketplace listing — and nothing it paints has been signed off by
+a human watching the editor do it.
 
 ```
-IDEA.md                        the design: gap analysis, architecture,
-                               prior art, marketplace positioning
-prototype/form_at_cursor.py    48 lines of stdlib `ast` that resolve the form
-                               under a cursor — the piece that looked hard and
-                               isn't. Runs today.
-docs/ai/                       AI operating docs
-docs/development/              issue tracking + worktree SOP
+src/                    the extension: 21 TypeScript modules, ~6,000 lines
+kernel/                 kernel, resolver and loop recorders — ~3,500 lines,
+                        stdlib only, no ZeroMQ, no runtime dependencies
+src/test/, kernel/test_*.py   396 + 395 tests, both green on e76b68d
+examples/tour.py        732 lines: the manual fixture and the demo script
+media/gutter/           evaluated / stale / error markers, light and dark
+IDEA.md                 what this is, what already does part of it, and what
+                        would kill it
+README.md               the user-facing doc — commands, keys, settings.
+                        src/test/readme.test.ts checks it against the code
+docs/ai/, docs/development/   AI operating docs, issue tracking, worktrees
+prototype/form_at_cursor.py   history — the 48-line proof that
+                        kernel/resolver.py superseded
 bin/hooks/, bin/install-hooks.sh   the commit gate
-.github/ISSUE_TEMPLATE/, .github/workflows/   templates + CI
+.github/                templates + CI: extension on Node 20, kernel on
+                        Python 3.9, 3.11 and 3.13
 ```
 
-Do not describe the extension in the present tense until it exists.
+## The stack, as built
 
-## Intended stack
+The earlier plan to scaffold with `yo code` was not followed. Raise a decision
+ticket to change any of this:
 
-From [`IDEA.md`](IDEA.md), not yet built — treat as the plan, and raise a
-decision ticket to change any of it:
-
-- **Extension**: TypeScript, scaffolded with `yo code`.
-- **Runtime**: a ~30-line Python subprocess holding a persistent namespace
-  dict, `exec()`-ing statements and returning `repr()` of a target over a
-  pipe. Jupyter's `IExportedKernelService` is the documented escape hatch if
-  rich display ever justifies the dependency — deliberately not the starting
-  point.
-- **Form resolution**: stdlib `ast`, using `end_lineno` / `end_col_offset`.
-  Statements are `exec`-ed; the assignment *target* is what gets displayed.
+- **Extension**: TypeScript, compiled by `tsc -p .`, tested with
+  `node --test`. Four devDependencies, no runtime dependencies, no bundler.
+- **Kernel**: a persistent Python subprocess holding a namespace dict,
+  speaking newline-delimited JSON over **two** pipes — requests on fd 0/1;
+  interrupts, prompts and everything user code prints on fd 3/4, because the
+  one reader of fd 0 is busy while user code runs. Ops: `ping`, `reset`,
+  `eval`, `eval_file`, `outline`. Jupyter's `IExportedKernelService` remains
+  the documented escape hatch and is deliberately unused.
+- **Form resolution**: stdlib `ast` in `kernel/resolver.py`, using
+  `end_lineno` / `end_col_offset`. **Not a differentiator** — Smart Send
+  ships the same thing; what the resolver decides *afterwards* is the part
+  that matters, and [`IDEA.md`](IDEA.md) says why.
 - **Rendering**: `createTextEditorDecorationType({ after: { contentText } })`
   plus `setDecorations` — the same mechanism Calva, Error Lens, and inlay
   hints use.
@@ -90,18 +103,17 @@ decision ticket to change any of it:
 ## Prior art is a first-class input
 
 `BetterThanTomorrow/calva`, `src/providers/annotations.ts` (217 lines) is the
-reference implementation for the rendering, and reading it collapses several
-questions that look open: non-breaking spaces because VS Code eats ordinary
-ones in `contentText`; `DecorationRangeBehavior.ClosedOpen` so decorations
-don't smear as you type; `ThemeColor` rather than hardcoded colours; two
-decoration layers (result text and evaluated-region highlight); a
-pending/success/error status driving region colour; overview-ruler marks;
+reference implementation for the rendering, and `src/render/` follows it:
+non-breaking spaces because VS Code eats ordinary ones in `contentText`;
+`DecorationRangeBehavior.ClosedOpen` so decorations don't smear as you type;
+`ThemeColor` rather than hardcoded colours; separate layers for result text
+and evaluated region; a pending/success/error status driving region colour;
 per-document state keyed by `document.uri`.
 
-Read it before solving any of those from scratch. Calva is MIT licensed and
-attribution for the rendering approach is intended and welcome. Its author is
-reachable, which makes a design question cheaper than a reverse-engineering
-session.
+Read it before solving anything in that area from scratch. Calva is MIT
+licensed and attribution for the rendering approach is intended and welcome.
+Its author is reachable, which makes a design question cheaper than a
+reverse-engineering session. `IDEA.md` records where Evalens departs and why.
 
 ## Conventions and gotchas
 
@@ -119,13 +131,21 @@ session.
 
 ## Commands
 
-Everything that exists today:
+Every one of these was run in a worktree on `e76b68d` before being written
+here:
 
 ```bash
-bin/install-hooks.sh                     # wire the commit gate (once per clone)
-python3 prototype/form_at_cursor.py FILE LINE…   # the AST resolver proof
-gh issue list                            # the tracker
+bin/install-hooks.sh     # wire the commit gate (once per clone)
+npm ci                   # once per worktree — a fresh checkout has no
+                         # node_modules and no build output
+npm run compile          # tsc -p .
+npm run watch            # the same, watching
+npm test                 # 396 tests; pretest compiles first
+npm run test:kernel      # 395 tests, python3 -m unittest
+npm run package          # python-inline-values-<version>.vsix, 35 files
+gh issue list            # the tracker
+python3 prototype/form_at_cursor.py FILE LINE…   # the superseded AST proof
 ```
 
-Build, test, and packaging commands land with the extension scaffold. Do not
-document them before they run.
+Both suites pass before anything merges, and a clean rebase is not evidence
+that both sides survived — design rule 10.
