@@ -2602,6 +2602,199 @@ class LoopBodyBindings(KernelTest):
                          ["4", "8", "12"])
 
 
+class ComprehensionLoops(KernelTest):
+    """#75: a comprehension hides its loop, and the loop is the lesson.
+
+    A comprehension's target has a scope of its own -- #63's fix -- so what
+    is shown here can never come from reading a name back afterwards. It
+    comes from `loops.LoopTrace.trace`, wrapped around the clause's own
+    iterable while the comprehension runs, the way `LoopBodyBindings` above
+    gets a `for` loop's body values.
+    """
+
+    def bindings(self, result):
+        return [(b["name"], b["values"], b["count"]) for b in
+                result.get("bindings", [])]
+
+    def test_a_list_comprehension_reports_what_its_target_ran_through(self):
+        result = self.k.evaluate(
+            "squares = [x**2 for x in range(10)]\n", 0)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["value"],
+                         "[0, 1, 4, 9, 16, 25, 36, 49, 64, 81]")
+        self.assertEqual(self.bindings(result),
+                         [("x", ["0", "1", "2", "3", "4"], 10)])
+
+    def test_a_filter_reports_what_it_iterated_not_what_survived(self):
+        # The gap between the two numbers is the filter explaining itself:
+        # twenty iterations, ten survivors.
+        result = self.k.evaluate(
+            "evens = [x for x in range(20) if x % 2 == 0]\n", 0)
+        self.assertEqual(result["value"], "[0, 2, 4, 6, 8, 10, 12, 14, 16, 18]")
+        self.assertEqual(result["bindings"][0]["count"], 20)
+
+    def test_multiple_for_clauses_each_report_their_own_sequence(self):
+        # The inner clause legitimately repeats -- once per outer iteration --
+        # which is the lesson about nesting, not a bug to average away.
+        result = self.k.evaluate(
+            "pairs = [(x, y) for x in range(3) for y in range(2)]\n", 0)
+        self.assertEqual(self.bindings(result),
+                         [("x", ["0", "1", "2"], 3),
+                          ("y", ["0", "1", "0", "1", "0"], 6)])
+
+    def test_a_nested_comprehension_reports_both_targets(self):
+        result = self.k.evaluate(
+            "out = [[y for y in row] for row in [[1, 2], [3, 4]]]\n", 0)
+        self.assertEqual(self.bindings(result),
+                         [("row", ["[1, 2]", "[3, 4]"], 2),
+                          ("y", ["1", "2", "3", "4"], 4)])
+
+    def test_a_tuple_target_reports_the_tuple(self):
+        result = self.k.evaluate(
+            "d = {k: v for k, v in [(1, 'a'), (2, 'b')]}\n", 0)
+        self.assertEqual(self.bindings(result),
+                         [("(k, v)", ["(1, 'a')", "(2, 'b')"], 2)])
+
+    def test_a_set_comprehension_is_traced_too(self):
+        result = self.k.evaluate("s = {x for x in range(5)}\n", 0)
+        self.assertEqual(result["value"], "{0, 1, 2, 3, 4}")
+        self.assertEqual(self.bindings(result),
+                         [("x", ["0", "1", "2", "3", "4"], 5)])
+
+    def test_a_generator_expression_carries_no_trace_at_all(self):
+        # Lazy: nothing has been drawn from it by the time this statement
+        # finishes, and forcing it to find out would consume the generator
+        # the user just made -- the one thing an annotation may never do.
+        result = self.k.evaluate("g = (x for x in range(5))\n", 0)
+        self.assertNotIn("bindings", result)
+
+    def test_a_generator_expression_is_not_consumed_by_being_evaluated(self):
+        source = "g = (x for x in range(5))\nfirst = next(g)\n"
+        result = self.k.evaluate_lines(source, 0, 1)
+        self.assertEqual(result["value"], "0")
+        second = self.k.evaluate("next(g)\n", 0)
+        self.assertEqual(second["value"], "1", "still lazy, still whole")
+
+    def test_a_bare_comprehension_expression_statement_is_still_traced(self):
+        # `ast.Expr` is evaluated through a different path than every other
+        # statement -- one `eval()` rather than `exec()` -- and it is the one
+        # place the rewrite could be computed and then silently thrown away.
+        result = self.k.evaluate("[x * x for x in range(5)]\n", 0)
+        self.assertEqual(result["value"], "[0, 1, 4, 9, 16]")
+        self.assertEqual(self.bindings(result),
+                         [("x", ["0", "1", "2", "3", "4"], 5)])
+
+    def test_the_outer_variable_of_the_same_name_is_never_touched(self):
+        # #63's regression, restated for the feature that reverses its
+        # *display* decision without reopening its *scope* decision: the
+        # comprehension's own `x` is what gets traced, and the module-level
+        # `x` of the same name is untouched throughout.
+        source = "x = [1, 2, 3]\nsquares = [x**2 for x in range(10)]\n"
+        result = self.k.evaluate_lines(source, 0, 1)
+        self.assertEqual(self.bindings(result),
+                         [("x", ["0", "1", "2", "3", "4"], 10)])
+        self.assertNotIn("x", [pair["name"] for pair in
+                               result.get("names", [])])
+        after = self.k.evaluate("x\n", 0)
+        self.assertEqual(after["value"], "[1, 2, 3]",
+                         "the comprehension must not have touched it")
+
+    def test_a_comprehension_still_reports_what_it_reads_from_outside(self):
+        # Only the loop targets are scoped away; a name read from the
+        # enclosing scope is still legitimate context and stays a name.
+        source = "factor = 10\ndata = [1, 2]\nout = [x * factor for x in data]\n"
+        result = self.k.evaluate_lines(source, 0, 1, 2)
+        self.assertEqual(result["value"], "[10, 20]")
+        self.assertEqual(self.bindings(result),
+                         [("x", ["1", "2"], 2)])
+        self.assertEqual([pair["name"] for pair in result["names"]],
+                         ["factor", "data"])
+
+    def test_a_comprehension_inside_a_nested_def_is_left_alone(self):
+        # It runs when the function is called, long after this evaluation
+        # finished and the recorders were uninstalled.
+        source = "def f():\n    return [x * x for x in range(3)]\n"
+        result = self.k.evaluate(source, 0)
+        self.assertNotIn("bindings", result)
+        self.assertEqual(
+            self.k.evaluate_lines(source + "f()\n", 0, 1, 2)["value"],
+            "[0, 1, 4]")
+
+    def test_zero_loop_values_leaves_the_comprehension_uninstrumented(self):
+        # The same off switch a `for` loop obeys: `evalens.loopValues` turns
+        # the rewrite off, not merely the display, so an uninstrumented
+        # comprehension costs nothing extra per iteration.
+        result = self.k.evaluate(
+            "squares = [x**2 for x in range(10)]\n", 0,
+            limits={"loop_values": 0})
+        self.assertTrue(result["ok"], result)
+        self.assertNotIn("bindings", result)
+        self.assertEqual(result["value"], "[0, 1, 4, 9, 16, 25, 36, 49, "
+                                          "64, 81]")
+
+    def test_a_request_may_ask_for_more_comprehension_iterations(self):
+        result = self.k.evaluate(
+            "squares = [x**2 for x in range(20)]\n", 0,
+            limits={"loop_values": 8})
+        self.assertEqual(result["bindings"][0]["values"],
+                         ["0", "1", "2", "3", "4", "5", "6", "7"])
+        self.assertEqual(result["bindings"][0]["count"], 20)
+
+    def test_each_recorded_value_is_capped_before_the_wire(self):
+        result = self.k.evaluate(
+            "s = ['x' * 5000 for _ in range(2)]\n", 0)
+        for value in result["bindings"][0]["values"]:
+            self.assertLess(len(value), 400)
+
+    def test_a_long_comprehension_is_bounded_rather_than_sent_whole(self):
+        result = self.k.evaluate(
+            "big = [x for x in range(100000)]\n", 0)
+        self.assertEqual(result["bindings"][0]["values"],
+                         ["0", "1", "2", "3", "4"])
+        self.assertEqual(result["bindings"][0]["last"], "99999")
+        self.assertEqual(result["bindings"][0]["count"], 100000)
+
+    def test_the_comprehension_leaves_no_machinery_in_the_namespace(self):
+        self.k.evaluate("squares = [x * x for x in range(3)]\n", 0)
+        listed = self.k.evaluate("sorted(dir())\n", 0)["value"]
+        self.assertNotIn("evalens_loops", listed)
+
+    def test_a_raise_from_inside_the_iterable_names_no_kernel_frame(self):
+        # The one place this rewrite genuinely does put a frame of its own on
+        # the stack: an iterable whose own iteration raises, rather than the
+        # comprehension's element expression or a filter. `_error` strips it.
+        source = ("def gen():\n"
+                 "    yield 1\n"
+                 "    raise ValueError('boom')\n"
+                 "result = [x for x in gen()]\n")
+        self.k.evaluate(source, 0)
+        result = self.k.evaluate(source, 3, filename="/tmp/user.py")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["type"], "ValueError")
+        self.assertNotIn("loops.py", result["error"]["traceback"])
+        self.assertNotIn("evalens_kernel.py", result["error"]["traceback"])
+
+    def test_a_raise_from_the_element_expression_names_no_kernel_frame(self):
+        # The common student mistake -- dividing by a value the comprehension
+        # itself produced -- runs entirely in the comprehension's own frame
+        # and was never at risk, checked here so a future change cannot
+        # regress it unnoticed.
+        result = self.k.evaluate(
+            "result = [10 / n for n in [1, 2, 0, 3]]\n", 0,
+            filename="/tmp/user.py")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["type"], "ZeroDivisionError")
+        self.assertNotIn("loops.py", result["error"]["traceback"])
+
+    def test_loading_a_file_reports_a_comprehensions_trace_too(self):
+        result = self.k.send(
+            op="eval_file",
+            source="squares = [x**2 for x in range(5)]\n",
+            filename="/tmp/module.py")
+        self.assertEqual(result["results"][0]["bindings"][0]["values"],
+                         ["0", "1", "2", "3", "4"])
+
+
 class Names(KernelTest):
     """What the names on a line hold, which for most lines is the answer.
 

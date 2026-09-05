@@ -181,6 +181,35 @@ class LoopTrace:
             # matter how long the loop runs.
             self.last = text
 
+    def trace(self, iterable: Any) -> Any:
+        """Yield `iterable` unchanged, recording each item as it is drawn.
+
+        What a comprehension's `for` clause is instrumented with, in place of
+        `record` being called from an injected body statement: a comprehension
+        compiles to its own tiny function built entirely from expressions, and
+        there is no statement position inside it to call anything from. What
+        there is instead is the clause's *iterable*, and wrapping it --
+        `range(10)` becomes `__evalens_loops__[0].trace(range(10))` -- records
+        exactly what the clause drew from it while handing back the very same
+        values, unopened and unmodified. A generator that yields what it was
+        given is transparent to whatever consumes it, so the comprehension
+        still builds precisely the result it would have without this wrapped
+        around its source. See `_ComprehensionInstrumenter`.
+
+        Recorded before the value is handed onward, on the rule `record`
+        already states: a `repr()` taken here is of the item as the clause
+        drew it, before the comprehension's own element expression or a later
+        filter can act on anything reachable from it.
+
+        Never installed on a generator expression's clauses -- see
+        `_ComprehensionInstrumenter.visit_GeneratorExp` -- because pulling
+        even one item through this generator to record it is exactly the
+        forced consumption that would destroy the value the user just made.
+        """
+        for item in iterable:
+            self.record(item)
+            yield item
+
     def bind(self) -> None:
         """Record what this iteration bound, read from the calling frame.
 
@@ -530,6 +559,152 @@ def instrument(node: ast.stmt) -> Tuple[ast.stmt, List[Tuple[str, ...]]]:
     instrumenter = _Instrumenter()
     rewritten = instrumenter.visit(copy.deepcopy(node))
     return ast.fix_missing_locations(rewritten), instrumenter.plan
+
+
+def _trace_call(index: int, iterable: ast.expr, at: ast.expr) -> ast.expr:
+    """`__evalens_loops__[index].trace(iterable)`, as an expression.
+
+    `_recorder_call` builds the same shape of call as a *statement*, for a
+    `for` body that has somewhere to put one. A comprehension's clause has
+    nowhere -- it is built entirely from expressions -- so this hands back
+    the call itself, to be substituted in place of `iterable`.
+
+    Only the wrapper's own nodes take `at`'s position. `iterable` is the
+    user's own expression and the parser already positioned it; overwriting
+    that would misattribute it, quoting the clause's iterable at the line of
+    whatever statement happens to contain it rather than its own.
+    `fix_missing_locations` is still run over the whole call as a safety net,
+    and it is safe to: it fills in only what is missing, so `iterable`'s own
+    position -- never missing, since it came from a parse -- is left alone.
+    """
+    name = ast.Name(id=RECORDERS, ctx=ast.Load())
+    index_node = ast.Constant(value=index)
+    subscript = ast.Subscript(value=name, slice=index_node, ctx=ast.Load())
+    attribute = ast.Attribute(value=subscript, attr="trace", ctx=ast.Load())
+    call = ast.Call(func=attribute, args=[iterable], keywords=[])
+    for node in (name, index_node, subscript, attribute, call):
+        ast.copy_location(node, at)
+    return ast.fix_missing_locations(call)
+
+
+class _ComprehensionInstrumenter(ast.NodeTransformer):
+    """Wraps each `for` clause's iterable so it reports what it drew.
+
+    `_Instrumenter` inserts calls into a `for` statement's body; a
+    comprehension has no body to insert into, only expressions, so what gets
+    rewritten here is each clause's `iter` instead -- see `_trace_call` and
+    `LoopTrace.trace`. Everything else about the comprehension, including its
+    element expression and every filter, is left exactly as written:
+    recording is a property of the iterable, not of what the comprehension
+    goes on to do with it, and #75 is explicit that only the first may
+    change -- *what it iterated, not what survived the filter*.
+
+    The same three scopes `_Instrumenter` refuses to descend into are refused
+    here too, and for the same two reasons: a nested `def`, `class` or
+    `lambda` is both a different scope and a different *time*, its body
+    running when it is called rather than now, with the recorders long since
+    uninstalled by then. A comprehension sitting in a function's default
+    argument genuinely does run now and is missed by this rule -- defaults are
+    evaluated where the `def` is written -- but `_Instrumenter` already
+    accepts the same miss for a `for` loop in that position, nothing else in
+    this module opens one argument of a `def` while leaving its body closed,
+    and the alternative is a traversal found nowhere else here for a case this
+    rare.
+    """
+
+    def __init__(self) -> None:
+        #: One label per instrumented `for` clause, in allocation order --
+        #: the unparsed target pattern, e.g. `"x"` or `"(k, v)"`, which is all
+        #: a caller needs to name the trace on the wire. Positional, exactly
+        #: as `_Instrumenter.plan` is: a clause's recorder is not
+        #: interchangeable with the next one.
+        self.plan: List[str] = []
+
+    def visit_FunctionDef(self, node: ast.AST) -> ast.AST:
+        return node
+
+    def visit_AsyncFunctionDef(self, node: ast.AST) -> ast.AST:
+        return node
+
+    def visit_ClassDef(self, node: ast.AST) -> ast.AST:
+        return node
+
+    def visit_Lambda(self, node: ast.AST) -> ast.AST:
+        return node
+
+    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> ast.GeneratorExp:
+        # Lazy: nothing has been drawn from it by the time the statement that
+        # holds it finishes, and the only way to learn what it would draw is
+        # to run it -- which is the one thing an annotation may never do to a
+        # generator the user kept. Left exactly as parsed, root to leaves, so
+        # a list comprehension nested inside one is left alone too rather than
+        # instrumented on the chance it turns out to be consumed synchronously
+        # here. See #75.
+        return node
+
+    def visit_ListComp(self, node: ast.ListComp) -> ast.ListComp:
+        return self._instrument(node)
+
+    def visit_SetComp(self, node: ast.SetComp) -> ast.SetComp:
+        return self._instrument(node)
+
+    def visit_DictComp(self, node: ast.DictComp) -> ast.DictComp:
+        return self._instrument(node)
+
+    def _instrument(self, node):
+        for generator in node.generators:
+            if generator.is_async:
+                # `async for` draws through `__aiter__`; `trace` is an
+                # ordinary generator built on `__iter__`, and wrapping one
+                # would break the clause outright rather than merely leave it
+                # untraced. Unreachable from the cursor today for the same
+                # reason `_Instrumenter` gives an `async for` statement: it
+                # only appears inside an `async def`, a scope this class has
+                # already declined to enter -- kept as an explicit guard
+                # rather than an invariant nothing checks.
+                continue
+            index = len(self.plan)
+            self.plan.append(ast.unparse(generator.target))
+            generator.iter = _trace_call(index, generator.iter, generator.iter)
+        # After wrapping this comprehension's own clauses, so that an iterable,
+        # an element expression or a filter which is itself a comprehension is
+        # found and given the next indices -- outer clauses first, exactly as
+        # `_Instrumenter` allocates the loop the user pointed at before it
+        # descends into the ones nested inside it.
+        self.generic_visit(node)
+        return node
+
+
+def instrument_comprehensions(node: ast.stmt) -> Tuple[ast.stmt, List[str]]:
+    """A rewritten copy of `node`, and the label for each clause traced.
+
+    Mirrors `instrument()`, and for the same reason: the original is left
+    untouched, because the caller holds the user's parsed tree and may still
+    want its positions, and a transformer that mutates its input turns
+    "evaluate this twice" into "instrument it twice".
+
+    A statement with no comprehension in it, or one holding only generator
+    expressions, comes back unchanged with an empty list -- which is what
+    makes this cost nothing beside the statement kinds #75 was not asked
+    about.
+    """
+    instrumenter = _ComprehensionInstrumenter()
+    rewritten = instrumenter.visit(copy.deepcopy(node))
+    return ast.fix_missing_locations(rewritten), instrumenter.plan
+
+
+def comprehension_traces(
+    labels: List[str], repr_fn: Callable[[Any], str], limit: int = HEAD_LIMIT
+) -> List[Tuple[str, LoopTrace]]:
+    """One recorder per instrumented clause, paired with the label it reports
+    under.
+
+    A plain `LoopTrace` each, with no watched body names: a comprehension has
+    no body statement to bind one in, only the element expression that
+    produces the comprehension's own result -- which is already what the
+    statement's value shows, and is not this module's to repeat.
+    """
+    return [(label, LoopTrace(repr_fn, limit)) for label in labels]
 
 
 def traces(plan: List[Tuple[str, ...]], repr_fn: Callable[[Any], str],

@@ -352,21 +352,38 @@ export interface LoopTrace {
 }
 
 /**
- * What one name the loop's *body* bound held, iteration by iteration.
+ * A named sequence appended beside a statement's own value, iteration by
+ * iteration.
  *
- * The target is usually the input being iterated; the body binding is usually
- * the computed result, which is the half the reader came for. Both change on
- * every iteration, and reporting the input's whole history beside the output's
- * final value -- in the same style, side by side -- is exactly backwards.
+ * Two different statements fill this array, on the same shape because the
+ * rendering they want is the same one.
  *
- * Bounded on the same terms as the target's trace, which is why this extends
- * it rather than repeating it. Two things are its own:
+ * **What a `for` loop's *body* bound.** The target is usually the input being
+ * iterated; the body binding is usually the computed result, which is the
+ * half the reader came for. Both change on every iteration, and reporting the
+ * input's whole history beside the output's final value -- in the same style,
+ * side by side -- is exactly backwards.
+ *
+ * **What one of a comprehension's `for` clauses drew from its iterable.** A
+ * comprehension has no body statement to bind a name in -- it is built
+ * entirely from expressions -- so there is nothing here that plays the first
+ * role for one. What it does have is the clause's own target, scoped to the
+ * comprehension and gone by the time the statement finishes, and this is
+ * where the kernel reports the sequence that scope never got to keep: `x` in
+ * `squares = [x**2 for x in range(10)]`. `name` is then the clause's target
+ * pattern, unparsed -- `"x"`, or `"(k, v)"` for one that unpacks.
+ *
+ * Bounded on the same terms as the target's own trace, which is why this
+ * extends it rather than repeating it. Two things are its own:
  *
  * **`count` need not match the loop's.** An iteration that hit `continue` or
  * `break` left the body before the recorder and computed no result, so it
  * contributes nothing. Rendering the two as parallel columns is wrong the
  * first time someone writes a filter loop; they are separate sequences that
- * happen to have been recorded by one statement.
+ * happen to have been recorded by one statement. A comprehension clause has
+ * no loop of its own to compare against -- `count` there is simply how many
+ * times it ran, and a nested clause legitimately runs once per outer
+ * iteration.
  *
  * **`constant`** says every iteration bound the same value, and `values` then
  * holds that one reading. `c: 7, 7, 7, 7` is four observations of one fact,
@@ -447,7 +464,13 @@ export interface Evaluated {
   readonly stderr: string;
   /** Present only for a `for` / `async for`. */
   readonly loop?: LoopTrace;
-  /** What the loop's body bound; present only when it bound something. */
+  /**
+   * What the loop's body bound, or what a comprehension's `for` clauses drew
+   * from their iterables; present only when there is one or the other. See
+   * `BindingTrace`. A statement is never both -- a comprehension's own clause
+   * traces sit here rather than in `loop`, precisely so they do not displace
+   * the statement's own value the way a `for` loop's target does.
+   */
   readonly bindings?: readonly BindingTrace[];
   /** Present only when the line mentions names worth reporting. */
   readonly names?: readonly NamedValue[];

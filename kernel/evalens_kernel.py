@@ -334,6 +334,14 @@ _KERNEL_DIR = os.path.realpath(os.path.dirname(os.path.abspath(__file__)))
 #: resolving for anybody else.
 _SEALED_MODULES: list = []
 
+#: This module's own source files, resolved once, so `_error` can tell one of
+#: its frames from the user's. `resolver` never runs on the stack a user's
+#: code passes through -- it only parses -- so it does not need to be here;
+#: `loops` and this file both do. See `_error` for why a frame from either can
+#: legitimately end up in a user's traceback.
+_KERNEL_FILES = frozenset(
+    os.path.abspath(path) for path in (loops.__file__, __file__) if path)
+
 #: `__name__` for a source that names no file at all -- an unsaved buffer, or
 #: a request that sent none. Every file gets its own name instead; see
 #: `_module_name`. Kept as a dunder because it is a module name and reads like
@@ -1908,27 +1916,48 @@ def _unwatched(names: Iterable[str], recorders: list) -> list:
 
 def _instrumented(
     node: ast.stmt, head_limit: int = loops.HEAD_LIMIT
-) -> tuple[ast.stmt, list]:
-    """`node` rewritten to announce each iteration, plus its recorders.
+) -> tuple[ast.stmt, list, list]:
+    """`node` rewritten to announce its iterations, plus its recorders.
 
-    Only a loop is touched, and only the loop the user pointed at -- the
-    rewrite descends into loops nested directly inside it, but never into a
-    `def` or `class` in the body, whose loops run at a time this evaluation
-    knows nothing about.
+    Two different rewrites, and a statement gets at most one of them.
 
-    Anything else comes back unchanged with no recorders, which is what makes
-    the loop support cost the other statement kinds nothing at all.
+    **The statement the user pointed at is itself a `for` or `async for`.**
+    Only that loop is touched -- the rewrite descends into loops nested
+    directly inside it, but never into a `def` or `class` in the body, whose
+    loops run at a time this evaluation knows nothing about -- and its own
+    target and body bindings come back as `loop_recorders`, exactly as before
+    #75. A comprehension sitting in *this* loop's own iterable or body is not
+    additionally instrumented: the two rewrites do not share an index space,
+    and a `for` statement already gets a full trace of its own, which is the
+    gap #75 exists to close for the statements that do not.
+
+    **Anything else** is searched for a `ListComp`, `SetComp` or `DictComp`
+    wherever one appears in the statement -- inside an assignment's
+    right-hand side, an expression statement, a condition, anywhere but a
+    nested `def`/`class`/`lambda` -- and each `for` clause found is wrapped to
+    report what it drew, as `comprehension_recorders`. A generator expression
+    is found and left untouched; see `loops._ComprehensionInstrumenter`.
+
+    A statement matching neither case, or one holding no comprehension, comes
+    back unchanged with both lists empty, which is what makes this cost
+    nothing beside the statement kinds neither #31 nor #75 was asked about.
 
     A `head_limit` of zero is the off switch for `evalens.loopValues`, and it
-    turns the rewrite off rather than the display: an off switch that still
-    instrumented the loop would stop showing the sequence and keep charging
-    one `repr()` per iteration for it.
+    turns both rewrites off rather than the display: an off switch that still
+    instrumented would stop showing the sequence and keep charging one
+    `repr()` per iteration for it. #75 asked for a comprehension trace to obey
+    the same switch, which is what sharing this one guard guarantees rather
+    than states.
     """
-    if head_limit <= 0 or not isinstance(node, (ast.For, ast.AsyncFor)):
-        return node, []
-    rewritten, plan = loops.instrument(node)
-    return rewritten, loops.traces(
-        plan, lambda value: safe_repr(value, loops.ITEM_LIMIT), head_limit)
+    if head_limit <= 0:
+        return node, [], []
+    repr_fn = lambda value: safe_repr(value, loops.ITEM_LIMIT)  # noqa: E731
+    if isinstance(node, (ast.For, ast.AsyncFor)):
+        rewritten, plan = loops.instrument(node)
+        return rewritten, loops.traces(plan, repr_fn, head_limit), []
+    rewritten, labels = loops.instrument_comprehensions(node)
+    return rewritten, [], loops.comprehension_traces(
+        labels, repr_fn, head_limit)
 
 
 #: What one request asks its annotations to look like. The kernel holds no
@@ -2146,18 +2175,50 @@ def _dependencies_of(form: Form) -> Dict[str, Any]:
     return fields
 
 
+def _without_kernel_frames(
+    tb: Optional[types.TracebackType]
+) -> Optional[types.TracebackType]:
+    """`tb`, with any frame from this kernel's own code spliced out.
+
+    A `for` loop's recorders are simple statements in the body -- `record`,
+    `bind` -- and user code raising *through* either was never possible; the
+    body's own exceptions come from the body's own statements, not from a
+    call into this kernel. A comprehension's clause has no body to call one
+    from, so `LoopTrace.trace` wraps the clause's *iterable* instead, and that
+    does put a frame of this kernel's own on the stack -- an iterable whose
+    `__next__` raises mid-iteration unwinds out through `trace`'s own `for
+    item in iterable:` on its way to the user's code. `tb_skip` below only
+    ever removes a fixed number of frames from the front, which cannot reach
+    one sitting in the middle; this walks the whole chain instead.
+
+    Recursive, because a traceback is a linked list built from the raise
+    outward, and the replacement has to be assembled the same way: a new node
+    can only point at an already-rebuilt tail.
+    """
+    if tb is None:
+        return None
+    rest = _without_kernel_frames(tb.tb_next)
+    if os.path.abspath(tb.tb_frame.f_code.co_filename) in _KERNEL_FILES:
+        return rest
+    return types.TracebackType(rest, tb.tb_frame, tb.tb_lasti, tb.tb_lineno)
+
+
 def _error(exc: BaseException, tb_skip: int = 0) -> Dict[str, Any]:
     """Format an exception for the wire, without the kernel's own frames.
 
     The user should see their file and their line numbers. Every frame this
     module contributes is noise that makes a NameError look like an
-    extension bug.
+    extension bug. `tb_skip` peels a fixed number from the front -- the
+    `exec()`/`eval()` call site above the user's own code -- and
+    `_without_kernel_frames` catches the one place a frame of this kernel's
+    own can still appear further in: see its docstring.
     """
     tb = exc.__traceback__
     for _ in range(tb_skip):
         if tb is None:
             break
         tb = tb.tb_next
+    tb = _without_kernel_frames(tb)
     return {
         "type": type(exc).__name__,
         "message": str(exc),
@@ -2776,7 +2837,8 @@ class Kernel:
              allow_stdin: bool = False,
              limits: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
         limits = _DEFAULT_LIMITS if limits is None else limits
-        node, recorders = _instrumented(form.node, limits["loop_values"])
+        node, recorders, comp_recorders = _instrumented(
+            form.node, limits["loop_values"])
         if form.captured:
             # An assignment to an attribute or a subscript. The value has to
             # come from the statement, because the only other way to it is
@@ -2789,6 +2851,11 @@ class Kernel:
         bindings: list = []
         names: list = []
         more_names = 0
+        # `_instrumented` never returns both: a statement is either the loop
+        # the user pointed at, or something searched for comprehensions, never
+        # both. So whichever list came back non-empty is what `installed`
+        # needs to make reachable from the rewritten code.
+        active_recorders = recorders or [trace for _, trace in comp_recorders]
 
         with _user_io(allow_stdin, _located(form), form=form,
                      filename=filename) as (out, err, stdin_stub):
@@ -2812,10 +2879,20 @@ class Kernel:
                     # is the exact side-effect duplication the explicit-
                     # trigger design exists to prevent, and it is invisible
                     # in a test that only evaluates pure expressions.
-                    expression = ast.Expression(form.node.value)
-                    value = eval(  # noqa: S307 - evaluating user code is the product
-                        compile(expression, filename, "eval",
-                                dont_inherit=True), self.namespace)
+                    #
+                    # `node.value`, not `form.node.value`: a bare comprehension
+                    # statement -- `[x**2 for x in range(10)]` on its own line
+                    # -- is an `Expr`, and `node` is where `_instrumented`
+                    # put its rewrite. Reading the value back off the
+                    # untouched original would run the comprehension the user
+                    # wrote instead of the one wrapped to report on itself,
+                    # silently dropping the trace this whole branch exists to
+                    # obey the same off switch for.
+                    expression = ast.Expression(node.value)
+                    with loops.installed(self.namespace, active_recorders):
+                        value = eval(  # noqa: S307 - evaluating user code is the product
+                            compile(expression, filename, "eval",
+                                    dont_inherit=True), self.namespace)
                     if form.display is not None:
                         shown, raw_repr = wire_value(value)
                     # A docstring is the one expression statement the resolver
@@ -2824,7 +2901,7 @@ class Kernel:
                     # a module's opening paragraph back at its author with the
                     # newlines escaped.
                 else:
-                    with loops.installed(self.namespace, recorders):
+                    with loops.installed(self.namespace, active_recorders):
                         with _Capture(self.namespace, form.captured) as kept:
                             exec(compile(statement, filename, "exec",
                                          dont_inherit=True), self.namespace)
@@ -2886,6 +2963,22 @@ class Kernel:
                         # from anything on the line. Everything else here
                         # answers None and paints nothing, as before.
                         shown = _star_import(form.node)
+
+                if comp_recorders:
+                    # A comprehension's own trace: what each `for` clause drew,
+                    # appended after whatever the statement's value slot
+                    # already holds. `bindings` rather than `loop`, on purpose
+                    # -- the renderer displaces `value` with `loop`, and
+                    # `squares: [0, 1, 4, ...]` is the answer, not something to
+                    # replace with `x: 0, 1, 2, ..., 9`. The two sit side by
+                    # side exactly as a `for` loop's body binding already does
+                    # beside its target, which is the rendering this reuses
+                    # rather than a new one. Never filtered by count: a clause
+                    # that drew nothing is itself the lesson -- see
+                    # `loops.comprehension_traces` and #75.
+                    bindings = [*bindings,
+                                *(trace.named_wire(label)
+                                  for label, trace in comp_recorders)]
 
                 # After the statement and before anything else can touch the
                 # namespace: these are what the names held at the moment this
