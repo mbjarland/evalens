@@ -273,6 +273,20 @@ test('an unpacking assignment reads as one pair per binding', () => {
     preserveSpacing('head: 1   rest: [2, 3, 4]'));
 });
 
+test('a multi-name import reads as one pair per name it bound', () => {
+  // `from math import floor, ceil, sqrt` painted `def floor(x, /)` -- the
+  // first binding, presented as though it were the statement's whole value,
+  // with `ceil` and `sqrt` bound and never mentioned. The same composition as
+  // an unpacking assignment: the kernel leaves the display slot empty and
+  // sends every bound name as a pair.
+  assert.equal(
+    resultText({ value: null, display: null, loop: null,
+      names: pairs(['floor', 'def floor(x, /)'], ['ceil', 'def ceil(x, /)'],
+        ['sqrt', 'def sqrt(x, /)']) }),
+    preserveSpacing(
+      'floor: def floor(x, /)   ceil: def ceil(x, /)   sqrt: def sqrt(x, /)'));
+});
+
 test('a statement with no value of its own still shows its names', () => {
   // An `if` produces nothing and can still be the most informative line in a
   // file: what it bound is the answer.
