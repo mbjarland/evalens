@@ -45,6 +45,10 @@
         "title": "Evalens: Evaluate File"
       },
       {
+        "command": "evalens.runFileAsScript",
+        "title": "Evalens: Run File as Script"
+      },
+      {
         "command": "evalens.evaluateAtCursor",
         "title": "Evalens: Evaluate at Cursor"
       },

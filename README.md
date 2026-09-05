@@ -109,6 +109,7 @@ without a way to run these.
 | Evalens: Evaluate at Cursor | Evaluates the form the cursor is in and paints its value beside it |
 | Evalens: Evaluate and Advance | The same, then moves to the next top-level statement — hold the key to walk a file |
 | Evalens: Evaluate File | Runs the file top to bottom, annotating each statement — or the selected statements, when there is a selection |
+| Evalens: Run File as Script | Runs the whole file the way `python3 file.py` would, so an `if __name__ == "__main__":` block runs |
 | Evalens: Clear Inline Results | Removes the annotations from the active editor |
 | Evalens: Announce Result at Cursor | Puts what is painted on the cursor's line into a notification, where a screen reader reads it |
 | Evalens: Interrupt Evaluation | Stops a running evaluation and keeps the namespace it built |
@@ -125,6 +126,52 @@ highlights how far it reached — a partial statement is never executed, because
 a fragment can parse into something valid that means something else. A
 selection with no complete statement in it — a comment, a blank line — says so
 in the status bar and runs nothing.
+
+**Evaluate File never runs an `if __name__ == "__main__":` block, on
+purpose.** Loading a file means *import this module*, which is what an
+imported module's `__name__` genuinely is — the file's own name, not
+`"__main__"` — so the guard is False and its body does not run, for the same
+reason it would not run under a real `import`. That used to be silent: the
+guard's own annotation showed nothing but the module name, which only reads as
+"this is why" if you already know the idiom. It now says so directly —
+`if __name__ == "__main__": => False -- not run as a script (Evalens: Run
+File as Script)` — because a block that did not run must never look like one
+that did.
+
+**Evalens: Run File as Script is the separate, deliberate command that runs
+it.** `__name__` is `"__main__"` for that one run and nothing else about the
+file changes: it still runs top to bottom, into the same session, and the
+namespace is not reset first — running it twice, or running it right after an
+ordinary load, simply runs the file again on top of whatever was already
+there, exactly as pressing Evaluate File twice does. `sys.argv` is
+`[the file's path]` for the run, matching what `python3 file.py` gives the
+script. There is no default keybinding, deliberately: reaching for this command
+is meant to be a choice, and it is always one press away in the Command
+Palette.
+
+**A file that is part of a real package resolves its relative imports on an
+ordinary load, and loses that on a script run — on purpose, and matching a
+real interpreter both ways.** Opening `demo_pkg/__init__.py` and pressing
+Evaluate File runs `from .geometry import area` the way `import demo_pkg`
+would, because a load's whole premise is *import this module*: Evalens works
+out the package it belongs to and gives it the `sys.path` entry and
+`__package__` a real import would. Run File as Script answers the same file
+differently, because `python3 demo_pkg/__init__.py` does: running a file
+directly never establishes package context, in a terminal or in Evalens, so
+the same relative import fails there with the same `ImportError` it would at
+a command line. Neither answer is a bug in the other's terms — they are two
+different real commands, faithfully imitated.
+
+Running as a script has one real limit worth knowing before you rely on it:
+`multiprocessing.Pool` and `concurrent.futures.ProcessPoolExecutor` send a
+worker a *reference* to the function to call, by looking it up on
+`sys.modules["__main__"]` — the interpreter's real, singular main module,
+which stays the Evalens kernel process throughout. A function your file
+defines lives in the kernel's namespace instead, so a worker cannot find it and
+the call fails with `PicklingError: ... not found as __main__.<name>`, exactly
+as it would if the same function were defined in a Jupyter cell or a live
+REPL. Threads, `asyncio`, and everything else the guard is written to protect
+run exactly as `python3 file.py` would; only the process-pool case cannot.
 
 ## Keybindings
 

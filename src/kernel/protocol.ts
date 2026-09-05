@@ -123,6 +123,20 @@ export interface EvalFileRequest {
   readonly end_line?: number;
   /** The same preferences apply to a load; see `DisplayLimits`. */
   readonly limits?: DisplayLimits;
+  /**
+   * Run the file the way `python3 <file>` would, rather than the way
+   * `import` would.
+   *
+   * Absent or false is Load File exactly as it has always been: `__name__`
+   * is the file's own name and an `if __name__ == "__main__":` guard stays
+   * False. True is Evalens: Run File as Script (#78) -- `__name__` is
+   * `"__main__"` for this one request, so the guard fires and its body runs
+   * like every other statement in the file, reported the same way. Nothing
+   * else about the request changes: the whole file still runs top to bottom,
+   * into the same persistent namespace, and a second script run simply runs
+   * it again rather than resetting anything first.
+   */
+  readonly as_script?: boolean;
 }
 
 /**

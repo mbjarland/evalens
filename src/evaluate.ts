@@ -500,11 +500,21 @@ export class Evaluator {
    * reader was asked to type something into a program whose behaviour so far
    * was invisible. Painting as it goes also removes the "did the key work?"
    * silence from a slow load, at file scale.
+   *
+   * `options.asScript` is Evalens: Run File as Script (#78): the same command
+   * with `__name__` bound to `"__main__"` for the run instead of the file's
+   * own name, so an `if __name__ == "__main__":` guard fires and its body
+   * runs. A selection is a different question -- "run this part of my file"
+   * -- that a script run does not ask, so it is ignored here: this always
+   * runs the whole file, the way `python3 <file>` would.
    */
-  async evaluateFile(editor: vscode.TextEditor): Promise<void> {
+  async evaluateFile(
+    editor: vscode.TextEditor, options?: { readonly asScript?: boolean }
+  ): Promise<void> {
+    const asScript = options?.asScript ?? false;
     const document = editor.document;
     const selection = editor.selection;
-    const lines = selectedLines(selection);
+    const lines = asScript ? undefined : selectedLines(selection);
     let response: FileResponse;
     // The load's paint state, built before the request because the first
     // statement can report before the await has yielded once.
@@ -533,6 +543,10 @@ export class Evaluator {
           // around the selection to snap outward to whole statements, and to
           // keep every line number it reports pointing at the real file.
           ...(lines ?? {}),
+          // Only present when true: absent is what every load before #78 sent,
+          // and the kernel reads it with `bool(request.get("as_script"))`, so
+          // there is nothing this needs to be false for.
+          ...(asScript ? { as_script: true } : {}),
           // Read per request, so a setting changed between two keypresses
           // applies to the second one without restarting the kernel -- which
           // would take the namespace with it.
@@ -550,7 +564,9 @@ export class Evaluator {
       );
       response = (await this.watch(
         running,
-        lines ? 'Evalens: running the selection' : 'Evalens: loading the file'
+        asScript
+          ? 'Evalens: running the file as a script'
+          : lines ? 'Evalens: running the selection' : 'Evalens: loading the file'
       )) as FileResponse;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -639,7 +655,7 @@ export class Evaluator {
 
     vscode.window.setStatusBarMessage(
       describeLoad(response.ran, response.statements, load.failed,
-        response.partial?.truncated_at), STATUS_OUTCOME_MS);
+        response.partial?.truncated_at, asScript), STATUS_OUTCOME_MS);
   }
 
   /**
