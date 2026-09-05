@@ -35,7 +35,7 @@
  */
 
 import { BindingTrace, LoopTrace, NamedValue } from '../kernel/protocol';
-import { paintedSlots } from './format';
+import { Printed, hasOutput, paintedSlots } from './format';
 
 /** The parts of an annotation the rule reads. */
 export interface Annotated {
@@ -44,6 +44,17 @@ export interface Annotated {
   readonly loop?: LoopTrace;
   readonly bindings?: readonly BindingTrace[];
   readonly names?: readonly NamedValue[];
+  /**
+   * What the statement printed, which this rule reads and never suppresses.
+   *
+   * Here for two reasons, both about agreeing with the renderer rather than
+   * about repetition. Output decides whether a produced `None` is painted, so
+   * `paintedSlots` has to be given it or the slots this rule reasons about
+   * would not be the slots the line shows. And output is not a `name: value`
+   * pair at all -- it is what this statement did on this run, so there is
+   * nothing above it to be a repeat of.
+   */
+  readonly printed?: Printed;
 }
 
 /**
@@ -79,6 +90,12 @@ export class PaintedAbove {
    * this display was built to get rid of. The space stays empty, for the
    * printed output that belongs in it.
    *
+   * And where the statement *did* print, the line survives with only its
+   * output on it. What it wrote happened on this run and stands above nothing,
+   * so it is never a repeat -- dropping the whole annotation because the names
+   * beside it were already shown would take away the only thing on the line
+   * the reader had not seen.
+   *
    * The hover is not touched, so a value suppressed from a surviving line is
    * still one hover away rather than gone -- the same shelf a truncated value
    * and a described function already use.
@@ -86,7 +103,7 @@ export class PaintedAbove {
   keep<T extends Annotated>(annotation: T): T | undefined {
     const slots = paintedSlots(
       annotation.value ?? null, annotation.display, annotation.loop,
-      annotation.names, annotation.bindings);
+      annotation.names, annotation.bindings, annotation.printed);
 
     const repeated = new Set<string>();
     for (const slot of slots) {
@@ -108,7 +125,8 @@ export class PaintedAbove {
       // whether it was rewritten.
       return annotation;
     }
-    if (slots.every((slot) => slot.name !== null && repeated.has(slot.name))) {
+    if (slots.every((slot) => slot.name !== null && repeated.has(slot.name))
+        && !hasOutput(annotation.printed)) {
       return undefined;
     }
     return {

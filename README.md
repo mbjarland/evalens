@@ -30,6 +30,7 @@ without a way to run these.
 | Evalens: Clear Inline Results | Removes the annotations from the active editor |
 | Evalens: Interrupt Evaluation | Stops a running evaluation and keeps the namespace it built |
 | Evalens: Restart Kernel | Throws away the namespace and starts a fresh interpreter |
+| Evalens: Show Output | Opens the Evalens output channel without taking the cursor out of the editor |
 | Evalens: Fix Keybinding Conflict | Hands you the user keybinding described below |
 
 **Evaluate File runs a selection, and runs whole statements.** Select the
@@ -134,6 +135,31 @@ default. Adding `Alt+Enter` is not ceding it — it is binding the key the
 top-level semantics always implied, and both keys run the same command until
 the inner-form command exists to take `Ctrl+Enter` back.
 
+## What print() shows
+
+Printed output goes on the line, next to the code that printed it:
+
+```python
+print("hello")                    printed: hello
+x = compute()                     x: 42   printed: warming up …(3 lines)
+```
+
+`printed:` is a label in the same `name: value` grammar as `x: [1, 2, 3]`, so
+there is nothing new to read. One line of output *is* the annotation — the
+`None` that `print` returns is suppressed, the way a `None` gives way to
+anything better on the line — and several lines show the first with a count of
+the rest. The whole text is on the hover, along with the link that opens the
+**Evalens** output channel; the channel is also where output appears live
+while a long loop is still running.
+
+Set `evalens.printedLabel` to `»` if you want the marker terse instead of
+spelled out. `stderr:` keeps its own name, and is deliberately **not** painted
+in the error colour: a library writing a warning has not failed.
+
+The channel never opens itself and never takes the cursor. Output belongs
+beside the code that produced it; a panel would put the answer somewhere other
+than the code, which is the problem this extension exists to solve.
+
 ## The marker in the gutter
 
 An annotation is a record of what a statement produced *when it ran*. Nothing
@@ -180,6 +206,7 @@ which is the one thing this extension does not do behind your back.
 |---|---|---|
 | `evalens.pythonPath` | `""` | Interpreter to run the kernel with. Empty means the Python extension's choice, then `python3`, then `python` |
 | `evalens.alignColumn` | `0` | Column to align results to. `0` places each result just after the code that produced it |
+| `evalens.printedLabel` | `"printed"` | What the annotation calls printed output. Set `»` for a terse marker |
 
 Result colours are themeable: `evalens.resultForeground`,
 `evalens.errorForeground`, `evalens.evaluatedRegionBackground` and their

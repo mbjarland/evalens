@@ -106,9 +106,11 @@ print('and y is still the same object:', y)
 #     A loop that reports its progress only reads as progress if the report
 #     arrives while it is still going.
 #
-#     The line itself annotates nothing, for the reason case 20 gives: a
-#     `while` has no target to point at.  The output channel is the whole of
-#     what this case has to show.
+#     The line ends up saying `ticks: 0   printed: tick 3 …(3 lines)`: a
+#     `while` has no target to point at, for the reason case 20 gives, so what
+#     it shows is the name it changed and the summary of what it said.  Live
+#     in the channel and summarised on the line are the same text arriving
+#     twice on purpose -- one is the progress, the other is the record.
 ticks = 3
 while ticks > 0:
     print("tick", ticks)
@@ -191,11 +193,45 @@ total = sum([
     20,
 ])
 
-# 8. print() output is captured and attributed to the statement that produced
-#    it; the value is still the value.  The first line annotates None and puts
-#    its text in the output channel, the second annotates the string.
+# 8. What a statement printed goes ON THE LINE.  This is the case the whole
+#    project stands or falls on: for the reader this is written for, print()
+#    is not one feature among many, it is the tool.  The first line annotates
+#    `printed: printed to stdout` and the None it returned is suppressed --
+#    something better is being shown -- while the second still annotates the
+#    string, because it printed nothing and its value is the answer.
+#
+#    `printed:` rather than a bare `printed to stdout`, because annotating
+#    with the text alone invites the reading that the expression EVALUATED to
+#    it.  The label puts output in the same `name: value` grammar as
+#    `lst: [1, 2, 3]` above, so there is nothing new to read.
 print('printed to stdout')
 'the value'
+
+# 8a. Several lines cannot all fit on one, so the first leads and the count
+#     says how much is not on screen -- `printed: line one …(3 lines)`.  Hover
+#     for all three; they are in the output channel too, and they arrived
+#     there while this was still running.  The elision is the same one a long
+#     loop's sequence uses, for the same reason: a summary that did not say
+#     how much it left out would read as the whole of it.
+print('line one\nline two\nline three')
+
+# 8b. A statement can bind AND print, and both are shown -- `warmed: 42`
+#     first, then what it said on the way.  They answer different questions,
+#     so neither displaces the other, and the binding leads because it is what
+#     the statement did.
+def warm_up():
+    print('warming up')
+    return 42
+
+warmed = warm_up()
+
+# 8c. stderr keeps its own name and is NOT painted as an error.  Writing to
+#     stderr is not a failure -- a library logging a warning does it on a line
+#     that worked perfectly -- and colouring it red would teach exactly the
+#     wrong lesson.  `write` returns the number of characters, which is a real
+#     value, so this line shows both: `=> 8   stderr: careful`.  (`sys` came
+#     from case 1, which is why working top-down matters.)
+sys.stderr.write('careful\n')
 
 # 9. The deliberate failure, and the reason for keeping one.  Evaluating this
 #    paints a NameError in the error colour, and loading the file does not

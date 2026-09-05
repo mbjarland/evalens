@@ -20,6 +20,40 @@ export const SEPARATOR = '=>';
  */
 export const GAP = '   ';
 
+/**
+ * What the line calls the stdout a statement wrote.
+ *
+ * A word rather than a glyph, and this word rather than `stdout`. The
+ * annotation already reads `<label>: <value>` -- `x: [1, 2, 3]` for a binding,
+ * `v: 1, 2, 3` for a loop target -- so output is another label in the same
+ * grammar and there is nothing new to learn. `printed` is what a first-year
+ * student literally did; `<stdout>` is jargon they have not met, and for
+ * beginner code the two mean the same thing anyway.
+ *
+ * Bare output would have been ambiguous in a worse way than it looks:
+ * annotating `print("hello")` with `hello` invites the reader to conclude the
+ * expression *evaluated to* `hello`, which is the display asserting the wrong
+ * kind of thing.
+ *
+ * A glyph was measured rather than argued about. `»` `›` `·` `|` exist in
+ * Menlo, SF Mono, Monaco and Courier New; `▸` `▶` `⏎` are missing from Monaco
+ * and Courier New, and the failure there is not a tofu box -- VS Code
+ * substitutes from a fallback font, so the marker renders at a different
+ * advance width and misaligns exactly the lines it exists to clarify. `»` is
+ * available to anyone who wants it terse, through `evalens.printedLabel`.
+ */
+export const PRINTED_LABEL = 'printed';
+
+/**
+ * And what it calls stderr, which keeps the term.
+ *
+ * Writing to stderr is not a beginner action, and anyone doing it knows what
+ * it is called. It is emphatically not a failure: a library logging a warning
+ * painted in the error colour would teach a student to fear a line that
+ * worked, so this is a label and never a colour.
+ */
+export const STDERR_LABEL = 'stderr';
+
 const NBSP = ' ';
 
 /**
@@ -45,6 +79,102 @@ export function preserveSpacing(text: string): string {
  */
 export function collapseLines(text: string): string {
   return text.replace(/\r?\n/g, ' ').replace(/\s{2,}/g, ' ').trim();
+}
+
+/**
+ * What a statement wrote while it ran, ready to be painted.
+ *
+ * The kernel has captured both streams since it first redirected them -- it
+ * has to, or a `print()` would corrupt the protocol -- and for a long time
+ * nothing looked at them, so evaluating `print("hello")` painted `None` and
+ * threw `hello` away. For the audience this is built for, `print()` is not one
+ * feature among many; it is the tool.
+ *
+ * `label` is the shell's to supply, because it comes from a setting and this
+ * module has no editor to ask.
+ *
+ * A statement that printed and then *raised* is deliberately not covered
+ * here: its line keeps the error, and what it managed to print is in the
+ * output channel where it already arrived live. Putting output on the error
+ * annotation would paint it in the error colour, which is the one thing this
+ * feature must not do.
+ */
+export interface Printed {
+  readonly stdout?: string;
+  readonly stderr?: string;
+  /** What to call stdout here; `PRINTED_LABEL` when nobody said otherwise. */
+  readonly label?: string;
+}
+
+/** The streams as a `Printed`, or nothing when neither was written to. */
+export function printedFrom(
+  stdout?: string, stderr?: string
+): Printed | undefined {
+  const out = stdout ?? '';
+  const err = stderr ?? '';
+  if (out === '' && err === '') {
+    return undefined;
+  }
+  return { ...(out === '' ? {} : { stdout: out }),
+    ...(err === '' ? {} : { stderr: err }) };
+}
+
+/** Each stream that was written to, labelled, stdout first. */
+function streamsOf(printed?: Printed): [string, string][] {
+  const streams: [string, string][] = [];
+  if ((printed?.stdout ?? '') !== '') {
+    streams.push([printed!.label ?? PRINTED_LABEL, printed!.stdout!]);
+  }
+  if ((printed?.stderr ?? '') !== '') {
+    streams.push([STDERR_LABEL, printed!.stderr!]);
+  }
+  return streams;
+}
+
+/** Did the statement write anything worth a segment of its own? */
+export function hasOutput(printed?: Printed): boolean {
+  return streamsOf(printed).length > 0;
+}
+
+/**
+ * `printed: hello`, or `printed: hello …(3 lines)` when there was more.
+ *
+ * One line of output IS the annotation -- the user wrote the line to see
+ * something, so the thing it showed is the answer. Several lines cannot be,
+ * because a decoration is one line, so the first one leads and the count says
+ * how much is not on screen. Nothing is lost: the whole text is on the hover
+ * and in the output channel, and the count is what stops the summary
+ * pretending to be the whole of it. Elision by first-plus-count is the rule a
+ * loop's sequence already follows.
+ *
+ * The trailing newline `print` writes is how a line ends, not a line of its
+ * own -- counting it would report every one-line `print` as two.
+ *
+ * A blank line is named rather than left as an empty label. `print()` on its
+ * own is a thing beginners write, and `printed:` followed by nothing reads as
+ * a bug in the extension rather than as the answer.
+ */
+function streamText(label: string, text: string): string {
+  const lines = text.replace(/\r?\n$/, '').split(/\r?\n/);
+  const first = collapseLines(lines[0] ?? '');
+  const head = first === '' ? '(blank line)' : first;
+  const summary = lines.length > 1
+    ? `${head} …(${lines.length} lines)`
+    : head;
+  // A word takes the colon the rest of the grammar uses; a glyph does not,
+  // because `»: hello` stacks punctuation on punctuation for no gain.
+  return `${label}${/[A-Za-z0-9]$/.test(label) ? ':' : ''} ${summary}`;
+}
+
+/**
+ * The output segments a line carries, stdout first.
+ *
+ * Both streams can be present at once and each keeps its own label, so a
+ * statement that printed and warned says both without either being mistaken
+ * for the other.
+ */
+export function outputSegments(printed?: Printed): string[] {
+  return streamsOf(printed).map(([label, text]) => streamText(label, text));
 }
 
 /**
@@ -238,10 +368,22 @@ export interface Slot {
  * same rule the rest of the line does: what the statement did, then what it
  * read. The difference is that `u` used to be one value from the namespace
  * sitting beside a history, and is now the history it actually took.
+ *
+ * **What it printed comes last, and never in place of anything.**
+ * `x = compute()` where `compute` prints wants `x: 42` *and* the output: they
+ * answer different questions, so neither displaces the other and the binding
+ * still leads. Output is not a slot -- it names no name, so the repeat rule
+ * has nothing to key it on -- and `resultText` appends it after these. What
+ * it is here for is the one decision it does make: output displaces the
+ * `None` a `print` returns, on exactly the rule a shown name already
+ * displaces it -- there is something better on the line now, and the `None`
+ * is one hover away. That decision has to be taken here, or the repeat rule
+ * and the renderer would disagree about whether the line said `None`.
  */
 export function paintedSlots(
   value: string | null, display?: string | null, loop?: LoopTrace | null,
-  names?: readonly NamedValue[], bindings?: readonly BindingTrace[]
+  names?: readonly NamedValue[], bindings?: readonly BindingTrace[],
+  printed?: Printed
 ): readonly Slot[] {
   // A body binding is part of what the statement did, so it counts as the
   // statement's own however many iterations it took.
@@ -264,7 +406,8 @@ export function paintedSlots(
   const leads = target !== null || Boolean(loop);
 
   if (produced === null
-      || (!leads && produced === 'None' && pairs.length > 0)) {
+      || (!leads && produced === 'None'
+          && (pairs.length > 0 || hasOutput(printed)))) {
     return [...bound, ...pairs];
   }
   const slot: Slot = { name: target, value: produced, own: true };
@@ -297,20 +440,33 @@ function slotText(slot: Slot): string {
 /**
  * The painted annotation for a successful evaluation.
  *
- * `more` is how many names the kernel's per-line cap left off. Saying so is
- * the difference between an annotation that looks wrong and one that is
+ * What the statement printed follows every value on the line, and `more` --
+ * how many names the kernel's per-line cap left off -- follows that. Saying
+ * so is the difference between an annotation that looks wrong and one that is
  * honest: a reader who counts five names on the line and four beside it
  * cannot otherwise tell whether the fifth was omitted, unreadable, or somehow
- * not a name. It goes last, because it is a footnote about the line rather
- * than another value on it.
+ * not a name. It is last of all, because it is a footnote about the line
+ * rather than another thing on it.
+ *
+ * `printed` sits at the position `paintedSlots` gives it, so the two
+ * signatures agree for as far as they overlap: six positional parameters that
+ * mean different things in the two functions is how a line number ends up
+ * where a binding was expected, compiling all the way.
  */
 export function resultText(
   value: string | null, display?: string | null, loop?: LoopTrace | null,
-  names?: readonly NamedValue[], bindings?: readonly BindingTrace[], more = 0
+  names?: readonly NamedValue[], bindings?: readonly BindingTrace[],
+  printed?: Printed, more = 0
 ): string {
-  const painted = paintedSlots(value, display, loop, names, bindings)
-    .map(slotText);
-  if (more > 0) {
+  const slots = paintedSlots(value, display, loop, names, bindings, printed);
+  const painted = slots.map(slotText);
+  painted.push(...outputSegments(printed));
+  // The footnote counts names, so it needs a name on the line to be a
+  // footnote to. A line whose names were all dropped as repeats keeps its
+  // output and loses the count with them: `printed: hello   …+1 more` reads
+  // as a claim about the output -- one more line of it -- which is not what
+  // the cap left off and not something this knows.
+  if (more > 0 && slots.some((slot) => !slot.own)) {
     painted.push(`…+${grouped(more)} more`);
   }
   return preserveSpacing(painted.join(GAP));
@@ -360,7 +516,7 @@ function bindingNote(
 export function hoverText(
   display: string | null | undefined, value: string | null,
   loop?: LoopTrace | null, names?: readonly NamedValue[],
-  bindings?: readonly BindingTrace[]
+  bindings?: readonly BindingTrace[], printed?: Printed
 ): string {
   const lines: string[] = [];
   if (loop) {
@@ -383,6 +539,19 @@ export function hoverText(
     // The untouched repr where there is one, on the same terms as the value
     // above it: describing hides nothing, it only moves it here.
     lines.push(`${each.name} = ${each.repr ?? each.value}`);
+  }
+  // Last, in the order the line paints them, and whole -- this is where the
+  // `…(3 lines)` on the line is redeemed. A one-line output is repeated here
+  // rather than assumed read, because without it the hover for
+  // `print("hello")` would say only `print("hello") = None` and read as a
+  // contradiction of the line it belongs to.
+  for (const [label, text] of streamsOf(printed)) {
+    const written = text.replace(/\r?\n$/, '').split(/\r?\n/);
+    if (written.length === 1) {
+      lines.push(`${label}: ${written[0]}`);
+    } else {
+      lines.push(`${label}:`, ...written);
+    }
   }
   return lines.join('\n');
 }

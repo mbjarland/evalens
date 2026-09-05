@@ -149,7 +149,7 @@ REPL's — annotate the *names on a line*, several of them, as separate
 x = [1, 2, 3]                              x: [1, 2, 3]
 y = x                                      y: [1, 2, 3]   x: [1, 2, 3]
 y.append(4)                                y: [1, 2, 3, 4]
-print("y unaffected by rebind:", y)        y: [1, 2, 3, 4]
+print("y unaffected:", y)                  y: [1, 2, 3, 4]   printed: y unaffected: [1, 2, 3, 4]
 ```
 
 The names come from the AST — what the statement binds, then what it
@@ -219,6 +219,26 @@ The decorator *replaced* the function, the line cannot show that, and this
 is the most valuable annotation on the page. A rule that skipped function
 definitions would have deleted exactly it. What is redundant is a piece of
 text, so text is what gets compared.
+
+**What a statement printed is another label in the same grammar**, and it
+is the one the audience needs most: for a first-year student `print()` is
+not one feature among many, it is the tool. `print("hello")` annotates
+`printed: hello` and suppresses the `None` it returned, on exactly the
+rule above. Several lines show the first plus a count —
+`printed: warming up …(3 lines)` — with the whole of it on the hover and
+in the output channel. Output never displaces a binding and a binding
+never displaces it: `x = compute()` where `compute` prints wants both,
+because they answer different questions. `printed` rather than `stdout`
+because the second is jargon a beginner has not met, and a word rather
+than a glyph because `▸` and `▶` are missing from Monaco and Courier New
+and substitute at a different advance width — misaligning the lines the
+marker exists to clarify. `stderr:` keeps its name and is not coloured as
+an error; writing to it is not a failure.
+
+The output channel is overflow, not the destination. It never opens
+itself and never takes focus, and one click from the annotation reaches
+it. A view would put the answer somewhere other than the code, which is
+the notebook's mistake and the gap this project exists to close.
 
 ### 3. Rendering the overlay
 

@@ -9,7 +9,9 @@ import { KernelClient } from '../kernel/client';
 import {
   Evaluated, EvalResponse, Failed, FileLoaded, LoopTrace, StatementOutcome,
 } from '../kernel/protocol';
-import { errorText, restatesLine, resultText } from '../render/format';
+import {
+  errorText, hasOutput, printedFrom, restatesLine, resultText,
+} from '../render/format';
 import { describeRun, present } from '../render/present';
 import { PaintedAbove } from '../render/repeats';
 import { markDependents } from '../render/registry';
@@ -102,6 +104,79 @@ test('printed output survives the protocol channel', async (t) => {
   assert.equal(result.stdout, 'hi\n');
 });
 
+test('one evaluation of print("hello") shows hello, and no None', async (t) => {
+  // The whole of the ticket, at the smallest scale it has. This exact line is
+  // the first thing the audience will try, and until now it painted `None`
+  // and dropped the `hello` -- the value was true, useless, and read as the
+  // extension being unreliable rather than as it not doing this yet.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const shown = present(await evaluate(client, 'print("hello")\n', 0), 0);
+  assert.equal(shown.kind, 'value');
+
+  const painted = (await paint(client, 'print("hello")\n', [0]))[0]!;
+  assert.equal(painted, 'printed: hello');
+  assert.ok(!painted.includes('None'),
+    'the None print returns is suppressed, exactly as a redundant None is');
+  // Demoted, not destroyed: the hover is the third use of the same shelf.
+  assert.equal((shown as { hover: string }).hover,
+    "print('hello') = None\nprinted: hello");
+});
+
+test('multi-line output shows a count, with all of it on the hover', async (t) => {
+  // A decoration is one line, so three lines of output cannot all be on it.
+  // The first plus a count is the same elision a long loop already uses, and
+  // it is what stops the summary pretending to be the whole thing.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'for word in ["one", "two", "three"]:\n    print(word)\n';
+
+  assert.deepEqual(await paint(client, source, [0]),
+    ["word: 'one', 'two', 'three'   printed: one …(3 lines)"]);
+
+  const shown = present(await evaluate(client, source, 0), 0);
+  assert.equal((shown as { hover: string }).hover,
+    "word = 'one', 'two', 'three'\n3 iterations\nprinted:\none\ntwo\nthree",
+    'the line elides; the hover is where the whole of it lives');
+});
+
+test('a statement that binds and prints shows both, binding first', async (t) => {
+  // They answer different questions -- what is `x` now, and what did the code
+  // say -- so neither displaces the other.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'def compute():\n    print("warming up")\n    return 42\n'
+    + 'x = compute()\n';
+  await evaluate(client, source, 0);
+
+  assert.deepEqual(await paint(client, source, [3]),
+    ['x: 42   printed: warming up']);
+});
+
+test('writing to stderr is labelled, and is not a failure', async (t) => {
+  // A library logging a warning must not paint red: it would teach a student
+  // to fear a line that worked. The kernel already keeps the two apart, and
+  // this is the render side of the same claim -- a value presentation, with
+  // its own label, and no error anywhere on it.
+  const client = connect();
+  t.after(() => client.dispose());
+
+  const source = 'import sys\nsys.stderr.write("careful\\n")\n';
+  await evaluate(client, source, 0);
+
+  const response = await evaluate(client, source, 1) as Evaluated;
+  assert.equal(response.ok, true, 'writing to stderr is not a failure');
+  const shown = present(response, 1);
+  assert.equal(shown.kind, 'value', 'not an error presentation');
+  assert.equal((shown as { error?: unknown }).error, undefined);
+  // `write` returns the character count, which is a real value and stays.
+  assert.deepEqual(await paint(client, source, [1]),
+    ['=> 8   stderr: careful']);
+});
+
 /** Everything except the call to setDecorations, as one string per line. */
 async function paint(
   client: KernelClient, source: string, lines: readonly number[]
@@ -115,7 +190,7 @@ async function paint(
     }
     painted.push(
       resultText(shown.value, shown.display, shown.loop, shown.names,
-        shown.bindings, shown.more)
+        shown.bindings, shown.printed, shown.more)
         .replace(/ /g, ' '));
   }
   return painted;
@@ -139,15 +214,20 @@ async function paintLoad(
     if (!outcome.ok) {
       return `!! ${outcome.error.type}`;
     }
+    // The streams become a `Printed` here, exactly as `annotationFor` does it
+    // on the real path: a statement that only printed still has something to
+    // say, and a helper that dropped it would be testing a pipeline the
+    // extension does not have.
+    const printed = printedFrom(outcome.stdout, outcome.stderr);
     if (outcome.value === null && outcome.loop === undefined
-        && !outcome.names?.length) {
+        && !outcome.names?.length && !hasOutput(printed)) {
       return null;
     }
-    const kept = above.keep(outcome);
+    const kept = above.keep({ ...outcome, printed });
     return kept === undefined
       ? null
       : resultText(kept.value, kept.display, kept.loop, kept.names,
-        kept.bindings, kept.more_names)
+        kept.bindings, kept.printed, kept.more_names)
         .replace(/ /g, ' ');
   });
 }
@@ -185,13 +265,17 @@ test('the teaching file from the ticket annotates the lesson, not None', async (
     'print("y unaffected by rebind:", y)',
   ].join('\n') + '\n';
 
+  // The names come first and the output follows: they answer different
+  // questions, and on these two lines the reader wanted both. `x` is what the
+  // namespace holds; `printed:` is what the program said, which is the thing
+  // the student wrote the line for and the half that used to vanish.
   assert.deepEqual(await paint(client, source, [0, 1, 2, 3, 4, 5]), [
     'x: [1, 2, 3]',
     'y: [1, 2, 3]   x: [1, 2, 3]',
     'y: [1, 2, 3, 4]',
-    'x: [1, 2, 3, 4]',
+    'x: [1, 2, 3, 4]   printed: x after mutating y: [1, 2, 3, 4]',
     'x: [1, 2, 3]',
-    'y: [1, 2, 3, 4]',
+    'y: [1, 2, 3, 4]   printed: y unaffected by rebind: [1, 2, 3, 4]',
   ]);
 });
 
@@ -258,8 +342,10 @@ test('an expression keeps its arrow, and a call keeps its result', async (t) => 
   // repeat the line back at the reader, so it keeps the arrow. `y.pop()`
   // returned the 4 that a "hide the value when something changed" rule would
   // have thrown away. And a `None` survives exactly where the line has
-  // nothing else to say -- which `print()` has and `d.get('k')` does not,
-  // because `d` is right there and its contents are the better answer.
+  // nothing else to say, which `d.get('k')` on a line mentioning `d` does
+  // not. `print("done")` is the third: the line has no names on it at all,
+  // and what it printed is still better than the None it returned -- so
+  // output displaces a `None` on the same rule a shown name does.
   const client = connect();
   t.after(() => client.dispose());
 
@@ -272,7 +358,7 @@ test('an expression keeps its arrow, and a call keeps its result', async (t) => 
     'y: [1, 2, 3]   => 4',
     'd: {}',
     'd: {}',
-    '=> None',
+    'printed: done',
   ]);
 });
 
@@ -573,9 +659,18 @@ test('the inventory block from the ticket annotates exactly once', async (t) => 
 
   const painted = await paintLoad(client, source, '/tmp/evalens-inventory.py');
   assert.deepEqual(painted, [
-    "inventory: {'apples': 3, 'pears': 5}", null, null, null]);
-  assert.equal(painted.filter((line) => line !== null).length, 1,
-    'the value appears once, and the three lines below it carry nothing');
+    "inventory: {'apples': 3, 'pears': 5}",
+    // What each `print` wrote, which is different on all three lines and was
+    // on none of them before. The wall the ticket was filed on is gone all
+    // the same: `inventory` is named once, and the three lines below carry
+    // only what they themselves produced.
+    'printed: 0',
+    "printed: [('apples', 3), ('pears', 5)]",
+    'printed: True',
+  ]);
+  assert.equal(
+    painted.filter((line) => line?.includes('inventory:')).length, 1,
+    'the value appears once, however many lines go on to read it');
 });
 
 test('an explicit evaluation annotates whether or not it repeats', async (t) => {
@@ -593,8 +688,12 @@ test('an explicit evaluation annotates whether or not it repeats', async (t) => 
   ].join('\n') + '\n';
 
   const shown = "inventory: {'apples': 3, 'pears': 5}";
-  assert.deepEqual(await paint(client, source, [0, 1, 2, 3]),
-    [shown, shown, shown, shown]);
+  assert.deepEqual(await paint(client, source, [0, 1, 2, 3]), [
+    shown,
+    `${shown}   printed: 0`,
+    `${shown}   printed: [('apples', 3), ('pears', 5)]`,
+    `${shown}   printed: True`,
+  ], 'the repeated value is painted every time, and so is what each printed');
 });
 
 test('a rebinding is painted, and the lines that only read it are not', async (t) => {
@@ -608,7 +707,10 @@ test('a rebinding is painted, and the lines that only read it are not', async (t
   ].join('\n') + '\n';
 
   assert.deepEqual(await paintLoad(client, source, '/tmp/evalens-rebind.py'),
-    ['x: 1', null, null, 'x: 2', null]);
+    // `x: 1` is not said four times; the rebinding to 2 always is. What the
+    // three `print` lines wrote is their own and stands above nothing, so the
+    // repeat rule has nothing to compare it against and never suppresses it.
+    ['x: 1', 'printed: 1', 'printed: 2', 'x: 2', 'printed: 2']);
 });
 
 test('a mutation shows again, because the value on screen changed', async (t) => {
@@ -638,11 +740,19 @@ test('a line past the name cap says how many it left off', async (t) => {
   ].join('\n') + '\n';
 
   const walked = await paint(client, source, [0, 1, 2, 3, 4, 5]);
-  assert.equal(walked[5], 'lst: [1]   tup: (1,)   d: {}   s: {1}   \u2026+1 more');
+  // The footnote is last of all, after what the line printed: it is a note
+  // about the annotation rather than another thing the statement produced.
+  assert.equal(walked[5],
+    "lst: [1]   tup: (1,)   d: {}   s: {1}   printed: <class 'list'> "
+    + "<class 'tuple'> <class 'dict'> <class 'set'> <class 'set'>"
+    + '   \u2026+1 more');
 
-  // And on the same file loaded in one keystroke the cap never bites, because
-  // every one of those values is unchanged from the lines just above.
-  assert.equal((await paintLoad(client, source, '/tmp/evalens-cap.py')).at(-1), null);
+  // And on the same file loaded in one keystroke every one of those values is
+  // unchanged from the lines just above, so the cap never bites and the line
+  // is left with what it printed and nothing else.
+  assert.equal((await paintLoad(client, source, '/tmp/evalens-cap.py')).at(-1),
+    "printed: <class 'list'> <class 'tuple'> <class 'dict'> <class 'set'> "
+    + "<class 'set'>");
 });
 
 test('a broken line does not stop the rest of the file loading', async (t) => {
@@ -884,8 +994,11 @@ test('a loop annotates what its body computed, through the real kernel', async (
   const result = await evaluate(client, source, 1) as Evaluated;
   assert.equal(result.stdout, 'value is 4\nvalue is 8\nvalue is 12\n',
     'the kernel saw every value u took');
+  // Three lines of output cannot fit in a decoration, so the first leads and
+  // the count says how much is not on screen. Every one of them is in the
+  // channel already, and all three are on the hover.
   assert.deepEqual(await paint(client, source, [1]),
-    ['v: 1, 2, 3   u: 4, 8, 12   x: [1, 2, 3]']);
+    ['v: 1, 2, 3   u: 4, 8, 12   x: [1, 2, 3]   printed: value is 4 …(3 lines)']);
 });
 
 test('a filter loop paints two sequences of different lengths', async (t) => {

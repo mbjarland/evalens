@@ -56,6 +56,10 @@
         "title": "Evalens: Clear Inline Results"
       },
       {
+        "command": "evalens.showOutput",
+        "title": "Evalens: Show Output"
+      },
+      {
         "command": "evalens.fixKeybindingConflict",
         "title": "Evalens: Fix Keybinding Conflict"
       }
@@ -79,6 +83,11 @@
           "default": 0,
           "minimum": 0,
           "markdownDescription": "Column to align inline results to. `0` (the default) places each result just after the code that produced it, following Rider. Set a column to line results up instead \u2014 useful in a file of plain assignments, and less so once a line carries more than one value."
+        },
+        "evalens.printedLabel": {
+          "type": "string",
+          "default": "printed",
+          "markdownDescription": "What the annotation calls the output a statement printed. The default word keeps the `label: value` grammar the rest of the annotation uses and says in plain English what the code did \u2014 `<stdout>` is jargon a first-year student has not met. Set `\u00bb` for a terse marker instead; it is the one that exists in every font VS Code falls back to on macOS, where `\u25b8` and `\u25b6` do not and render at a width that misaligns the lines the marker is there to clarify. `stderr` keeps its own name whatever this says."
         }
       }
     },

@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { BindingTrace, LoopTrace, NamedValue } from '../kernel/protocol';
 import {
   SEPARATOR, alignmentGap, bindingText, collapseLines, columnWidth, errorText,
-  hoverText, preserveSpacing, restatesLine, resultText, sequenceText,
+  hasOutput, hoverText, outputSegments, preserveSpacing, printedFrom,
+  restatesLine, resultText, sequenceText,
 } from '../render/format';
 
 function trace(
@@ -318,19 +319,35 @@ test('a line says when the cap left names off it', () => {
   // unreadable, or somehow not a name.
   assert.equal(
     resultText(null, null, null,
-      pairs(['a', '1'], ['b', '2'], ['c', '3'], ['d', '4']), [], 1),
+      pairs(['a', '1'], ['b', '2'], ['c', '3'], ['d', '4']), [], undefined, 1),
     preserveSpacing('a: 1   b: 2   c: 3   d: 4   \u2026+1 more'));
 });
 
 test('the footnote lands after the result, not among the values', () => {
   // It is a note about the line rather than another value on it.
   assert.equal(
-    resultText('4', 'y.pop()', null, pairs(['y', '[1, 2, 3]']), [], 2),
+    resultText('4', 'y.pop()', null, pairs(['y', '[1, 2, 3]']), [], undefined,
+      2),
     preserveSpacing('y: [1, 2, 3]   => 4   \u2026+2 more'));
 });
 
+test('the cap footnote goes when the names it counted are gone', () => {
+  // Reachable once output can be the only thing on a line: the repeat rule
+  // drops every name as already-shown, the output stays because it is this
+  // run's own, and a bare `…+1 more` beside it would read as a claim that
+  // there is one more line of output -- which is not what the cap left off.
+  assert.equal(
+    resultText(null, null, null, [], [], { stdout: 'hello\n' }, 1),
+    preserveSpacing('printed: hello'));
+  // With a name still on the line the footnote is a footnote to it again.
+  assert.equal(
+    resultText(null, null, null, pairs(['a', '1']), [],
+      { stdout: 'hello\n' }, 1),
+    preserveSpacing('a: 1   printed: hello   \u2026+1 more'));
+});
+
 test('a line the cap did not touch says nothing about it', () => {
-  assert.equal(resultText(null, null, null, pairs(['a', '1']), [], 0),
+  assert.equal(resultText(null, null, null, pairs(['a', '1']), [], undefined, 0),
     preserveSpacing('a: 1'));
   assert.equal(resultText(null, null, null, pairs(['a', '1'])),
     preserveSpacing('a: 1'));
@@ -445,4 +462,129 @@ test('a hover says nothing extra about a binding that kept up', () => {
 test('a hover without a loop is unchanged', () => {
   assert.equal(hoverText('lst', '[1, 2, 3]'), 'lst = [1, 2, 3]');
   assert.equal(hoverText(null, '[1, 2, 3]'), '[1, 2, 3]');
+});
+
+test('one line of output IS the annotation, and the None gives way', () => {
+  // The ticket. `print("hello")` returned None and the extension painted it,
+  // throwing away the only thing the user pressed the key to see. For the
+  // audience this is built for, print() is not one feature among many.
+  assert.equal(
+    resultText('None', 'print("hello")', null, [], [],
+      { stdout: 'hello\n' }),
+    preserveSpacing('printed: hello'));
+});
+
+test('the label is a word in the grammar already on the line', () => {
+  // Bare `hello` would invite the reader to conclude the expression evaluated
+  // to `hello`. `printed: hello` is the same `<label>: <value>` shape as
+  // `x: [1, 2, 3]`, so there is nothing new to learn.
+  assert.ok(outputSegments({ stdout: 'hello\n' })[0]!.startsWith('printed: '));
+});
+
+test('several lines show the first and say how many there were', () => {
+  // A decoration is one line. The count is what stops the summary pretending
+  // to be the whole of the output.
+  assert.equal(
+    resultText('None', 'print("a\\nb\\nc")', null, [], [],
+      { stdout: 'warming up\nstill going\ndone\n' }),
+    preserveSpacing('printed: warming up …(3 lines)'));
+});
+
+test('the newline that ends a print is not a line of its own', () => {
+  // Counting it would report every one-line print as two.
+  assert.deepEqual(outputSegments({ stdout: 'hello\n' }), ['printed: hello']);
+  assert.deepEqual(outputSegments({ stdout: 'hello' }), ['printed: hello']);
+  assert.deepEqual(outputSegments({ stdout: 'hello\r\n' }), ['printed: hello']);
+  assert.deepEqual(outputSegments({ stdout: 'a\nb\n' }),
+    ['printed: a …(2 lines)']);
+});
+
+test('a blank line is named rather than left as an empty label', () => {
+  // `print()` on its own is a thing beginners write, and `printed:` followed
+  // by nothing reads as a bug in the extension rather than as the answer.
+  assert.deepEqual(outputSegments({ stdout: '\n' }),
+    ['printed: (blank line)']);
+});
+
+test('output and a binding both appear, and the binding leads', () => {
+  // `x = compute()` where compute prints wants both: they answer different
+  // questions, and neither displaces the other.
+  assert.equal(
+    resultText('42', 'x', null, [], [], { stdout: 'warming up\n' }),
+    preserveSpacing('x: 42   printed: warming up'));
+});
+
+test('output follows the names a line read, and the result it produced', () => {
+  assert.equal(
+    resultText('4', 'y.pop()', null, pairs(['y', '[1, 2, 3]']), [],
+      { stdout: 'popping\n' }),
+    preserveSpacing('y: [1, 2, 3]   => 4   printed: popping'));
+});
+
+test('stderr keeps its own name whatever stdout is called', () => {
+  // Writing to stderr is not a beginner action, and anyone doing it knows the
+  // term. It is also not a failure -- this is a label, never a colour.
+  assert.deepEqual(
+    outputSegments({ stdout: 'fine\n', stderr: 'careful\n' }),
+    ['printed: fine', 'stderr: careful']);
+  assert.deepEqual(
+    outputSegments({ stderr: 'careful\n', label: '»' }),
+    ['stderr: careful']);
+});
+
+test('a stderr-only line still suppresses the None it returned', () => {
+  // `logging.warning("x")` returns None and writes a warning. `=> None` is
+  // the wrong half of that.
+  assert.equal(
+    resultText('None', 'logging.warning("x")', null, [], [],
+      { stderr: 'WARNING:root:x\n' }),
+    preserveSpacing('stderr: WARNING:root:x'));
+});
+
+test('a terse marker drops the colon rather than stacking punctuation', () => {
+  // `»: hello` is punctuation on punctuation for no gain.
+  assert.deepEqual(outputSegments({ stdout: 'hello\n', label: '»' }),
+    ['» hello']);
+});
+
+test('a name bound to None survives beside its own output', () => {
+  // The suppression rule is unchanged: a *bound* None is the lesson, not the
+  // noise, however much else the line has to say.
+  assert.equal(
+    resultText('None', 'noise', null, [], [], { stdout: 'side effect\n' }),
+    preserveSpacing('noise: None   printed: side effect'));
+});
+
+test('a line that printed nothing is exactly what it was before', () => {
+  // The empty string is what the kernel sends for a statement that wrote
+  // nothing, and it must not become a `printed:` segment with nothing in it.
+  assert.equal(printedFrom('', ''), undefined);
+  assert.equal(hasOutput(printedFrom('', '')), false);
+  assert.equal(hasOutput(undefined), false);
+  assert.equal(
+    resultText('None', "d.get('missing')", null, [], [], printedFrom('', '')),
+    preserveSpacing('=> None'));
+});
+
+test('the hover carries the whole of what the line elided', () => {
+  // Where `…(3 lines)` is redeemed, alongside the None the line suppressed.
+  assert.equal(
+    hoverText('print("x")', 'None', null, [], [],
+      { stdout: 'warming up\nstill going\ndone\n' }),
+    'print("x") = None\nprinted:\nwarming up\nstill going\ndone');
+});
+
+test('a one-line output is repeated on the hover, not assumed read', () => {
+  // Without it the hover for `print("hello")` says only
+  // `print("hello") = None`, which reads as a contradiction of the line.
+  assert.equal(
+    hoverText('print("hello")', 'None', null, [], [], { stdout: 'hello\n' }),
+    'print("hello") = None\nprinted: hello');
+});
+
+test('both streams reach the hover, each under its own name', () => {
+  assert.equal(
+    hoverText('run()', 'None', null, [], [],
+      { stdout: 'fine\n', stderr: 'careful\n' }),
+    'run() = None\nprinted: fine\nstderr: careful');
 });

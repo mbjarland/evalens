@@ -1,7 +1,7 @@
 import {
   BindingTrace, EvalResponse, LoopTrace, NamedValue, Range,
 } from '../kernel/protocol';
-import { hoverText } from './format';
+import { Printed, hasOutput, hoverText, printedFrom } from './format';
 
 /**
  * What to show for a kernel response.
@@ -40,6 +40,13 @@ export type Presentation =
       readonly names?: readonly NamedValue[];
       /** How many further names the kernel's per-line cap left out. */
       readonly more?: number;
+      /**
+       * What the statement printed, when it printed anything.
+       *
+       * Absent rather than empty, so a caller never has to tell "wrote
+       * nothing" from "wrote an empty string" by inspecting two fields.
+       */
+      readonly printed?: Printed;
       /**
        * The module-level names the statement bound and read.
        *
@@ -88,13 +95,17 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
     return { kind: 'nothing', message: 'Evalens: nothing to evaluate here' };
   }
 
+  const printed = printedFrom(response.stdout, response.stderr);
+
   // A loop that ran zero times has no value and still has something to say --
   // that it ran zero times. Treating "no value" as "nothing to paint" would
   // leave the previous run's binding on screen as the answer. An `if` that
-  // bound a name is the same shape: no value of its own, and an answer.
+  // bound a name is the same shape: no value of its own, and an answer. So is
+  // an `if` whose body printed: the output is what the branch had to say.
   const speaks = response.value !== null
     || response.loop !== undefined
-    || (response.names?.length ?? 0) > 0;
+    || (response.names?.length ?? 0) > 0
+    || hasOutput(printed);
 
   return {
     kind: 'value',
@@ -107,6 +118,7 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
       ? {}
       : { bindings: response.bindings }),
     ...(response.names === undefined ? {} : { names: response.names }),
+    ...(printed === undefined ? {} : { printed }),
     // Renamed on the way in: the wire says which cap it was, and the line
     // only has to say that something was left off it.
     ...(response.more_names === undefined
@@ -118,7 +130,7 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
       ? {
           hover: hoverFor(
             response.display, response.value, response.repr, response.loop,
-            response.names, response.bindings
+            response.names, response.bindings, printed
           ),
         }
       : {}),
@@ -141,9 +153,9 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
 export function hoverFor(
   display: string | null, value: string | null, repr?: string,
   loop?: LoopTrace | null, names?: readonly NamedValue[],
-  bindings?: readonly BindingTrace[]
+  bindings?: readonly BindingTrace[], printed?: Printed
 ): string {
-  return hoverText(display, repr ?? value, loop, names, bindings);
+  return hoverText(display, repr ?? value, loop, names, bindings, printed);
 }
 
 

@@ -11,6 +11,7 @@ import { askForInput } from './prompt';
 import { Annotations } from './render/annotations';
 import { Annotation, sourceAt, toVsCodeRange } from './render/decorations';
 import { Flash, SNAP } from './render/flash';
+import { hasOutput, printedFrom } from './render/format';
 import { describeLoad, describeRun, hoverFor, present } from './render/present';
 import { PaintedAbove } from './render/repeats';
 import { Waiting, whileRunning } from './render/status';
@@ -58,11 +59,14 @@ function annotationFor(
         }
       : undefined;
   }
+  const printed = printedFrom(outcome.stdout, outcome.stderr);
   if (outcome.value === null && outcome.loop === undefined
-      && !outcome.names?.length) {
+      && !outcome.names?.length && !hasOutput(printed)) {
     // It ran; a `del` or a bare `pass` simply has no value to report. A loop
     // that ran zero times is one exception -- no value, and still an answer --
-    // and so is any statement whose names have something to say.
+    // and so is any statement whose names have something to say, or that
+    // printed: a `while` has no target to point at and its output is the
+    // whole of what it had to show.
     return undefined;
   }
   return {
@@ -74,12 +78,13 @@ function annotationFor(
     ...(outcome.loop === undefined ? {} : { loop: outcome.loop }),
     ...(outcome.bindings === undefined ? {} : { bindings: outcome.bindings }),
     ...(outcome.names === undefined ? {} : { names: outcome.names }),
+    ...(printed === undefined ? {} : { printed }),
     ...(outcome.more_names === undefined ? {} : { more: outcome.more_names }),
     ...(outcome.binds === undefined ? {} : { binds: outcome.binds }),
     ...(outcome.reads === undefined ? {} : { reads: outcome.reads }),
     hover: hoverFor(
       outcome.display, outcome.value, outcome.repr, outcome.loop,
-      outcome.names, outcome.bindings
+      outcome.names, outcome.bindings, printed
     ),
   };
 }
@@ -536,6 +541,13 @@ export class Evaluator {
             ...(presentation.names === undefined
               ? {}
               : { names: presentation.names }),
+            // What the line printed, which for a `print` is the answer and
+            // the reason the user pressed the key. It reached the output
+            // channel live as the kernel produced it; this is the same text
+            // arriving where the reader is already looking.
+            ...(presentation.printed === undefined
+              ? {}
+              : { printed: presentation.printed }),
             ...(presentation.more === undefined
               ? {}
               : { more: presentation.more }),

@@ -39,6 +39,18 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
+  context.subscriptions.push(
+    // Reached from the link on an annotation that printed more than fits, and
+    // from the palette. `preserveFocus` is the whole point of it: output
+    // belongs on the line, and the channel is overflow. A panel that took the
+    // cursor would move the reader away from the code to read about the code,
+    // which is the notebook's mistake and the gap this extension exists to
+    // close -- so nothing here ever opens it unasked either.
+    vscode.commands.registerCommand('evalens.showOutput', () => {
+      output?.show(true);
+    })
+  );
+
   evaluator = new Evaluator(
     () => ensureClient(context), annotations, output, flash);
 

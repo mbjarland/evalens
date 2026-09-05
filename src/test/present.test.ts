@@ -94,6 +94,62 @@ test('a statement with no value of its own still speaks through its names', () =
   assert.equal((shown as { hover?: string }).hover, "tier = 'large'");
 });
 
+test('what a statement printed reaches the presentation and the hover', () => {
+  // The gap this closes: the kernel had been sending `stdout` all along and
+  // the cursor path never once looked at it, so `print("hello")` painted the
+  // None it returned and the `hello` went nowhere the reader would find it.
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: 'None',
+    display: 'print("hello")', kind: 'Expr', range,
+    stdout: 'hello\n', stderr: '',
+  };
+  const shown = present(response, 3) as {
+    printed?: { stdout?: string; stderr?: string }; hover: string;
+  };
+  assert.equal(shown.printed?.stdout, 'hello\n');
+  assert.equal(shown.hover, 'print("hello") = None\nprinted: hello');
+});
+
+test('a statement that only printed still speaks', () => {
+  // A `while` has no target to point at and no value of its own, and its
+  // output is the whole of what it had to show. Treating "no value" as
+  // "nothing to paint" would throw it away.
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: null, display: null,
+    kind: 'While', range, stdout: 'tick 3\ntick 2\ntick 1\n', stderr: '',
+  };
+  const shown = present(response, 3);
+  assert.equal(shown.kind, 'value');
+  assert.equal((shown as { hover?: string }).hover,
+    'printed:\ntick 3\ntick 2\ntick 1');
+});
+
+test('writing to stderr is presented as a value, never as a failure', () => {
+  // `ok` is true and there is no error on the presentation, which is what
+  // keeps a library's warning out of the error colour. A student taught to
+  // fear a line that worked is worse off than one shown nothing.
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: 'None',
+    display: 'warn()', kind: 'Expr', range,
+    stdout: '', stderr: 'careful\n',
+  };
+  const shown = present(response, 3);
+  assert.equal(shown.kind, 'value', 'stderr is not an error');
+  assert.equal((shown as { printed?: { stderr?: string } }).printed?.stderr,
+    'careful\n');
+});
+
+test('a statement that printed nothing carries no output at all', () => {
+  // Absent rather than empty, so nothing downstream has to tell "wrote
+  // nothing" from "wrote an empty string" by inspecting two fields.
+  const response: EvalResponse = {
+    id: 1, ok: true, resolved: true, value: '30', display: 'total',
+    kind: 'Assign', range, stdout: '', stderr: '',
+  };
+  assert.equal((present(response, 3) as { printed?: unknown }).printed,
+    undefined);
+});
+
 test('a failure carries its traceback to the hover, not to the line', () => {
   const response: EvalResponse = {
     id: 1, ok: false,

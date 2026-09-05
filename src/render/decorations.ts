@@ -4,7 +4,8 @@ import {
   BindingTrace, LoopTrace, NamedValue, Range as KernelRange,
 } from '../kernel/protocol';
 import {
-  alignmentGap, columnWidth, errorText, restatesLine, resultText,
+  PRINTED_LABEL, Printed, alignmentGap, columnWidth, errorText, hasOutput,
+  restatesLine, resultText,
 } from './format';
 import { Marker, Traced, markerFor, normalizeSource } from './registry';
 import { Pending, pendingText } from './status';
@@ -25,6 +26,16 @@ export const COLOR_REGION = 'evalens.evaluatedRegionBackground';
 export const COLOR_PENDING = 'evalens.pendingForeground';
 export const COLOR_PENDING_REGION = 'evalens.pendingRegionBackground';
 export const COLOR_FLASH_REGION = 'evalens.flashRegionBackground';
+
+/**
+ * The command the hover's link runs -- the one click from the annotation to
+ * the whole of what a statement wrote.
+ *
+ * Contributed in package.json under the same id; a hover link naming a command
+ * that is not there does nothing at all when clicked, which is the same silent
+ * failure an uncontributed `ThemeColor` has, so a test checks the two agree.
+ */
+export const SHOW_OUTPUT = 'evalens.showOutput';
 
 /** Columns between the code and its annotation when the line overruns. */
 const MINIMUM_GAP = 2;
@@ -81,6 +92,14 @@ export interface Annotation extends Traced {
    * can say so rather than look as though it lost one.
    */
   readonly more?: number;
+  /**
+   * What the statement printed; painted after everything else, not instead.
+   *
+   * The label is filled in at paint time from the setting, so the raw streams
+   * are what is stored -- an annotation that cached the label would keep
+   * whatever was configured when it was made.
+   */
+  readonly printed?: Printed;
   readonly error?: { readonly type: string; readonly message: string };
   readonly hover?: string;
   /**
@@ -207,6 +226,12 @@ export class Decorator implements vscode.Disposable {
     const targetColumn = vscode.workspace
       .getConfiguration('evalens')
       .get<number>('alignColumn', 80);
+    // Read here rather than captured, so editing the setting takes effect on
+    // the next paint the way the alignment column does.
+    const printedLabel = vscode.workspace
+      .getConfiguration('evalens')
+      .get<string>('printedLabel', PRINTED_LABEL)
+      .trim() || PRINTED_LABEL;
     const tabSize = typeof editor.options.tabSize === 'number'
       ? editor.options.tabSize
       : 4;
@@ -245,10 +270,27 @@ export class Decorator implements vscode.Disposable {
         columnWidth(host.text, tabSize), targetColumn, MINIMUM_GAP);
       const margin = `0 0 0 ${gap}ch`;
 
+      const printed = annotation.printed === undefined
+        ? undefined
+        : { ...annotation.printed, label: printedLabel };
+
+      // One click from the annotation to the channel, and only where there is
+      // something in it to reach. The channel is overflow rather than the
+      // destination -- opening a panel would put the answer somewhere other
+      // than the code, which is the notebook's mistake -- so it is offered
+      // here and never forced.
       const hoverMessage = annotation.hover
         ? new vscode.MarkdownString(
-            ['```', annotation.hover, '```'].join('\n'))
+            ['```', annotation.hover, '```',
+              ...(hasOutput(printed)
+                ? [`[Show all output](command:${SHOW_OUTPUT})`]
+                : [])].join('\n'))
         : undefined;
+      if (hoverMessage) {
+        // Narrow rather than a blanket `true`: a hover that can run one named
+        // command is a link, and a hover that can run anything is a hole.
+        hoverMessage.isTrusted = { enabledCommands: [SHOW_OUTPUT] };
+      }
 
       if (annotation.pending) {
         // First, and displacing whatever the statement said last time. Taking
@@ -275,13 +317,19 @@ export class Decorator implements vscode.Disposable {
         });
       } else if (annotation.value !== undefined
                  || annotation.loop !== undefined
-                 || (annotation.names?.length ?? 0) > 0) {
+                 || (annotation.names?.length ?? 0) > 0
+                 || hasOutput(printed)) {
+        // Output goes through the result layer, not the error one, and that
+        // is the whole of how `stderr:` stays uncoloured: a library logging a
+        // warning has not failed, and painting it red would teach a beginner
+        // to fear a line that worked.
+        //
         // A loop that ran zero times has a trace and no value, and still has
         // something to report. So does an `if` that bound a name: no value of
         // its own, and the name is the answer.
         const text = resultText(
           annotation.value ?? null, annotation.display, annotation.loop,
-          annotation.names, annotation.bindings, annotation.more);
+          annotation.names, annotation.bindings, printed, annotation.more);
         // Rendered first, then compared with the line it would sit on: an
         // annotation that only restates its own line is not worth the width,
         // and the region highlight below already says that it ran. The
