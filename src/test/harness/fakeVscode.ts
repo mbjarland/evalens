@@ -182,6 +182,17 @@ export class FakeEditor {
   readonly revealed: FakeRange[] = [];
   /** The latest `setDecorations` call for each type, keyed by the type. */
   readonly painted = new Map<FakeDecorationType, readonly PaintedOptions[]>();
+  /**
+   * Every `setDecorations` call, in order, `painted`'s latest-only view
+   * loses. `Flash` reuses one decoration type per colour and calls
+   * `setDecorations` on it repeatedly -- clear, then show the next range --
+   * so a test asking "did this flash more than once" (#102's sweep) needs
+   * the history, not just where things ended up.
+   */
+  readonly decorationCalls: Array<{
+    readonly type: FakeDecorationType;
+    readonly options: readonly PaintedOptions[];
+  }> = [];
 
   constructor(public document: FakeDocument, selection?: FakeSelection) {
     this.selection = selection
@@ -190,6 +201,7 @@ export class FakeEditor {
 
   setDecorations(type: FakeDecorationType, options: readonly PaintedOptions[]): void {
     this.painted.set(type, options);
+    this.decorationCalls.push({ type, options });
   }
 
   revealRange(range: FakeRange): void {

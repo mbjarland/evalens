@@ -366,6 +366,43 @@ test('a default, resetting load never mentions residue (#100)', async () => {
   }
 });
 
+// -- #102: a load flashes each statement as a sweep, not once at the end ----
+
+test('a whole-file load flashes each statement as its outcome lands (#102)',
+  async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor('1\n2\n3\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateFile = fake.commands.registered.get('evalens.evaluateFile');
+    await (evaluateFile as () => Promise<void>)();
+
+    // `Flash` reuses one decoration type per colour, identified by the
+    // theme colour id rather than by import: `render/decorations.ts` pulls
+    // in `vscode` at the top of the module, which this test file cannot
+    // require directly -- only the compiled extension, through the fake.
+    const flashedLines = editor.decorationCalls
+      .filter((call) => {
+        const options = call.type.options as {
+          readonly backgroundColor?: { readonly id?: string };
+        };
+        return options.backgroundColor?.id === 'evalens.flashRegionBackground';
+      })
+      .filter((call) => call.options.length > 0)
+      .map((call) => call.options[0]!.range!.start.line);
+
+    // One flash per statement, landing in file order, rather than a single
+    // flash once the whole load is over -- the whole point of building this
+    // as a sweep rather than a single "the load finished" emphasis.
+    assert.deepEqual(flashedLines, [0, 1, 2]);
+  } finally {
+    extension.deactivate();
+  }
+});
+
 // -- an edit invalidates what it touched, and nothing else -------------------
 
 test('a document edit clears only the statement it touched', async () => {

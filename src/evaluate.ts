@@ -16,7 +16,7 @@ import { InOrder } from './load';
 import { askForInput } from './prompt';
 import { Annotations } from './render/annotations';
 import { Annotation, sourceAt, toVsCodeRange } from './render/decorations';
-import { Flash, SNAP } from './render/flash';
+import { Flash, SETTLED, SNAP } from './render/flash';
 import { printedFrom } from './render/format';
 import {
   describeAbove, describeLoad, describeResidue, describeRun, hoverFor,
@@ -224,7 +224,19 @@ class LoadPainting {
 
   constructor(
     private readonly document: vscode.TextDocument,
-    private readonly annotations: Annotations
+    private readonly annotations: Annotations,
+    /**
+     * #102: the same `Flash` `evaluateAtCursor`'s single-statement path
+     * uses, reused here rather than invented twice, so that a snap and a
+     * sweep can never expire on each other's decorations.
+     */
+    private readonly flash: Flash,
+    /**
+     * Where the sweep paints. One editor rather than every visible one for
+     * this document, matching the widened-selection snap this same load can
+     * still show at the end -- see `evaluateFile`.
+     */
+    private readonly editor: vscode.TextEditor
   ) {
     this.order = new InOrder((outcome) => this.paint(outcome));
   }
@@ -252,6 +264,18 @@ class LoadPainting {
    * Printed output is not echoed to the channel here. It reached it as each
    * statement wrote it, and appending the captured copy afterwards would print
    * the whole load a second time.
+   *
+   * **Each statement's region flashes as its outcome lands (#102).** Loading
+   * an unchanged file used to repaint every line with an identical string --
+   * no flash, no transition, nothing to say the key was not simply dead,
+   * which is the exact failure `evaluateAtCursor`'s own doc comment records
+   * for the single-statement case. Reusing `Flash`/`SETTLED` here rather
+   * than a new mechanism makes a re-run read as a wave down the file, the
+   * same shape a first load already has since #82 streamed it -- and the
+   * wave composes with #97 for free: nothing flashes while a statement is
+   * blocked on `input()`, because nothing has reported an outcome yet, so
+   * the sweep visibly stops at the blocked line without this class knowing
+   * anything about prompts.
    */
   private paint(outcome: StatementOutcome): void {
     if (!outcome.ok) {
@@ -267,6 +291,12 @@ class LoadPainting {
       // A failure with no range at all: nothing to point the region at.
       return;
     }
+    // Not `settle`: that also announces, and #55 decided bulk work earns one
+    // summary utterance for the whole load rather than one per statement --
+    // see `Announcer.announceSummary`. This is the flash half of `settle`
+    // alone, reached on every statement regardless of whether the repeat
+    // rule below keeps its text.
+    this.flash.show([this.editor], [annotation.range], SETTLED);
     const fresh = this.painted.keep(annotation);
     if (fresh) {
       this.annotations.add(this.document, fresh);
@@ -565,7 +595,7 @@ export class Evaluator {
     let response: FileResponse;
     // The load's paint state, built before the request because the first
     // statement can report before the await has yielded once.
-    const load = new LoadPainting(document, this.annotations);
+    const load = new LoadPainting(document, this.annotations, this.flash, editor);
     const blocked = new BlockedMark();
     // Set before the request, for the same reason.
     this.asking = { document, load: new LoadPrompts(), blocked };
