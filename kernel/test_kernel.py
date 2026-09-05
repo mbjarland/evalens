@@ -144,14 +144,33 @@ class KernelProcess:
         returns the write has already happened, so the request sent next is
         provably the one that would have met a corrupted pipe.
         """
+        return self.read_stream_frames(needle, timeout=timeout)[0]
+
+    def read_stream_frames(self, *needles, timeout=ANSWER_TIMEOUT):
+        """One ``stream`` frame per needle, returned in the order asked for.
+
+        Several threads writing during one statement reach the channel in
+        whatever order the scheduler picked, and that order is not a fact
+        about the kernel. Collecting by content rather than by position lets a
+        test say which frames it wants without claiming to know which arrives
+        first, and it never waits for a frame that is not owed: every write
+        this is called for happened before the response the caller already
+        holds.
+        """
+        found = {}
         deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+        while len(found) < len(needles) and time.monotonic() < deadline:
             message = self.read_control(timeout=timeout)
-            if (message.get("op") == "stream"
-                    and needle in message.get("text", "")):
-                return message
-        raise AssertionError(
-            f"no stream frame carrying {needle!r} in {timeout}s")
+            if message.get("op") != "stream":
+                continue
+            for needle in needles:
+                if needle not in found and needle in message.get("text", ""):
+                    found[needle] = message
+        missing = [needle for needle in needles if needle not in found]
+        if missing:
+            raise AssertionError(
+                f"no stream frame carrying {missing[0]!r} in {timeout}s")
+        return [found[needle] for needle in needles]
 
     def interrupt(self):
         self.send_control(op="interrupt")
@@ -433,21 +452,32 @@ class ChannelIsolation(KernelTest):
         self.assertEqual(result["stderr"], "warned")
 
 
-def late_writer(write):
-    """A statement that starts a thread which prints once it has returned.
+def late_writer(write, gate):
+    """A statement that starts a thread which writes when ``gate`` appears.
 
-    The sleep is the whole point and is not a race: ``start()`` returns as soon
-    as the thread is bootstrapped, so the statement is over -- and its response
-    written -- long before the write happens. What the write then meets is
-    whatever the kernel leaves in ``sys.stdout`` between evaluations, which is
-    the thing this file is about.
+    What the write then meets is whatever the kernel leaves in ``sys.stdout``
+    between evaluations, which is the thing this file is about -- so the write
+    has to happen with nothing running, and *has to be known* to have happened
+    then rather than merely be likely to.
+
+    A sleep long enough to outlast the statement is the tempting way to
+    arrange that and it is a wager on the scheduler, not an ordering: it
+    assumes the kernel gets from ``start()`` to writing the response inside
+    the interval. Waiting for a file the test creates costs the same line and
+    proves it instead. The kernel puts the capture buffer away before it
+    answers, so a gate created after that answer has been read cannot be seen
+    by the thread until there is provably no statement to attribute it to.
+
+    The thread is a daemon because it now waits on something the test may
+    never create if an assertion fails first, and a live non-daemon thread
+    would keep the kernel from exiting.
     """
     return (
-        "import sys, threading, time\n"
+        "import os, sys, threading, time\n"
         "def late():\n"
-        "    time.sleep(0.3)\n"
+        f"    while not os.path.exists({gate!r}): time.sleep(0.005)\n"
         f"    {write}\n"
-        "worker = threading.Thread(target=late)\n"
+        "worker = threading.Thread(target=late, daemon=True)\n"
         "worker.start()\n"
     )
 
@@ -466,10 +496,25 @@ class LateOutput(KernelTest):
     kernel fault, or a correct answer destroyed and the session wedged.
     """
 
+    def setUp(self):
+        super().setUp()
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.gate = os.path.join(directory.name, "go")
+
     def start_late_writer(self, write):
-        source = late_writer(write)
+        """Start the thread, then let it write -- in that order, provably.
+
+        The loop below evaluates every line, so the last response in hand is
+        the one for ``worker.start()``. The kernel takes the statement's
+        capture buffer away before it writes that response, so opening the
+        gate here happens after any chance of the write being attributed has
+        gone.
+        """
+        source = late_writer(write, self.gate)
         for line in range(len(source.splitlines())):
             self.k.evaluate(source, line)
+        open(self.gate, "w").close()
 
     def test_a_late_print_never_reaches_the_protocol_pipe(self):
         # The mild half of the defect: a trailing newline makes the text its
@@ -513,14 +558,39 @@ class LateOutput(KernelTest):
         # actually contains, and its output belongs to that statement -- which
         # is what a terminal would show, and what the response field every
         # consumer reads has always carried.
-        src = ("import concurrent.futures as cf\n"
+        #
+        # Each worker writes once rather than calling `print`, and that is the
+        # difference between a test and a coin toss. `print('worker', n)` is
+        # four separate writes -- the word, the separator, the number, the
+        # newline -- so two workers produce `worker worker0\n 1\n` whenever
+        # the scheduler puts one between another's arguments. That
+        # interleaving is Python's and a terminal shows it too; asserting the
+        # substring `worker 0` was asserting that it had not happened, which
+        # it did in roughly one run in eight. Where the output went and what
+        # it was attributed to are the kernel's business and are what this
+        # pins; the order two threads reach a stream in is not knowable and is
+        # not claimed.
+        src = ("import sys, concurrent.futures as cf\n"
                "with cf.ThreadPoolExecutor(max_workers=2) as pool:\n"
-               "    _ = list(pool.map(lambda n: print('worker', n), range(2)))\n")
+               "    _ = list(pool.map(\n"
+               "        lambda n: sys.stdout.write(f'worker {n}\\n'),\n"
+               "        range(2)))\n")
         self.k.evaluate(src, 0)
         result = self.k.evaluate(src, 1)
         self.assertTrue(result["ok"], result)
-        self.assertIn("worker 0", result["stdout"])
-        self.assertIn("worker 1", result["stdout"])
+        # One `write` call per worker reaches the buffer whole, so both lines
+        # are there and complete however the two threads were scheduled. This
+        # is stricter than the substring it replaces: a kernel that dropped,
+        # doubled or truncated a chunk now fails rather than passing on the
+        # half it kept.
+        self.assertEqual(sorted(result["stdout"].splitlines()),
+                         ["worker 0", "worker 1"])
+        # And the frames that carried them said which statement they came
+        # from. Marking a pool's output unattributed because a thread wrote it
+        # would leave everything above true and the annotation wrong.
+        for frame in self.k.read_stream_frames("worker 0", "worker 1"):
+            self.assertEqual(frame["name"], "stdout")
+            self.assertFalse(frame.get("unattributed"), frame)
 
     def test_a_thread_outliving_one_statement_is_not_blamed_on_the_next(self):
         # Attribution is per statement, so a straggler cannot be silently
