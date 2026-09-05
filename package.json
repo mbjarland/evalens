@@ -1,0 +1,56 @@
+{
+  "name": "python-inline-values",
+  "displayName": "Evalens — Inline Python Values",
+  "description": "See values inline as you type. No print(), no debugger, no notebook.",
+  "version": "0.0.1",
+  "publisher": "mbjarland",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mbjarland/evalens.git"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Debuggers",
+    "Visualization",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "python",
+    "repl",
+    "inline",
+    "live",
+    "values",
+    "evaluate",
+    "calva",
+    "nrepl",
+    "arepl",
+    "print debugging"
+  ],
+  "activationEvents": [
+    "onLanguage:python"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "evalens.evaluateAtCursor",
+        "title": "Evalens: Evaluate at Cursor"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -p . --watch",
+    "pretest": "npm run compile",
+    "test": "node --test out/test/",
+    "test:kernel": "python3 -m unittest discover -s kernel -t ."
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.9.3"
+  }
+}
