@@ -5,9 +5,17 @@ plus the positional edge cases that made the table necessary.
 """
 
 import ast
+import os
 import unittest
 
-from resolver import form_at
+from resolver import form_at, form_of
+
+#: The manual test fixture, located relative to this file rather than to the
+#: working directory: the suite is discovered with `-t kernel`, so a relative
+#: path would depend on where the runner happened to be started.
+TOUR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "examples", "tour.py")
 
 
 def resolve(src: str, line: int):
@@ -114,6 +122,68 @@ class Positions(unittest.TestCase):
         f = resolve(src, 0)
         self.assertEqual(f.display, "evens")
         self.assertEqual(f.kind, "Assign")
+
+
+class TheTourFile(unittest.TestCase):
+    """`examples/tour.py` is checked by hand; this keeps it honest.
+
+    The file is the manual fixture for everything that needs eyes, and the
+    script the demo is recorded from. Neither of those roles notices when it
+    stops parsing, stops covering a statement kind, or starts tripping the
+    resolver -- a fixture nobody runs is a fixture that rots into a page of
+    stale comments. These are the assertions a human reading annotations
+    would never make and would never miss.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        with open(TOUR, encoding="utf-8") as handle:
+            cls.source = handle.read()
+        cls.tree = ast.parse(cls.source, filename=TOUR)
+
+    def test_every_line_of_the_tour_resolves_without_raising(self):
+        # Blank lines, comment lines, continuation lines and the lines past
+        # the end included: `form_at` answering None is a result, and raising
+        # is not.
+        for line in range(len(self.source.splitlines()) + 5):
+            with self.subTest(line=line + 1):
+                form_at(self.tree, line)
+
+    def test_every_statement_in_the_tour_describes_itself(self):
+        # `form_of` runs `display_expr`, so this walks the whole table over
+        # real source rather than over one-line snippets.
+        for node in self.tree.body:
+            with self.subTest(line=node.lineno):
+                form = form_of(node)
+                self.assertEqual(form.kind, type(node).__name__)
+                self.assertLessEqual(form.start_line, form.end_line)
+
+    def test_every_statement_resolves_from_its_own_first_line(self):
+        for node in self.tree.body:
+            with self.subTest(line=node.lineno):
+                self.assertIsNotNone(form_at(self.tree, node.lineno - 1))
+
+    def test_the_tour_still_covers_every_statement_kind_it_claims_to(self):
+        # The anti-rot assertion. Dropping a case while tidying the tour is
+        # easy and invisible; losing the only `async def`, or the only `with`,
+        # is not something a reader notices.
+        kinds = {type(node).__name__ for node in self.tree.body}
+        for kind in ("Assign", "AnnAssign", "AugAssign", "Expr", "FunctionDef",
+                     "AsyncFunctionDef", "ClassDef", "Import", "ImportFrom",
+                     "For", "With", "If", "While", "Delete", "Pass", "Assert",
+                     "Try"):
+            with self.subTest(kind=kind):
+                self.assertIn(kind, kinds)
+
+    def test_the_tour_keeps_its_main_guard(self):
+        # The guard is the visible proof that loading a file does not run its
+        # `__main__` block, and it is the one case that cannot be read off an
+        # annotation: what it proves is the absence of one.
+        guards = [node for node in self.tree.body
+                  if isinstance(node, ast.If)
+                  and "__name__" in ast.dump(node.test)
+                  and node.body]
+        self.assertTrue(guards, "the tour must keep an `if __name__` block")
 
 
 if __name__ == "__main__":
