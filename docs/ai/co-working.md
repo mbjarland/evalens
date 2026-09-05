@@ -86,6 +86,13 @@ Implementation work goes to a subagent on its own worktree; this session
 files the ticket and merges the branch. The point is that a long
 implementation should not block the conversation.
 
+- **Use the `evalens-worker` agent type** (`.claude/agents/evalens-worker.md`)
+  rather than the generic type. It carries the worktree path convention, the
+  npm cache flag, the commit shape, the read-only paths, and the
+  verify-against-reality rules as its standing instructions, so a task prompt
+  only has to state what is specific to that ticket instead of restating
+  process every time — and the terminal shows the ticket name instead of a
+  bare `general-purpose`.
 - **One agent per ticket, or per tightly-coupled pair.** Pair only when the
   two genuinely cannot ship apart — an interrupt and the prompt that needs it
   (#26/#34), a pending state and the input UI that uses it (#10/#61).
