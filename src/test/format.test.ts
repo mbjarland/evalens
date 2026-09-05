@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  SEPARATOR, collapseLines, errorText, preserveSpacing, resultText,
+  SEPARATOR, alignmentGap, collapseLines, columnWidth, errorText,
+  preserveSpacing, resultText,
 } from '../render/format';
 
 const NBSP = ' ';
@@ -43,4 +44,29 @@ test('a value that is itself None renders as None, not as nothing', () => {
   // repr(None) is a real answer -- `xs.append(1)` returns None and the user
   // should see that rather than an empty annotation.
   assert.equal(resultText('None'), preserveSpacing('=> None'));
+});
+
+test('a tab is worth its tab stop, not one column', () => {
+  // A file indented with tabs would otherwise align to a column nowhere near
+  // where its code actually ends.
+  assert.equal(columnWidth('\tx = 1', 4), 9, 'tab fills to column 4, then 5 characters');
+  assert.equal(columnWidth('ab\tc', 4), 5, 'the tab fills to the next stop');
+  assert.equal(columnWidth('abcd\te', 4), 9);
+  assert.equal(columnWidth('x = 1', 4), 5);
+});
+
+test('short lines are padded out to the target column', () => {
+  assert.equal(alignmentGap(15, 80, 2), 65);
+});
+
+test('a line past the target column degrades to a gap', () => {
+  // The alternative -- aligning to the longest line -- lets one statement
+  // push every other result off the screen.
+  assert.equal(alignmentGap(95, 80, 2), 2);
+  assert.equal(alignmentGap(80, 80, 2), 2, 'exactly at the column');
+  assert.equal(alignmentGap(79, 80, 2), 2, 'one short, still below minimum');
+});
+
+test('alignment can be switched off without losing the gap', () => {
+  assert.equal(alignmentGap(15, 0, 2), 2);
 });

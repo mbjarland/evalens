@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 import { Range as KernelRange } from '../kernel/protocol';
-import { errorText, resultText } from './format';
+import { alignmentGap, columnWidth, errorText, resultText } from './format';
 
 /**
  * Theme colour ids contributed in package.json. Colours come from the theme
@@ -12,8 +12,22 @@ import { errorText, resultText } from './format';
  * paints invisibly, which is why a test checks these against the manifest.
  */
 export const COLOR_RESULT = 'evalens.resultForeground';
+export const COLOR_RESULT_BG = 'evalens.resultBackground';
 export const COLOR_ERROR = 'evalens.errorForeground';
+export const COLOR_ERROR_BG = 'evalens.errorBackground';
 export const COLOR_REGION = 'evalens.evaluatedRegionBackground';
+
+/** Columns between the code and its annotation when the line overruns. */
+const MINIMUM_GAP = 2;
+
+/**
+ * Padding and rounding for the annotation's background, smuggled through
+ * `textDecoration` -- the decoration API exposes no padding of its own, and
+ * a background that hugs the text reads as a highlight rather than a chip.
+ * The `none;` prefix is what keeps this from being read as a real
+ * text-decoration value.
+ */
+const CHIP = 'none; padding: 0 5px; border-radius: 3px;';
 
 export interface Annotation {
   readonly range: vscode.Range;
@@ -39,8 +53,9 @@ export class Decorator implements vscode.Disposable {
     // editing.
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
     after: {
-      margin: '0 0 0 1.5em',
       color: new vscode.ThemeColor(COLOR_RESULT),
+      backgroundColor: new vscode.ThemeColor(COLOR_RESULT_BG),
+      textDecoration: CHIP,
       fontStyle: 'normal',
     },
   });
@@ -48,8 +63,9 @@ export class Decorator implements vscode.Disposable {
   private readonly errorType = vscode.window.createTextEditorDecorationType({
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
     after: {
-      margin: '0 0 0 1.5em',
       color: new vscode.ThemeColor(COLOR_ERROR),
+      backgroundColor: new vscode.ThemeColor(COLOR_ERROR_BG),
+      textDecoration: CHIP,
       fontStyle: 'normal',
     },
   });
@@ -69,11 +85,29 @@ export class Decorator implements vscode.Disposable {
     const errors: vscode.DecorationOptions[] = [];
     const regions: vscode.DecorationOptions[] = [];
 
+    const targetColumn = vscode.workspace
+      .getConfiguration('evalens')
+      .get<number>('alignColumn', 80);
+    const tabSize = typeof editor.options.tabSize === 'number'
+      ? editor.options.tabSize
+      : 4;
+
     for (const annotation of annotations) {
       regions.push({ range: annotation.range });
-      // The annotation hangs at the end of the evaluated region, not at the
-      // cursor, so a multi-line statement annotates where it finishes.
-      const at = new vscode.Range(annotation.range.end, annotation.range.end);
+
+      // End of the LINE, not end of the statement. Anchoring mid-line would
+      // insert the annotation before any trailing comment and shove it
+      // right, and there would be no column to align to.
+      const lastLine = editor.document.lineAt(annotation.range.end.line);
+      const at = new vscode.Range(lastLine.range.end, lastLine.range.end);
+
+      // The gap goes in the margin rather than in the content, so it stays
+      // outside the annotation's background. Padding the content instead
+      // would render sixty columns of coloured block.
+      const gap = alignmentGap(
+        columnWidth(lastLine.text, tabSize), targetColumn, MINIMUM_GAP);
+      const margin = `0 0 0 ${gap}ch`;
+
       const hoverMessage = annotation.hover
         ? new vscode.MarkdownString(
             ['```', annotation.hover, '```'].join('\n'))
@@ -85,6 +119,7 @@ export class Decorator implements vscode.Disposable {
           hoverMessage,
           renderOptions: {
             after: {
+              margin,
               contentText: errorText(
                 annotation.error.type, annotation.error.message),
             },
@@ -95,7 +130,7 @@ export class Decorator implements vscode.Disposable {
           range: at,
           hoverMessage,
           renderOptions: {
-            after: { contentText: resultText(annotation.value) },
+            after: { margin, contentText: resultText(annotation.value) },
           },
         });
       }

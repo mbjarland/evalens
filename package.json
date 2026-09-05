@@ -55,6 +55,12 @@
           "type": "string",
           "default": "",
           "markdownDescription": "Interpreter used to run the evaluation kernel. Empty means use the interpreter selected by the Python extension, falling back to `python3`."
+        },
+        "evalens.alignColumn": {
+          "type": "number",
+          "default": 80,
+          "minimum": 0,
+          "markdownDescription": "Column to align inline results to. A line already past this column gets a small gap instead, so one long statement cannot drag every other result off the screen. `0` disables alignment."
         }
       }
     },
@@ -63,20 +69,40 @@
         "id": "evalens.resultForeground",
         "description": "Colour of an inline evaluation result.",
         "defaults": {
-          "dark": "editorCodeLens.foreground",
-          "light": "editorCodeLens.foreground",
-          "highContrast": "editorCodeLens.foreground",
-          "highContrastLight": "editorCodeLens.foreground"
+          "dark": "#4ec9b0",
+          "light": "#0f766e",
+          "highContrast": "#5ff0d0",
+          "highContrastLight": "#0b5c50"
+        }
+      },
+      {
+        "id": "evalens.resultBackground",
+        "description": "Background behind an inline evaluation result. Set to #00000000 to remove it.",
+        "defaults": {
+          "dark": "#4ec9b01f",
+          "light": "#0f766e14",
+          "highContrast": "#00000000",
+          "highContrastLight": "#00000000"
         }
       },
       {
         "id": "evalens.errorForeground",
         "description": "Colour of an inline evaluation error.",
         "defaults": {
-          "dark": "errorForeground",
-          "light": "errorForeground",
-          "highContrast": "errorForeground",
-          "highContrastLight": "errorForeground"
+          "dark": "#f14c4c",
+          "light": "#c62828",
+          "highContrast": "#f48771",
+          "highContrastLight": "#a01818"
+        }
+      },
+      {
+        "id": "evalens.errorBackground",
+        "description": "Background behind an inline evaluation error. Set to #00000000 to remove it.",
+        "defaults": {
+          "dark": "#f14c4c1f",
+          "light": "#c6282814",
+          "highContrast": "#00000000",
+          "highContrastLight": "#00000000"
         }
       },
       {

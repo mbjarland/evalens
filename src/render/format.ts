@@ -49,3 +49,35 @@ export function errorText(type: string, message: string): string {
   const summary = collapseLines(message);
   return preserveSpacing(summary ? `${SEPARATOR} ${type}: ${summary}` : `${SEPARATOR} ${type}`);
 }
+
+/**
+ * How wide `text` is on screen, in columns.
+ *
+ * Not `text.length`: a tab is worth however many columns it takes to reach
+ * the next tab stop, so a file indented with tabs would otherwise align to a
+ * column that is nowhere near where its code actually ends.
+ */
+export function columnWidth(text: string, tabSize: number): number {
+  let column = 0;
+  for (const character of text) {
+    column += character === '\t' ? tabSize - (column % tabSize) : 1;
+  }
+  return column;
+}
+
+/**
+ * Columns of gap between the end of a line and its annotation.
+ *
+ * A line already past the target gets `minimumGap` instead of being dragged
+ * further right. Aligning to the longest line in the file would let one long
+ * statement push every other result off the screen -- the ragged case is the
+ * cheap one to accept.
+ */
+export function alignmentGap(
+  lineWidth: number, targetColumn: number, minimumGap: number
+): number {
+  if (targetColumn <= 0) {
+    return minimumGap;
+  }
+  return Math.max(targetColumn - lineWidth, minimumGap);
+}
