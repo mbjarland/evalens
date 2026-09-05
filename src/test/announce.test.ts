@@ -117,11 +117,23 @@ test('what a statement printed is spoken after its value', () => {
 });
 
 test('a loop is spoken as the sequence the line shows', () => {
+  // #36: painted, the same fact is `p ×3: 1, 2, 3` -- a listener needs the
+  // same "this is a history" cue a sighted reader gets from the glyph, or
+  // the two channels would tell two different stories about one line.
   const spoken = spokenText({
     value: '3', display: 'p',
     loop: { values: ['1', '2', '3'], last: null, count: 3 },
   })!;
-  assert.equal(spoken, 'p is 1, 2, 3');
+  assert.equal(spoken, 'p is 1, 2, 3, 3 iterations');
+});
+
+test("a loop body binding's count is spoken beside the target's", () => {
+  const spoken = spokenText({
+    value: '3', display: 'v',
+    loop: { values: ['1', '2', '3'], last: null, count: 3 },
+    bindings: [{ name: 'u', values: ['4', '12'], last: null, count: 2 }],
+  })!;
+  assert.equal(spoken, 'v is 1, 2, 3, 3 iterations. u is 4, 12, 2 iterations');
 });
 
 test('a statement with nothing to report says nothing', () => {

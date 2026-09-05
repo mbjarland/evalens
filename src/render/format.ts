@@ -25,7 +25,7 @@ export const GAP = '   ';
  *
  * A word rather than a glyph, and this word rather than `stdout`. The
  * annotation already reads `<label>: <value>` -- `x: [1, 2, 3]` for a binding,
- * `v: 1, 2, 3` for a loop target -- so output is another label in the same
+ * `v ×3: 1, 2, 3` for a loop target -- so output is another label in the same
  * grammar and there is nothing new to learn. `printed` is what a first-year
  * student literally did; `<stdout>` is jargon they have not met, and for
  * beginner code the two mean the same thing anyway.
@@ -421,6 +421,32 @@ function grouped(count: number): string {
 }
 
 /**
+ * What says "this is a history of N moments," not a value that happens to
+ * hold several.
+ *
+ * #36: beside `x = 16`, `p: 16` and, once a loop's sequence is rendered,
+ * `p: 0, 1, 4, 9, 16` are still the same *shape* -- a label and a value --
+ * and a comma-joined list reads as a tuple or a list, not as a trace of five
+ * separate moments. The count is the cue, and it has to survive whatever the
+ * font substitutes for it: measured in Menlo, SF Mono, Monaco and Courier
+ * New the way `PRINTED_LABEL` above was, `↻`/`↺` exist only in Menlo, and
+ * `⟳`/`⭮`/`⥁` exist in none of the four -- so the pretty loop arrows are all
+ * disqualified except by the same default-only accident. `×` and `…`
+ * measured clean in all four, and Python already uses `×` for exactly this
+ * meaning outside code (`5×`, "five of these"), so the count is spelled
+ * `p ×5: 0, 1, 4, 9, 16` -- two characters that exist wherever this renders,
+ * reading correctly whether or not `sequenceText` had to elide anything.
+ *
+ * `evalens.loopGlyph` is meant to let this be overridden, for anyone whose
+ * font does carry `↻`. Wiring a setting through touches `config.ts` and
+ * `decorations.ts`, which belong to #99 and #23 respectively -- what is here
+ * is the half `format.ts` owns: `Rendered.loopGlyph` already carries a
+ * caller's choice down to this constant's only use, so the setting is
+ * additive from here rather than a rework.
+ */
+export const LOOP_GLYPH = '×';
+
+/**
  * A loop's iterations on one line: `1, 2, 3, … (+9,994 more) … 10000`.
  *
  * The elision is what makes this safe to paint at all. Ten thousand values
@@ -450,16 +476,29 @@ export function sequenceText(loop: LoopTrace): string {
 }
 
 /**
- * One name the loop's body bound, and the sequence it took: `u: 4, 8, 12`.
+ * One name the loop's body bound, and the sequence it took:
+ * `u ×3: 4, 8, 12`.
  *
  * Rendered by exactly the same rule as the target's sequence, and separately
  * from it. The two are not columns of one table -- an iteration that hit
- * `continue` computed no result, so `v: 1, 2, 3   u: 4, 12` is a correct
- * annotation of a filter loop rather than a dropped value. Anything that
- * zipped them, or padded the shorter one, would invent an observation.
+ * `continue` computed no result, so `v ×3: 1, 2, 3   u ×2: 4, 12` is a
+ * correct annotation of a filter loop rather than a dropped value: the two
+ * counts differing is itself the fact that a filter ran. Anything that zipped
+ * them, or padded the shorter one, would invent an observation.
  */
 export function bindingText(binding: BindingTrace): string {
-  return `${binding.name}: ${sequenceText(binding)}`;
+  return `${binding.name}${iterationLabel(binding.count, LOOP_GLYPH)}: `
+    + sequenceText(binding);
+}
+
+/**
+ * `" ×5"`, the count `slotSegments` and `bindingText` fold into a label --
+ * or nothing, for a value that was only ever read once and so carries no
+ * history to mark. `grouped` so a five-figure loop reads the way every other
+ * large count on this line already does.
+ */
+function iterationLabel(count: number, glyph: string): string {
+  return count > 0 ? ` ${glyph}${grouped(count)}` : '';
 }
 
 /**
@@ -483,6 +522,14 @@ export interface Slot {
    * further up the file, so it is never suppressed as a repeat.
    */
   readonly own: boolean;
+  /**
+   * How many iterations this value's history covers, when it is one -- the
+   * loop target's own count, or one of `bindings`'s. `sequenceText` is what
+   * both of those are built from, and `undefined` for everything else this
+   * paints: a name merely read, or a statement's own single value, was
+   * observed once and carries nothing to count (#36).
+   */
+  readonly iterations?: number;
 }
 
 /**
@@ -511,16 +558,20 @@ export interface Slot {
  * on its own really did answer `None`. The suppressed value is not lost -- the
  * hover still carries it, the third use of the same shelf.
  *
- * A loop displaces `value` with its whole sequence: `p: 1, 2, 3, 4` rather
+ * A loop displaces `value` with its whole sequence: `p ×4: 1, 2, 3, 4` rather
  * than `p: 4`. `value` is still the last iteration, so a caller that ignores
- * the trace shows something true rather than nothing.
+ * the trace shows something true rather than nothing. The `×4` is the same
+ * decision said in glyphs rather than commas -- see `LOOP_GLYPH` (#36): a
+ * history and a value that happens to be a list are the same *shape* of
+ * annotation and need a cue that tells them apart before either is read.
  *
  * **What the loop's body bound goes between the two**, which is where the
  * reader was already finding it -- `for v in x:` with `u = 4 * v` inside
- * annotates `v: 1, 2, 3   u: 4, 8, 12   x: [1, 2, 3]`. The order follows the
- * same rule the rest of the line does: what the statement did, then what it
- * read. The difference is that `u` used to be one value from the namespace
- * sitting beside a history, and is now the history it actually took.
+ * annotates `v ×3: 1, 2, 3   u ×3: 4, 8, 12   x: [1, 2, 3]`. The order
+ * follows the same rule the rest of the line does: what the statement did,
+ * then what it read. The difference is that `u` used to be one value from
+ * the namespace sitting beside a history, and is now the history it actually
+ * took.
  *
  * **What it printed comes last, and never in place of anything.**
  * `x = compute()` where `compute` prints wants `x: 42` *and* the output: they
@@ -542,6 +593,7 @@ export function paintedSlots(
   // statement's own however many iterations it took.
   const bound: Slot[] = (bindings ?? []).map((each) => ({
     name: each.name, value: sequenceText(each), own: true,
+    ...(each.count > 0 ? { iterations: each.count } : {}),
   }));
   const pairs: Slot[] = (names ?? []).map((each) => ({
     name: each.name, value: collapseLines(each.value), own: false,
@@ -565,7 +617,8 @@ export function paintedSlots(
           && (pairs.length > 0 || hasOutput(printed)))) {
     return [...bound, ...pairs];
   }
-  const slot: Slot = { name: target, value: produced, own: true };
+  const slot: Slot = { name: target, value: produced, own: true,
+    ...(loop && loop.count > 0 ? { iterations: loop.count } : {}) };
   return leads ? [slot, ...bound, ...pairs] : [...bound, ...pairs, slot];
 }
 
@@ -582,17 +635,27 @@ export function paintedSlots(
  * Only what the statement itself produced or bound can lose its label. A name
  * the line merely *read* keeps it, because several of those sit side by side
  * and the label is the only thing telling the reader which is which.
+ *
+ * **A slot with `iterations` folds the count into the same label** (#36):
+ * `p ×5: 0, 1, 4, 9, 16` rather than `p: 0, 1, 4, 9, 16`, so the shape of a
+ * loop's history reads differently from a single value's before either is
+ * read. It goes wherever the label goes, and disappears with it: a value that
+ * already names itself has no chrome left to carry the count either, which
+ * is right -- nothing here has ever recorded a `def` or `class` running in a
+ * loop's target.
  */
-function slotSegments(slot: Slot): readonly Segment[] {
+function slotSegments(slot: Slot, glyph: string): readonly Segment[] {
+  const count = slot.iterations === undefined
+    ? '' : iterationLabel(slot.iterations, glyph);
   if (slot.name === null) {
-    return [asLabel(`${SEPARATOR} `), asValue(slot.value)];
+    return [asLabel(`${SEPARATOR}${count} `), asValue(slot.value)];
   }
   // A dropped label leaves the value alone on the line, which is exactly
   // right: `def greet(name)` is what the statement produced, and there is no
   // longer any chrome in front of it to colour.
   return slot.own && namesItself(slot.name, slot.value)
     ? [asValue(slot.value)]
-    : [asLabel(`${slot.name}: `), asValue(slot.value)];
+    : [asLabel(`${slot.name}${count}: `), asValue(slot.value)];
 }
 
 /**
@@ -636,6 +699,13 @@ export interface Rendered {
     readonly truncated_at: number;
     readonly message: string;
   };
+  /**
+   * The glyph a loop's iteration count is shown with -- `LOOP_GLYPH` (`×`)
+   * when absent. Exists so `evalens.loopGlyph` (#36) has somewhere to land:
+   * this module reads the choice, it does not read the setting, the same
+   * split `printed`'s `label` already makes for `evalens.printedLabel`.
+   */
+  readonly loopGlyph?: string;
 }
 
 /**
@@ -669,8 +739,10 @@ function paintedPieces(rendered: Rendered): readonly (readonly Segment[])[] {
   const { value, display, loop, names, bindings, printed } = rendered;
   const more = rendered.more ?? 0;
   const partialFrom = rendered.partialFrom;
+  const glyph = rendered.loopGlyph ?? LOOP_GLYPH;
   const slots = paintedSlots(value, display, loop, names, bindings, printed);
-  const painted: (readonly Segment[])[] = slots.map(slotSegments);
+  const painted: (readonly Segment[])[] =
+    slots.map((slot) => slotSegments(slot, glyph));
   painted.push(
     ...streamsOf(printed).map(([label, text]) => streamPiece(label, text)));
   // `more` is only ever positive because a cap left something off this exact
@@ -749,7 +821,13 @@ export function resultText(rendered: Rendered): string {
   return joinSegments(resultSegments(rendered));
 }
 
-function iterations(count: number): string {
+/**
+ * `"3 iterations"`, or `"1 iteration"`. Exported for `announce.ts`: the
+ * spoken form needs the same words the hover already uses for the count a
+ * line's `×N` abbreviates, on the same "cannot drift" terms as every other
+ * function this module shares with that one.
+ */
+export function iterations(count: number): string {
   return `${count} iteration${count === 1 ? '' : 's'}`;
 }
 

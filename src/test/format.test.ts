@@ -163,7 +163,47 @@ test('a loop shows the sequence, not the value it stopped on', () => {
   // The point of the whole feature: `p: 4` is true and nearly useless.
   assert.equal(resultText({ value: '4', display: 'p',
     loop: trace(['1', '2', '3', '4'], null) }),
-    preserveSpacing('p: 1, 2, 3, 4'));
+    preserveSpacing('p ×4: 1, 2, 3, 4'));
+});
+
+test("a loop's count is said in a glyph that survives every font", () => {
+  // #36: `p: 16` and `x: 16` are the same shape, and a comma-joined sequence
+  // does not fix that on its own -- it still reads as *a* value rather than
+  // as a history. The count is the cue, and `×` is the one candidate
+  // that measured clean in Menlo, SF Mono, Monaco and Courier New alike.
+  assert.equal(resultText({ value: '16', display: 'p',
+    loop: trace(['0', '1', '4', '9', '16'], null) }),
+    preserveSpacing('p ×5: 0, 1, 4, 9, 16'));
+});
+
+test('a loop that ran once still says so', () => {
+  assert.equal(resultText({ value: '1', display: 'p', loop: trace(['1'], null) }),
+    preserveSpacing('p ×1: 1'));
+});
+
+test('the count is grouped the same way the elision already is', () => {
+  assert.equal(resultText({ value: '10000', display: 'p',
+    loop: trace(['1'], '10000', 10000) }),
+    preserveSpacing('p ×10,000: 1, … (+9,998 more) … 10000'));
+});
+
+test('a tuple loop target carries its count on the arrow, not on a name', () => {
+  // `(key, value)` has no identifier to attach the count to, so it goes where
+  // the label would have gone: right after `=>`.
+  assert.equal(
+    resultText({ value: "('b', 2)", display: '(key, value)',
+      loop: trace(["('a', 1)", "('b', 2)"], null) }),
+    preserveSpacing("=> ×2 ('a', 1), ('b', 2)"));
+});
+
+test('the count is overridable, for a font that has its own arrow', () => {
+  // `evalens.loopGlyph` (#36) is meant to reach here; this is the half
+  // `format.ts` owns -- `Rendered.loopGlyph` threads a caller's choice down
+  // to the one place the glyph is used.
+  assert.equal(
+    resultText({ value: '4', display: 'p',
+      loop: trace(['1', '2', '3', '4'], null), loopGlyph: '↻' }),
+    preserveSpacing('p ↻4: 1, 2, 3, 4'));
 });
 
 test('a long loop is elided with a count of what is not shown', () => {
@@ -300,17 +340,18 @@ test("a loop's sequence leads and the names it read follow", () => {
     resultText({ value: '16', display: 'p',
       loop: trace(['1', '4', '9', '16'], null),
       names: pairs(['squares', '[1, 4, 9, 16]']) }),
-    preserveSpacing('p: 1, 4, 9, 16   squares: [1, 4, 9, 16]'));
+    preserveSpacing('p ×4: 1, 4, 9, 16   squares: [1, 4, 9, 16]'));
 });
 
 test('a tuple loop target still leads with its sequence', () => {
   // `(key, value)` is too much of an expression to label with, and the
-  // sequence is still what the statement did.
+  // sequence is still what the statement did. The count lands on the arrow,
+  // for the same reason a name would have carried it.
   assert.equal(
     resultText({ value: "('b', 2)", display: '(key, value)',
       loop: trace(["('a', 1)", "('b', 2)"], null),
       names: pairs(['shelf', "{'a': 1, 'b': 2}"]) }),
-    preserveSpacing("=> ('a', 1), ('b', 2)   shelf: {'a': 1, 'b': 2}"));
+    preserveSpacing("=> ×2 ('a', 1), ('b', 2)   shelf: {'a': 1, 'b': 2}"));
 });
 
 test('what the loop computed is shown as a sequence, not as where it stopped', () => {
@@ -321,35 +362,37 @@ test('what the loop computed is shown as a sequence, not as where it stopped', (
     resultText({ value: '3', display: 'v', loop: trace(['1', '2', '3'], null),
       names: pairs(['x', '[1, 2, 3]']),
       bindings: [bound('u', ['4', '8', '12'])] }),
-    preserveSpacing('v: 1, 2, 3   u: 4, 8, 12   x: [1, 2, 3]'));
+    preserveSpacing('v ×3: 1, 2, 3   u ×3: 4, 8, 12   x: [1, 2, 3]'));
 });
 
 test('a body binding shorter than the loop still renders', () => {
   // A filter loop: three iterations, two results, because the iteration that
   // hit `continue` computed nothing. Anything that zipped or padded the two
-  // sequences would invent an observation here.
+  // sequences would invent an observation here. The counts differing --
+  // `×3` beside `×2` -- is itself the fact that a filter ran.
   assert.equal(
     resultText({ value: '3', display: 'v', loop: trace(['1', '2', '3'], null),
       names: [], bindings: [bound('u', ['4', '12'], 2)] }),
-    preserveSpacing('v: 1, 2, 3   u: 4, 12'));
+    preserveSpacing('v ×3: 1, 2, 3   u ×2: 4, 12'));
 });
 
 test('an unchanging binding is one reading beside a moving one', () => {
   // `c: 7, 7, 7, 7` is four observations of one fact, and it crowds out the
-  // sequence next to it that is actually moving.
+  // sequence next to it that is actually moving. `c ×4: 7` still says it ran
+  // four times, which `c: 7` alone would not.
   assert.equal(
     resultText({ value: '4', display: 'v',
       loop: trace(['1', '2', '3', '4'], null), names: [],
       bindings: [bound('c', ['7'], 4, { constant: true }),
         bound('d', ['1', '4', '9', '16'])] }),
-    preserveSpacing('v: 1, 2, 3, 4   c: 7   d: 1, 4, 9, 16'));
+    preserveSpacing('v ×4: 1, 2, 3, 4   c ×4: 7   d ×4: 1, 4, 9, 16'));
 });
 
 test('a body binding is bounded exactly as the target is', () => {
   assert.equal(
     bindingText(bound('u', ['0', '2', '4', '6', '8'], 10000,
       { last: '19998' })),
-    'u: 0, 2, 4, 6, 8, … (+9,994 more) … 19998');
+    'u ×10,000: 0, 2, 4, 6, 8, … (+9,994 more) … 19998');
 });
 
 test('a line says when the cap left names off it', () => {
@@ -911,7 +954,7 @@ test('an elision stays inside the value it shortens', () => {
   assert.deepEqual(
     coloured({ value: '10000', display: 'p',
       loop: trace(['1'], '10000', 10000) }),
-    ['nameLabel "p: "', 'value "1, … (+9,998 more) … 10000"']);
+    ['nameLabel "p ×10,000: "', 'value "1, … (+9,998 more) … 10000"']);
 });
 
 test('the footnote and the caveat are remarks, not values', () => {
@@ -932,13 +975,14 @@ test('the footnote and the caveat are remarks, not values', () => {
 test('a loop sequence is one value however many iterations it holds', () => {
   // The commas belong to the sequence, not to the annotation: they are how a
   // Python value of several parts is written, so colouring them as chrome
-  // would claim this extension put them there.
+  // would claim this extension put them there. The `×3` is chrome, though --
+  // it is this extension's own count, not part of the value that follows it.
   assert.deepEqual(
     coloured({ value: '3', display: 'v', loop: trace(['1', '2', '3'], null),
       bindings: [bound('u', ['4', '8', '12'])] }),
-    ['nameLabel "v: "', 'value "1, 2, 3"',
+    ['nameLabel "v ×3: "', 'value "1, 2, 3"',
       'nameLabel "   "',
-      'nameLabel "u: "', 'value "4, 8, 12"']);
+      'nameLabel "u ×3: "', 'value "4, 8, 12"']);
 });
 
 test('a line with nothing on it has no segments at all', () => {
