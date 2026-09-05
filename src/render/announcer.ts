@@ -96,10 +96,11 @@ export class Announcer implements vscode.Disposable {
    * here. That is the rule implemented by wiring rather than by a flag --
    * there is no code path from bulk annotation to this method to get wrong.
    *
-   * The load summary that ought to cover bulk work is `setStatusBarMessage`,
-   * and that is not announced. Saying so is the honest state of this: the
-   * single-statement case is answered, and loading a file is still silent for
-   * a reader who cannot see the annotations it painted.
+   * The load summary that covers bulk work is `describeLoad` /
+   * `describeRun`, reached from `evaluateFile` through `announceSummary`
+   * below rather than through this method -- a load calls `add`, never
+   * `settle`, so there is still no code path from bulk annotation to a
+   * per-statement announcement to get wrong.
    */
   announce(annotation: Announceable): void {
     const spoken = this.automatic() ? spokenText(annotation) : undefined;
@@ -110,6 +111,35 @@ export class Announcer implements vscode.Disposable {
     if (spoken !== undefined) {
       void vscode.window.showInformationMessage(announcement(spoken));
     }
+  }
+
+  /**
+   * Say a bulk-work summary out loud: a whole file loaded, a selection run,
+   * or a blank line's "nothing to evaluate here" (#88).
+   *
+   * `message` arrives already carrying the `Evalens: ` prefix `describeLoad`
+   * and `describeRun` put on every summary for the status bar. The
+   * notification shows it verbatim -- prefixing it again would read
+   * "Evalens: Evalens: loaded...". `hold` below adds that same prefix of
+   * its own accord for the status item's accessibility label, the way it
+   * already does for a single result, so the prefix is stripped first
+   * rather than doubled there. #55 decided bulk work earns one utterance for
+   * the whole operation rather than one per statement, which is why this is
+   * reached from a load's summary and never from `LoadPainting`'s
+   * per-statement paint; this is that one utterance, sharing `announce`'s
+   * gate and its status-bar holding place rather than opening a second
+   * channel with its own rules.
+   */
+  announceSummary(message: string): void {
+    if (!this.automatic()) {
+      return;
+    }
+    const prefix = announcement('');
+    const spoken = message.startsWith(prefix)
+      ? message.slice(prefix.length)
+      : message;
+    this.hold(spoken);
+    void vscode.window.showInformationMessage(message);
   }
 
   /**

@@ -210,12 +210,26 @@ decision should.
 
 ## The decision
 
-**Adopt option 1.** `Evaluate File` keeps today's behaviour and its
-selection carve-out. A new command resets the namespace first and then runs
-the whole file; it takes over the existing default keybinding
-(`Cmd/Ctrl+Alt+Enter`). `Evaluate File` moves to the command palette only,
-or a keybinding with an extra modifier, for the case that motivates keeping
-it at all: expensive setup code you do not want to re-pay.
+**Superseded on #99.** Everything below this paragraph is the two-command
+shape this document originally recommended, kept for the reasoning it still
+supplies about *why resetting is right at all* -- that argument is unchanged.
+What changed is the mechanism: the maintainer's comment on #99 rejects the
+two-command split in favour of a single setting, `evalens.resetOnLoad`,
+defaulting to resetting. `Evaluate File` keeps its one command id and its
+one keybinding; the setting decides what a whole-file run does before it
+runs, and a selection never resets regardless of the setting, for the same
+reason given below. `Run File as Script` (#78) resets unconditionally,
+whatever the setting says, per the section below, which that decision does
+not change. See the #99 issue thread for the maintainer's full reasoning,
+and `config.ts`/`evaluate.ts` for the implementation.
+
+**Adopt option 1 (superseded above).** `Evaluate File` keeps today's
+behaviour and its selection carve-out. A new command resets the namespace
+first and then runs the whole file; it takes over the existing default
+keybinding (`Cmd/Ctrl+Alt+Enter`). `Evaluate File` moves to the command
+palette only, or a keybinding with an extra modifier, for the case that
+motivates keeping it at all: expensive setup code you do not want to
+re-pay.
 
 This is the load-time half of the answer `IDEA.md` says a reader would
 otherwise have to re-derive (`IDEA.md`, "What is not decided": *"letting it
@@ -274,8 +288,10 @@ and `Restart Kernel`.
 This ticket is a decision, and per the project's rules a decision does not
 carry code — the implied changes are filed rather than built here:
 
-- The `Evaluate File` / reset split and the keybinding swap described above.
+- The `Evaluate File` / reset split and the keybinding swap described above
+  — **done differently than filed**: #99 replaced the split with a setting,
+  per the maintainer's comment recorded at the top of "The decision" above.
 - The residue-visibility indicator (the middle path), as its own, lower
-  priority feature.
+  priority feature — **built as #100**, gated on the same setting.
 
 Both are referenced from the #56 comment recording this decision.

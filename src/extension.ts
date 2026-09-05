@@ -87,7 +87,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   evaluator = new Evaluator(
-    () => ensureClient(context), annotations, output, flash);
+    () => ensureClient(context), annotations, output, flash, announcer);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('evalens.evaluateAtCursor', async () => {

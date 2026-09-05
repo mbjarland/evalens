@@ -182,6 +182,17 @@ export class FakeEditor {
   readonly revealed: FakeRange[] = [];
   /** The latest `setDecorations` call for each type, keyed by the type. */
   readonly painted = new Map<FakeDecorationType, readonly PaintedOptions[]>();
+  /**
+   * Every `setDecorations` call, in order, `painted`'s latest-only view
+   * loses. `Flash` reuses one decoration type per colour and calls
+   * `setDecorations` on it repeatedly -- clear, then show the next range --
+   * so a test asking "did this flash more than once" (#102's sweep) needs
+   * the history, not just where things ended up.
+   */
+  readonly decorationCalls: Array<{
+    readonly type: FakeDecorationType;
+    readonly options: readonly PaintedOptions[];
+  }> = [];
 
   constructor(public document: FakeDocument, selection?: FakeSelection) {
     this.selection = selection
@@ -190,6 +201,7 @@ export class FakeEditor {
 
   setDecorations(type: FakeDecorationType, options: readonly PaintedOptions[]): void {
     this.painted.set(type, options);
+    this.decorationCalls.push({ type, options });
   }
 
   revealRange(range: FakeRange): void {
@@ -413,6 +425,16 @@ export interface FakeVscode {
   readonly outputChannels: FakeOutputChannel[];
   readonly decorationTypes: FakeDecorationType[];
   readonly statusBarItems: FakeStatusBarItem[];
+  /**
+   * Every `setStatusBarMessage` call, in order.
+   *
+   * The real API answers with a disposable and nothing else -- there is no
+   * shared item here to inspect the way `statusBarItems` inspects
+   * `createStatusBarItem`'s -- so a test that needs to know what a load's
+   * summary said reads this instead of the (transient, never-recorded)
+   * real status bar text.
+   */
+  readonly statusBarMessages: string[];
   readonly messages: {
     readonly error: Array<{ readonly message: string; readonly items: readonly string[] }>;
     readonly warning: Array<{ readonly message: string; readonly items: readonly string[] }>;
@@ -456,6 +478,7 @@ export function createFakeVscode(): FakeVscode {
   const outputChannels: FakeOutputChannel[] = [];
   const decorationTypes: FakeDecorationType[] = [];
   const statusBarItems: FakeStatusBarItem[] = [];
+  const statusBarMessages: string[] = [];
   const setContextCalls: Array<{ key: string; value: unknown }> = [];
   const messages: FakeVscode['messages'] = { error: [], warning: [], information: [] };
   const responses: FakeVscode['responses'] = { error: [], warning: [], information: [] };
@@ -571,7 +594,10 @@ export function createFakeVscode(): FakeVscode {
         return item;
       },
       createInputBox: () => makeInputBox(),
-      setStatusBarMessage: () => ({ dispose: () => undefined }),
+      setStatusBarMessage: (message: string) => {
+        statusBarMessages.push(message);
+        return { dispose: () => undefined };
+      },
       showErrorMessage: (message: string, ...rest: unknown[]) =>
         showMessage('error', message, stringItems(rest)),
       showWarningMessage: (message: string, ...rest: unknown[]) =>
@@ -629,6 +655,7 @@ export function createFakeVscode(): FakeVscode {
     outputChannels,
     decorationTypes,
     statusBarItems,
+    statusBarMessages,
     messages,
     responses,
     clipboard: { written: clipboardWritten },

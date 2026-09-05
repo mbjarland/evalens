@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { OutlineCache, nextStop, outlinePlan } from './advance';
 import {
   advanceSkipsComments, displayLimits, nameDisplayCap, progressDelay,
+  resetOnLoad,
 } from './config';
 import { LoadPrompts, locatedTitle, waitingLabel } from './input';
 import { describeInterrupt, settlesWithin } from './interrupt';
@@ -13,12 +14,14 @@ import {
 } from './kernel/protocol';
 import { InOrder } from './load';
 import { askForInput } from './prompt';
+import { Announcer } from './render/announcer';
 import { Annotations } from './render/annotations';
 import { Annotation, sourceAt, toVsCodeRange } from './render/decorations';
-import { Flash, SNAP } from './render/flash';
+import { Flash, SETTLED, SNAP } from './render/flash';
 import { printedFrom } from './render/format';
 import {
-  describeAbove, describeLoad, describeRun, hoverFor, partialCause,
+  describeAbove, describeLoad, describeResidue, describeRun, hoverFor,
+  partialCause,
   partialOf, present,
 } from './render/present';
 import { capNames, PaintedAbove } from './render/repeats';
@@ -222,7 +225,19 @@ class LoadPainting {
 
   constructor(
     private readonly document: vscode.TextDocument,
-    private readonly annotations: Annotations
+    private readonly annotations: Annotations,
+    /**
+     * #102: the same `Flash` `evaluateAtCursor`'s single-statement path
+     * uses, reused here rather than invented twice, so that a snap and a
+     * sweep can never expire on each other's decorations.
+     */
+    private readonly flash: Flash,
+    /**
+     * Where the sweep paints. One editor rather than every visible one for
+     * this document, matching the widened-selection snap this same load can
+     * still show at the end -- see `evaluateFile`.
+     */
+    private readonly editor: vscode.TextEditor
   ) {
     this.order = new InOrder((outcome) => this.paint(outcome));
   }
@@ -250,6 +265,18 @@ class LoadPainting {
    * Printed output is not echoed to the channel here. It reached it as each
    * statement wrote it, and appending the captured copy afterwards would print
    * the whole load a second time.
+   *
+   * **Each statement's region flashes as its outcome lands (#102).** Loading
+   * an unchanged file used to repaint every line with an identical string --
+   * no flash, no transition, nothing to say the key was not simply dead,
+   * which is the exact failure `evaluateAtCursor`'s own doc comment records
+   * for the single-statement case. Reusing `Flash`/`SETTLED` here rather
+   * than a new mechanism makes a re-run read as a wave down the file, the
+   * same shape a first load already has since #82 streamed it -- and the
+   * wave composes with #97 for free: nothing flashes while a statement is
+   * blocked on `input()`, because nothing has reported an outcome yet, so
+   * the sweep visibly stops at the blocked line without this class knowing
+   * anything about prompts.
    */
   private paint(outcome: StatementOutcome): void {
     if (!outcome.ok) {
@@ -265,6 +292,12 @@ class LoadPainting {
       // A failure with no range at all: nothing to point the region at.
       return;
     }
+    // Not `settle`: that also announces, and #55 decided bulk work earns one
+    // summary utterance for the whole load rather than one per statement --
+    // see `Announcer.announceSummary`. This is the flash half of `settle`
+    // alone, reached on every statement regardless of whether the repeat
+    // rule below keeps its text.
+    this.flash.show([this.editor], [annotation.range], SETTLED);
     const fresh = this.painted.keep(annotation);
     if (fresh) {
       this.annotations.add(this.document, fresh);
@@ -328,7 +361,18 @@ export class Evaluator {
     private readonly kernel: () => Promise<KernelClient>,
     private readonly annotations: Annotations,
     private readonly output: vscode.OutputChannel,
-    private readonly flash: Flash
+    private readonly flash: Flash,
+    /**
+     * #88: the same channel `Annotations.settle` already reaches for a
+     * single evaluation, handed here as well so a bulk-work summary --
+     * `describeLoad`, `describeRun`, "nothing to evaluate here" -- can be
+     * announced too. All of them go through `setStatusBarMessage`, which is
+     * backed by a shared status bar item that never sets
+     * `accessibilityInformation`, so without this a screen-reader user
+     * loading a file, running a selection, or pressing the evaluate key on a
+     * blank line hears nothing at all -- indistinguishable from a hang.
+     */
+    private readonly announcer: Announcer
   ) {}
 
   /** What the kernel last said it was doing, or nothing if there is none. */
@@ -535,6 +579,20 @@ export class Evaluator {
    * runs. A selection is a different question -- "run this part of my file"
    * -- that a script run does not ask, so it is ignored here: this always
    * runs the whole file, the way `python3 <file>` would.
+   *
+   * **A whole-file run resets the namespace first**, per `evalens.resetOnLoad`
+   * (#99), because a namespace carrying a binding this file no longer makes
+   * is the exact trap `docs/development/namespace-reset.md` records -- one
+   * that crosses file boundaries, not only reloads of the same file. A
+   * script run resets unconditionally, whatever the setting says: it exists
+   * to answer whether the file matches `python3 <file>`, and a namespace
+   * left over from an earlier run makes that comparison meaningless. A
+   * selection never resets, regardless of either: resetting and then
+   * running three lines would leave everything above them unbound, which is
+   * worse than doing nothing. The reset is a separate, awaited request
+   * ahead of `eval_file` rather than a flag on it -- the kernel processes
+   * its stdin one line at a time, so awaiting the reset's own response is
+   * what guarantees it lands first.
    */
   async evaluateFile(
     editor: vscode.TextEditor, options?: { readonly asScript?: boolean }
@@ -543,15 +601,28 @@ export class Evaluator {
     const document = editor.document;
     const selection = editor.selection;
     const lines = asScript ? undefined : selectedLines(selection);
+    // See the doc comment above: a selection never resets, a script run
+    // always does, and an ordinary whole-file load follows the setting.
+    const shouldReset = lines === undefined && (asScript || resetOnLoad());
     let response: FileResponse;
     // The load's paint state, built before the request because the first
     // statement can report before the await has yielded once.
-    const load = new LoadPainting(document, this.annotations);
+    const load = new LoadPainting(document, this.annotations, this.flash, editor);
     const blocked = new BlockedMark();
     // Set before the request, for the same reason.
     this.asking = { document, load: new LoadPrompts(), blocked };
     try {
       const client = await this.client();
+      if (shouldReset) {
+        // Awaited on its own, not raced with `eval_file`: the kernel reads
+        // its stdin one request at a time, so the response settling is what
+        // proves the namespace was empty before the load below started
+        // filling it back in. This also clears #86's input-replay store --
+        // `Kernel.reset` already does that as part of clearing the
+        // namespace -- so nothing further is needed to keep that state in
+        // step with this one.
+        await client.request({ op: 'reset' });
+      }
       const running = client.request(
         {
           op: 'eval_file',
@@ -649,9 +720,13 @@ export class Evaluator {
       // place, and reaching for the nearest statement instead would run code
       // nobody pointed at. Nor is it a reason to fall back to the prefix,
       // which is code nobody pointed at with a tempting amount of it.
-      vscode.window.setStatusBarMessage(
-        describeRun(0, 0, 0, false, response.partial?.truncated_at),
-        STATUS_ACK_MS);
+      const nothingToRun =
+        describeRun(0, 0, 0, false, response.partial?.truncated_at);
+      vscode.window.setStatusBarMessage(nothingToRun, STATUS_ACK_MS);
+      // #88: this is bulk work's own "nothing to evaluate here" -- a
+      // selection with no complete statement in it -- and was as silent to
+      // a screen reader as the single-statement case already fixed.
+      this.announcer.announceSummary(nothingToRun);
       return;
     }
 
@@ -675,15 +750,33 @@ export class Evaluator {
         // longer: one mechanism, so the two cannot expire on each other.
         this.flash.show([editor], [toVsCodeRange(executed)], SNAP);
       }
-      vscode.window.setStatusBarMessage(
-        describeRun(response.ran, response.statements, load.failed, widened,
-          response.partial?.truncated_at), STATUS_OUTCOME_MS);
+      const ranSelection = describeRun(response.ran, response.statements,
+        load.failed, widened, response.partial?.truncated_at);
+      vscode.window.setStatusBarMessage(ranSelection, STATUS_OUTCOME_MS);
+      // #88: describeRun's summary is bulk work's own report, the same
+      // granularity #55 already settled on for a load -- one utterance for
+      // the whole run rather than one per statement.
+      this.announcer.announceSummary(ranSelection);
       return;
     }
 
-    vscode.window.setStatusBarMessage(
-      describeLoad(response.ran, response.statements, load.failed,
-        response.partial?.truncated_at, asScript), STATUS_OUTCOME_MS);
+    const summary = describeLoad(response.ran, response.statements,
+      load.failed, response.partial?.truncated_at, asScript);
+    // #100: the signal for whoever turned #99's reset off. Gated on the same
+    // two facts the kernel cannot know about its own caller -- a script run
+    // was just unconditionally reset, and an ordinary load was reset unless
+    // the setting says otherwise -- rather than on `response.residue` alone,
+    // because a namespace that was just cleared reporting a name some
+    // untracked dynamic write left behind is not "an earlier session", and
+    // would read as one.
+    const message = !asScript && !resetOnLoad()
+      && response.residue && response.residue.length > 0
+      ? `${summary}; ${describeResidue(response.residue)}`
+      : summary;
+    vscode.window.setStatusBarMessage(message, STATUS_OUTCOME_MS);
+    // #88: describeLoad's summary, announced the same way -- see the doc
+    // comment on the constructor's `announcer` parameter.
+    this.announcer.announceSummary(message);
   }
 
   /**
@@ -724,7 +817,7 @@ export class Evaluator {
     // Built before the request, for the same reason `evaluateFile` builds
     // its painting state first: the first statement can report before the
     // `await` below has yielded even once.
-    const load = new LoadPainting(document, this.annotations);
+    const load = new LoadPainting(document, this.annotations, this.flash, editor);
     const blocked = new BlockedMark();
     this.asking = { document, load: new LoadPrompts(), blocked };
     try {
@@ -896,6 +989,12 @@ export class Evaluator {
       // A blank line. Nothing is going to replace the mark, so it goes.
       run.waiting.withdraw();
       vscode.window.setStatusBarMessage(evaluated.message, STATUS_ACK_MS);
+      // #88: a sighted reader sees this in the status bar; a screen-reader
+      // user got nothing at all and could not tell it apart from a hang.
+      // `setStatusBarMessage`'s shared item never sets
+      // `accessibilityInformation`, so this is the only way this ever
+      // reaches one.
+      this.announcer.announceSummary(evaluated.message);
       return;
     }
     // The kernel's own cap is a transport bound now, generous enough that a

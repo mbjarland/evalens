@@ -429,6 +429,11 @@ _KERNEL_FILES = frozenset(
 #: Evalens has always called the namespace it has no better name for.
 NO_MODULE_NAME = "__evalens__"
 
+#: What `Kernel.reset` puts in an empty namespace, and therefore never
+#: residue -- see `evaluate_file`'s residue computation for #100. Read from
+#: here rather than repeated at each call site so the two cannot drift.
+_KERNEL_OWNED_NAMES = frozenset({"__name__", "__package__", "__builtins__"})
+
 #: Hard cap on a repr() put on the wire. This is a transport guard, not a
 #: display policy -- the extension knows the editor width and truncates for
 #: reading. Without it, one `repr()` of a large frame is a multi-megabyte JSON
@@ -2974,15 +2979,30 @@ class Kernel:
         through this same method, in the same namespace, with its own
         outcome in ``results``. See `_as_module`.
 
-        A script run does not reset the namespace, and running one twice does
-        not either -- it is Load File with one bit flipped, not a second
-        command with its own rules. Whatever was bound before the request
-        stays bound going into it, exactly as a second ordinary load leaves
-        the first load's namespace in place and simply runs the file again on
-        top of it. The alternative -- resetting first -- would make a script
-        run silently discard whatever the session had built, on a command
-        whose entire premise is running *more* of the file the reader is
-        already looking at.
+        This method never resets the namespace on its own account, for a
+        script run or an ordinary load alike -- whatever was bound before the
+        request stays bound going into it, exactly as a second ordinary load
+        leaves the first load's namespace in place and simply runs the file
+        again on top of it. That is still the right behaviour for the op
+        itself: a test or another caller that sends ``eval_file`` twice with
+        ``as_script: true`` and nothing in between gets Load File with one bit
+        flipped, not a second command with its own rules about what survives
+        -- see the `RunFileAsScript` tests below, which drive exactly that and
+        would break if this method reset behind their back.
+
+        The decision that a script run's namespace should be fresh
+        (`docs/development/namespace-reset.md`, superseded by the setting
+        recorded on #99) is therefore kept out of here and made by the
+        caller instead: Evalens: Run File as Script always sends ``op:
+        reset`` immediately ahead of this request, whatever
+        ``evalens.resetOnLoad`` says -- see `evaluateFile` in
+        `src/evaluate.ts`. It has to be unconditional there, because the
+        command exists to answer whether the file matches what ``python3
+        file.py`` would do, and a namespace carrying an earlier run's
+        leftovers makes that comparison meaningless. An ordinary load reset
+        is what the setting actually governs, and it is the same one-line
+        wiring: a `reset` request ahead of this one, sent or not sent by the
+        extension, never by this method.
 
         Every statement goes through the same ``_run`` a single evaluation
         uses. That is deliberate rather than incidental: a bare ``exec`` loop
@@ -3065,6 +3085,10 @@ class Kernel:
         same outcomes arriving earlier, so a caller with no control channel --
         or one that does not care to paint progressively -- reads the response
         and gets everything, exactly as before.
+
+        For a whole-file request, the response also carries ``residue``
+        (#100): the namespace's own names, after this load, that nothing in
+        the file just read binds. See the comment above where it is built.
         """
         source: str = request.get("source", "")
         filename: str = request.get("filename") or "<evalens>"
@@ -3156,6 +3180,36 @@ class Kernel:
                 "start": _position(forms[0].start_line, forms[0].start_char),
                 "end": _position(forms[-1].end_line, forms[-1].end_char),
             }
+        if selection is None:
+            # #100: what the namespace holds after this load that the file
+            # just read does not bind anywhere in its own text -- residue an
+            # earlier load, of this file or another, left behind. `#99`
+            # defaults to resetting before a whole-file load, which is why
+            # this is usually empty; it is the signal for whoever turned that
+            # off, or for the (also unconditionally reset) script run.
+            #
+            # Judged against `forms`, the statements the parser found, rather
+            # than `results`, the ones that actually got to run: a name is
+            # "in the file" whether or not this particular pass reached the
+            # statement that binds it, and residue is a property of the text
+            # on screen, not of how far an interrupted or broken load got.
+            # `form.binds` is computed statically and costs nothing to read
+            # again here; see `resolver.py`.
+            #
+            # Restricted to a whole-file request on purpose. A selection is a
+            # narrower question -- "run this part of my file" -- and nearly
+            # everything in the namespace would look like residue against a
+            # selection of three lines, which is not the fact this exists to
+            # report.
+            bound_names: set = set()
+            for form in forms:
+                bound_names.update(form.binds)
+            residue = sorted(
+                name for name in self.namespace
+                if name not in _KERNEL_OWNED_NAMES and name not in bound_names
+            )
+            if residue:
+                response["residue"] = residue
         return response
 
     def evaluate_above(self, request: Dict[str, Any]) -> Dict[str, Any]:

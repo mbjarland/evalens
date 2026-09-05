@@ -684,6 +684,19 @@ export interface FileLoaded {
   readonly range?: Range;
   /** Present when the file did not parse whole -- see `PartialParse`. */
   readonly partial?: PartialParse;
+  /**
+   * #100: names the namespace holds, after this load, that nothing in the
+   * file just read binds anywhere at top level -- residue an earlier load,
+   * of this file or another, left behind. Present only for a whole-file
+   * request (absent for a narrowed selection, where nearly the whole
+   * namespace would qualify) and only when it is non-empty.
+   *
+   * Computed regardless of whether this load was itself preceded by a
+   * reset, because the kernel is never told that it was: with #99
+   * defaulting to resetting, this is usually absent, and becomes the signal
+   * for whoever turned that off.
+   */
+  readonly residue?: readonly string[];
 }
 
 export type FileResponse = FileLoaded | Failed;

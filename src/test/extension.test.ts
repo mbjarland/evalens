@@ -262,6 +262,223 @@ test('evaluateFile paints one annotation per statement', async () => {
   }
 });
 
+// -- #99: a whole-file load resets the namespace by default -----------------
+
+test('evaluateFile resets the namespace before a whole-file load, by ' +
+  'default (#99)', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor('x = 1\nx\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateFile = fake.commands.registered.get('evalens.evaluateFile');
+    await (evaluateFile as () => Promise<void>)();
+    assert.match(paintedLineText(editor, 1), /\b1\b/,
+      'setup: x is bound to 1 after the first load');
+
+    // The line that bound x is gone. A namespace that did not reset would
+    // still answer for it -- #56's exact failure, and the one #99 exists to
+    // close.
+    editor.document.setText('x\n');
+    await (evaluateFile as () => Promise<void>)();
+    assert.match(paintedLineText(editor, 0), /NameError/,
+      'x survived a reload that no longer binds it, so the namespace was ' +
+      'not reset');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('evalens.resetOnLoad false keeps the namespace across whole-file ' +
+  'loads (#99)', async () => {
+  const fake = createFakeVscode();
+  fake.config.set('evalens', 'resetOnLoad', false);
+  const editor = createEditor('x = 1\nx\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateFile = fake.commands.registered.get('evalens.evaluateFile');
+    await (evaluateFile as () => Promise<void>)();
+    assert.match(paintedLineText(editor, 1), /\b1\b/,
+      'setup: x is bound to 1 after the first load');
+
+    editor.document.setText('x\n');
+    await (evaluateFile as () => Promise<void>)();
+    assert.match(paintedLineText(editor, 0), /\b1\b/,
+      'x should still be readable: the setting is off, so the load did ' +
+      'not reset the namespace');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+// -- #100: surfacing residue after a non-resetting load ----------------------
+
+test('a non-resetting load notes the residue it is running on top of ' +
+  '(#100)', async () => {
+  const fake = createFakeVscode();
+  fake.config.set('evalens', 'resetOnLoad', false);
+  const editor = createEditor('x = 1\nx\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateFile = fake.commands.registered.get('evalens.evaluateFile');
+    await (evaluateFile as () => Promise<void>)();
+    assert.ok(
+      !fake.statusBarMessages.some((m) => m.includes('earlier session')),
+      'the first load has nothing behind it yet, so nothing is residue');
+
+    // x is gone from the file's own text, but the setting keeps it in the
+    // namespace -- exactly the case #100 exists to make visible.
+    editor.document.setText('y = 2\n');
+    await (evaluateFile as () => Promise<void>)();
+    const last = fake.statusBarMessages.at(-1);
+    assert.match(last ?? '', /earlier session/);
+    assert.match(last ?? '', /\(x\)/);
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('a default, resetting load never mentions residue (#100)', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor('x = 1\nx\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateFile = fake.commands.registered.get('evalens.evaluateFile');
+    await (evaluateFile as () => Promise<void>)();
+    editor.document.setText('y = 2\n');
+    await (evaluateFile as () => Promise<void>)();
+    assert.ok(
+      !fake.statusBarMessages.some((m) => m.includes('earlier session')),
+      'the default resets first, so there is nothing left over to report');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+// -- #102: a load flashes each statement as a sweep, not once at the end ----
+
+test('a whole-file load flashes each statement as its outcome lands (#102)',
+  async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor('1\n2\n3\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateFile = fake.commands.registered.get('evalens.evaluateFile');
+    await (evaluateFile as () => Promise<void>)();
+
+    // `Flash` reuses one decoration type per colour, identified by the
+    // theme colour id rather than by import: `render/decorations.ts` pulls
+    // in `vscode` at the top of the module, which this test file cannot
+    // require directly -- only the compiled extension, through the fake.
+    const flashedLines = editor.decorationCalls
+      .filter((call) => {
+        const options = call.type.options as {
+          readonly backgroundColor?: { readonly id?: string };
+        };
+        return options.backgroundColor?.id === 'evalens.flashRegionBackground';
+      })
+      .filter((call) => call.options.length > 0)
+      .map((call) => call.options[0]!.range!.start.line);
+
+    // One flash per statement, landing in file order, rather than a single
+    // flash once the whole load is over -- the whole point of building this
+    // as a sweep rather than a single "the load finished" emphasis.
+    assert.deepEqual(flashedLines, [0, 1, 2]);
+  } finally {
+    extension.deactivate();
+  }
+});
+
+// -- #88: bulk-work summaries reach a screen reader too ----------------------
+
+test('a whole-file load is announced, not only shown in the status bar ' +
+  '(#88)', async () => {
+  const fake = createFakeVscode();
+  fake.config.set('evalens', 'announceResults', 'always');
+  const editor = createEditor('1 + 1\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateFile = fake.commands.registered.get('evalens.evaluateFile');
+    await (evaluateFile as () => Promise<void>)();
+
+    const expected = 'Evalens: loaded 1 statement';
+    assert.equal(fake.statusBarMessages.at(-1), expected,
+      'setup: the sighted status-bar summary is unchanged');
+    assert.ok(
+      fake.messages.information.some((m) => m.message === expected),
+      'the load summary never reached showInformationMessage, so a screen ' +
+      'reader hears nothing when a file loads');
+    const item = fake.statusBarItems.at(-1);
+    assert.equal(item?.accessibilityInformation?.label, expected,
+      'the held status-bar item does not carry the load summary as its ' +
+      'accessibility label');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('"nothing to evaluate here" is announced, not only shown (#88)',
+  async () => {
+  const fake = createFakeVscode();
+  fake.config.set('evalens', 'announceResults', 'always');
+  const editor = createEditor('\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateAtCursor =
+      fake.commands.registered.get('evalens.evaluateAtCursor');
+    await (evaluateAtCursor as () => Promise<void>)();
+
+    const expected = 'Evalens: nothing to evaluate here';
+    assert.equal(fake.statusBarMessages.at(-1), expected);
+    assert.ok(
+      fake.messages.information.some((m) => m.message === expected),
+      'a blank line under the cursor is silent to a screen reader, ' +
+      'indistinguishable from a dead keybinding');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('a load summary is not announced when announceResults is never (#88)',
+  async () => {
+  const fake = createFakeVscode();
+  fake.config.set('evalens', 'announceResults', 'never');
+  const editor = createEditor('1 + 1\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateFile = fake.commands.registered.get('evalens.evaluateFile');
+    await (evaluateFile as () => Promise<void>)();
+
+    assert.equal(fake.messages.information.length, 0,
+      'the setting says never, so nothing should reach a notification');
+  } finally {
+    extension.deactivate();
+  }
+});
+
 // -- an edit invalidates what it touched, and nothing else -------------------
 
 test('a document edit clears only the statement it touched', async () => {

@@ -51,6 +51,32 @@ export function advanceSkipsComments(): boolean {
     .get<boolean>('advanceSkipsComments', true);
 }
 
+/**
+ * Whether **Evaluate File** clears the namespace before it runs the whole
+ * file.
+ *
+ * Read per request, like every setting here: flipping it must take effect on
+ * the next load rather than waiting for a restart, which would itself carry
+ * the namespace away. Default `true` -- see
+ * `docs/development/namespace-reset.md` and the superseding decision
+ * recorded on #99 for why: a namespace holding a binding the file on screen
+ * no longer makes is the notebook trap this project exists to argue
+ * against, and #56 found the residue crosses file boundaries, not only
+ * reloads of one file.
+ *
+ * Governs a whole-file run only. `evaluateFile` never resets on a selection
+ * -- resetting and then running three lines would leave everything above
+ * them unbound, which is worse than doing nothing. `evaluateAtCursor` and
+ * `evaluateAndAdvance` do not read this at all. `Run File as Script` always
+ * resets, whatever this says: see `evaluateFile` in `evaluate.ts` for why
+ * that is not governed by this setting.
+ */
+export function resetOnLoad(): boolean {
+  return vscode.workspace
+    .getConfiguration('evalens')
+    .get<boolean>('resetOnLoad', true);
+}
+
 /** The column inline results line up on; 0 follows the code instead. */
 export function resultColumn(): number {
   return vscode.workspace
