@@ -172,7 +172,7 @@ test('a loop keeps its sequence, and a later read of the target is news', () => 
       { display: 'p', value: '4', loop },
       reads('print(p)', ['p', '4'])
     ),
-    ['p: 1, 2, 3, 4', 'p: 4']);
+    ['p ×4: 1, 2, 3, 4', 'p: 4']);
 });
 
 test('what a loop body bound is the statement\'s own, not a repeat', () => {
@@ -189,7 +189,7 @@ test('what a loop body bound is the statement\'s own, not a repeat', () => {
       { display: 'v', value: '3', loop, bindings: [binding] },
       reads('print(u)', ['u', '12'])
     ),
-    ['v: 1, 2, 3   u: 4, 8, 12', 'u: 12']);
+    ['v ×3: 1, 2, 3   u ×3: 4, 8, 12', 'u: 12']);
 });
 
 test('distance up the file does not weaken the rule', () => {

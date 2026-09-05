@@ -25,7 +25,7 @@ export const GAP = '   ';
  *
  * A word rather than a glyph, and this word rather than `stdout`. The
  * annotation already reads `<label>: <value>` -- `x: [1, 2, 3]` for a binding,
- * `v: 1, 2, 3` for a loop target -- so output is another label in the same
+ * `v ×3: 1, 2, 3` for a loop target -- so output is another label in the same
  * grammar and there is nothing new to learn. `printed` is what a first-year
  * student literally did; `<stdout>` is jargon they have not met, and for
  * beginner code the two mean the same thing anyway.
@@ -280,6 +280,16 @@ export function outputPieces(printed?: Printed): string[] {
 /**
  * A bare or dotted identifier -- something that now exists in the namespace,
  * as opposed to an expression that is already on screen.
+ *
+ * #81: this used to be the *only* answer to "is `display` a binding", tested
+ * against the display text itself, and it is wrong for exactly the targets
+ * that do not read as a name -- `led['a']` for `led['a'] = 1`, which is no
+ * less a binding than `x` is for `x = 1` and unparses with brackets rather
+ * than letters. The resolver knows the true answer from the statement's own
+ * shape (`Form.is_binding` in `resolver.py`) and the kernel now sends it, so
+ * `paintedSlots` takes it as `isBinding` and asks this regex only when a
+ * caller has not reached it yet -- see `paintedSlots` for exactly where that
+ * fallback still applies and why it is not simply gone.
  */
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/;
 
@@ -421,6 +431,32 @@ function grouped(count: number): string {
 }
 
 /**
+ * What says "this is a history of N moments," not a value that happens to
+ * hold several.
+ *
+ * #36: beside `x = 16`, `p: 16` and, once a loop's sequence is rendered,
+ * `p: 0, 1, 4, 9, 16` are still the same *shape* -- a label and a value --
+ * and a comma-joined list reads as a tuple or a list, not as a trace of five
+ * separate moments. The count is the cue, and it has to survive whatever the
+ * font substitutes for it: measured in Menlo, SF Mono, Monaco and Courier
+ * New the way `PRINTED_LABEL` above was, `↻`/`↺` exist only in Menlo, and
+ * `⟳`/`⭮`/`⥁` exist in none of the four -- so the pretty loop arrows are all
+ * disqualified except by the same default-only accident. `×` and `…`
+ * measured clean in all four, and Python already uses `×` for exactly this
+ * meaning outside code (`5×`, "five of these"), so the count is spelled
+ * `p ×5: 0, 1, 4, 9, 16` -- two characters that exist wherever this renders,
+ * reading correctly whether or not `sequenceText` had to elide anything.
+ *
+ * `evalens.loopGlyph` is meant to let this be overridden, for anyone whose
+ * font does carry `↻`. Wiring a setting through touches `config.ts` and
+ * `decorations.ts`, which belong to #99 and #23 respectively -- what is here
+ * is the half `format.ts` owns: `Rendered.loopGlyph` already carries a
+ * caller's choice down to this constant's only use, so the setting is
+ * additive from here rather than a rework.
+ */
+export const LOOP_GLYPH = '×';
+
+/**
  * A loop's iterations on one line: `1, 2, 3, … (+9,994 more) … 10000`.
  *
  * The elision is what makes this safe to paint at all. Ten thousand values
@@ -450,16 +486,29 @@ export function sequenceText(loop: LoopTrace): string {
 }
 
 /**
- * One name the loop's body bound, and the sequence it took: `u: 4, 8, 12`.
+ * One name the loop's body bound, and the sequence it took:
+ * `u ×3: 4, 8, 12`.
  *
  * Rendered by exactly the same rule as the target's sequence, and separately
  * from it. The two are not columns of one table -- an iteration that hit
- * `continue` computed no result, so `v: 1, 2, 3   u: 4, 12` is a correct
- * annotation of a filter loop rather than a dropped value. Anything that
- * zipped them, or padded the shorter one, would invent an observation.
+ * `continue` computed no result, so `v ×3: 1, 2, 3   u ×2: 4, 12` is a
+ * correct annotation of a filter loop rather than a dropped value: the two
+ * counts differing is itself the fact that a filter ran. Anything that zipped
+ * them, or padded the shorter one, would invent an observation.
  */
 export function bindingText(binding: BindingTrace): string {
-  return `${binding.name}: ${sequenceText(binding)}`;
+  return `${binding.name}${iterationLabel(binding.count, LOOP_GLYPH)}: `
+    + sequenceText(binding);
+}
+
+/**
+ * `" ×5"`, the count `slotSegments` and `bindingText` fold into a label --
+ * or nothing, for a value that was only ever read once and so carries no
+ * history to mark. `grouped` so a five-figure loop reads the way every other
+ * large count on this line already does.
+ */
+function iterationLabel(count: number, glyph: string): string {
+  return count > 0 ? ` ${glyph}${grouped(count)}` : '';
 }
 
 /**
@@ -483,6 +532,14 @@ export interface Slot {
    * further up the file, so it is never suppressed as a repeat.
    */
   readonly own: boolean;
+  /**
+   * How many iterations this value's history covers, when it is one -- the
+   * loop target's own count, or one of `bindings`'s. `sequenceText` is what
+   * both of those are built from, and `undefined` for everything else this
+   * paints: a name merely read, or a statement's own single value, was
+   * observed once and carries nothing to count (#36).
+   */
+  readonly iterations?: number;
 }
 
 /**
@@ -498,7 +555,10 @@ export interface Slot {
  *
  * **A binding leads; a result follows.** `lst: [1, 2, 3]` is what the line
  * did, so it goes first and the names it read follow it. An expression's
- * result is what those reads produced, so it goes last.
+ * result is what those reads produced, so it goes last. Which one a
+ * statement is comes from `isBinding` (#81) wherever a caller has it --
+ * `led['a'] = 1` is exactly as much a binding as `x = 1` is, and unparsing
+ * to `led['a']` rather than a bare name is not evidence otherwise.
  *
  * **`=>` survives only for a genuine expression.** `sum([10, 20])` stays
  * `=> 30`; labelling it `sum([10, 20]): 30` would repeat the line back at the
@@ -511,16 +571,20 @@ export interface Slot {
  * on its own really did answer `None`. The suppressed value is not lost -- the
  * hover still carries it, the third use of the same shelf.
  *
- * A loop displaces `value` with its whole sequence: `p: 1, 2, 3, 4` rather
+ * A loop displaces `value` with its whole sequence: `p ×4: 1, 2, 3, 4` rather
  * than `p: 4`. `value` is still the last iteration, so a caller that ignores
- * the trace shows something true rather than nothing.
+ * the trace shows something true rather than nothing. The `×4` is the same
+ * decision said in glyphs rather than commas -- see `LOOP_GLYPH` (#36): a
+ * history and a value that happens to be a list are the same *shape* of
+ * annotation and need a cue that tells them apart before either is read.
  *
  * **What the loop's body bound goes between the two**, which is where the
  * reader was already finding it -- `for v in x:` with `u = 4 * v` inside
- * annotates `v: 1, 2, 3   u: 4, 8, 12   x: [1, 2, 3]`. The order follows the
- * same rule the rest of the line does: what the statement did, then what it
- * read. The difference is that `u` used to be one value from the namespace
- * sitting beside a history, and is now the history it actually took.
+ * annotates `v ×3: 1, 2, 3   u ×3: 4, 8, 12   x: [1, 2, 3]`. The order
+ * follows the same rule the rest of the line does: what the statement did,
+ * then what it read. The difference is that `u` used to be one value from
+ * the namespace sitting beside a history, and is now the history it actually
+ * took.
  *
  * **What it printed comes last, and never in place of anything.**
  * `x = compute()` where `compute` prints wants `x: 42` *and* the output: they
@@ -533,15 +597,40 @@ export interface Slot {
  * is one hover away. That decision has to be taken here, or the repeat rule
  * and the renderer would disagree about whether the line said `None`.
  */
+
+/**
+ * Whether `display` names a place the statement bound, so `paintedSlots`
+ * knows to lead with it rather than fall back to `=>` (#81).
+ *
+ * `undefined` here is not "no", it is "not asked yet" -- the wire's own
+ * `is_binding` is present only when true (`Kernel._run` in
+ * `evalens_kernel.py`), and a caller still on the identifier-shaped guess
+ * this replaces has no opinion to offer at all, rather than an opinion of
+ * `false`. `paintedSlots` therefore asks the regex only in that gap: once
+ * every caller threads the flag through, `isBinding` is always `true` or
+ * `false` and `IDENTIFIER` has nothing left to do. Until then, removing the
+ * regex outright would relabel every `led['a'] = 1` in the shipped extension
+ * as `led['a']: 1` and, the same day, every ordinary `x = 1` as `=> 1` for
+ * any caller that has not been updated to pass the flag -- trading a narrow,
+ * known bug for a total one.
+ */
+function isBoundTarget(
+  display: string | null | undefined, isBinding: boolean | undefined
+): display is string {
+  return display !== undefined && display !== null
+    && (isBinding ?? IDENTIFIER.test(display));
+}
+
 export function paintedSlots(
   value: string | null, display?: string | null, loop?: LoopTrace | null,
   names?: readonly NamedValue[], bindings?: readonly BindingTrace[],
-  printed?: Printed
+  printed?: Printed, isBinding?: boolean
 ): readonly Slot[] {
   // A body binding is part of what the statement did, so it counts as the
   // statement's own however many iterations it took.
   const bound: Slot[] = (bindings ?? []).map((each) => ({
     name: each.name, value: sequenceText(each), own: true,
+    ...(each.count > 0 ? { iterations: each.count } : {}),
   }));
   const pairs: Slot[] = (names ?? []).map((each) => ({
     name: each.name, value: collapseLines(each.value), own: false,
@@ -549,10 +638,7 @@ export function paintedSlots(
   const produced = loop
     ? sequenceText(loop)
     : value === null ? null : collapseLines(value);
-  const target = display !== undefined && display !== null
-    && IDENTIFIER.test(display)
-    ? display
-    : null;
+  const target = isBoundTarget(display, isBinding) ? display : null;
   // A loop's sequence is what the statement did, whatever its target unparses
   // to, so it leads even where `(key, value)` is too much of an expression to
   // label with.
@@ -565,7 +651,8 @@ export function paintedSlots(
           && (pairs.length > 0 || hasOutput(printed)))) {
     return [...bound, ...pairs];
   }
-  const slot: Slot = { name: target, value: produced, own: true };
+  const slot: Slot = { name: target, value: produced, own: true,
+    ...(loop && loop.count > 0 ? { iterations: loop.count } : {}) };
   return leads ? [slot, ...bound, ...pairs] : [...bound, ...pairs, slot];
 }
 
@@ -582,17 +669,27 @@ export function paintedSlots(
  * Only what the statement itself produced or bound can lose its label. A name
  * the line merely *read* keeps it, because several of those sit side by side
  * and the label is the only thing telling the reader which is which.
+ *
+ * **A slot with `iterations` folds the count into the same label** (#36):
+ * `p ×5: 0, 1, 4, 9, 16` rather than `p: 0, 1, 4, 9, 16`, so the shape of a
+ * loop's history reads differently from a single value's before either is
+ * read. It goes wherever the label goes, and disappears with it: a value that
+ * already names itself has no chrome left to carry the count either, which
+ * is right -- nothing here has ever recorded a `def` or `class` running in a
+ * loop's target.
  */
-function slotSegments(slot: Slot): readonly Segment[] {
+function slotSegments(slot: Slot, glyph: string): readonly Segment[] {
+  const count = slot.iterations === undefined
+    ? '' : iterationLabel(slot.iterations, glyph);
   if (slot.name === null) {
-    return [asLabel(`${SEPARATOR} `), asValue(slot.value)];
+    return [asLabel(`${SEPARATOR}${count} `), asValue(slot.value)];
   }
   // A dropped label leaves the value alone on the line, which is exactly
   // right: `def greet(name)` is what the statement produced, and there is no
   // longer any chrome in front of it to colour.
   return slot.own && namesItself(slot.name, slot.value)
     ? [asValue(slot.value)]
-    : [asLabel(`${slot.name}: `), asValue(slot.value)];
+    : [asLabel(`${slot.name}${count}: `), asValue(slot.value)];
 }
 
 /**
@@ -615,6 +712,14 @@ export interface Rendered {
   readonly value: string | null;
   /** The expression the value came from, for labelling. */
   readonly display?: string | null;
+  /**
+   * Whether `display` names a place this statement bound, from the wire's
+   * own `is_binding` -- present only when true, so `undefined` here means
+   * "not sent" rather than "no" (#81). `undefined` falls back to guessing
+   * from `display`'s own text, which is the whole defect this exists to
+   * retire: see `isBoundTarget`.
+   */
+  readonly isBinding?: boolean;
   /** Every value a loop's target held; displaces `value` when present. */
   readonly loop?: LoopTrace | null;
   /** What the names on the line held when it ran. */
@@ -636,6 +741,89 @@ export interface Rendered {
     readonly truncated_at: number;
     readonly message: string;
   };
+  /**
+   * The glyph a loop's iteration count is shown with -- `LOOP_GLYPH` (`×`)
+   * when absent. Exists so `evalens.loopGlyph` (#36) has somewhere to land:
+   * this module reads the choice, it does not read the setting, the same
+   * split `printed`'s `label` already makes for `evalens.printedLabel`.
+   */
+  readonly loopGlyph?: string;
+  /**
+   * How many graphemes a single value is shown in before `truncateValue`
+   * cuts it -- `DEFAULT_MAX_VALUE_LENGTH` when absent. Exists so
+   * `evalens.maxValueLength` (#12) has somewhere to land, on the same terms
+   * as `loopGlyph` above: this module reads the width, a caller that knows
+   * the editor's is free to pass a narrower one down.
+   */
+  readonly maxValueLength?: number;
+}
+
+/**
+ * The kernel's own notice that a `repr()` was already cut to fit the wire --
+ * `_capped` in `evalens_kernel.py`, reached once a value's `repr()` outgrows
+ * `WIRE_REPR_LIMIT`. Detected so `truncateValue`'s own, shorter cut never
+ * lands inside it: chopping "… <truncated from 50000 chars>" in half would
+ * print a broken sentence carrying a count that belongs to neither cut,
+ * which is exactly the defect #12 was filed to avoid, not merely to survive.
+ */
+const WIRE_TRUNCATION = /… <truncated from \d+ chars>$/;
+
+/**
+ * How many characters a value is shown in on the line before it is cut,
+ * absent a narrower width from `Rendered.maxValueLength` or, eventually,
+ * `evalens.maxValueLength` (#12).
+ *
+ * Chosen by running `bin/audit-corpus.js --listings` over a real first-year
+ * course (`python-walkthrough`) and looking at what actually reaches this
+ * width, rather than picking a round number: every value a reader would
+ * want in full -- a six-tuple `deck` (102 characters), a grouped
+ * `defaultdict` (103), a `namedtuple` signature (82) -- tops out under 105.
+ * What crosses 120 in that corpus is a different kind of thing entirely: a
+ * `dataclass` signature nobody asked for (171), and every bare `import`'s
+ * absolute interpreter path (137-158). 120 sits in the gap between those two
+ * clusters, so it catches the second without touching the first.
+ */
+export const DEFAULT_MAX_VALUE_LENGTH = 120;
+
+/**
+ * `text`, cut to `limit` graphemes with an explicit marker, or `text`
+ * itself when it already fits.
+ *
+ * Grapheme clusters, not UTF-16 code units or code points (#12): a `repr()`
+ * can legitimately contain an emoji, a flag, or a letter with a combining
+ * accent, and a cut through the middle of one would produce a different,
+ * broken character rather than a shorter version of the same string.
+ *
+ * A value the kernel already truncated at the wire is cut before its own
+ * notice, never through it -- see `WIRE_TRUNCATION`. If what remains still
+ * fits `limit`, the kernel's notice rides along exactly as it arrived; if it
+ * does not, this function's own marker replaces it rather than standing
+ * beside it, because two counts describing two different cuts on one value
+ * would read as one count, and a wrong one.
+ *
+ * The marker never claims the number the value's own author would recognise
+ * -- only how many graphemes this cut removed from what it was given, which
+ * stays true whatever else already happened to the string before it arrived.
+ */
+export function truncateValue(text: string, limit: number): string {
+  const body = text.replace(WIRE_TRUNCATION, '');
+  const graphemes = [...new Intl.Segmenter().segment(body)]
+    .map((each) => each.segment);
+  if (graphemes.length <= limit) {
+    return text;
+  }
+  const shown = graphemes.slice(0, limit).join('');
+  const removed = graphemes.length - limit;
+  return `${shown}… (+${grouped(removed)} more character${removed === 1 ? '' : 's'})`;
+}
+
+/** One piece with every `value` segment cut to `limit`; chrome untouched. */
+function truncatedPiece(
+  piece: readonly Segment[], limit: number
+): readonly Segment[] {
+  return piece.map((segment) => segment.role === 'value'
+    ? { ...segment, text: truncateValue(segment.text, limit) }
+    : segment);
 }
 
 /**
@@ -666,13 +854,26 @@ export interface Rendered {
  * than two computations that can drift apart.
  */
 function paintedPieces(rendered: Rendered): readonly (readonly Segment[])[] {
-  const { value, display, loop, names, bindings, printed } = rendered;
+  const { value, display, loop, names, bindings, printed, isBinding } = rendered;
   const more = rendered.more ?? 0;
   const partialFrom = rendered.partialFrom;
-  const slots = paintedSlots(value, display, loop, names, bindings, printed);
-  const painted: (readonly Segment[])[] = slots.map(slotSegments);
-  painted.push(
-    ...streamsOf(printed).map(([label, text]) => streamPiece(label, text)));
+  const glyph = rendered.loopGlyph ?? LOOP_GLYPH;
+  const limit = rendered.maxValueLength ?? DEFAULT_MAX_VALUE_LENGTH;
+  const slots = paintedSlots(
+    value, display, loop, names, bindings, printed, isBinding);
+  // Cut here, once every piece has its final shape, rather than inside
+  // `slotSegments` or `streamPiece`: those are shared with `announce.ts` (via
+  // `paintedSlots` and `outputPieces`), which already caps what it says on
+  // its own, more generous terms (`SPOKEN_LIMIT`) -- baking a column width
+  // into a shared function would quietly tighten speech to match the line,
+  // which is exactly the drift the split between the two channels exists to
+  // prevent. Nothing here reaches `namesItself` either: that check ran
+  // inside `slotSegments` against the whole value, before this shortens it,
+  // so a dropped label stays dropped on the same evidence it always was.
+  const painted: (readonly Segment[])[] = [
+    ...slots.map((slot) => slotSegments(slot, glyph)),
+    ...streamsOf(printed).map(([label, text]) => streamPiece(label, text)),
+  ].map((piece) => truncatedPiece(piece, limit));
   // `more` is only ever positive because a cap left something off this exact
   // line -- see `Rendered.more` and `capNames` in `repeats.ts` -- so it never
   // needs a surviving name slot to justify it the way an earlier version of
@@ -749,7 +950,13 @@ export function resultText(rendered: Rendered): string {
   return joinSegments(resultSegments(rendered));
 }
 
-function iterations(count: number): string {
+/**
+ * `"3 iterations"`, or `"1 iteration"`. Exported for `announce.ts`: the
+ * spoken form needs the same words the hover already uses for the count a
+ * line's `×N` abbreviates, on the same "cannot drift" terms as every other
+ * function this module shares with that one.
+ */
+export function iterations(count: number): string {
   return `${count} iteration${count === 1 ? '' : 's'}`;
 }
 

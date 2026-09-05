@@ -59,7 +59,7 @@
  */
 
 import { BindingTrace, LoopTrace, NamedValue } from '../kernel/protocol';
-import { Printed, outputPieces, paintedSlots } from './format';
+import { Printed, iterations, outputPieces, paintedSlots } from './format';
 import { markerFor } from './registry';
 
 /**
@@ -73,6 +73,14 @@ import { markerFor } from './registry';
 export interface Announceable {
   readonly value?: string | null;
   readonly display?: string | null;
+  /**
+   * Whether `display` names a place this statement bound (#81), on the same
+   * "present only when true" terms as the wire's own `is_binding` -- see
+   * `format.Rendered.isBinding`. Read by `paintedSlots`, the shared half, so
+   * `led['a'] = 1` is spoken as a binding on exactly the evidence the line is
+   * painted from.
+   */
+  readonly isBinding?: boolean;
   readonly loop?: LoopTrace;
   readonly bindings?: readonly BindingTrace[];
   readonly names?: readonly NamedValue[];
@@ -199,6 +207,24 @@ export function capSpoken(text: string, limit = SPOKEN_LIMIT): string {
 }
 
 /**
+ * One slot's value, with its iteration count read out where the line paints
+ * one as `×N` (#36).
+ *
+ * `p ×3: 1, 2, 3` and `p: 1, 2, 3` are visually two different shapes; spoken,
+ * both would say "p is 1, 2, 3" unless the count is added back in, which
+ * would erase in speech the exact distinction the glyph exists to draw on
+ * screen. Said after the value rather than before it, the same order
+ * `hoverText` already uses for the same two facts.
+ */
+function spokenValue(
+  slot: { readonly value: string; readonly iterations?: number }
+): string {
+  return slot.iterations === undefined
+    ? slot.value
+    : `${slot.value}, ${iterations(slot.iterations)}`;
+}
+
+/**
  * One spoken clause per value the line paints.
  *
  * `paintedSlots` is the shared half: it decides which values appear and in
@@ -211,9 +237,12 @@ export function capSpoken(text: string, limit = SPOKEN_LIMIT): string {
 function spokenSlots(annotation: Announceable): string[] {
   const slots = paintedSlots(
     annotation.value ?? null, annotation.display, annotation.loop,
-    annotation.names, annotation.bindings, annotation.printed);
-  const said = slots.map(
-    (slot) => slot.name === null ? slot.value : `${slot.name} is ${slot.value}`);
+    annotation.names, annotation.bindings, annotation.printed,
+    annotation.isBinding);
+  const said = slots.map((slot) => {
+    const value = spokenValue(slot);
+    return slot.name === null ? value : `${slot.name} is ${value}`;
+  });
   said.push(...outputPieces(annotation.printed));
   // The same guard the painted footnote carries -- see `resultSegments` in
   // `format.ts`. `more` is only ever positive because a cap left something

@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 
 import { BindingTrace, LoopTrace, NamedValue } from '../kernel/protocol';
 import {
-  GAP, Rendered, SEPARATOR, alignmentGap, bindingText, collapseLines,
-  columnWidth, errorText, hasOutput, hoverText, joinSegments, opensDefinition,
-  outputPieces, partialNote, preserveSpacing, printedFrom, restatesLine,
-  resultSegments, resultText, sequenceText,
+  DEFAULT_MAX_VALUE_LENGTH, GAP, Rendered, SEPARATOR, alignmentGap,
+  bindingText, collapseLines, columnWidth, errorText, hasOutput, hoverText,
+  joinSegments, opensDefinition, outputPieces, partialNote, preserveSpacing,
+  printedFrom, restatesLine, resultSegments, resultText, sequenceText,
+  truncateValue,
 } from '../render/format';
 
 function trace(
@@ -113,6 +114,42 @@ test('an expression keeps the arrow instead of being echoed', () => {
     preserveSpacing("=> 'k'"));
 });
 
+test('a subscript target is labelled once the wire says it is a binding', () => {
+  // #81. `led['a'] = 1` is exactly as much a binding as `x = 1` is; the old
+  // regex called it an expression only because `led['a']` does not read as
+  // a bare name, which is a fact about the target's syntax and not about
+  // whether the statement bound anything.
+  assert.equal(
+    resultText({ value: '1', display: "led['a']", isBinding: true }),
+    preserveSpacing("led['a']: 1"));
+});
+
+test('an attribute target is labelled the same way', () => {
+  assert.equal(
+    resultText({ value: '5', display: 'o.attr', isBinding: true }),
+    preserveSpacing('o.attr: 5'));
+});
+
+test('without the flag, a subscript still falls back to the old guess', () => {
+  // The regex this replaces stays as a fallback for a caller that has not
+  // reached the wire flag yet (`isBinding` left `undefined`) -- see
+  // `isBoundTarget`. Documented here because it is the one case #81 is not
+  // yet fixed for: whoever wires `is_binding` into the object this is built
+  // from removes the gap this test pins down.
+  assert.equal(resultText({ value: '1', display: "led['a']" }),
+    preserveSpacing("=> 1"));
+});
+
+test('an explicit false is trusted over a name-shaped display', () => {
+  // The false positive the naive fix would have introduced: `x` alone on a
+  // line is a bare expression statement reading an existing value, not a
+  // binding, even though `x` reads exactly like one. `isBinding: false`
+  // (the resolver's actual answer for an `ast.Expr`) overrides the guess a
+  // bare identifier would otherwise pass.
+  assert.equal(resultText({ value: '5', display: 'x', isBinding: false }),
+    preserveSpacing('=> 5'));
+});
+
 test('no display at all falls back to the arrow', () => {
   assert.equal(resultText({ value: '42' }), preserveSpacing('=> 42'));
   assert.equal(resultText({ value: '42', display: null }),
@@ -163,7 +200,47 @@ test('a loop shows the sequence, not the value it stopped on', () => {
   // The point of the whole feature: `p: 4` is true and nearly useless.
   assert.equal(resultText({ value: '4', display: 'p',
     loop: trace(['1', '2', '3', '4'], null) }),
-    preserveSpacing('p: 1, 2, 3, 4'));
+    preserveSpacing('p ×4: 1, 2, 3, 4'));
+});
+
+test("a loop's count is said in a glyph that survives every font", () => {
+  // #36: `p: 16` and `x: 16` are the same shape, and a comma-joined sequence
+  // does not fix that on its own -- it still reads as *a* value rather than
+  // as a history. The count is the cue, and `×` is the one candidate
+  // that measured clean in Menlo, SF Mono, Monaco and Courier New alike.
+  assert.equal(resultText({ value: '16', display: 'p',
+    loop: trace(['0', '1', '4', '9', '16'], null) }),
+    preserveSpacing('p ×5: 0, 1, 4, 9, 16'));
+});
+
+test('a loop that ran once still says so', () => {
+  assert.equal(resultText({ value: '1', display: 'p', loop: trace(['1'], null) }),
+    preserveSpacing('p ×1: 1'));
+});
+
+test('the count is grouped the same way the elision already is', () => {
+  assert.equal(resultText({ value: '10000', display: 'p',
+    loop: trace(['1'], '10000', 10000) }),
+    preserveSpacing('p ×10,000: 1, … (+9,998 more) … 10000'));
+});
+
+test('a tuple loop target carries its count on the arrow, not on a name', () => {
+  // `(key, value)` has no identifier to attach the count to, so it goes where
+  // the label would have gone: right after `=>`.
+  assert.equal(
+    resultText({ value: "('b', 2)", display: '(key, value)',
+      loop: trace(["('a', 1)", "('b', 2)"], null) }),
+    preserveSpacing("=> ×2 ('a', 1), ('b', 2)"));
+});
+
+test('the count is overridable, for a font that has its own arrow', () => {
+  // `evalens.loopGlyph` (#36) is meant to reach here; this is the half
+  // `format.ts` owns -- `Rendered.loopGlyph` threads a caller's choice down
+  // to the one place the glyph is used.
+  assert.equal(
+    resultText({ value: '4', display: 'p',
+      loop: trace(['1', '2', '3', '4'], null), loopGlyph: '↻' }),
+    preserveSpacing('p ↻4: 1, 2, 3, 4'));
 });
 
 test('a long loop is elided with a count of what is not shown', () => {
@@ -300,17 +377,18 @@ test("a loop's sequence leads and the names it read follow", () => {
     resultText({ value: '16', display: 'p',
       loop: trace(['1', '4', '9', '16'], null),
       names: pairs(['squares', '[1, 4, 9, 16]']) }),
-    preserveSpacing('p: 1, 4, 9, 16   squares: [1, 4, 9, 16]'));
+    preserveSpacing('p ×4: 1, 4, 9, 16   squares: [1, 4, 9, 16]'));
 });
 
 test('a tuple loop target still leads with its sequence', () => {
   // `(key, value)` is too much of an expression to label with, and the
-  // sequence is still what the statement did.
+  // sequence is still what the statement did. The count lands on the arrow,
+  // for the same reason a name would have carried it.
   assert.equal(
     resultText({ value: "('b', 2)", display: '(key, value)',
       loop: trace(["('a', 1)", "('b', 2)"], null),
       names: pairs(['shelf', "{'a': 1, 'b': 2}"]) }),
-    preserveSpacing("=> ('a', 1), ('b', 2)   shelf: {'a': 1, 'b': 2}"));
+    preserveSpacing("=> ×2 ('a', 1), ('b', 2)   shelf: {'a': 1, 'b': 2}"));
 });
 
 test('what the loop computed is shown as a sequence, not as where it stopped', () => {
@@ -321,35 +399,37 @@ test('what the loop computed is shown as a sequence, not as where it stopped', (
     resultText({ value: '3', display: 'v', loop: trace(['1', '2', '3'], null),
       names: pairs(['x', '[1, 2, 3]']),
       bindings: [bound('u', ['4', '8', '12'])] }),
-    preserveSpacing('v: 1, 2, 3   u: 4, 8, 12   x: [1, 2, 3]'));
+    preserveSpacing('v ×3: 1, 2, 3   u ×3: 4, 8, 12   x: [1, 2, 3]'));
 });
 
 test('a body binding shorter than the loop still renders', () => {
   // A filter loop: three iterations, two results, because the iteration that
   // hit `continue` computed nothing. Anything that zipped or padded the two
-  // sequences would invent an observation here.
+  // sequences would invent an observation here. The counts differing --
+  // `×3` beside `×2` -- is itself the fact that a filter ran.
   assert.equal(
     resultText({ value: '3', display: 'v', loop: trace(['1', '2', '3'], null),
       names: [], bindings: [bound('u', ['4', '12'], 2)] }),
-    preserveSpacing('v: 1, 2, 3   u: 4, 12'));
+    preserveSpacing('v ×3: 1, 2, 3   u ×2: 4, 12'));
 });
 
 test('an unchanging binding is one reading beside a moving one', () => {
   // `c: 7, 7, 7, 7` is four observations of one fact, and it crowds out the
-  // sequence next to it that is actually moving.
+  // sequence next to it that is actually moving. `c ×4: 7` still says it ran
+  // four times, which `c: 7` alone would not.
   assert.equal(
     resultText({ value: '4', display: 'v',
       loop: trace(['1', '2', '3', '4'], null), names: [],
       bindings: [bound('c', ['7'], 4, { constant: true }),
         bound('d', ['1', '4', '9', '16'])] }),
-    preserveSpacing('v: 1, 2, 3, 4   c: 7   d: 1, 4, 9, 16'));
+    preserveSpacing('v ×4: 1, 2, 3, 4   c ×4: 7   d ×4: 1, 4, 9, 16'));
 });
 
 test('a body binding is bounded exactly as the target is', () => {
   assert.equal(
     bindingText(bound('u', ['0', '2', '4', '6', '8'], 10000,
       { last: '19998' })),
-    'u: 0, 2, 4, 6, 8, … (+9,994 more) … 19998');
+    'u ×10,000: 0, 2, 4, 6, 8, … (+9,994 more) … 19998');
 });
 
 test('a line says when the cap left names off it', () => {
@@ -739,6 +819,101 @@ test('the hover explains what the line only hints at', () => {
     + '\nSyntaxError: unterminated string literal');
 });
 
+test('a value under the limit is left exactly as it is', () => {
+  assert.equal(truncateValue('[1, 2, 3]', 80), '[1, 2, 3]');
+  assert.equal(truncateValue('x'.repeat(80), 80), 'x'.repeat(80),
+    'exactly at the limit is not over it');
+});
+
+test('a long value is cut and says so, never left looking complete', () => {
+  // #12. A truncated list must not look like a short list, so the marker is
+  // never optional once the limit is crossed.
+  assert.equal(truncateValue('x'.repeat(90), 80),
+    `${'x'.repeat(80)}… (+10 more characters)`);
+});
+
+test('one character over says "character", not "characters"', () => {
+  assert.equal(truncateValue('x'.repeat(81), 80),
+    `${'x'.repeat(80)}… (+1 more character)`);
+});
+
+test('the removed count is grouped the same way every other count here is', () => {
+  assert.equal(truncateValue('x'.repeat(1200), 80),
+    `${'x'.repeat(80)}… (+1,120 more characters)`);
+});
+
+test('a cut lands on a grapheme boundary, not a code unit', () => {
+  // A flag is two UTF-16 surrogate pairs acting as one character; slicing by
+  // code unit would cut it in half and paint half a flag.
+  const flags = '🇸🇪'.repeat(50);
+  const cut = truncateValue(flags, 10);
+  assert.ok(cut.startsWith('🇸🇪'.repeat(10)), cut);
+  assert.equal([...new Intl.Segmenter().segment(cut.split('…')[0]!)].length, 10);
+});
+
+test('a value already cut by the kernel is not cut through its own notice', () => {
+  // `_capped` in evalens_kernel.py produces exactly this shape. A generous
+  // limit that comfortably covers the kernel's notice leaves it untouched.
+  const capped = `${'x'.repeat(8192)}… <truncated from 50000 chars>`;
+  assert.equal(truncateValue(capped, 8192 + 40), capped,
+    'the kernel already said enough; nothing here needed to say more');
+});
+
+test("a narrower limit replaces the kernel's notice rather than cutting into it", () => {
+  // Chopping "… <truncated from 50000 chars>" in half would print a broken
+  // sentence with a count belonging to neither cut -- the defect #12 flagged
+  // by name. This must never happen: the kernel's notice is either kept
+  // whole or dropped whole, never partially there.
+  const capped = `${'x'.repeat(8192)}… <truncated from 50000 chars>`;
+  const cut = truncateValue(capped, 80);
+  assert.equal(cut, `${'x'.repeat(80)}… (+8,112 more characters)`);
+  assert.doesNotMatch(cut, /truncated from/,
+    'no fragment of the kernel notice survives half-said');
+});
+
+/** Painted text with its non-breaking spaces read back as ordinary ones. */
+function plain(text: string): string {
+  return text.split(NBSP).join(' ');
+}
+
+test('the display limit is overridable, and defaults to a measured width', () => {
+  assert.equal(DEFAULT_MAX_VALUE_LENGTH, 120);
+  const long = '[' + Array.from({ length: 60 }, (_, i) => i).join(', ') + ']';
+  assert.ok(long.length > DEFAULT_MAX_VALUE_LENGTH, 'the fixture must be long enough to bite');
+  const shown = plain(resultText({ value: long, display: 'nums' }));
+  assert.ok(shown.includes('more character'), shown);
+
+  const untouched = resultText({ value: long, display: 'nums', maxValueLength: 500 });
+  assert.ok(!plain(untouched).includes('more character'), untouched);
+  assert.equal(untouched, preserveSpacing(`nums: ${long}`));
+});
+
+test('the full value is still on the hover once the line truncates it', () => {
+  // #12's other half. The line is bounded; the hover is where the whole of a
+  // long value still lives, up to the kernel's own wire cap.
+  const long = '[' + Array.from({ length: 60 }, (_, i) => i).join(', ') + ']';
+  assert.ok(
+    plain(resultText({ value: long, display: 'nums' })).includes('more character'));
+  assert.equal(hoverText({ value: long, display: 'nums' }), `nums = ${long}`,
+    'the hover is never cut, whatever the line had to do');
+});
+
+test('a loop sequence long enough to be a screenful is truncated the same way', () => {
+  // The line-width problem is the same whether the long value came from a
+  // single binding or from several short iterations added together.
+  const shown = plain(resultText({ value: '9', display: 'p',
+    loop: trace(Array.from({ length: 40 }, (_, i) => String(i)), null) }));
+  assert.ok(shown.includes('more character'), shown);
+});
+
+test('a truncated value never carries the label past its own count', () => {
+  // Truncation only ever shortens a `value` segment; the `×N` and the name
+  // it is attached to are chrome, and chrome is never cut.
+  const shown = resultText({ value: '9', display: 'p',
+    loop: trace(Array.from({ length: 40 }, (_, i) => String(i)), null) });
+  assert.ok(shown.startsWith(preserveSpacing('p ×40: ')), shown);
+});
+
 /** Segments as `role "text"`, with the non-breaking spaces read back. */
 function coloured(rendered: Rendered): string[] {
   return resultSegments(rendered).map(
@@ -911,7 +1086,7 @@ test('an elision stays inside the value it shortens', () => {
   assert.deepEqual(
     coloured({ value: '10000', display: 'p',
       loop: trace(['1'], '10000', 10000) }),
-    ['nameLabel "p: "', 'value "1, … (+9,998 more) … 10000"']);
+    ['nameLabel "p ×10,000: "', 'value "1, … (+9,998 more) … 10000"']);
 });
 
 test('the footnote and the caveat are remarks, not values', () => {
@@ -932,13 +1107,14 @@ test('the footnote and the caveat are remarks, not values', () => {
 test('a loop sequence is one value however many iterations it holds', () => {
   // The commas belong to the sequence, not to the annotation: they are how a
   // Python value of several parts is written, so colouring them as chrome
-  // would claim this extension put them there.
+  // would claim this extension put them there. The `×3` is chrome, though --
+  // it is this extension's own count, not part of the value that follows it.
   assert.deepEqual(
     coloured({ value: '3', display: 'v', loop: trace(['1', '2', '3'], null),
       bindings: [bound('u', ['4', '8', '12'])] }),
-    ['nameLabel "v: "', 'value "1, 2, 3"',
+    ['nameLabel "v ×3: "', 'value "1, 2, 3"',
       'nameLabel "   "',
-      'nameLabel "u: "', 'value "4, 8, 12"']);
+      'nameLabel "u ×3: "', 'value "4, 8, 12"']);
 });
 
 test('a line with nothing on it has no segments at all', () => {

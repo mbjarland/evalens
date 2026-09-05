@@ -33,6 +33,25 @@ test('a binding is spoken with its name and its value', () => {
   assert.equal(spokenText(value()), 'lst is [1, 2, 3]');
 });
 
+test('a value the painted line would truncate is still spoken in full', () => {
+  // #12 cuts a painted value at DEFAULT_MAX_VALUE_LENGTH (120 characters) --
+  // format.ts's own concern, applied only in the painter's private pipeline.
+  // Speech goes through the shared `paintedSlots` and has its own, more
+  // generous limit (SPOKEN_LIMIT, 300); it must not inherit the shorter one
+  // just because the two channels start from the same slots.
+  const long = `[${Array.from({ length: 50 }, (_, i) => i).join(', ')}]`;
+  assert.ok(long.length > 120 && long.length < SPOKEN_LIMIT, `${long.length}`);
+  assert.equal(spokenText({ value: long, display: 'nums' }), `nums is ${long}`);
+});
+
+test('a subscript binding is spoken with its name, once the wire says so', () => {
+  // #81, the spoken half. `paintedSlots` is the shared function this reads
+  // through, so the fix reaches speech on the same evidence as the line.
+  assert.equal(
+    spokenText({ value: '1', display: "led['a']", isBinding: true }),
+    "led['a'] is 1");
+});
+
 test('a bare expression is spoken as its value, without the arrow', () => {
   // `=>` is punctuation: skipped at the default verbosity, spelled out as
   // "equals greater than" above it, and never the word "result".
@@ -117,11 +136,23 @@ test('what a statement printed is spoken after its value', () => {
 });
 
 test('a loop is spoken as the sequence the line shows', () => {
+  // #36: painted, the same fact is `p ×3: 1, 2, 3` -- a listener needs the
+  // same "this is a history" cue a sighted reader gets from the glyph, or
+  // the two channels would tell two different stories about one line.
   const spoken = spokenText({
     value: '3', display: 'p',
     loop: { values: ['1', '2', '3'], last: null, count: 3 },
   })!;
-  assert.equal(spoken, 'p is 1, 2, 3');
+  assert.equal(spoken, 'p is 1, 2, 3, 3 iterations');
+});
+
+test("a loop body binding's count is spoken beside the target's", () => {
+  const spoken = spokenText({
+    value: '3', display: 'v',
+    loop: { values: ['1', '2', '3'], last: null, count: 3 },
+    bindings: [{ name: 'u', values: ['4', '12'], last: null, count: 2 }],
+  })!;
+  assert.equal(spoken, 'v is 1, 2, 3, 3 iterations. u is 4, 12, 2 iterations');
 });
 
 test('a statement with nothing to report says nothing', () => {
