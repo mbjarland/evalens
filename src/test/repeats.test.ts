@@ -35,8 +35,8 @@ function walk(...lines: readonly Annotated[]): (string | null)[] {
     const kept = above.keep(line);
     return kept === undefined
       ? null
-      : resultText(kept.value ?? null, kept.display, kept.loop, kept.names,
-        kept.bindings)
+      : resultText({ value: kept.value ?? null, display: kept.display,
+        loop: kept.loop, names: kept.names, bindings: kept.bindings })
         .replace(NBSP, ' ');
   });
 }

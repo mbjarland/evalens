@@ -219,10 +219,17 @@ export function hoverFor(
   bindings?: readonly BindingTrace[], printed?: Printed,
   partial?: PartialParse
 ): string {
-  return hoverText(display, repr ?? value, loop, names, bindings, printed,
-    partial === undefined
-      ? undefined
-      : { truncated_at: partial.truncated_at, message: partial.error.message });
+  return hoverText({
+    display, value: repr ?? value, loop, names, bindings, printed,
+    ...(partial === undefined
+      ? {}
+      : {
+          partial: {
+            truncated_at: partial.truncated_at,
+            message: partial.error.message,
+          },
+        }),
+  });
 }
 
 

@@ -195,8 +195,9 @@ async function paint(
       continue;
     }
     painted.push(
-      resultText(shown.value, shown.display, shown.loop, shown.names,
-        shown.bindings, shown.printed, shown.more)
+      resultText({ value: shown.value, display: shown.display, loop: shown.loop,
+        names: shown.names, bindings: shown.bindings, printed: shown.printed,
+        more: shown.more })
         .replace(/ /g, ' '));
   }
   return painted;
@@ -238,8 +239,9 @@ function paintOutcome(
   const kept = above.keep({ ...outcome, printed });
   return kept === undefined
     ? null
-    : resultText(kept.value, kept.display, kept.loop, kept.names,
-      kept.bindings, kept.printed, kept.more_names)
+    : resultText({ value: kept.value, display: kept.display,
+      loop: kept.loop, names: kept.names, bindings: kept.bindings,
+      printed: kept.printed, more: kept.more_names })
       .replace(/ /g, ' ');
 }
 
@@ -387,8 +389,8 @@ test('re-evaluating a def paints the same thing every time', async (t) => {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const shown = present(await evaluate(client, source, 0), 0);
     assert.equal(shown.kind, 'value');
-    painted.push(resultText((shown as { value: string }).value,
-      (shown as { display: string }).display));
+    painted.push(resultText({ value: (shown as { value: string }).value,
+      display: (shown as { display: string }).display }));
     hovers.push((shown as { hover: string }).hover);
   }
 
@@ -421,7 +423,7 @@ async function painted(client: KernelClient, source: string, line: number) {
   };
   const at = shown.anchor ?? shown.range.end.line;
   const code = source.split('\n')[at] ?? '';
-  const rendered = resultText(shown.value, shown.display);
+  const rendered = resultText({ value: shown.value, display: shown.display });
   return {
     code,
     text: rendered.replace(/\u00a0/g, ' '),
@@ -957,7 +959,8 @@ test('a loop annotates its whole sequence, through the real kernel', async (t) =
 
   assert.equal(shown.kind, 'value');
   assert.equal(
-    resultText(shown.value ?? '', shown.display, shown.loop).replace(/ /g, ' '),
+    resultText({ value: shown.value ?? '', display: shown.display,
+      loop: shown.loop }).replace(/ /g, ' '),
     'p: 1, 2, 3, 4');
 });
 
@@ -972,7 +975,8 @@ test('a ten thousand row loop arrives bounded, not whole', async (t) => {
   assert.equal(result.loop?.count, 10000);
   assert.equal(result.loop?.values.length, 5);
   assert.equal(
-    resultText(result.value ?? '', result.display, result.loop)
+    resultText({ value: result.value ?? '', display: result.display,
+      loop: result.loop })
       .replace(/ /g, ' '),
     'p: 0, 1, 2, 3, 4, … (+9,994 more) … 9999');
 });
@@ -1059,7 +1063,8 @@ test('a loop stopped by break annotates the value it broke on', async (t) => {
     client,
     'for p in [1, 2, 3, 4]:\n    if p == 3:\n        break\n', 0) as Evaluated;
   assert.equal(
-    resultText(result.value ?? '', result.display, result.loop)
+    resultText({ value: result.value ?? '', display: result.display,
+      loop: result.loop })
       .replace(/ /g, ' '),
     'p: 1, 2, 3');
 });
@@ -1470,8 +1475,8 @@ test('a partial answer says so on the line it paints', async (t) => {
   // Compared against `preserveSpacing`, because what reaches `contentText`
   // has non-breaking spaces in it -- VS Code eats the ordinary kind.
   assert.equal(
-    resultText(shown.value, shown.display, null, undefined, undefined,
-      undefined, 0, shown.partial?.truncated_at),
+    resultText({ value: shown.value, display: shown.display, loop: null,
+      more: 0, partialFrom: shown.partial?.truncated_at }),
     preserveSpacing(`total: 3${GAP}${partialNote(1)}`));
 });
 

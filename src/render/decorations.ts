@@ -338,10 +338,16 @@ export class Decorator implements vscode.Disposable {
         // A loop that ran zero times has a trace and no value, and still has
         // something to report. So does an `if` that bound a name: no value of
         // its own, and the name is the answer.
-        const text = resultText(
-          annotation.value ?? null, annotation.display, annotation.loop,
-          annotation.names, annotation.bindings, printed, annotation.more,
-          annotation.partialFrom);
+        const text = resultText({
+          value: annotation.value ?? null,
+          display: annotation.display,
+          loop: annotation.loop,
+          names: annotation.names,
+          bindings: annotation.bindings,
+          printed,
+          more: annotation.more,
+          partialFrom: annotation.partialFrom,
+        });
         // Rendered first, then compared with the line it would sit on: an
         // annotation that only restates its own line is not worth the width,
         // and the region highlight below already says that it ran. The

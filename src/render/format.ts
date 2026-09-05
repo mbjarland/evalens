@@ -458,6 +458,45 @@ function slotText(slot: Slot): string {
 }
 
 /**
+ * Everything an annotation is rendered from, named rather than counted.
+ *
+ * Named because the positional form had already produced a silent defect: the
+ * signature grew one parameter per feature, a rebase moved `partialFrom` from
+ * slot five to slot six when `bindings` landed between them, and five call
+ * sites went on passing a line number where a binding list belonged. They
+ * compiled -- both parameters are optional, and `undefined` is assignable to
+ * anything -- so nothing caught it but a reader. With an object, the same
+ * rebase produces a missing key rather than a plausible line.
+ *
+ * Shared with `hoverText` on purpose. The two render the same answer at two
+ * lengths, and one shape for both means a field cannot mean one thing on the
+ * line and another on the hover.
+ */
+export interface Rendered {
+  /** The `repr()` the statement produced, or null when it produced none. */
+  readonly value: string | null;
+  /** The expression the value came from, for labelling. */
+  readonly display?: string | null;
+  /** Every value a loop's target held; displaces `value` when present. */
+  readonly loop?: LoopTrace | null;
+  /** What the names on the line held when it ran. */
+  readonly names?: readonly NamedValue[];
+  /** Every value the loop's body bound, per name. */
+  readonly bindings?: readonly BindingTrace[];
+  /** What the statement wrote to stdout and stderr, when it wrote anything. */
+  readonly printed?: Printed;
+  /** How many further names the kernel's per-line cap left off the line. */
+  readonly more?: number;
+  /** The 0-based line the file stopped parsing at, if it did. */
+  readonly partialFrom?: number;
+  /** The break that reduced the context, spelled out for the hover. */
+  readonly partial?: {
+    readonly truncated_at: number;
+    readonly message: string;
+  };
+}
+
+/**
  * The painted annotation for a successful evaluation.
  *
  * What the statement printed follows every value on the line, and `more` --
@@ -467,17 +506,11 @@ function slotText(slot: Slot): string {
  * cannot otherwise tell whether the fifth was omitted, unreadable, or somehow
  * not a name. It is last of all, because it is a footnote about the line
  * rather than another thing on it.
- *
- * `printed` sits at the position `paintedSlots` gives it, so the two
- * signatures agree for as far as they overlap: six positional parameters that
- * mean different things in the two functions is how a line number ends up
- * where a binding was expected, compiling all the way.
  */
-export function resultText(
-  value: string | null, display?: string | null, loop?: LoopTrace | null,
-  names?: readonly NamedValue[], bindings?: readonly BindingTrace[],
-  printed?: Printed, more = 0, partialFrom?: number
-): string {
+export function resultText(rendered: Rendered): string {
+  const { value, display, loop, names, bindings, printed } = rendered;
+  const more = rendered.more ?? 0;
+  const partialFrom = rendered.partialFrom;
   const slots = paintedSlots(value, display, loop, names, bindings, printed);
   const painted = slots.map(slotText);
   painted.push(...outputSegments(printed));
@@ -538,12 +571,8 @@ function bindingNote(
  * -- is real, and is learned exactly once. After that it is noise on every
  * mutating call for the rest of a career, which is what the hover is for.
  */
-export function hoverText(
-  display: string | null | undefined, value: string | null,
-  loop?: LoopTrace | null, names?: readonly NamedValue[],
-  bindings?: readonly BindingTrace[], printed?: Printed,
-  partial?: { readonly truncated_at: number; readonly message: string }
-): string {
+export function hoverText(rendered: Rendered): string {
+  const { display, value, loop, names, bindings, printed, partial } = rendered;
   const lines: string[] = [];
   if (loop) {
     const sequence = sequenceText(loop);
