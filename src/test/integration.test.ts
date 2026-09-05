@@ -1635,21 +1635,44 @@ test('a selection still snaps outward inside a file that does not parse',
   });
 
 /**
- * A statement that starts a thread which prints once it has returned.
+ * A statement that starts a thread which writes once `gate` appears.
  *
- * `start()` returns as soon as the thread is bootstrapped, so the statement is
- * over -- and its response already written -- long before the sleep ends. What
- * the write meets is whatever the kernel leaves in `sys.stdout` between
+ * What the write meets is whatever the kernel leaves in `sys.stdout` between
  * evaluations, which for the life of this project was the pipe every response
- * travels on.
+ * travels on -- so it has to happen with nothing running, and has to be
+ * *known* to have happened then rather than merely be likely to. A sleep long
+ * enough to outlast the statement is a wager on the scheduler: it assumes the
+ * kernel gets from `start()` to writing the response inside the interval.
+ * Waiting for a file costs the same line and proves it, because the kernel
+ * puts the statement's capture buffer away before it answers -- so a gate
+ * created after that answer has been read cannot be seen by the thread until
+ * there is provably no statement to attribute the write to.
+ *
+ * The thread is a daemon because it now waits on something a failed test may
+ * never create, and a live non-daemon thread would keep the kernel running.
  */
-function lateWriter(write: string): string {
-  return 'import sys, threading, time\n'
+function lateWriter(write: string, gate: string): string {
+  const until = `while not os.path.exists(${JSON.stringify(gate)})`;
+  return 'import os, sys, threading, time\n'
     + 'def late():\n'
-    + '    time.sleep(0.3)\n'
+    + `    ${until}: time.sleep(0.005)\n`
     + `    ${write}\n`
-    + 'worker = threading.Thread(target=late)\n'
+    + 'worker = threading.Thread(target=late, daemon=True)\n'
     + 'worker.start()\n';
+}
+
+/** Start the thread, then let it write -- in that order, provably. */
+async function startLateWriter(
+  client: KernelClient, write: string
+): Promise<void> {
+  const gate = markerPath('go');
+  const source = lateWriter(write, gate);
+  for (let line = 0; line < source.split('\n').length - 1; line++) {
+    await evaluate(client, source, line);
+  }
+  // The response to `worker.start()` is in hand, so the statement is over and
+  // its buffer put away. Only now is the thread let go.
+  fs.writeFileSync(gate, '');
 }
 
 /** A client that collects the output frames, so a test can wait for one. */
@@ -1706,10 +1729,7 @@ test('a thread printing after its statement returned does not wedge the session'
     const { client, streamed, reported } = connectWatchingOutput();
     t.after(() => client.dispose());
 
-    const source = lateWriter("print('LATE THREAD PRINT')");
-    for (let line = 0; line < source.split('\n').length - 1; line++) {
-      await evaluate(client, source, line);
-    }
+    await startLateWriter(client, "print('LATE THREAD PRINT')");
     await waitForOutput(streamed, 'LATE THREAD PRINT');
 
     const answer = await withinFiveSeconds(
@@ -1730,10 +1750,7 @@ test('a thread writing without a newline does not splice onto the next answer',
     const { client, streamed, reported } = connectWatchingOutput();
     t.after(() => client.dispose());
 
-    const source = lateWriter("sys.stdout.write('PARTIAL FROM THREAD')");
-    for (let line = 0; line < source.split('\n').length - 1; line++) {
-      await evaluate(client, source, line);
-    }
+    await startLateWriter(client, "sys.stdout.write('PARTIAL FROM THREAD')");
     await waitForOutput(streamed, 'PARTIAL FROM THREAD');
 
     const answer = await withinFiveSeconds(
@@ -1754,10 +1771,7 @@ test('late output reaches the user, saying it belongs to no line', async (t) => 
   const { client, streamed } = connectWatchingOutput();
   t.after(() => client.dispose());
 
-  const source = lateWriter("print('LATE THREAD PRINT')");
-  for (let line = 0; line < source.split('\n').length - 1; line++) {
-    await evaluate(client, source, line);
-  }
+  await startLateWriter(client, "print('LATE THREAD PRINT')");
   await waitForOutput(streamed, 'LATE THREAD PRINT');
 
   const late = streamed.find((frame) => frame.text.includes('LATE THREAD PRINT'));
