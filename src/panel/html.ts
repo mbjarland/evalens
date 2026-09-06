@@ -20,8 +20,8 @@
 
 import { Announceable } from '../render/announce';
 import {
-  Printed, STDERR_LABEL, Segment, SegmentRole, collapseLines, isStreamGroup,
-  resultGroups,
+  Printed, STDERR_LABEL, Segment, SegmentRole, collapseLines, grouped,
+  isStreamGroup, resultGroups,
 } from '../render/format';
 import {
   Marker, markerFor, normalizeSource, staleReasonText,
@@ -307,6 +307,34 @@ export interface ValuesPanelData {
 }
 
 /**
+ * How the panel folds a long stream or a long value, and which rows the
+ * reader has already opened in full (#155) -- both decided by
+ * `panel/values.ts`, never here: this module only ever bakes whatever it
+ * is handed into the page, the same way it already does for `cursorLine`
+ * and `revealLine`. Omitted entirely by a caller with no opinion -- every
+ * existing caller that never mentions folding gets the setting's own
+ * default and nothing expanded, so no test that predates #155 had to
+ * change.
+ */
+export interface FoldState {
+  /** `evalens.valuesPanel.outputLines`'s current value -- the setting's
+   * own manifest default, `20`, when the caller has none. */
+  readonly outputLines?: number;
+  /**
+   * The rows (keyed by `ValuesRow.line`, the same key `revealLine` and the
+   * cursor highlight already use) the reader has expanded with `Show all`
+   * or a click on the block's own label. `panel/values.ts` is what keeps
+   * this across a rebuild and drops a line once the row it named is
+   * replaced or cleared; this module only ever reads it for the one
+   * render it is handed.
+   */
+  readonly expandedLines?: ReadonlySet<number>;
+}
+
+const DEFAULT_OUTPUT_LINES = 20;
+const NO_EXPANDED_LINES: ReadonlySet<number> = new Set();
+
+/**
  * Theme colours this view paints with, and their dark-theme fallback.
  *
  * Declared here rather than imported from `render/decorations.ts`: that
@@ -406,13 +434,109 @@ function chip(
   return `${bar}<span class="${classes.join(' ')}">${innerHtml}</span>`;
 }
 
-function segmentHtml(segment: Segment): string {
+/**
+ * `extra` adds a class and attributes to the span without a second render
+ * path -- used only by a foldable block's own label (#155), which needs to
+ * be a click target exactly where an ordinary segment does not.
+ */
+function segmentHtml(
+  segment: Segment, extra?: { readonly className: string; readonly attrs: string }
+): string {
   const role: SegmentRole = segment.role;
-  return `<span class="seg-${role}">${escapeHtml(segment.text)}</span>`;
+  const className = extra ? `seg-${role} ${extra.className}` : `seg-${role}`;
+  const attrs = extra ? ` ${extra.attrs}` : '';
+  return `<span class="${className}"${attrs}>${escapeHtml(segment.text)}</span>`;
 }
 
 function groupHtml(group: readonly Segment[]): string {
-  return group.map(segmentHtml).join('');
+  return group.map((segment) => segmentHtml(segment)).join('');
+}
+
+// -- folding a long block (#155) ---------------------------------------------
+//
+// A printed/stderr stream, or a value group long enough to need the same
+// treatment, folds to its first `outputLines` lines plus a footer -- never a
+// second, shorter copy of a longer one hidden in the DOM: the background
+// section of #155 is explicit that a hidden ten-thousand-line block would
+// still cost on every rebuild, so a folded block's HTML contains exactly the
+// lines it shows and nothing past them.
+//
+// Line count, never visual width. Whether a line wraps in the panel's own
+// column depends on a font and a container width this module has no way to
+// ask about without a browser, and asserting a count it cannot know is
+// exactly what design rule 1 rules out -- so the fold, and the exact count in
+// its footer, are always decided by splitting on `\n`, the one measure this
+// module can state truthfully with no DOM at all.
+
+/** `… 9,980 more lines · Show all · Open in editor`, or `Show less` alone
+ * once the row is already expanded -- literally that word and nothing
+ * beside it: the row is already showing everything, and `Open in editor`
+ * earns its place only where there is something left folded to open
+ * instead of scrolling to.
+ *
+ * All three actions -- `Show all`, `Show less` and (see `foldedValueHtml`)
+ * a click on the block's own label -- post the same `{ expand: line }`
+ * message; `panel/values.ts` is where the toggle actually happens, one flag
+ * flipped whichever of the three the reader clicked. `Open in editor` posts
+ * `{ open: line, stream: blockId }`, and `blockId` is resolved back to the
+ * exact text this module already rendered from by `fullTextFor`, below --
+ * nothing is evaluated and nothing is re-read from the kernel.
+ */
+function foldFooterHtml(
+  line: number, blockId: string, remaining: number | undefined
+): string {
+  const action = (label: string, kind: 'expand' | 'open'): string =>
+    `<span class="fold-action" data-fold-action="${kind}" `
+    + `data-fold-line="${line}" data-fold-id="${escapeHtml(blockId)}">${label}</span>`;
+  if (remaining === undefined) {
+    return `<div class="fold-footer">${action('Show less', 'expand')}</div>`;
+  }
+  const more = `… ${grouped(remaining)} more line${remaining === 1 ? '' : 's'}`;
+  return `<div class="fold-footer">${escapeHtml(more)} · `
+    + `${action('Show all', 'expand')} · ${action('Open in editor', 'open')}</div>`;
+}
+
+/**
+ * The VALUE half of one foldable block: `text`, whole when it fits
+ * `outputLines`, folded to its first `outputLines` lines with a footer when
+ * it does not and the row is not expanded, or whole again -- inside its own
+ * capped, scrolling container -- when the row is expanded. `foldable` tells
+ * the caller whether the block's own label should become a click target;
+ * a block that never needed folding gets exactly the markup it always did.
+ */
+function foldedValueHtml(
+  text: string, line: number, blockId: string, outputLines: number,
+  expanded: boolean
+): { readonly foldable: boolean; readonly html: string } {
+  const lines = text.split('\n');
+  if (lines.length <= outputLines) {
+    return {
+      foldable: false,
+      html: `<span class="seg-value">${escapeHtml(text)}</span>`,
+    };
+  }
+  if (!expanded) {
+    const shown = lines.slice(0, outputLines).join('\n');
+    const remaining = lines.length - outputLines;
+    return {
+      foldable: true,
+      html: `<span class="seg-value">${escapeHtml(shown)}</span>`
+        + foldFooterHtml(line, blockId, remaining),
+    };
+  }
+  return {
+    foldable: true,
+    html: `<div class="fold-scroll"><span class="seg-value">`
+      + `${escapeHtml(text)}</span></div>`
+      + foldFooterHtml(line, blockId, undefined),
+  };
+}
+
+/** The attributes that make a label a fold toggle -- shared so a stream's
+ * label and a value group's label become click targets the same way. */
+function foldLabelAttrs(line: number, blockId: string): string {
+  return `data-fold-action="expand" data-fold-line="${line}" `
+    + `data-fold-id="${escapeHtml(blockId)}"`;
 }
 
 /**
@@ -429,14 +553,89 @@ function groupHtml(group: readonly Segment[]): string {
  * exactly the "how many lines were printed" count a block chip exists to
  * make easy. A single-line stream keeps the label and its one line
  * together, as before -- there is no second line to misalign against.
+ *
+ * Past `outputLines` lines, the text folds (#155) exactly as `sourceLines`
+ * already caps a compound statement's own CODE cell, and the label becomes
+ * a click target for the same toggle `Show all`/`Show less` already are --
+ * JupyterLab's own gesture for a folded cell output.
  */
-function streamChipHtml(stream: FullStream, tone: Tone, leading: boolean): string {
+function streamChipHtml(
+  stream: FullStream, tone: Tone, leading: boolean, line: number,
+  outputLines: number, expanded: boolean
+): string {
   const label = /[A-Za-z0-9]$/.test(stream.label)
     ? `${stream.label}:` : stream.label;
   const said = stream.text.includes('\n') ? `${label}\n` : `${label} `;
-  const inner = `<span class="seg-streamLabel">${escapeHtml(said)}</span>`
-    + `<span class="seg-value">${escapeHtml(stream.text)}</span>`;
-  return chip(inner, tone, leading, 'block');
+  const blockId = stream.label;
+  const fold = foldedValueHtml(stream.text, line, blockId, outputLines, expanded);
+  const labelSegment: Segment = { role: 'streamLabel', text: said };
+  const labelHtml = segmentHtml(
+    labelSegment,
+    fold.foldable
+      ? { className: 'fold-label', attrs: foldLabelAttrs(line, blockId) }
+      : undefined);
+  return chip(labelHtml + fold.html, tone, leading, 'block');
+}
+
+/**
+ * One `resultGroups` group, as a `block` chip if its own value segment runs
+ * past `outputLines` -- "same rule for long values as for streams" (#155)
+ * -- or `undefined` when it does not, telling the caller to keep rendering
+ * it inline exactly as before.
+ *
+ * `slotSegments` and `streamPiece` (`render/format.ts`) are the only two
+ * places a group is ever built, and both produce at most one `value`-role
+ * segment per group, always last -- a shared iteration count and the
+ * `…+N more`/`(partial: …)` footnotes carry none at all, so they can never
+ * be foldable, correctly, without this having to know anything about what
+ * kind of group it was handed. The label segments ahead of the value are
+ * this extension's own short chrome and are kept exactly as `segmentHtml`
+ * already renders them, in front of the fold -- only the one immediately
+ * before the value becomes the click target, the same label a stream's own
+ * `printed:` is.
+ */
+function foldableGroupHtml(
+  group: readonly Segment[], tone: Tone, leading: boolean, line: number,
+  blockId: string, outputLines: number, expanded: boolean
+): string | undefined {
+  const valueIndex = group.findIndex((segment) => segment.role === 'value');
+  if (valueIndex === -1) {
+    return undefined;
+  }
+  const fold = foldedValueHtml(
+    group[valueIndex]!.text, line, blockId, outputLines, expanded);
+  if (!fold.foldable) {
+    return undefined;
+  }
+  const before = group.slice(0, valueIndex).map((segment, index) => segmentHtml(
+    segment,
+    index === valueIndex - 1
+      ? { className: 'fold-label', attrs: foldLabelAttrs(line, blockId) }
+      : undefined)).join('');
+  return chip(before + fold.html, tone, leading, 'block');
+}
+
+/**
+ * The full, un-folded text behind one block's own id (#155) -- a stream's
+ * own `label`, or `value-<index>` for one of `row.groups`, the same ids
+ * `valueCellHtml` hands out when it builds the page -- so *Open in editor*
+ * can open exactly the text this module already held, never a second copy
+ * and never anything re-read from the kernel. `undefined` for an id this
+ * row does not recognise, which `panel/values.ts` treats as nothing to
+ * open rather than an error: the row can have rebuilt between the click
+ * landing in the webview and the message reaching the extension.
+ */
+export function fullTextFor(row: ValuesRow, blockId: string): string | undefined {
+  const stream = (row.streams ?? []).find((each) => each.label === blockId);
+  if (stream) {
+    return stream.text;
+  }
+  const match = /^value-(\d+)$/.exec(blockId);
+  if (!match) {
+    return undefined;
+  }
+  const group = (row.groups ?? [])[Number(match[1])];
+  return group?.find((segment) => segment.role === 'value')?.text;
 }
 
 /**
@@ -453,8 +652,12 @@ function staleReasonHtml(reason: 'edited' | 'dependency'): string {
   return `<div class="stale-reason">${escapeHtml(sentence)}</div>`;
 }
 
-/** The VALUE column's whole content for one row. */
-function valueCellHtml(row: ValuesRow): string {
+/** The VALUE column's whole content for one row, folding any block --
+ * stream or value group -- past `outputLines` lines (#155), open exactly
+ * where `expandedLines` names this row's own line. */
+function valueCellHtml(
+  row: ValuesRow, outputLines: number, expandedLines: ReadonlySet<number>
+): string {
   if (row.state === 'pending') {
     return chip(
       `<span class="pending-text">${escapeHtml(row.pendingText ?? '')}</span>`,
@@ -477,20 +680,39 @@ function valueCellHtml(row: ValuesRow): string {
   // Inline value chips share one line, space-separated; a stream is its own
   // block underneath, so the two are built into separate lists rather than
   // one -- joining them the same way would put a stream chip on the value
-  // chips' own line. `leading` still tracks across both: whichever chip is
-  // built first overall -- ordinarily a value chip, but a bare `print()`
-  // with no name to report has only a stream chip -- carries the bar.
+  // chips' own line. A value group long enough to fold joins the streams in
+  // the block list instead (#155): once it needs a footer of its own it can
+  // no longer share a line with anything else. `leading` still tracks across
+  // all three: whichever chip is built first overall -- ordinarily a value
+  // chip, but a bare `print()` with no name to report has only a stream chip
+  // -- carries the bar, and the fold state is one flag per row (`expanded`)
+  // rather than one per block: `Show all` on any block in a row opens every
+  // foldable block in it, matching the one `{ expand: line }` message the
+  // webview ever posts.
   const tone: Tone = row.state === 'stale' ? 'stale' : 'evaluated';
+  const expanded = expandedLines.has(row.line);
   let leadingTaken = false;
   const takeLeading = (): boolean => {
     const first = !leadingTaken;
     leadingTaken = true;
     return first;
   };
-  const inlineChips = (row.groups ?? [])
-    .map((group) => chip(groupHtml(group), tone, takeLeading()));
-  const blockChips = (row.streams ?? [])
-    .map((stream) => streamChipHtml(stream, tone, takeLeading()));
+  const inlineChips: string[] = [];
+  const blockChips: string[] = [];
+  (row.groups ?? []).forEach((group, index) => {
+    const leading = takeLeading();
+    const folded = foldableGroupHtml(
+      group, tone, leading, row.line, `value-${index}`, outputLines, expanded);
+    if (folded === undefined) {
+      inlineChips.push(chip(groupHtml(group), tone, leading));
+    } else {
+      blockChips.push(folded);
+    }
+  });
+  for (const stream of row.streams ?? []) {
+    blockChips.push(streamChipHtml(
+      stream, tone, takeLeading(), row.line, outputLines, expanded));
+  }
   // A statement with nothing to show at all -- an `if`, a `del` -- paints no
   // chip, the same as the inline annotation does.
   const value = inlineChips.join(' ') + blockChips.join('');
@@ -515,9 +737,19 @@ function codeCellHtml(row: ValuesRow): string {
   return [...lines, ...more].join('');
 }
 
+/** `outputLines` and `expandedLines` travel together from `valuesHtml` down
+ * to `valueCellHtml` -- one fold configuration for the whole render, not one
+ * argument each threaded through `tableHtml` and `rowHtml` in between. */
+interface FoldRenderOptions {
+  readonly outputLines: number;
+  readonly expandedLines: ReadonlySet<number>;
+}
+
 /** One `<tr>`, carrying the line data the embedded script needs to move the
  * cursor highlight and to jump to a click without a rebuild. */
-function rowHtml(row: ValuesRow, isCursor: boolean): string {
+function rowHtml(
+  row: ValuesRow, isCursor: boolean, fold: FoldRenderOptions
+): string {
   const cursorClass = isCursor ? ' cursor' : '';
   return `<tr class="row${cursorClass}" data-goto="${row.line}" `
     + `data-start="${row.startLine}" data-end="${row.endLine}" `
@@ -525,7 +757,8 @@ function rowHtml(row: ValuesRow, isCursor: boolean): string {
     + `<td class="line-cell"><span class="navigation-arrow" aria-hidden="true">› </span>`
     + `<span class="line-num">${row.line + 1}</span></td>`
     + `<td class="code-cell">${codeCellHtml(row)}</td>`
-    + `<td class="value-cell">${valueCellHtml(row)}</td>`
+    + `<td class="value-cell">`
+    + `${valueCellHtml(row, fold.outputLines, fold.expandedLines)}</td>`
     + `</tr>`;
 }
 
@@ -534,7 +767,8 @@ function emptyStateHtml(message: string): string {
 }
 
 function tableHtml(
-  fileName: string, rows: readonly ValuesRow[], cursorLine: number | undefined
+  fileName: string, rows: readonly ValuesRow[], cursorLine: number | undefined,
+  fold: FoldRenderOptions
 ): string {
   const summary =
     `<div class="summary">${escapeHtml(summaryLine(fileName, rows))}</div>`;
@@ -542,7 +776,7 @@ function tableHtml(
     ?? rows.filter((row) => cursorLine !== undefined
       && cursorLine >= row.startLine && cursorLine <= row.endLine)
       .sort((a, b) => (a.endLine - a.startLine) - (b.endLine - b.startLine))[0];
-  const body = rows.map((row) => rowHtml(row, row === current)).join('\n');
+  const body = rows.map((row) => rowHtml(row, row === current, fold)).join('\n');
   const table = '<table>'
     + '<colgroup><col class="col-line"><col class="col-code">'
     + '<col class="col-value"></colgroup>'
@@ -687,9 +921,84 @@ tr.row:focus-visible {
   font-style: italic;
   color: var(--vscode-descriptionForeground, #9d9d9d);
 }
+/* Folding a long block (#155): the footer names how much was left out and
+   carries the two actions, in the UI font like the stale reason above --
+   it is Evalens' own remark about the block, not part of what the program
+   produced. */
+.fold-footer {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+  font-style: italic;
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+}
+.fold-action, .fold-label {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+/* An expanded block's full text (#155): capped at roughly fourteen lines of
+   the panel's own line-height and scrollable past that, so opening one very
+   long block cannot push every other row on the panel out of view -- the
+   same reason the CODE cell's own sourceLines caps it instead of growing
+   it. */
+.fold-scroll {
+  display: block;
+  max-height: 19.6em;
+  overflow: auto;
+  white-space: pre-wrap;
+}
 `;
 
-/** Cursor navigation uses messages; only trace/document changes rebuild rows. */
+/**
+ * The messages this view ever posts to the extension, and what this script
+ * does with one it receives, all handled without a rebuild wherever it can
+ * be -- a rebuild is the one thing everything here is trying to avoid.
+ *
+ * Cursor navigation (#154) posts `{ goto, revision, explicit }` on a click,
+ * Enter/Space, or an arrow/Home/End move that changes which row is current;
+ * `mark` paints the highlight locally first so the row responds instantly,
+ * and `activate` only posts when `followCursor` is on or the move was
+ * explicit -- so panel-keyboard navigation is not a change worth telling
+ * the extension about while cursor following is off, but a click or
+ * Enter/Space always is. `matching` is the one place both a `{ cursor }`
+ * message from the editor and an on-load `revealLine` resolve a target row:
+ * an exact `data-goto` first, or the smallest range containing the line,
+ * the same "innermost statement wins" rule `valuesHtml`'s own caller uses.
+ * `reveal` scrolls only when the target is not already fully visible below
+ * the sticky `#navigation-control` checkbox, and only to the nearer edge.
+ * The checkbox itself posts `{ followCursor, revision }` when toggled, and
+ * a `{ followCursor }` message from the extension (a setting changed
+ * elsewhere) updates it back without a rebuild.
+ *
+ * `{ expand: line }` (#155) is *Show all*, *Show less* and a click on a
+ * foldable block's own label -- all three are the same toggle, so all three
+ * post the same message and let `panel/values.ts` decide which way it
+ * flips. `{ open: line, stream }` is *Open in editor*. Both are found by
+ * the one `data-fold-action` attribute `html.ts` puts on every fold
+ * control, rather than three separate listeners -- and both call
+ * `stopPropagation`, or the click would also bubble up to the row's own
+ * navigation handler and move the cursor to code the reader never asked to
+ * leave.
+ *
+ * `revision` (#154) guards every message this script posts: `panel/
+ * values.ts` increments it on each rebuild and echoes back only a message
+ * carrying the revision it was rendered with, so a click queued against
+ * HTML that has since been replaced is dropped rather than acted on against
+ * rows that may no longer mean the same thing.
+ *
+ * `revealLine` (#149) is the one thing this script does on load rather than
+ * in response to a message: `panel/values.ts` has already decided, before
+ * this HTML was ever built, whether following is on and which line to
+ * reveal, so there is nothing left to ask the extension here -- the same
+ * "decided before the render, never re-asked afterwards" `valuesHtml` is
+ * documented as being pure by, below. `null` means nothing to reveal --
+ * following is off, or the change that triggered this rebuild carried no
+ * line -- and the reveal step is then a no-op by construction, not by a
+ * second flag threaded through.
+ */
 function script(
   revealLine: number | undefined, followCursor: boolean, revision: number
 ): string {
@@ -704,6 +1013,19 @@ function script(
   control.addEventListener('change', function () {
     followCursor = control.checked;
     vscode.postMessage({ followCursor: followCursor, revision: revision });
+  });
+  var foldControls = Array.prototype.slice.call(
+    document.querySelectorAll('[data-fold-action]'));
+  foldControls.forEach(function (foldControl) {
+    foldControl.addEventListener('click', function (event) {
+      event.stopPropagation();
+      var line = Number(foldControl.getAttribute('data-fold-line'));
+      if (foldControl.getAttribute('data-fold-action') === 'open') {
+        vscode.postMessage({ open: line, stream: foldControl.getAttribute('data-fold-id') });
+      } else {
+        vscode.postMessage({ expand: line });
+      }
+    });
   });
   function matching(line) {
     return rows.find(function (row) { return Number(row.dataset.goto) === line; })
@@ -805,16 +1127,26 @@ function script(
  * the panel with cursor following enabled. This function only ever bakes
  * whatever it is handed into the page, the same way it already does for
  * `cursorLine`.
+ *
+ * `fold` (#155) carries the fold behaviour the same way: `outputLines`
+ * from `evalens.valuesPanel.outputLines`, `expandedLines` from whichever
+ * rows `panel/values.ts` is still keeping open across rebuilds. Omitted
+ * entirely, a caller gets the setting's own default and nothing expanded
+ * -- see `FoldState`.
  */
 export function valuesHtml(
   data: ValuesPanelData, cursorLine: number | undefined, nonce: string,
-  revealLine?: number, followCursor = true, revision = 0
+  revealLine?: number, fold?: FoldState, followCursor = true, revision = 0
 ): string {
+  const foldOptions: FoldRenderOptions = {
+    outputLines: fold?.outputLines ?? DEFAULT_OUTPUT_LINES,
+    expandedLines: fold?.expandedLines ?? NO_EXPANDED_LINES,
+  };
   const body = data.fileName === undefined
     ? emptyStateHtml(NO_EDITOR_MESSAGE)
     : data.rows.length === 0
       ? emptyStateHtml(NO_ANNOTATIONS_MESSAGE)
-      : tableHtml(data.fileName, data.rows, cursorLine);
+      : tableHtml(data.fileName, data.rows, cursorLine, foldOptions);
 
   return `<!doctype html>
 <html>

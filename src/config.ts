@@ -132,6 +132,29 @@ export async function toggleFollowValuesPanel(): Promise<void> {
       vscode.ConfigurationTarget.Global);
 }
 
+/**
+ * How many lines of a printed stream or a long value the values panel shows
+ * before folding the rest behind `Show all` (#155).
+ *
+ * Read fresh on every rebuild, like everything else here: a row already on
+ * screen re-folds to the new number the next time anything repaints it,
+ * rather than waiting for the panel to be closed and reopened. Fewer lines
+ * fold sooner, which is what keeps the panel scrollable no matter how much
+ * one statement printed -- a nested loop that prints ten thousand lines
+ * used to turn one row into a ten-thousand-line wall. More lines show a
+ * longer stretch of a run before the reader has to click `Show all`, at
+ * the cost of a taller row and a heavier rebuild, since the panel repaints
+ * every row in full on every evaluation (#116, #149). The fold itself is
+ * unconditional -- there is no off switch -- because an unfolded
+ * ten-thousand-line block is the defect this setting exists to prevent,
+ * not a display style someone might reasonably prefer.
+ */
+export function valuesPanelOutputLines(): number {
+  return vscode.workspace
+    .getConfiguration('evalens')
+    .get<number>('valuesPanel.outputLines', 20);
+}
+
 /** The column inline results line up on; 0 follows the code instead. */
 export function resultColumn(): number {
   return vscode.workspace

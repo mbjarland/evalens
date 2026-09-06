@@ -60,7 +60,7 @@ function webview(followCursor = true, revealLine?: number) {
     endLine: Number(row.dataset.end), state: 'evaluated', codeLines: ['x'],
   }));
   const html = valuesHtml({ fileName: 'x.py', rows: data }, undefined, 'n',
-    revealLine, followCursor, 7);
+    revealLine, undefined, followCursor, 7);
   const script = /<script nonce="n">([\s\S]*?)<\/script>/.exec(html)![1];
   runInNewContext(script, {
     acquireVsCodeApi: () => ({ postMessage: (value: Record<string, unknown>) => {

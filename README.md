@@ -983,8 +983,9 @@ description says what the option *costs* rather than what it is called.
 | `evalens.advanceSkipsComments` | `true` | Whether Evaluate and Advance steps over comment lines. Off, it stops once per comment block — one more press each, and that press evaluates nothing |
 | `evalens.announceResults` | `"auto"` | Whether a result is announced as well as painted, for a screen reader. `auto` follows `editor.accessibilitySupport`; `always` announces every one; `never` announces none. See above |
 | `evalens.resetOnLoad` | `true` | Whether Evaluate File clears the namespace before running the whole file. On, a deleted binding is actually gone and a second file cannot read back an earlier one's leftovers. Off keeps expensive setup from an earlier load, at the cost of the namespace remembering more than the file defines — Evalens then notes it in the status bar. A selection never resets regardless; Run File as Script always does |
-| `evalens.valuesPanel.followCursor` | `true` | Reveal the matching value when moving the editor cursor, and reveal source when navigating Values rows. Keyboard focus stays in the pane you use. Turn off with **Follow cursor between code and values** in the panel to browse independently; clicking a row or pressing Enter/Space still reveals source. Use Up/Down or Home/End to browse rows. Navigation only reads captured results |
 | `evalens.valuesPanel.follow` | `true` | Whether the values panel scrolls the row that just changed into view on every evaluation. On, the newest value is always what you see. Off stops evaluations from scrolling the panel. Cursor navigation is controlled separately by `evalens.valuesPanel.followCursor`. Flip evaluation following from the panel's own `$(unlock)` / `$(lock)` title-bar button as well as from here |
+| `evalens.valuesPanel.outputLines` | `20` | Lines of a printed stream or a long value the panel shows before folding the rest behind `Show all`, like a notebook folds a long cell output. Fewer lines fold sooner and keep the panel scrollable; more lines show a longer stretch of a run at the cost of a taller row and a heavier rebuild |
+| `evalens.valuesPanel.followCursor` | `true` | Reveal the matching value when moving the editor cursor, and reveal source when navigating Values rows. Keyboard focus stays in the pane you use. Turn off with **Follow cursor between code and values** in the panel to browse independently; clicking a row or pressing Enter/Space still reveals source. Use Up/Down or Home/End to browse rows. Navigation only reads captured results |
 
 Two of them are off switches on purpose. Loop sequences and read-name
 annotations are the two things Evalens adds that a reader might not want, and
@@ -1017,6 +1018,12 @@ Nothing hides the **`(partial: line 19)` caveat** a value carries when the rest
 of the file did not parse. An annotation without it claims to have been
 computed with the whole file, and a value that asserts more than we know is
 the defect this project exists to stop.
+
+There is no setting to turn the **values panel's fold** off. A statement that
+prints ten thousand lines still gets `evalens.valuesPanel.outputLines`
+elided into `Show all` and `Open in editor` whatever this says — an
+unfolded row that size is the defect the setting exists to prevent, not a
+display style someone might reasonably want back.
 
 **Evaluate and Advance** stops at the last statement rather than wrapping to
 the top, and centres its destination only when that destination is off screen.

@@ -3,10 +3,16 @@ import * as vscode from 'vscode';
 
 import {
   followValuesCursor, followValuesPanel, printedLabel as printedLabelSetting,
-  setFollowValuesCursor,
+  setFollowValuesCursor, valuesPanelOutputLines,
 } from '../config';
 import { AnnotationChangeEvent, Annotations } from '../render/annotations';
-import { PanelAnnotation, ValuesPanelData, rowsFor, valuesHtml } from './html';
+import {
+  PanelAnnotation, ValuesPanelData, ValuesRow, fullTextFor, rowsFor, valuesHtml,
+} from './html';
+
+/** No document has anything expanded -- the common case, and the one that
+ * must not allocate a `Set` just to be handed to `valuesHtml`. */
+const NO_EXPANDED_LINES: ReadonlySet<number> = new Set();
 
 /**
  * Contributed in `package.json`'s `contributes.views.evalens`.
@@ -49,9 +55,36 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly subscriptions: vscode.Disposable[] = [];
   private viewSubscriptions: vscode.Disposable[] = [];
 
+  /**
+   * Which rows the reader has expanded with *Show all* or a block's own
+   * label (#155), by document URI and then by `ValuesRow.line` -- the same
+   * key `revealLine` and the cursor highlight already use. Kept here rather
+   * than in `html.ts`, which never remembers anything between one render
+   * and the next: a rebuild is a pure function of whatever this provider
+   * hands it, and this map is the one place that decides what to hand it
+   * this time.
+   *
+   * A document with nothing expanded has no entry at all, so the common
+   * case -- nobody has clicked *Show all* in this file -- costs one map
+   * lookup rather than an ever-growing empty `Set` per document ever
+   * opened.
+   */
+  private readonly expandedLines = new Map<string, Set<number>>();
+
+  /** Incremented on every rebuild (#154); a message from the webview that
+   * does not echo the current value is a click queued against HTML that
+   * has since been replaced, and `onMessage` drops it rather than acting on
+   * rows that may no longer mean the same thing. */
   private revision = 0;
+  /** What the webview was last rendered from -- `onMessage`'s own source of
+   * truth for whether a `goto` still names a row that exists, since the
+   * document's own annotations can have changed between the render and the
+   * click landing. */
   private renderedData: ValuesPanelData = { fileName: undefined, rows: [] };
   private markedEditor: vscode.TextEditor | undefined;
+  /** The source-side half of linked navigation (#154): a frame around the
+   * statement the panel's current row belongs to, independent of the
+   * inline annotation's own decorations. */
   private readonly navigation = vscode.window.createTextEditorDecorationType({
     isWholeLine: true,
     borderWidth: '1px 0 1px 3px',
@@ -67,8 +100,14 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       // registry's own mutation points say when they changed, rather than
       // this provider guessing by re-reading on a timer. #149 extends this
       // to say *which line* changed, so the rebuild below can also reveal
-      // it -- see `revealLineFor`.
-      annotations.onDidChange((event) => this.rebuild(this.revealLineFor(event))),
+      // it -- see `revealLineFor`. #155 uses the same line to drop that
+      // row's own fold state before the rebuild: a fresh value replacing
+      // the old one is not the text the reader chose to see in full, so
+      // `Show all` does not carry over to it.
+      annotations.onDidChange((event) => {
+        this.dropExpandedFor(event);
+        this.rebuild(this.revealLineFor(event));
+      }),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration('evalens.valuesPanel.followCursor')) {
           void this.view?.webview.postMessage({ followCursor: followValuesCursor() });
@@ -153,27 +192,123 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     });
   }
 
+  /**
+   * Every message the webview posts (#116, #154, #155): `{ goto, revision,
+   * explicit }` from a clicked or keyboard-activated row, `{ followCursor,
+   * revision }` from the panel's own checkbox, `{ expand: line }` from
+   * *Show all*, *Show less* or a click on a foldable block's label, and
+   * `{ open: line, stream }` from *Open in editor*. None of the four
+   * evaluates anything or touches the kernel.
+   *
+   * `revision` guards the first two: `rebuild` increments it on every
+   * render and a message carrying any other value is a click queued
+   * against HTML that has since been replaced, dropped rather than acted
+   * on against rows that may no longer mean what they did. The fold
+   * messages carry no revision of their own -- toggling or opening a block
+   * that has since been re-evaluated is harmless, since `pruneExpanded`
+   * (see `rebuild`, below) already drops whatever line no longer has a row
+   * to belong to.
+   *
+   * A hidden panel acts on none of these: there is no reader looking at it
+   * to have produced the message.
+   */
   private onMessage(message: unknown): void {
-    if (!message || typeof message !== 'object' || !this.view?.visible) return;
+    if (!message || typeof message !== 'object' || !this.view?.visible) {
+      return;
+    }
     const data = message as {
-      goto?: unknown; revision?: unknown; followCursor?: unknown; explicit?: unknown;
+      goto?: unknown; revision?: unknown; followCursor?: unknown;
+      explicit?: unknown; expand?: unknown; open?: unknown; stream?: unknown;
     };
-    if (data.revision !== this.revision) return;
+
+    if (typeof data.expand === 'number') {
+      this.toggleExpanded(data.expand);
+      return;
+    }
+    if (typeof data.open === 'number') {
+      void this.openInEditor(
+        data.open, typeof data.stream === 'string' ? data.stream : undefined);
+      return;
+    }
+
+    if (data.revision !== this.revision) {
+      return;
+    }
     if (typeof data.followCursor === 'boolean') {
       void setFollowValuesCursor(data.followCursor);
       return;
     }
-    if (!followValuesCursor() && data.explicit !== true) return;
+    if (!followValuesCursor() && data.explicit !== true) {
+      return;
+    }
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== 'python'
-      || typeof data.goto !== 'number' || !Number.isInteger(data.goto)) return;
+      || typeof data.goto !== 'number' || !Number.isInteger(data.goto)) {
+      return;
+    }
     // Ignore queued messages from previous HTML and nonexistent rows.
     const row = this.renderedData.rows.find((row) => row.line === data.goto);
-    if (!row) return;
+    if (!row) {
+      return;
+    }
     const position = new vscode.Position(row.line, 0);
     editor.selection = new vscode.Selection(position, position);
     editor.revealRange(new vscode.Range(position, position));
     this.mark(editor, row.line);
+  }
+
+  /**
+   * Flip whether `line` is shown in full (#155) -- the one toggle behind
+   * *Show all*, *Show less* and a click on the block's own label. Never
+   * reveals anything: the reader clicked something already on screen and
+   * knows exactly where they are, unlike an evaluation landing somewhere
+   * they were not looking.
+   */
+  private toggleExpanded(line: number): void {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      return;
+    }
+    const key = editor.document.uri.toString();
+    const lines = this.expandedLines.get(key) ?? new Set<number>();
+    if (lines.has(line)) {
+      lines.delete(line);
+    } else {
+      lines.add(line);
+    }
+    if (lines.size === 0) {
+      this.expandedLines.delete(key);
+    } else {
+      this.expandedLines.set(key, lines);
+    }
+    this.rebuild();
+  }
+
+  /**
+   * *Open in editor* (#155): the full text `blockId` names, as a new
+   * untitled plaintext document beside the panel. `fullTextFor` only ever
+   * reads text this provider already rendered from -- the same text the
+   * kernel sent when the statement ran -- so nothing here evaluates
+   * anything or asks the kernel a second time. Silently does nothing for a
+   * `blockId` the current row no longer recognises: the row can have
+   * rebuilt between the click landing in the webview and this message
+   * reaching the extension, and there is no code beside it to report an
+   * error about.
+   */
+  private async openInEditor(line: number, blockId: string | undefined): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || blockId === undefined) {
+      return;
+    }
+    const row = this.dataFor(editor).rows.find((each) => each.line === line);
+    const text = row && fullTextFor(row, blockId);
+    if (text === undefined) {
+      return;
+    }
+    const document = await vscode.workspace.openTextDocument({
+      content: text, language: 'plaintext',
+    });
+    await vscode.window.showTextDocument(document, { preserveFocus: false });
   }
 
   /**
@@ -198,6 +333,66 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     return event.line ?? vscode.window.activeTextEditor?.selection.active.line;
   }
 
+  /**
+   * Drop `event.line`'s own fold state, for the half of #155's "dropped
+   * when the row's annotation is replaced or cleared" that `onDidChange`'s
+   * payload can name directly: `add` and the still-running `pending` mark
+   * both fire with the exact line whatever just landed there occupies (see
+   * `AnnotationChangeEvent`'s own doc comment), and a fresh value replacing
+   * the old one is not the text the reader chose to see in full. The other
+   * half -- a whole document cleared, or a row whose line moved to where no
+   * row exists any more -- has no single line to name and is instead
+   * pruned in `rebuild`, below, once the fresh rows are known.
+   *
+   * An edit that only marks a row stale (`reanchor`, `markDependents`) also
+   * carries no line, and deliberately: it is the "unrelated annotation
+   * change" #155 asks the state to survive, since the row's own displayed
+   * text has not actually changed underneath the reader.
+   */
+  private dropExpandedFor(event: AnnotationChangeEvent): void {
+    if (event.line === undefined) {
+      return;
+    }
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      return;
+    }
+    this.expandedLines.get(editor.document.uri.toString())?.delete(event.line);
+  }
+
+  /**
+   * This document's expanded rows, pruned to the ones `rows` still has
+   * (#155) -- the other half of "dropped when the row's annotation is
+   * replaced or cleared": a whole-document clear leaves no row at all, and
+   * an edit that shifts a statement to a different line leaves no row at
+   * the old one, either way with nothing left here to keep open. A
+   * document with nothing expanded costs one map lookup and allocates
+   * nothing.
+   */
+  private pruneExpanded(
+    editor: vscode.TextEditor | undefined, rows: readonly ValuesRow[]
+  ): ReadonlySet<number> {
+    if (!editor) {
+      return NO_EXPANDED_LINES;
+    }
+    const key = editor.document.uri.toString();
+    const lines = this.expandedLines.get(key);
+    if (!lines || lines.size === 0) {
+      return NO_EXPANDED_LINES;
+    }
+    const valid = new Set(rows.map((row) => row.line));
+    for (const line of [...lines]) {
+      if (!valid.has(line)) {
+        lines.delete(line);
+      }
+    }
+    if (lines.size === 0) {
+      this.expandedLines.delete(key);
+      return NO_EXPANDED_LINES;
+    }
+    return lines;
+  }
+
   private rebuild(revealLine?: number): void {
     if (!this.view) {
       return;
@@ -206,9 +401,11 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     const editor = vscode.window.activeTextEditor;
     const cursorLine = editor?.selection.active.line;
     this.renderedData = this.dataFor(editor);
-    this.view.webview.html =
-      valuesHtml(this.renderedData, cursorLine, nonce(), revealLine,
-        followValuesCursor(), ++this.revision);
+    const expandedLines = this.pruneExpanded(editor, this.renderedData.rows);
+    this.view.webview.html = valuesHtml(
+      this.renderedData, cursorLine, nonce(), revealLine,
+      { outputLines: valuesPanelOutputLines(), expandedLines },
+      followValuesCursor(), ++this.revision);
     if (editor && this.view.visible && cursorLine !== undefined) {
       this.mark(editor, cursorLine);
     }

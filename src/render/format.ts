@@ -425,8 +425,14 @@ export function opensDefinition(line: string): boolean {
  * `toLocaleString()` would render `9,994` here and `9.994` on a German
  * machine, which makes the count ambiguous next to a Python `repr()` and
  * makes the test for it depend on where it runs.
+ *
+ * Exported for `panel/html.ts` (#155): the fold footer's own `… 9,980 more
+ * lines` count needs the same thousands separator this module already
+ * gives every other count on the line, and a second copy of a five-line
+ * regex is a worse choice than one function shared across a boundary this
+ * file already crosses.
  */
-function grouped(count: number): string {
+export function grouped(count: number): string {
   return String(count).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
