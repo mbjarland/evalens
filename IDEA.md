@@ -448,6 +448,15 @@ It never calls a value's custom representation, getter, iterator, or
 metaclass hook. Unsupported objects receive a type description; their
 stored fields can still be inspected without extending their lifetime.
 
+Live inspection is optional: it does not queue behind execution, and a hover
+falls back to its captured trace after 100 ms. Current children are labelled
+separately from that trace. Arbitrary value text is literal Markdown data.
+
+Each statement retains at most 65,536 characters per output stream, followed
+by an omission count. The complete output still streams to the output channel.
+Prompt detection keeps a separate bounded last-line buffer, so prompts remain
+accurate after a statement exceeds the capture cap.
+
 `createTextEditorDecorationType({ after: { contentText } })` plus
 `setDecorations` — the same mechanism Calva, Error Lens and inlay hints use.
 `src/render/` carries it in seven modules: annotations, decorations, a flash,
