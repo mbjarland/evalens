@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <!-- Evalens Values: three rows, standing for the panel's line/code/value
+       table. VS Code recolours this from its own alpha shape, so the fill
+       below is a placeholder rather than a themed colour. -->
+  <rect x="2" y="4" width="20" height="3" rx="1" fill="#C5C5C5"/>
+  <rect x="2" y="10.5" width="20" height="3" rx="1" fill="#C5C5C5"/>
+  <rect x="2" y="17" width="20" height="3" rx="1" fill="#C5C5C5"/>
+</svg>
