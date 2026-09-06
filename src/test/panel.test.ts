@@ -225,6 +225,67 @@ test('printed output is a single block chip under the value chips, not ' +
   assert.equal(barCount, 1, 'only the first chip of the row gets a bar');
 });
 
+test('a multi-line printed block starts every line under the label, the ' +
+  'first line included (#148)', () => {
+  const document = lineSource(['loop()']);
+  const annotations: PanelAnnotation[] = [
+    {
+      range: range(0, 0), value: null, display: null,
+      printed: { stdout: 'value is 4\nvalue is 8\nvalue is 12\n' },
+    },
+  ];
+  const html = valuesHtml(
+    { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
+    undefined, 'n');
+  // The label's own span ends in a line break, before the value span even
+  // starts -- so the first printed line begins the same column as the rest,
+  // never sharing a line with "printed:" the way the old single-line join
+  // did.
+  assert.ok(html.includes('>printed:\n<'),
+    'the label must be followed by a line break, not a trailing space');
+  assert.ok(html.includes('<span class="seg-value">value is 4\nvalue is 8\nvalue is 12'),
+    'every printed line, first included, must start after the break');
+  assert.ok(!html.includes('printed: value is 4'),
+    'the first line must not still be joined to the label on one line');
+});
+
+test('a single-line printed stream keeps the label and the line together ' +
+  '(#148)', () => {
+  const document = lineSource(['loop()']);
+  const annotations: PanelAnnotation[] = [
+    {
+      range: range(0, 0), value: null, display: null,
+      printed: { stdout: 'value is 4\n' },
+    },
+  ];
+  const html = valuesHtml(
+    { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
+    undefined, 'n');
+  assert.ok(html.includes('<span class="seg-streamLabel">printed: </span>'
+    + '<span class="seg-value">value is 4</span>'),
+    'a single line keeps label and line on one line, as before');
+  assert.ok(!html.includes('>printed:\n<'),
+    'a single line must never break after the label');
+});
+
+test('a multi-line stderr block follows the same rule as printed (#148)',
+  () => {
+    const document = lineSource(['loop()']);
+    const annotations: PanelAnnotation[] = [
+      {
+        range: range(0, 0), value: null, display: null,
+        printed: { stderr: 'oops\nagain\n' },
+      },
+    ];
+    const html = valuesHtml(
+      { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
+      undefined, 'n');
+    assert.ok(html.includes('>stderr:\n<'),
+      'stderr must break after its label exactly as printed does');
+    assert.ok(html.includes('<span class="seg-value">oops\nagain'),
+      'every stderr line, first included, must start after the break');
+  });
+
 test('the accent bar is one element before the leading chip, never a ' +
   'border repeated on every wrapped line', () => {
   const long = Array.from({ length: 60 }, (_, i) => i).join(', ');
