@@ -19,8 +19,14 @@ with builtin-looking names/modules, subclasses, file outcomes, single and
 file-load hovers, and literal escaping. Repeatedly opening a real captured
 error hover generated zero additional kernel pipe writes.
 
-At this commit, a real Extension Development Host has not yet been inspected
-for #158. Hover appearance, keyboard hover access and screen-reader behavior
-still require live verification. Automated tests establish the content and
-absence of requests; they do not establish visual readability or assistive
-technology behavior.
+A real macOS Extension Development Host was subsequently checked with
+`missing_name`, `int("hello")`, and an unrelated `ZeroDivisionError`. The
+NameError and ValueError hovers contained their original Python tracebacks
+and factual guidance; the unrelated error kept its existing presentation.
+The pointer opened the native NameError hover, and both implementation and
+review agents inspected the [captured screenshot](2026-09-06-error-name.png):
+the original traceback and explanatory paragraphs are readable and distinct.
+
+Physical keyboard hover access and screen-reader behavior were not verified.
+The live visual check does not establish assistive technology behavior or
+learner comprehension.
