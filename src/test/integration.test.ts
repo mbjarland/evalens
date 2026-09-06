@@ -1304,6 +1304,8 @@ test('a filter loop paints two sequences of different lengths', async (t) => {
 
 test('a loop body binding one value every time says it once', async (t) => {
   // `c: 7, 7, 7, 7` would crowd out the sequence beside it that is moving.
+  // `v`, `c` and `d` all ran four times, so #118 folds that into one leading
+  // `×4` rather than repeating it on every name.
   const client = connect();
   t.after(() => client.dispose());
 
@@ -1315,7 +1317,7 @@ test('a loop body binding one value every time says it once', async (t) => {
   ].join('\n');
 
   assert.deepEqual(await paint(client, source, [0]),
-    ['v ×4: 1, 2, 3, 4   c ×4: 7   d ×4: 1, 4, 9, 16']);
+    ['×4   v: 1, 2, 3, 4   c: 7   d: 1, 4, 9, 16']);
 });
 
 test('a loop stopped by break annotates the value it broke on', async (t) => {
@@ -1344,8 +1346,9 @@ test('a nominated expression paints as another name beside the loop', async (t) 
     await paintWatch(client, source, 0, 'p+6'),
     // The `×5` is #36's iteration cue, and a watch gets it for free: the
     // trace rides in `bindings`, so a nominated expression reads as a
-    // history exactly the way the loop's own target does.
-    'p ×5: 0, 1, 4, 9, 16   p+6 ×5: 6, 7, 10, 15, 22');
+    // history exactly the way the loop's own target does. `p` and `p+6` ran
+    // the same five times, so #118 folds the cue into one leading group.
+    '×5   p: 0, 1, 4, 9, 16   p+6: 6, 7, 10, 15, 22');
 });
 
 test('a watched accumulator traces the running total, end to end', async (t) => {
@@ -1356,7 +1359,8 @@ test('a watched accumulator traces the running total, end to end', async (t) => 
   await evaluate(client, source, 0);
   assert.equal(
     await paintWatch(client, source, 1, 'total'),
-    'x ×4: 1, 2, 3, 4   total ×4: 1, 3, 6, 10');
+    // `x` and `total` share a count, so #118 folds it into one leading `×4`.
+    '×4   x: 1, 2, 3, 4   total: 1, 3, 6, 10');
 });
 
 test('a watch that raises is reported once and the loop still completes', async (t) => {

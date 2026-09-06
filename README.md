@@ -71,17 +71,20 @@ if you stop writing programs and start writing cells.
 
 <p align="center">
   <img src="media/demo/spot-the-bug.png" width="720" alt="The same program
-    with total = s instead of total += s: the loop's history reads total ×4:
-    72, 85, 91, 64, and average: 16.0 follows two lines later">
+    with total = s instead of total += s: the loop's history reads ×4, s:
+    72, 85, 91, 64, total: 72, 85, 91, 64 -- total mirrors s exactly -- and
+    average: 16.0 follows two lines later">
 </p>
 
 **Here is the same program with one character missing** — `total = s` where
-it should say `total += s`. Read line 3: `total ×4: 72, 85, 91, 64`. The
-accumulator never accumulates; it just takes each score in turn. Two lines
-down, `average: 16.0` is the consequence. A debugger stopped at the end
-would show you `total: 64` and nothing about how it got there. The trace
-shows you the bug on the line that has it, without a breakpoint, without a
-`print()`, without leaving the file.
+it should say `total += s`. Read line 3: `×4   s: 72, 85, 91, 64   total:
+72, 85, 91, 64`. Both ran four times, so the count is said once, and once
+it is said the two sequences sit close enough to compare by eye: `total`
+mirrors `s` exactly. The accumulator never accumulates; it just takes each
+score in turn. Two lines down, `average: 16.0` is the consequence. A
+debugger stopped at the end would show you `total: 64` and nothing about
+how it got there. The trace shows you the bug on the line that has it,
+without a breakpoint, without a `print()`, without leaving the file.
 
 ## Who this is for
 
@@ -176,10 +179,12 @@ for n in range(5):
 ```
 
 Every value the target took, **everything the body bound**, and what it
-printed — on the header line, where you are looking. The `×5` is the
-iteration count, so a history never reads as a list that happens to have
-five things in it. A filtered loop shows the filtering directly: `v ×5`
-beside `kept ×2`.
+printed — on the header line, where you are looking. `n` and `squared`
+both ran five times here, so the count leads the line once, as `×5`,
+rather than repeating on each name — a history never reads as a list that
+happens to have five things in it. Only when the counts genuinely differ
+does each name carry its own: a filtered loop shows the filtering
+directly, `v ×5` beside `kept ×2`.
 
 ### A comprehension stops hiding its loop
 
@@ -1034,6 +1039,7 @@ without the extension offering a setting of its own:
   "evalens.flashRegionBackground": "#4a9c8c66",
   "evalens.annotationBorder": "#e0a3ff",
   "evalens.annotationTint": "#d1a35c1a",
+  "evalens.chipDivider": "#d1a35c66",
   "evalens.staleTint": "#8c8c8c0d",
   "evalens.staleBorder": "#8c8c8c"
 }
@@ -1065,22 +1071,31 @@ common forms of colour blindness leave intact, so the two remain
 distinguishable where a red-green split would collapse.
 
 Two more things mark an annotation as a distinct surface, rather than a
-second comment sitting next to one you typed. A faint `annotationTint` washes
-behind each *chip* of it — a label and the value it introduces, or
-`printed:` and its text — with the gap between two chips left untinted, so
-the line still reads as several facts rather than one blur; a tint is what a
-glyph cannot have, which is what makes each chip read as structure rather
-than as a stray character. On the leading edge of the first chip, a 3px
-`annotationBorder` bar, corners squared rather than rounded so it cannot be
-mistaken for a parenthesis, with 8px of breathing room inside every chip's
-own edges so the tint does not hug the text it introduces. The bar is a
-saturated violet of its own rather than the dim `labelForeground`, which
-exists to recede and would make it the quietest thing on the row; the tint
-takes `resultForeground`'s own hue at low opacity, one shade for every
-state, computed to stay clear of the contrast floors above. The bar takes on
-the colour of whatever state the annotation is actually in:
-`pendingForeground` while stale or still running, `errorForeground` on a
-raised statement. A bare line with no annotation never gets either.
+second comment sitting next to one you typed. A faint `annotationTint`
+washes behind the whole of it, one continuous surface from its first
+character to its last — a tint is what a glyph cannot have, which is what
+makes the annotation read as structure rather than as a stray character. On
+its leading edge, a 3px `annotationBorder` bar, corners squared rather than
+rounded so it cannot be mistaken for a parenthesis, with 8px of breathing
+room at each of the annotation's two outer ends so the tint does not hug the
+text it introduces; the trailing edge rounds instead. The bar is a saturated
+violet of its own rather than the dim `labelForeground`, which exists to
+recede and would make it the quietest thing on the row; the tint takes
+`resultForeground`'s own hue at low opacity, one shade for every state,
+computed to stay clear of the contrast floors above. The bar takes on the
+colour of whatever state the annotation is actually in: `pendingForeground`
+while stale or still running, `errorForeground` on a raised statement. A
+bare line with no annotation never gets either.
+
+Where a line carries several values — a label and the value it introduces,
+or `printed:` and its text — a 1px `chipDivider` hairline separates one from
+the next, with 8px of clear space on each side of the rule. It is its own
+colour rather than `annotationBorder`, because the two answer different
+questions: the bar says what state the line is in and changes with it, the
+divider says where one fact ends and the next begins and does not, whatever
+state the line is in. The tint stays continuous straight through it, so the
+line still parses into distinct facts without the surface itself breaking
+into separate boxes the way an earlier revision painted it.
 
 ## License
 

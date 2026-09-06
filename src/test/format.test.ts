@@ -395,6 +395,10 @@ test('what the loop computed is shown as a sequence, not as where it stopped', (
   // The ticket's case. `u` took 4, 8 and 12, and the annotation said `u: 12`
   // beside a target rendered as a history -- so one of the two names on the
   // line read as the other's last entry.
+  //
+  // `v` and `u` share a count here, but `x` sits beside them with none of its
+  // own -- a plain read, not a loop trace -- so #118 does not fold `×3` to
+  // the front: that would put it where it reads as a claim about `x` too.
   assert.equal(
     resultText({ value: '3', display: 'v', loop: trace(['1', '2', '3'], null),
       names: pairs(['x', '[1, 2, 3]']),
@@ -406,23 +410,53 @@ test('a body binding shorter than the loop still renders', () => {
   // A filter loop: three iterations, two results, because the iteration that
   // hit `continue` computed nothing. Anything that zipped or padded the two
   // sequences would invent an observation here. The counts differing --
-  // `×3` beside `×2` -- is itself the fact that a filter ran.
+  // `×3` beside `×2` -- is itself the fact that a filter ran, so #118 leaves
+  // both counts where they are rather than folding one that would misstate
+  // the other.
   assert.equal(
     resultText({ value: '3', display: 'v', loop: trace(['1', '2', '3'], null),
       names: [], bindings: [bound('u', ['4', '12'], 2)] }),
     preserveSpacing('v ×3: 1, 2, 3   u ×2: 4, 12'));
 });
 
+// -- #118: a shared iteration count is said once, as a leading group -------
+
+test('#118: equal iteration counts fold into one leading count', () => {
+  // The width this ticket exists to buy back: two repeats of `×3` become
+  // one, ahead of both names rather than inside either of them.
+  assert.equal(
+    resultText({ value: '3', display: 'v', loop: trace(['1', '2', '3'], null),
+      names: [], bindings: [bound('u', ['4', '8', '12'])] }),
+    preserveSpacing('×3   v: 1, 2, 3   u: 4, 8, 12'));
+});
+
+test('#118: a solo loop keeps its inline count', () => {
+  // Folding buys width only by removing a repeat. With one name there is
+  // nothing to remove: `×3` as its own leading piece is longer than the
+  // ` ×3` it would replace, so a lone loop is left exactly as #36 shows it.
+  assert.equal(
+    resultText({ value: '3', display: 'p', loop: trace(['1', '2', '3'], null) }),
+    preserveSpacing('p ×3: 1, 2, 3'));
+});
+
+test('#118: a line with no loop at all is unaffected', () => {
+  assert.equal(
+    resultText({ value: null, display: null,
+      names: pairs(['x', '1'], ['y', '2']) }),
+    preserveSpacing('x: 1   y: 2'));
+});
+
 test('an unchanging binding is one reading beside a moving one', () => {
   // `c: 7, 7, 7, 7` is four observations of one fact, and it crowds out the
-  // sequence next to it that is actually moving. `c ×4: 7` still says it ran
-  // four times, which `c: 7` alone would not.
+  // sequence next to it that is actually moving. `c: 7` still says it ran
+  // four times, which `c: 7` alone would not -- #118 folds that count into
+  // the leading `×4`, shared with `v` and `d`, rather than dropping it.
   assert.equal(
     resultText({ value: '4', display: 'v',
       loop: trace(['1', '2', '3', '4'], null), names: [],
       bindings: [bound('c', ['7'], 4, { constant: true }),
         bound('d', ['1', '4', '9', '16'])] }),
-    preserveSpacing('v ×4: 1, 2, 3, 4   c ×4: 7   d ×4: 1, 4, 9, 16'));
+    preserveSpacing('×4   v: 1, 2, 3, 4   c: 7   d: 1, 4, 9, 16'));
 });
 
 test('a body binding is bounded exactly as the target is', () => {
@@ -1109,12 +1143,16 @@ test('a loop sequence is one value however many iterations it holds', () => {
   // Python value of several parts is written, so colouring them as chrome
   // would claim this extension put them there. The `×3` is chrome, though --
   // it is this extension's own count, not part of the value that follows it.
+  // `v` and `u` ran the same three times, so #118 folds their count into one
+  // leading piece rather than repeating it on each name.
   assert.deepEqual(
     coloured({ value: '3', display: 'v', loop: trace(['1', '2', '3'], null),
       bindings: [bound('u', ['4', '8', '12'])] }),
-    ['nameLabel "v ×3: "', 'value "1, 2, 3"',
+    ['nameLabel "×3"',
       'nameLabel "   "',
-      'nameLabel "u ×3: "', 'value "4, 8, 12"']);
+      'nameLabel "v: "', 'value "1, 2, 3"',
+      'nameLabel "   "',
+      'nameLabel "u: "', 'value "4, 8, 12"']);
 });
 
 test('a line with nothing on it has no segments at all', () => {

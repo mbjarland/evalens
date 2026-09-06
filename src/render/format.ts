@@ -827,8 +827,44 @@ function truncatedPiece(
 }
 
 /**
- * The painted annotation for a successful evaluation, in the pieces that take
- * different colours.
+ * The shared count `paintedPieces` folds into one leading piece (#118), or
+ * null when there is nothing worth folding.
+ *
+ * Three ways to be disqualified, and each is a different reason:
+ *
+ * - **Fewer than two slots carry a count.** Folding a single `×5` into its
+ *   own leading piece is a net loss -- `×5   p: 1, 2, 3, 4, 5` is longer than
+ *   `p ×5: 1, 2, 3, 4, 5` by exactly one gap, and the whole point of #118 is
+ *   width. A solo loop keeps its inline count.
+ * - **A slot carries no count at all.** A name merely read alongside a loop
+ *   -- `for v in x: ...` leaves `x` sitting beside `v ×3` -- has nothing to
+ *   do with the loop's own iteration count, and hoisting `×3` to the head of
+ *   the line would put it where it reads as a claim about the whole line,
+ *   `x` included. That over-claims by position rather than by text, which
+ *   design rule 1 rules out exactly as firmly as a wrong word would.
+ * - **The counts differ.** `for v in x: if v > 1: u = 4 * v` gives `v ×3`
+ *   and `u ×2` -- the difference is itself the fact that a filter ran (see
+ *   `bindingText`), and folding it away would erase the one thing the line
+ *   is reporting.
+ *
+ * Only when every slot on the line carries the very same count does saying
+ * it once, first, cost nothing and lose nothing.
+ */
+function sharedIterationCount(slots: readonly Slot[]): number | null {
+  if (slots.length < 2 || slots.some((slot) => slot.iterations === undefined)) {
+    return null;
+  }
+  const first = slots[0]!.iterations!;
+  return slots.every((slot) => slot.iterations === first) ? first : null;
+}
+
+/**
+ * The pieces `resultSegments` joins with a gap between each two, before that
+ * gap goes in. A label and the value it introduces are one piece; `printed:`
+ * and its text are one piece; the `…+N more` footnote and the reduced-context
+ * caveat are each a piece of one segment. Factored out so `resultSegments`
+ * and `resultGroups` (#95) are the same computation read two ways, rather
+ * than two computations that can drift apart.
  *
  * What the statement printed follows every value on the line, and `more` --
  * how many further names are not shown, whether a cap left them off the wire
@@ -844,14 +880,16 @@ function truncatedPiece(
  * from the painting keeps the decision here, where it is pure and can be
  * checked without an editor -- which matters more than usual, because the
  * painting side rests on behaviour VS Code does not document.
- */
-/**
- * The pieces `resultSegments` joins with a gap between each two, before that
- * gap goes in. A label and the value it introduces are one piece; `printed:`
- * and its text are one piece; the `…+N more` footnote and the reduced-context
- * caveat are each a piece of one segment. Factored out so `resultSegments`
- * and `resultGroups` (#95) are the same computation read two ways, rather
- * than two computations that can drift apart.
+ *
+ * **#118: when `sharedIterationCount` finds one count common to every slot,
+ * it leads as its own bare piece** -- `×3`, no name, no colon -- **and every
+ * slot loses its own copy of it**, so `v ×3: 1, 2, 3   u ×3: 4, 8, 12`
+ * becomes `×3   v: 1, 2, 3   u: 4, 8, 12`: the same fact, said once. This
+ * runs only here, never inside `paintedSlots` itself -- `announce.ts` calls
+ * `paintedSlots` directly for speech, where repeating "3 iterations" once per
+ * clause costs nothing and the fold has no equivalent, so leaving the shared
+ * function alone is what keeps the two channels from disagreeing about what
+ * `paintedSlots` itself hands back.
  */
 function paintedPieces(rendered: Rendered): readonly (readonly Segment[])[] {
   const { value, display, loop, names, bindings, printed, isBinding } = rendered;
@@ -861,6 +899,7 @@ function paintedPieces(rendered: Rendered): readonly (readonly Segment[])[] {
   const limit = rendered.maxValueLength ?? DEFAULT_MAX_VALUE_LENGTH;
   const slots = paintedSlots(
     value, display, loop, names, bindings, printed, isBinding);
+  const shared = sharedIterationCount(slots);
   // Cut here, once every piece has its final shape, rather than inside
   // `slotSegments` or `streamPiece`: those are shared with `announce.ts` (via
   // `paintedSlots` and `outputPieces`), which already caps what it says on
@@ -871,7 +910,9 @@ function paintedPieces(rendered: Rendered): readonly (readonly Segment[])[] {
   // inside `slotSegments` against the whole value, before this shortens it,
   // so a dropped label stays dropped on the same evidence it always was.
   const painted: (readonly Segment[])[] = [
-    ...slots.map((slot) => slotSegments(slot, glyph)),
+    ...(shared === null ? [] : [[asLabel(`${glyph}${grouped(shared)}`)]]),
+    ...slots.map((slot) => slotSegments(
+      shared === null ? slot : { ...slot, iterations: undefined }, glyph)),
     ...streamsOf(printed).map(([label, text]) => streamPiece(label, text)),
   ].map((piece) => truncatedPiece(piece, limit));
   // `more` is only ever positive because a cap left something off this exact
@@ -928,17 +969,28 @@ export function resultSegments(rendered: Rendered): readonly Segment[] {
  *
  * `resultSegments` is `joinSegments(resultGroups(r).flat())` with a `GAP`
  * segment inserted between every two groups; this is that computation with
- * the gap not yet inserted. It exists because the #95 chip paints one group
- * as one tinted box and the gap between two groups as neither box -- a
- * boundary a caller needs before the gap is joined in, not one it can recover
- * afterwards. `coalesce` (`layers.ts`) merges a gap into whichever
- * same-role segment sits next to it for economy, which is correct for a
- * single continuous run and wrong for a run of separately tinted chips: it
- * would paint the gap in the label it merged into. Every segment already
- * carries its non-breaking spacing, the same as `resultSegments`, and each
- * group should still be passed through `coalesce` on its own before it is
- * painted -- merging within a group is still the economy it always was, only
- * merging a gap into a group is not.
+ * the gap not yet inserted. It exists because the chip painted from these
+ * groups needs the boundary before the gap is joined in, not one it can
+ * recover afterwards: #95 painted each group as its own tinted box with the
+ * gap between two of them left bare; #118 paints one continuous tinted box
+ * for the whole annotation and turns that same boundary into the hairline
+ * divider (`decorations.ts`'s `show`) instead. Either way the boundary is a
+ * fact about where one group ends and the next begins, which only this
+ * function still holds once `resultSegments` has joined it away.
+ * `coalesce` (`layers.ts`) merges a gap into whichever same-role segment
+ * sits next to it for economy, which is correct for a single continuous run
+ * and wrong for a run of separately painted groups: it would paint the gap
+ * inside the label it merged into. Every segment already carries its
+ * non-breaking spacing, the same as `resultSegments`, and each group should
+ * still be passed through `coalesce` on its own before it is painted --
+ * merging within a group is still the economy it always was, only merging a
+ * gap into a group is not.
+ *
+ * A line #118 hoists (see `sharedIterationCount`) adds one more group at the
+ * front, holding nothing but the shared count: `[[{role: 'nameLabel', text:
+ * '×3'}]]` ahead of `v: 1, 2, 3` and everything after it. It is a group like
+ * any other here -- the divider before the first per-name group is what
+ * separates it from `v`, exactly as one already separates `v` from `u`.
  */
 export function resultGroups(rendered: Rendered): readonly (readonly Segment[])[] {
   return paintedPieces(rendered).map((piece) => piece.map(

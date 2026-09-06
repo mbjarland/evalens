@@ -180,6 +180,8 @@ test('what a loop body bound is the statement\'s own, not a repeat', () => {
   // the same terms as the target's sequence however many times a file runs
   // the same loop -- and a later line reading `u` compares against what was
   // painted for it, which is the sequence rather than the value it ended on.
+  // `v` and `u` ran the same three times, so #118 folds that count into one
+  // leading `×3` rather than repeating it on each.
   const loop: LoopTrace = { values: ['1', '2', '3'], last: null, count: 3 };
   const binding: BindingTrace = {
     name: 'u', values: ['4', '8', '12'], last: null, count: 3,
@@ -189,7 +191,7 @@ test('what a loop body bound is the statement\'s own, not a repeat', () => {
       { display: 'v', value: '3', loop, bindings: [binding] },
       reads('print(u)', ['u', '12'])
     ),
-    ['v ×3: 1, 2, 3   u ×3: 4, 8, 12', 'u: 12']);
+    ['×3   v: 1, 2, 3   u: 4, 8, 12', 'u: 12']);
 });
 
 test('distance up the file does not weaken the rule', () => {

@@ -345,8 +345,11 @@ test('addInlineWatch still offers the selection as the box\'s default',
       assert.equal(fake.inputBox.calls[0].value, 'total',
         'the selection is offered as the prefilled default');
       const text = depainted(editor, 1);
-      assert.match(text, /x ×4: 1, 2, 3, 4/);
-      assert.match(text, /total ×4: 1, 3, 6, 10/);
+      // `x` and `total` both ran four times, so #118 folds the count into
+      // one leading `×4` rather than repeating it on each name.
+      assert.match(text, /×4/);
+      assert.match(text, /x: 1, 2, 3, 4/);
+      assert.match(text, /total: 1, 3, 6, 10/);
     } finally {
       extension.deactivate();
     }
@@ -379,7 +382,9 @@ test('addInlineWatch prefills the bare name under the cursor with no ' +
     assert.equal(fake.inputBox.calls[0].value, 'total',
       'the identifier under the cursor is offered with nothing selected');
     const text = depainted(editor, 1);
-    assert.match(text, /total ×4: 1, 3, 6, 10/);
+    // #118: `x` and `total` share a count, so it leads once as `×4` rather
+    // than repeating on `total` alone.
+    assert.match(text, /total: 1, 3, 6, 10/);
   } finally {
     extension.deactivate();
   }
