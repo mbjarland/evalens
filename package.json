@@ -351,6 +351,16 @@
         }
       },
       {
+        "id": "evalens.chipDivider",
+        "description": "Colour of the 1px hairline that separates two value groups of one continuous annotation (#118) — the rule a plain, untinted gap used to be. Its own id rather than `evalens.annotationBorder`: the leading accent bar answers what state the line is in and switches accordingly, while this divider answers where one fact ends and the next begins, which does not change with state — retuning one through `workbench.colorCustomizations` should not silently retune the other. Computed at 40% opacity of `evalens.resultForeground`'s own hue per theme, the same value colour the tint behind it already uses, so the rule reads as part of the same palette rather than a fifth, unrelated colour.",
+        "defaults": {
+          "dark": "#d1a35c66",
+          "light": "#8a6a2b66",
+          "highContrast": "#f0c67466",
+          "highContrastLight": "#6b4a1066"
+        }
+      },
+      {
         "id": "evalens.staleTint",
         "description": "Background wash behind a stale chip (#109), replacing `evalens.annotationTint` only there. A stale value keeps its own colour — dimming it would put a claim about the value in competition with the value itself — so the surface behind it is the one thing left that can say it has expired. Computed the way `evalens.annotationTint` was, from `evalens.pendingForeground`'s own grey hue rather than the value's, and at roughly half its alpha, so the chip visibly recedes rather than merely changing hue.",
         "defaults": {

@@ -58,17 +58,23 @@ const AFTER_RULE = 4;
  * twelve pieces. A test builds that line and checks it still fits.
  *
  * Twenty-two segments once neighbouring chrome is merged within each piece,
- * plus eleven gaps between the twelve pieces -- thirty-three. Higher than
- * before #95's chips: a gap used to merge into whichever same-role segment
- * sat next to it, saving a slot, and now cannot, because merging it would
- * paint the gap in that segment's chip. The pool grew to keep paying for the
- * merge #95 gave up rather than let the widest lines quietly fall back to one
- * colour.
+ * plus eleven boundaries between the twelve pieces. Before #95's chips a
+ * boundary was a gap that could merge into whichever same-role segment sat
+ * next to it, saving a slot; #95 made a boundary its own segment, since
+ * merging it would paint the gap inside that segment's chip, which is where
+ * the plain sum of the two -- thirty-three -- came from. #118 made a
+ * boundary cost two slots rather than one: painting the divider's hairline
+ * rule needs a plain spacer ahead of it, because a `border` always sits at
+ * the very outside of its own box and cannot put clear space in front of
+ * itself (see `decorations.ts`'s `DIVIDER_LEAD_SHAPE`). Twenty-two plus
+ * twenty-two is forty-four -- higher again, for the same reason #95's own
+ * rise was: paying for what chip-shaped chrome costs beyond a plain string,
+ * rather than letting the widest lines quietly fall back to one colour.
  *
  * A line that somehow wants more is painted as one string in the value colour:
  * the rendering this replaced, which is still correct, only less legible.
  */
-export const SEGMENT_SLOTS = 33;
+export const SEGMENT_SLOTS = 44;
 
 /** The class name an `after` attachment on this type will be compared under. */
 export function afterClassName(key: string): string {
@@ -127,43 +133,56 @@ export function coalesce(segments: readonly Segment[]): readonly Segment[] {
   return merged;
 }
 
-/** Which edge of its own chip one segment of a group carries (#95). */
+/**
+ * Which edge of the one continuous #118 chip one segment carries.
+ *
+ * #95 shaped each `resultGroups` group as its own box, so an edge used to
+ * mark a position within one group. #118 paints the whole annotation as a
+ * single box instead -- see `decorations.ts`'s doc comment on
+ * `COLOR_ANNOTATION_TINT` for why -- so an edge now marks a position in the
+ * WHOLE flattened run of segments, groups and dividers alike.
+ */
 export type ChipEdge = 'single' | 'first' | 'middle' | 'last';
 
 export interface ChipSlot {
   readonly edge: ChipEdge;
   /**
-   * True for exactly one segment across a whole annotation: the first
-   * segment of the first group, which is the annotation's leading edge and
-   * therefore the one the #95 accent bar is drawn on.
+   * True for exactly one segment across a whole annotation: the first one,
+   * which is the annotation's leading edge and therefore the one the #95
+   * accent bar is drawn on. Kept as its own field even though it is now
+   * fully determined by `edge` (`leading` iff `edge` is `'first'` or
+   * `'single'`): `chipShape` needs only the edge to compute padding and
+   * rounding, but `decorations.ts`'s `show` needs `leading` on its own to
+   * decide whether to draw the bar, and reads it as a plain boolean rather
+   * than re-deriving it from a string on every segment of every line.
    */
   readonly leading: boolean;
 }
 
 /**
- * Which chip edge every segment of one group carries, given how many
- * segments the group has and whether it is the annotation's first group.
+ * Which chip edge every slot of one continuous #118 annotation carries,
+ * given how many slots it paints in total -- content segments and divider
+ * slots alike, since a divider is chrome painted from this same pool (see
+ * `decorations.ts`'s `DIVIDER_LEAD_SHAPE` / `DIVIDER_RULE_SHAPE`), not a gap
+ * sitting outside it the way #95's did.
  *
- * A #95 chip is painted per `resultGroups` group rather than across the
- * whole flattened line, so a segment's edge now depends on where it sits
- * inside its own group -- `single` for a group of one, `first`/`last` for
- * the two ends of a longer one and `middle` for anything between -- and
- * `leading` depends on whether its group is the first one, not on the
- * segment's position in the flattened annotation. A caller paints one group
- * at a time, so both are computed together, once per group, rather than
- * separately per segment: getting either wrong independently would let a
- * bar or a rounded corner land on a segment that lies inside a group's
- * middle rather than at one of its two edges.
+ * Only the two ends of the WHOLE run are special now: the first slot gets
+ * the padding and the square corner that belong at the leading edge (and
+ * the bar, via `leading`), the last gets the padding and the rounded corner
+ * at the trailing edge, and a run of exactly one slot gets both at once.
+ * Every slot in between -- a group's own interior segments, a group's first
+ * or last segment when it is not the annotation's own, and both of a
+ * divider's slots -- carries neither: the tint is continuous across all of
+ * them, so there is nothing left to round or pad except at the two outer
+ * ends.
  */
-export function chipSlots(
-  groupSize: number, isFirstGroup: boolean
-): readonly ChipSlot[] {
-  return Array.from({ length: groupSize }, (_, index) => ({
-    edge: groupSize === 1
+export function chipSlots(total: number): readonly ChipSlot[] {
+  return Array.from({ length: total }, (_, index) => ({
+    edge: total === 1
       ? 'single'
       : index === 0
         ? 'first'
-        : index === groupSize - 1 ? 'last' : 'middle',
-    leading: isFirstGroup && index === 0,
+        : index === total - 1 ? 'last' : 'middle',
+    leading: index === 0,
   }));
 }

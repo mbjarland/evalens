@@ -135,10 +135,18 @@ test('the widest line the renderer can produce still fits the pool', () => {
     + `${SEGMENT_SLOTS}`);
 });
 
-test('the widest line still fits the pool painted as #95 chips, gaps included', () => {
-  // The same worst case as above, but counted the way #95 actually paints
-  // it: one slot per gap between groups as well as per content segment,
-  // since a gap can no longer merge into a neighbouring chip to save one.
+test('the widest line still fits the pool painted as #118 chips, dividers included', () => {
+  // The same worst case as above, but counted the way the one continuous
+  // #118 chip actually paints it: one slot per content segment, and two per
+  // divider between two groups (a plain spacer, then the bordered rule --
+  // see `DIVIDER_LEAD_SHAPE` in `decorations.ts`), since a divider can no
+  // longer merge into a neighbouring chip to save one.
+  //
+  // Differing loop counts (`total`'s 40 against every binding's 2) and a
+  // countless read name (`name1`..`name4`) both keep #118's count-fold from
+  // firing here (see `sharedIterationCount` in `format.ts`), which is
+  // deliberate: folding drops groups rather than adding them, so the
+  // widest line the pool has to hold is the one where nothing folds.
   const groups = resultGroups({
     value: '12',
     display: 'total',
@@ -152,41 +160,72 @@ test('the widest line still fits the pool painted as #95 chips, gaps included', 
     partialFrom: 18,
   }).map(coalesce).filter((group) => group.length > 0);
   const content = groups.reduce((total, group) => total + group.length, 0);
-  const gaps = Math.max(0, groups.length - 1);
-  assert.ok(content + gaps <= SEGMENT_SLOTS,
-    `the widest #95 line takes ${content} segments and ${gaps} gaps, `
-    + `${content + gaps} slots total, and the pool holds ${SEGMENT_SLOTS}`);
+  const dividers = Math.max(0, groups.length - 1);
+  const slots = content + dividers * 2;
+  assert.ok(slots <= SEGMENT_SLOTS,
+    `the widest #118 line takes ${content} segments and ${dividers} `
+    + `two-slot dividers, ${slots} slots total, and the pool holds `
+    + `${SEGMENT_SLOTS}`);
 });
 
-test('chipSlots: a lone segment is its own whole chip', () => {
-  assert.deepEqual(chipSlots(1, true), [{ edge: 'single', leading: true }]);
-  assert.deepEqual(chipSlots(1, false), [{ edge: 'single', leading: false }]);
+test('the widest line that folds its count still fits the pool', () => {
+  // The fold (`sharedIterationCount` in `format.ts`) requires every
+  // countable slot to share one count and forbids a plain read beside them,
+  // so the widest line that folds is a different shape from the widest line
+  // above, not a smaller version of it: the loop target and all three
+  // bindings sharing one count, no read names at all, plus one more group
+  // for the folded `×N` itself.
+  const groups = resultGroups({
+    value: '12',
+    display: 'total',
+    loop: { values: ['1', '2', '3', '4', '5'], last: '99', count: 2 },
+    names: [],
+    bindings: [1, 2, 3].map((n) => ({
+      name: `b${n}`, values: ['1', '2'], last: null, count: 2,
+    })),
+    printed: { stdout: 'out\n', stderr: 'err\n' },
+    more: 9,
+    partialFrom: 18,
+  }).map(coalesce).filter((group) => group.length > 0);
+  const content = groups.reduce((total, group) => total + group.length, 0);
+  const dividers = Math.max(0, groups.length - 1);
+  const slots = content + dividers * 2;
+  assert.ok(slots <= SEGMENT_SLOTS,
+    `the widest folded line takes ${content} segments and ${dividers} `
+    + `two-slot dividers, ${slots} slots total, and the pool holds `
+    + `${SEGMENT_SLOTS}`);
 });
 
-test('chipSlots: a two-segment group is a leading and a trailing edge', () => {
-  assert.deepEqual(chipSlots(2, true), [
+test('chipSlots: a single slot is leading and trailing at once', () => {
+  assert.deepEqual(chipSlots(1), [{ edge: 'single', leading: true }]);
+});
+
+test('chipSlots: two slots are a leading and a trailing edge', () => {
+  assert.deepEqual(chipSlots(2), [
     { edge: 'first', leading: true },
     { edge: 'last', leading: false },
   ]);
-  assert.deepEqual(chipSlots(2, false), [
-    { edge: 'first', leading: false },
-    { edge: 'last', leading: false },
-  ]);
 });
 
-test('chipSlots: only the first segment of the first group ever leads', () => {
+test('chipSlots: only the first slot of the whole run ever leads', () => {
   // `leading` is what earns the #95 accent bar, and it must land on exactly
-  // one segment across a whole annotation -- never on a later group's first
-  // segment, whatever its own edge is.
-  for (const size of [1, 2, 3, 4]) {
-    const slots = chipSlots(size, false);
-    assert.ok(slots.every((slot) => !slot.leading),
-      `a non-first group of size ${size} produced a leading segment`);
+  // one slot across a whole annotation -- never on a divider slot or on a
+  // later group's own first segment, whatever edge either carries (#118).
+  for (const total of [1, 2, 3, 4, 5]) {
+    const slots = chipSlots(total);
+    assert.deepEqual(slots.map((slot) => slot.leading),
+      slots.map((_, index) => index === 0));
   }
 });
 
-test('chipSlots: the middle of a longer group carries neither edge', () => {
-  const slots = chipSlots(3, true);
-  assert.deepEqual(slots.map((slot) => slot.edge), ['first', 'middle', 'last']);
-  assert.deepEqual(slots.map((slot) => slot.leading), [true, false, false]);
+test('chipSlots: everything between the two ends carries neither edge', () => {
+  // #118: the two ends of the whole annotation are the only special
+  // positions now: everything between them -- a group's own interior
+  // segments, a later group's first or last segment, or a divider's two
+  // slots -- is chip padding and rounding is not.
+  const slots = chipSlots(5);
+  assert.deepEqual(slots.map((slot) => slot.edge),
+    ['first', 'middle', 'middle', 'middle', 'last']);
+  assert.deepEqual(slots.map((slot) => slot.leading),
+    [true, false, false, false, false]);
 });

@@ -60,20 +60,32 @@ export const COLOR_FLASH_REGION = 'evalens.flashRegionBackground';
 export const COLOR_ANNOTATION_BORDER = 'evalens.annotationBorder';
 
 /**
- * The wash behind one chip of an annotation (#95).
+ * The wash behind an annotation (#95, reshaped by #118).
  *
  * A bar alone read as a stray character rather than as structure: characters
  * do not have backgrounds, so nothing about a lone stroke told the reader it
  * was looking at a surface rather than punctuation. A tint is what a glyph
  * cannot have, which is what makes it read as a panel instead -- but a single
  * continuous tint across the whole annotation (#95's third revision) turned
- * out to be the wrong shape: it erased the separation between `x: 1` and
- * `y: 2` that lets a reader parse the line into distinct facts. The final
- * shape paints one tint per `resultGroups` group -- a label and the value it
- * introduces, or `printed:` and its text -- with the gap between two groups
- * left untinted, so the panel reads as several facts rather than one blur.
+ * out to be the wrong shape *for that revision*: with nothing else marking a
+ * boundary, it erased the separation between `x: 1` and `y: 2` that lets a
+ * reader parse the line into distinct facts. #95 shipped painting one tint
+ * per `resultGroups` group instead -- a label and the value it introduces, or
+ * `printed:` and its text -- with the gap between two groups left untinted,
+ * so the boundary *was* the tint's own edge.
  *
- * One colour for every group and every role, for `evaluated` and `pending`
+ * #118 revisits that trade rather than reversing it: once a 1px hairline
+ * (`COLOR_CHIP_DIVIDER`) sits at every one of those same boundaries, the
+ * boundary is the rule, not the edge of the tint, and a continuous wash no
+ * longer erases anything -- what #95 protected against was a plain gap
+ * being the *only* signal, and it no longer is. So the whole annotation is
+ * one tinted surface again, from its leading edge to its trailing one,
+ * dividers included, and rounds only at those two outer ends (see
+ * `chipShape`); the maintainer's own rendering of a half-width editor
+ * (#118's motivating case) was the evidence that the gap this bought back
+ * was worth more than the second separation cue cost.
+ *
+ * One colour for every segment and every role, for `evaluated` and `pending`
  * alike -- the bar already carries most of a state's distinction, and a
  * tint that also changed hue per role would be a second signal for one
  * fact. `stale` is the one exception (#109): before `COLOR_STALE_TINT`
@@ -90,6 +102,28 @@ export const COLOR_ANNOTATION_BORDER = 'evalens.annotationBorder';
  * the text already uses rather than as a fourth, unrelated colour.
  */
 export const COLOR_ANNOTATION_TINT = 'evalens.annotationTint';
+
+/**
+ * The 1px rule that separates two value groups of one continuous #118 chip
+ * -- what a plain, untinted gap (`CHIP_GAP_SHAPE`, #95) used to do on its
+ * own, and now does beside a tinted surface rather than instead of one; see
+ * `COLOR_ANNOTATION_TINT` for why the two together read better than the gap
+ * alone did.
+ *
+ * Its own contributed colour, not `COLOR_ANNOTATION_BORDER`: the leading
+ * accent bar answers "what state is this line in" -- evaluated, stale,
+ * erroring -- and switches accordingly (see `chip.leading` in `show`,
+ * below), while the divider answers "where does one fact end and the next
+ * begin", a question with the same answer regardless of state. Folding the
+ * two into one colour would mean a reader retuning the state colour through
+ * `workbench.colorCustomizations` silently retunes the punctuation too.
+ * Default `#d1a35c66`: the value colour (`COLOR_RESULT`'s default amber) at
+ * 40% -- struck by eye against the same rendering that settled #118's other
+ * numbers, not computed from the contrast floor the tint colours answer to,
+ * because a divider is a rule for the eye to catch, not text a screen
+ * reader's contrast check has to pass.
+ */
+export const COLOR_CHIP_DIVIDER = 'evalens.chipDivider';
 
 /**
  * The stale chip's own tint (#109), replacing `COLOR_ANNOTATION_TINT` only
@@ -145,49 +179,62 @@ export const SHOW_OUTPUT = 'evalens.showOutput';
 const MINIMUM_GAP = 2;
 
 /**
- * Padding and rounding for one #95 chip, smuggled through `textDecoration` --
- * the decoration API exposes no padding of its own. Both are given per
- * `ChipEdge`, because a chip is now painted per `resultGroups` group rather
- * than once across the whole annotation: each group gets its own breathing
- * room and its own rounded corners, and the gap between two groups gets
- * neither (see `chipShape` below, and the untinted gap segment `show` builds
- * for it).
+ * Padding and rounding for the one continuous #118 chip, smuggled through
+ * `textDecoration` -- the decoration API exposes no padding of its own.
+ * Given per `ChipEdge` (`layers.ts`), which since #118 marks a position in
+ * the WHOLE flattened run of segments and dividers rather than a position
+ * within one `resultGroups` group: only the run's own two outer ends get
+ * breathing room and a rounded corner (see `chipShape` below); everything
+ * between them -- a group's interior, a later group's own first or last
+ * segment, both of a divider's slots -- gets neither, because the tint is
+ * continuous across all of it and there is no edge there to round or pad.
  *
- * Eight pixels on every outer edge -- final numbers, chosen by the maintainer
+ * Eight pixels at each outer end -- final numbers, chosen by the maintainer
  * against a rendering rather than by description: six read as a printing
- * mistake, hugging the text it was meant to set off; padding only at the
- * outer ends of the *whole run*, which an earlier attempt tried, does not fix
- * that, because each chip is now its own box and needs its own room at both
- * of its own edges. All horizontal, so nothing here grows the inline-block
- * vertically -- vertical padding would push lines apart, which is worse than
- * any width this settles on.
+ * mistake, hugging the text it was meant to set off. All horizontal, so
+ * nothing here grows the inline-block vertically -- vertical padding would
+ * push lines apart, which is worse than any width this settles on. The same
+ * number also happens to be the divider's own clear space on each side of
+ * its rule (`DIVIDER_LEAD_SHAPE` / `DIVIDER_RULE_SHAPE`, below) -- one
+ * constant, reused, because #118 chose one number for "room around an edge"
+ * and used it at both places that needed one, not because a chip's outer
+ * padding and an interior rule's clearance are the same concern.
  *
- * Corners round 3px, except the one edge carrying the #95 accent bar, which
- * is square. `border-radius` rounds whatever border is drawn on the same
- * box, and a rounded corner under the bar made a short, curved, text-height
- * stroke immediately before italic text -- which the maintainer correctly
- * read as an opening parenthesis rather than as structure before this was
- * diagnosed. `leading` (see `ChipSlot`) is true for exactly one segment
- * across a whole annotation, so it is the only one `chipShape` ever squares.
+ * The leading edge's corner is square rather than rounded, because it also
+ * carries the #95 accent bar: `border-radius` rounds whatever border is
+ * drawn on the same box, and a rounded corner under the bar made a short,
+ * curved, text-height stroke immediately before italic text -- which the
+ * maintainer correctly read as an opening parenthesis rather than as
+ * structure before this was diagnosed. `leading` (see `ChipSlot`) is true
+ * for exactly one segment across a whole annotation, so it is the only one
+ * `chipShape` ever squares; the trailing edge, the run's other special
+ * position, rounds.
  */
 const CHIP_PAD = 8;
 
 /**
  * The `textDecoration` shape for one segment, given the `ChipEdge` it
- * carries within its own group and whether it is the annotation's leading
- * segment. Background and border are separate render-option fields (see
- * `show`, below) -- this is padding and rounding only.
+ * carries across the whole annotation (#118: no longer within its own
+ * `resultGroups` group -- see `CHIP_PAD` above). Background and border are
+ * separate render-option fields (see `show`, below) -- this is padding and
+ * rounding only.
+ *
+ * Takes only the edge, not `leading` (`ChipSlot`'s other field), because
+ * under one continuous chip the two now agree completely: `'first'` and
+ * `'single'` are the only edges a leading segment can ever carry, and
+ * `'last'` and `'middle'` are the only ones a non-leading one can. A second
+ * parameter that could only ever repeat what `edge` already said would be a
+ * second place for the two to quietly disagree; `show` still reads
+ * `leading` on its own, because deciding whether to draw the bar is a
+ * different question from deciding padding and rounding, and asks it as a
+ * plain boolean rather than re-deriving it from a string.
  */
-function chipShape(edge: ChipEdge, leading: boolean): string {
+function chipShape(edge: ChipEdge): string {
   switch (edge) {
     case 'single':
-      return leading
-        ? `none; padding: 0 ${CHIP_PAD}px; border-radius: 0 3px 3px 0;`
-        : `none; padding: 0 ${CHIP_PAD}px; border-radius: 3px;`;
+      return `none; padding: 0 ${CHIP_PAD}px; border-radius: 0 3px 3px 0;`;
     case 'first':
-      return leading
-        ? `none; padding: 0 0 0 ${CHIP_PAD}px; border-radius: 0;`
-        : `none; padding: 0 0 0 ${CHIP_PAD}px; border-radius: 3px 0 0 3px;`;
+      return `none; padding: 0 0 0 ${CHIP_PAD}px; border-radius: 0;`;
     case 'last':
       return `none; padding: 0 ${CHIP_PAD}px 0 0; border-radius: 0 3px 3px 0;`;
     case 'middle':
@@ -196,13 +243,34 @@ function chipShape(edge: ChipEdge, leading: boolean): string {
 }
 
 /**
- * The gap `resultGroups` leaves for `show` to join back in, painted plainly:
- * no tint, no padding, no rounding, no border. It is what separates one chip
- * from the next, which is the whole reason #95 stopped tinting it along with
- * its neighbour -- a gap that looked like part of a chip was not a gap a
- * reader could see.
+ * The two slots that make up one #118 divider between two value groups of
+ * the same continuous chip -- what the untinted, three-non-breaking-space
+ * `resultGroups` gap used to be painted as (#95's `CHIP_GAP_SHAPE`, now
+ * gone), before the whole box became one tinted surface (see
+ * `COLOR_ANNOTATION_TINT`) and the gap itself became a 1px rule.
+ *
+ * Two slots, not one, because a `border` always sits at the very outermost
+ * edge of its own box -- outside any padding on that same side, the same
+ * reason the leading edge's own accent bar has padding on only one side of
+ * it (`chipShape`'s `'first'` case: the bar, then clear space, never clear
+ * space before the bar). A single element carrying both `border-left` and
+ * a `CHIP_PAD` padding therefore cannot put that clearance on both sides of
+ * the rule it draws -- the border eats the space in front
+ * of it. So the lead slot stands in for the padding a border cannot put in
+ * front of itself: `CHIP_PAD` of plain tinted space and no border of its
+ * own, immediately followed by the rule slot, whose own trailing padding
+ * supplies the other `CHIP_PAD`. Neither slot rounds a corner or leaves the
+ * annotation's continuous tint -- see `chipSlots` in `layers.ts`, which
+ * `show` gives the true, two-slots-per-divider total so a divider always
+ * lands on `'middle'`, never on the one leading or trailing position the
+ * whole run keeps for its own two outer ends. Both paint empty content: the
+ * two paddings and the rule are the whole of what there is to see, so there
+ * is nothing left to write into either slot's `contentText`.
  */
-const CHIP_GAP_SHAPE = 'none;';
+const DIVIDER_LEAD_SHAPE = `none; padding: 0 0 0 ${CHIP_PAD}px;`;
+const DIVIDER_RULE_SHAPE = `none; padding: 0 ${CHIP_PAD}px 0 0;`;
+/** Content for both divider slots: chrome that paints nothing to read. */
+const DIVIDER_TEXT = '';
 
 /**
  * The `border` value that makes only the leading edge visible: every side
@@ -221,6 +289,18 @@ const CHIP_GAP_SHAPE = 'none;';
  * `COLOR_ANNOTATION_BORDER` for the colour half of the same revision.
  */
 const BORDER_LEFT = 'none; border-left: 3px solid;';
+
+/**
+ * The `border` value for the #118 divider's own rule -- the same
+ * left-only-side override as `BORDER_LEFT`, but a 1px hairline rather than a
+ * 3px bar: this is punctuation between two facts already inside one chip,
+ * not the accent that has to announce the chip's own state from across a
+ * busy, syntax-highlighted line. Its colour is `COLOR_CHIP_DIVIDER`, set
+ * where `show` builds the rule slot's `renderOptions`, never
+ * `COLOR_ANNOTATION_BORDER` or `COLOR_STALE_BORDER` -- see
+ * `COLOR_CHIP_DIVIDER`'s own doc comment for why the two never share one.
+ */
+const DIVIDER_BORDER = 'none; border-left: 1px solid;';
 
 /** The colour each role is painted in. */
 const COLOR_FOR: Record<SegmentRole, string> = {
@@ -381,7 +461,7 @@ export class Decorator implements vscode.Disposable {
       // loudness is the bar and the text, not a second background. An error
       // is always a single chip that is also the annotation's leading edge.
       backgroundColor: new vscode.ThemeColor(COLOR_ANNOTATION_TINT),
-      textDecoration: chipShape('single', true),
+      textDecoration: chipShape('single'),
       fontStyle: 'italic',
       // The #95 bar takes the error colour here, never the annotation-border
       // one -- an error is exactly as loud as the text beside it already is.
@@ -403,7 +483,7 @@ export class Decorator implements vscode.Disposable {
       // one -- the point the tint exists for does not stop applying just
       // because there is nothing to read yet.
       backgroundColor: new vscode.ThemeColor(COLOR_ANNOTATION_TINT),
-      textDecoration: chipShape('single', true),
+      textDecoration: chipShape('single'),
       fontStyle: 'italic',
       // Greyed with the rest of this state, for the same reason: a bright
       // bar would be the loudest thing on a row that is saying "not yet".
@@ -422,7 +502,7 @@ export class Decorator implements vscode.Disposable {
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
     after: {
       color: new vscode.ThemeColor(COLOR_ASKING),
-      textDecoration: chipShape('single', true),
+      textDecoration: chipShape('single'),
       fontStyle: 'italic',
     },
   });
@@ -645,12 +725,18 @@ export class Decorator implements vscode.Disposable {
           partialFrom: annotation.partialFrom,
         }).map(coalesce).filter((group) => group.length > 0);
 
-        // The untinted gap between two chips, kept as its own segment rather
-        // than let `coalesce` fold it into either neighbour (#95) -- painting
-        // it in a neighbour's chip is the defect the per-group tint exists to
-        // avoid. Non-breaking, the same as every other segment: an ordinary
-        // space here would collapse exactly the way #83 measured and close
-        // the gap `resultGroups` left for it.
+        // The gap `resultGroups` leaves between two groups, kept as its own
+        // segment rather than let `coalesce` fold it into either neighbour
+        // (#95) -- folding it in would paint three non-breaking spaces
+        // inside that neighbour's own label or value. This is the plain-text
+        // form only, used below for the restates-the-line comparison and as
+        // the fallback body when the annotation does not fit the pool: the
+        // #118 chip painted further down never paints this segment at all,
+        // and draws its own hairline divider in its place instead (see
+        // `DIVIDER_LEAD_SHAPE` / `DIVIDER_RULE_SHAPE`) -- painting a divider
+        // costs two slots of the pool where this text form costs one, which
+        // is exactly why the two are counted separately below rather than
+        // both being read off `flat.length`.
         const gapSegment: Segment = {
           role: 'nameLabel', text: preserveSpacing(GAP),
         };
@@ -676,11 +762,18 @@ export class Decorator implements vscode.Disposable {
         // The exemption is here, on the kind of statement, and not inside
         // `restatesLine`, which is right about text and stays that way.
         if (opensDefinition(host.text) || !restatesLine(text, host.text)) {
-          // Beyond the pool there is no type left to paint in, so the line
-          // falls back to the rendering this replaced: one attachment, one
-          // colour, every character still there. Less legible, never wrong.
-          // A single chip, and it is the annotation's own leading edge.
-          const fits = flat.length <= results.length;
+          // The true cost of painting every group as one #118 chip: one slot
+          // per content segment, and -- since #118 -- two per divider
+          // between two groups, not `flat.length`'s one (see `gapSegment`
+          // above). Beyond the pool there is no type left to paint in, so
+          // the line falls back to the rendering this replaced: one
+          // attachment, one colour, every character still there. Less
+          // legible, never wrong. A single chip, and it is the annotation's
+          // own leading edge.
+          const contentCount = groups.reduce(
+            (total, group) => total + group.length, 0);
+          const dividerCount = Math.max(0, groups.length - 1);
+          const fits = contentCount + dividerCount * 2 <= results.length;
           const paintedGroups: readonly (readonly Segment[])[] = fits
             ? groups
             : [[{ role: 'value', text }]];
@@ -690,32 +783,58 @@ export class Decorator implements vscode.Disposable {
           // apart (#109). Both colours belong to the chip, never to the
           // text: `COLOR_FOR[segment.role]` below is unconditional, so what
           // recedes when a value goes stale is only the surface around it.
+          // The divider's own rule never joins this switch -- it keeps
+          // `COLOR_CHIP_DIVIDER` regardless of state, see that colour's doc
+          // comment.
           const stale = markerFor(annotation) === 'stale';
           const borderColor = stale
             ? COLOR_STALE_BORDER
             : COLOR_ANNOTATION_BORDER;
           const tintColor = stale ? COLOR_STALE_TINT : COLOR_ANNOTATION_TINT;
 
+          // Computed once, across every slot the annotation paints in --
+          // content and dividers alike -- because #118 paints one continuous
+          // chip rather than one per group: see `chipSlots` in `layers.ts`.
+          const edges = chipSlots(fits ? contentCount + dividerCount * 2 : 1);
           let slot = 0;
           paintedGroups.forEach((group, groupIndex) => {
             if (fits && groupIndex > 0) {
-              // The gap between two chips takes a slot of its own, painted
-              // with none of a chip's tint, padding or rounding.
+              // The #118 divider between two chips takes two slots of its
+              // own -- see `DIVIDER_LEAD_SHAPE` for why one rule needs two
+              // -- painted with the same tint as every other segment and
+              // none of a chip's own outer padding or rounding: `edges` puts
+              // both on `'middle'`, since a divider can never be the whole
+              // run's own leading or trailing slot (`groups` never carries
+              // an empty group for one to follow or precede).
               results[slot]!.push({
                 range: at,
                 renderOptions: {
                   after: {
-                    contentText: gapSegment.text,
+                    contentText: DIVIDER_TEXT,
                     color: new vscode.ThemeColor(COLOR_FOR[gapSegment.role]),
-                    textDecoration: CHIP_GAP_SHAPE,
+                    backgroundColor: new vscode.ThemeColor(tintColor),
+                    textDecoration: DIVIDER_LEAD_SHAPE,
+                  },
+                },
+              });
+              slot += 1;
+              results[slot]!.push({
+                range: at,
+                renderOptions: {
+                  after: {
+                    contentText: DIVIDER_TEXT,
+                    color: new vscode.ThemeColor(COLOR_FOR[gapSegment.role]),
+                    backgroundColor: new vscode.ThemeColor(tintColor),
+                    border: DIVIDER_BORDER,
+                    borderColor: new vscode.ThemeColor(COLOR_CHIP_DIVIDER),
+                    textDecoration: DIVIDER_RULE_SHAPE,
                   },
                 },
               });
               slot += 1;
             }
-            const edges = chipSlots(group.length, groupIndex === 0);
-            group.forEach((segment, index) => {
-              const chip = edges[index]!;
+            group.forEach((segment) => {
+              const chip = edges[slot]!;
               results[slot]!.push({
                 range: at,
                 renderOptions: {
@@ -723,8 +842,8 @@ export class Decorator implements vscode.Disposable {
                     // Only the very first segment of the whole annotation is
                     // pushed out to the alignment column and carries the #95
                     // bar -- `chip.leading` and `slot === 0` are the same
-                    // fact, since neither a gap nor a later group's first
-                    // segment can ever be slot 0.
+                    // fact, since neither a divider's slots nor a later
+                    // group's first segment can ever be slot 0.
                     ...(slot === 0 ? { margin } : {}),
                     ...(chip.leading
                       ? {
@@ -735,7 +854,7 @@ export class Decorator implements vscode.Disposable {
                     contentText: segment.text,
                     color: new vscode.ThemeColor(COLOR_FOR[segment.role]),
                     backgroundColor: new vscode.ThemeColor(tintColor),
-                    textDecoration: chipShape(chip.edge, chip.leading),
+                    textDecoration: chipShape(chip.edge),
                   },
                 },
               });
