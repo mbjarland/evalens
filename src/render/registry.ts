@@ -109,27 +109,15 @@ export function staleReasonText(
 }
 
 /**
- * A statement's source folded to what a re-run would actually notice.
- *
- * Leading and trailing whitespace goes, per line, and blank lines go with it.
- * The rule is JupyterLab's, arrived at in review of the same feature: a cell
- * is not marked dirty when only its surrounding whitespace changed, "because
- * this wouldn't change the cell execution result". Reindenting a block,
- * deleting a trailing space, or letting a formatter run on save would
- * otherwise turn a screenful of markers amber at once -- and the first time
- * that happens the marker stops being believed, which costs more than the
- * handful of edits it lets through.
- *
- * Deliberately not more clever than that. Folding `x=1` and `x = 1` together
- * would need a tokeniser, and every extra thing folded together is another
- * real change that goes unmarked. Over-marking is the cheap mistake here.
+ * Preserve the source that produced a trace. Indentation and whitespace
+ * inside multiline strings are semantic in Python; trimming each line
+ * silently treated changed programs as unchanged. Conservative staleness
+ * is preferable to claiming equivalence without parsing.
  */
 export function normalizeSource(text: string): string {
-  return text
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line !== '')
-    .join('\n');
+  // Python normalizes physical line endings. Other whitespace can change
+  // block membership or literal contents, so keep it without a tokenizer.
+  return text.replace(/\r\n/g, '\n');
 }
 
 /**
@@ -137,10 +125,8 @@ export function normalizeSource(text: string): string {
  *
  * Not a parser, deliberately: this module stays free of one so the lifecycle
  * is testable without the kernel, and the two shapes checked here need none --
- * they cannot be a statement under any grammar. `current` has already been
- * through `normalizeSource`, so blank lines are already gone and "" means the
- * lines hold nothing but whitespace; the other shape a comment-only line
- * leaves is every remaining line starting with `#`. Between them these are
+ * they cannot be a statement under any grammar. Each line is checked for
+ * whitespace or a comment without changing the stored source. These are
  * exactly what commenting out a statement, or deleting its text and leaving
  * the line, produces (#96).
  *
@@ -150,8 +136,8 @@ export function normalizeSource(text: string): string {
  * the safe side of a guess this module cannot resolve without parsing.
  */
 function isStatementless(current: string): boolean {
-  return current === ''
-    || current.split('\n').every((line) => line.startsWith('#'));
+  return current.split('\n').every((line) =>
+    line.trim() === '' || line.trimStart().startsWith('#'));
 }
 
 /**
@@ -171,7 +157,7 @@ function isStatementless(current: string): boolean {
  *    not put the value back, because the kernel still holds whatever it was
  *    last told. A marker that cleared itself on undo would be claiming
  *    agreement nobody verified.
- * 2. Unchanged text stays evaluated -- the whitespace rule above.
+ * 2. Unchanged text stays evaluated.
  * 3. Anything else is stale, including an annotation with no recorded source.
  */
 export function afterEdit<T extends Traced>(
