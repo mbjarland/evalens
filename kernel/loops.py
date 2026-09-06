@@ -842,10 +842,8 @@ def innermost_loop_at(
     position inside an unnested loop resolves to the loop itself, which is
     the common case #48's own examples exercise.
 
-    Coordinates in are VS Code's, like every other position the kernel takes
-    off the wire; `resolver.py` documents the same 1-based/0-based line
-    conversion for the same reason, and this module stays out of that file
-    by restating the two-line rule here rather than importing it.
+    Lines are zero-based and columns are AST UTF-8 byte offsets. The kernel
+    converts incoming editor UTF-16 columns before calling this function.
     """
     best: Optional[Union[ast.For, ast.AsyncFor]] = None
     best_span: Optional[int] = None
