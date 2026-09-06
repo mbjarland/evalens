@@ -129,6 +129,13 @@ Open any `.py` file, put the cursor on a line, press **`Cmd+Enter`**
 install options, including building from source, are under
 [Install](#install) below.
 
+For five optional hands-on exercises, choose **Evalens: Open Learning Walkthrough**
+from the Command Palette. Predict values, step through code, explore list aliasing,
+fix an accumulator, and see why an edited answer becomes stale. Each exercise opens
+as an editable, unsaved Python document; nothing runs until you evaluate it.
+**Evalens: Open Learning Exercise** opens an individual exercise. The walkthrough
+is optional, and its checkboxes are yours to mark after trying each exercise.
+
 ## Learn it in four keys
 
 Everything Evalens does starts from one of these.

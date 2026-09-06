@@ -86,3 +86,15 @@ test('npm run package is the one command that builds it', () => {
   // vsce runs this itself before packaging, so a stale `out/` cannot ship.
   assert.equal(manifest.scripts?.['vscode:prepublish'], 'npm run compile');
 });
+
+// Walkthrough media is installed product content, unlike repository demos.
+test('every walkthrough instruction and exercise ships in the VSIX', () => {
+  for (const walkthrough of manifest.contributes.walkthroughs ?? []) {
+    for (const step of walkthrough.steps) {
+      assert.ok(packaged.includes(step.media.markdown), step.media.markdown);
+      const exercise = `media/learning/${step.id}.py`;
+      assert.ok(packaged.includes(exercise), exercise);
+    }
+  }
+  assert.ok(packaged.includes('out/learning.js'));
+});

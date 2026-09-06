@@ -104,6 +104,14 @@
       {
         "command": "evalens.toggleValuesPanelFollow",
         "title": "Evalens: Toggle Follow in Values Panel"
+      },
+      {
+        "command": "evalens.openLearningWalkthrough",
+        "title": "Evalens: Open Learning Walkthrough"
+      },
+      {
+        "command": "evalens.openLearningExercise",
+        "title": "Evalens: Open Learning Exercise"
       }
     ],
     "viewsContainers": {
@@ -449,6 +457,71 @@
         "command": "evalens.clearResults",
         "key": "escape",
         "when": "editorTextFocus && evalens.hasAnnotations"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "evalens.learning",
+        "title": "Learn Python with Evalens",
+        "description": "Five optional exercises: predict, evaluate, and compare. No setup or automatic execution.",
+        "steps": [
+          {
+            "id": "predict",
+            "title": "Predict a value",
+            "description": "Predict the answer, then evaluate one expression.\n[Open exercise](command:evalens.openLearningExercise?%5B%22predict%22%5D)",
+            "media": {
+              "markdown": "media/learning/predict.md"
+            },
+            "completionEvents": [
+              "onEvent:evalens.learning.manualCompletion"
+            ]
+          },
+          {
+            "id": "advance",
+            "title": "Follow the next statement",
+            "description": "Evaluate and advance through three statements.\n[Open exercise](command:evalens.openLearningExercise?%5B%22advance%22%5D)",
+            "media": {
+              "markdown": "media/learning/advance.md"
+            },
+            "completionEvents": [
+              "onEvent:evalens.learning.manualCompletion"
+            ]
+          },
+          {
+            "id": "aliasing",
+            "title": "Two names, one list",
+            "description": "Predict whether changing one name changes the other.\n[Open exercise](command:evalens.openLearningExercise?%5B%22aliasing%22%5D)",
+            "media": {
+              "markdown": "media/learning/aliasing.md"
+            },
+            "completionEvents": [
+              "onEvent:evalens.learning.manualCompletion"
+            ]
+          },
+          {
+            "id": "accumulator",
+            "title": "Fix an accumulator",
+            "description": "Compare replacing a total with adding to it.\n[Open exercise](command:evalens.openLearningExercise?%5B%22accumulator%22%5D)",
+            "media": {
+              "markdown": "media/learning/accumulator.md"
+            },
+            "completionEvents": [
+              "onEvent:evalens.learning.manualCompletion"
+            ]
+          },
+          {
+            "id": "stale",
+            "title": "Notice an old answer",
+            "description": "Edit code, notice staleness, then explicitly rerun.\n[Open exercise](command:evalens.openLearningExercise?%5B%22stale%22%5D)",
+            "media": {
+              "markdown": "media/learning/stale.md"
+            },
+            "completionEvents": [
+              "onEvent:evalens.learning.manualCompletion"
+            ]
+          }
+        ],
+        "when": "evalens.learning.requested"
       }
     ]
   },
