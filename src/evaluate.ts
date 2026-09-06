@@ -337,6 +337,35 @@ function causeAnnotation(partial: PartialParse): Annotation {
 export class Evaluator {
   private readonly gate = new LatestWins<string>();
   private asking?: Asking;
+  private execution: Promise<unknown> = Promise.resolve();
+  private executionGeneration = 0;
+
+  /** One user action owns the namespace and its prompts until it finishes. */
+  private execute<T>(asking: Asking, action: () => Promise<T>): Promise<T> {
+    const generation = this.executionGeneration;
+    const work = this.execution.then(async () => {
+      if (generation !== this.executionGeneration) {
+        throw new Error('evaluation cancelled before it started');
+      }
+      this.asking = asking;
+      try {
+        return await action();
+      } finally {
+        if (this.asking === asking) {
+          this.asking = undefined;
+        }
+      }
+    });
+    this.execution = work.catch(() => undefined);
+    return work;
+  }
+
+  cancelQueued(): void {
+    this.executionGeneration += 1;
+    this.execution = Promise.resolve();
+    this.outline = undefined;
+    this.asking = undefined;
+  }
   /**
    * The client, once one has been resolved.
    *
@@ -627,6 +656,7 @@ export class Evaluator {
   ): Promise<void> {
     const asScript = options?.asScript ?? false;
     const document = editor.document;
+    const source = document.getText();
     const selection = editor.selection;
     const lines = asScript ? undefined : selectedLines(selection);
     // See the doc comment above: a selection never resets, a script run
@@ -638,8 +668,9 @@ export class Evaluator {
     const load = new LoadPainting(document, this.annotations, this.flash, editor);
     const blocked = new BlockedMark();
     // Set before the request, for the same reason.
-    this.asking = { document, load: new LoadPrompts(), blocked };
     try {
+      response = await this.execute(
+        { document, load: new LoadPrompts(), blocked }, async () => {
       const client = await this.client();
       if (shouldReset) {
         // Awaited on its own, not raced with `eval_file`: the kernel reads
@@ -654,7 +685,7 @@ export class Evaluator {
       const running = client.request(
         {
           op: 'eval_file',
-          source: document.getText(),
+          source,
           filename: document.uri.fsPath,
           // A load asks. It used to refuse, citing the flag Jupyter sets false
           // for `nbconvert` -- but that runs unattended, and this is somebody
@@ -689,12 +720,13 @@ export class Evaluator {
           load.order.offer(frame.index, frame.outcome);
         }
       );
-      response = (await this.watch(
+      return (await this.watch(
         running,
         asScript
           ? 'Evalens: running the file as a script'
           : lines ? 'Evalens: running the selection' : 'Evalens: loading the file'
       )) as FileResponse;
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.output.appendLine(message);
@@ -703,7 +735,6 @@ export class Evaluator {
       // transport failing afterwards does not make them untrue.
       return;
     } finally {
-      this.asking = undefined;
       // However the load ended, nothing is running any more, so nothing on
       // screen may go on saying that something is. Here rather than beside
       // each exit because the last statement may have prompted and then
@@ -840,6 +871,7 @@ export class Evaluator {
    */
   async evaluateAbove(editor: vscode.TextEditor): Promise<void> {
     const document = editor.document;
+    const source = document.getText();
     const line = editor.selection.active.line;
     let response: FileResponse;
     // Built before the request, for the same reason `evaluateFile` builds
@@ -847,13 +879,14 @@ export class Evaluator {
     // `await` below has yielded even once.
     const load = new LoadPainting(document, this.annotations, this.flash, editor);
     const blocked = new BlockedMark();
-    this.asking = { document, load: new LoadPrompts(), blocked };
     try {
+      response = await this.execute(
+        { document, load: new LoadPrompts(), blocked }, async () => {
       const client = await this.client();
       const running = client.request(
         {
           op: 'eval_above',
-          source: document.getText(),
+          source,
           filename: document.uri.fsPath,
           line,
           // Same reasoning as Evaluate File: somebody pressed a key and is
@@ -867,16 +900,16 @@ export class Evaluator {
           load.order.offer(frame.index, frame.outcome);
         }
       );
-      response = (await this.watch(
+      return (await this.watch(
         running, 'Evalens: running everything above the cursor'
       )) as FileResponse;
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.output.appendLine(message);
       void vscode.window.showErrorMessage(`Evalens: ${message}`);
       return;
     } finally {
-      this.asking = undefined;
       blocked.release();
     }
 
@@ -935,6 +968,7 @@ export class Evaluator {
     editor: vscode.TextEditor, at?: vscode.Position
   ): Promise<void> {
     const document = editor.document;
+    const source = document.getText();
     const cursor = at ?? editor.selection.active;
     // Keyed by line as well as document. Two presses on one line race, and the
     // newer one is the answer -- but two presses on different lines are not
@@ -957,13 +991,12 @@ export class Evaluator {
           // The mark goes to the prompt handler rather than a second one being
           // made: the line the cursor is on is inside the statement that is
           // blocked, so it is already the right line to say so on.
-          this.asking = { document, waiting };
-          try {
+          return this.execute({ document, waiting }, async () => {
             const client = await this.client();
             return (await this.watch(
               client.request({
                 op: 'eval',
-                source: document.getText(),
+                source,
                 line: cursor.line,
                 character: cursor.character,
                 filename: document.uri.fsPath,
@@ -977,9 +1010,7 @@ export class Evaluator {
               }),
               'Evalens: evaluating'
             )) as EvalResponse;
-          } finally {
-            this.asking = undefined;
-          }
+          });
         },
         { busy: () => this.busy() }
       );
@@ -1232,11 +1263,13 @@ export class Evaluator {
 
     let response: EvalResponse;
     try {
+      const source = document.getText();
+      response = await this.execute({ document }, async () => {
       const client = await this.client();
-      response = (await this.watch(
+      return (await this.watch(
         client.request({
           op: 'eval_watch',
-          source: document.getText(),
+          source,
           line: selection.start.line,
           character: selection.start.character,
           filename: document.uri.fsPath,
@@ -1248,6 +1281,7 @@ export class Evaluator {
         }),
         'Evalens: watching'
       )) as EvalResponse;
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.output.appendLine(message);

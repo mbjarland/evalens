@@ -277,6 +277,98 @@ function depainted(editor: FakeEditor, line: number): string {
   return paintedLineText(editor, line).replace(/ /g, ' ');
 }
 
+test('queued evaluations keep their own document and input context', async () => {
+  const fake = createFakeVscode();
+  const first = createEditor("a = input('first')\n", '/fake/first.py');
+  const second = createEditor("b = input('second')\n", '/fake/second.py');
+  fake.window.visibleTextEditors = [first, second];
+  fake.inputBox.answers.push('one', 'two');
+  const extension = activated(fake);
+  try {
+    fake.window.activeTextEditor = first;
+    const a = fake.executeCommand('evalens.evaluateAtCursor');
+    fake.window.activeTextEditor = second;
+    const b = fake.executeCommand('evalens.evaluateAtCursor');
+    await Promise.all([a, b]);
+    assert.equal(fake.inputBox.calls.length, 2);
+    assert.match(fake.inputBox.calls[0].title!, /first/);
+    assert.match(fake.inputBox.calls[1].title!, /second/);
+    assert.match(depainted(first, 0), /one/);
+    assert.match(depainted(second, 0), /two/);
+    assert.equal(fake.messages.error.length, 0);
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('two resetting loads cannot run between each other\'s reset and load', async () => {
+  const fake = createFakeVscode();
+  const first = createEditor('left = 1\n', '/fake/first.py');
+  const second = createEditor(
+    "assert 'left' not in globals()\nright = 2\n", '/fake/second.py');
+  fake.window.visibleTextEditors = [first, second];
+  const extension = activated(fake);
+  try {
+    fake.window.activeTextEditor = first;
+    const a = fake.executeCommand('evalens.evaluateFile');
+    fake.window.activeTextEditor = second;
+    const b = fake.executeCommand('evalens.evaluateFile');
+    await Promise.all([a, b]);
+    assert.doesNotMatch(depainted(second, 0), /AssertionError/);
+    assert.match(depainted(second, 1), /2/);
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('an inline watch can answer input inside its loop', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor("for i in [1]:\n    value = input('watch')\n");
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  fake.inputBox.answers.push('value', 'answered');
+  const extension = activated(fake);
+  try {
+    await fake.executeCommand('evalens.addInlineWatch');
+    assert.equal(fake.inputBox.calls.length, 2);
+    assert.match(depainted(editor, 0), /answered/);
+    assert.doesNotMatch(depainted(editor, 0), /EOFError/);
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('restart cancels evaluations waiting behind a prompt', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor("input('waiting')\nqueued = 42\n");
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  let asked!: () => void;
+  const opened = new Promise<void>((resolve) => { asked = resolve; });
+  let answer!: (value: string) => void;
+  (fake.module as { window: { showInputBox: () => Promise<string> } })
+    .window.showInputBox = () => {
+      asked();
+      return new Promise((resolve) => { answer = resolve; });
+    };
+  const extension = activated(fake);
+  try {
+    const active = fake.executeCommand('evalens.evaluateAtCursor');
+    await opened;
+    editor.selection = new FakeSelection(1, 0, 1, 0);
+    const queued = fake.executeCommand('evalens.evaluateAtCursor');
+    await fake.executeCommand('evalens.restartKernel');
+    answer('ignored');
+    await Promise.all([active, queued]);
+    editor.document.setText("'queued' in globals()\n");
+    editor.selection = new FakeSelection(0, 0, 0, 0);
+    await fake.executeCommand('evalens.evaluateAtCursor');
+    assert.match(depainted(editor, 0), /False/);
+  } finally {
+    extension.deactivate();
+  }
+});
+
 test('addInlineWatch traces a typed expression that is not in the source ' +
   'at all', async () => {
   const fake = createFakeVscode();

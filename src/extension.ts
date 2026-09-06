@@ -208,6 +208,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('evalens.restartKernel', async () => {
+      evaluator?.cancelQueued();
       client?.restart();
       // The interpreter may have changed since the last spawn -- a new venv
       // selected, a setting edited -- so the next client is built fresh.
@@ -319,6 +320,7 @@ async function ensureClient(
 }
 
 function disposeClient(): void {
+  evaluator?.cancelQueued();
   client?.dispose();
   client = undefined;
 }
