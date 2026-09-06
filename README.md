@@ -332,6 +332,29 @@ audit has listed "status changes are not announced for assistive
 technologies" among its critical failures since 2019; doing this cheaply is
 a real difference, and it matters for the audience this was built for.
 
+### A panel for when the margin runs out
+
+Every value so far sits in the margin, to the right of the line that
+produced it — which works until there is no margin left. Lecture slides on
+half the screen, a laptop-width window, a `repr()` longer than what is left
+of the line: VS Code gives an extension no way to even ask how many columns
+wide the editor is, so an inline value that runs past the edge cannot wrap,
+cannot pin itself to what is visible, and cannot take a line of its own.
+
+**Evalens: Show Values Panel** opens the same values in the bottom panel
+instead, one row per annotated line in file order, full width and wrapping.
+A list long enough to have run off the screen now wraps onto a second line;
+a `print()` spanning several lines keeps every one of them, not the inline
+chip's first-line-and-a-count. Click a row to jump to it; move the cursor
+and the panel's own row highlights, without anything being repainted.
+
+It is the same trace read twice, not a second feature — the panel reads
+what is already painted and asks the kernel nothing, so a row goes stale
+exactly the way the inline chip does, in the same grey surface, for the
+same reason. It is never opened for you: run the command once, or
+*View → Open View… → Evalens: Values*, and reach for it whenever a narrow
+editor or a long value is the actual problem, not the answer itself.
+
 ## This category is not empty, and pretending otherwise would be a lie
 
 Two shipped Microsoft features already cover part of this, both **on by
@@ -459,6 +482,7 @@ because a stolen key then never leaves you without a way to run these.
 | Evalens: Restart Kernel | Throws away the namespace and starts a fresh interpreter |
 | Evalens: Clear Input Answers | Forgets every replayed `input()` answer, keeping the namespace |
 | Evalens: Show Output | Opens the Evalens output channel without taking the cursor out of the editor |
+| Evalens: Show Values Panel | Opens the bottom-panel view listing the active file's annotations full width, wrapping, and synced to the cursor |
 | Evalens: Fix Keybinding Conflict | Hands you the user keybinding described below |
 
 **Evaluate File clears the namespace before it runs the whole file, by
