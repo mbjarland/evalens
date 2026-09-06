@@ -101,8 +101,8 @@ export async function chooseInterpreter(
  *
  * This is the version a human is meant to act on, and it belongs in exactly
  * one place: the notification carrying *Select Interpreter* and *Open
- * Setting*. Everything downstream of that notification says
- * `NO_INTERPRETER` instead.
+ * Setting*. Everything downstream logs `NO_INTERPRETER` without issuing
+ * another notification.
  */
 export function describeFailure(attempts: readonly Attempt[]): string {
   if (attempts.length === 0) {
@@ -123,6 +123,14 @@ export function describeFailure(attempts: readonly Attempt[]): string {
  * is a summary -- enough to explain a request that went nowhere, short
  * enough that nobody mistakes it for the message to act on.
  *
- * Carries no `Evalens` prefix because the transport-level catch adds one.
+ * Carries no `Evalens` prefix because this is a diagnostic log message.
  */
 export const NO_INTERPRETER = 'no usable Python interpreter';
+
+/** The resolver has already offered the actionable selection/settings UI. */
+export class InterpreterUnavailableError extends Error {
+  constructor() {
+    super(NO_INTERPRETER);
+    this.name = 'InterpreterUnavailableError';
+  }
+}
