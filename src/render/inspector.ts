@@ -19,6 +19,7 @@
  */
 
 import { InspectChild, Inspected } from '../kernel/protocol';
+import { literalCell } from './markdown';
 
 /**
  * Is `display` a namespace name an `inspect` request can be aimed at?
@@ -49,8 +50,7 @@ function cell(text: string): string {
   // markdown; a value that carried its own line breaks (a multi-line
   // string, most often) is still fully present, just no longer laid out
   // the way it was written.
-  return text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|')
-    .replace(/\r?\n/g, ' ');
+  return literalCell(text);
 }
 
 /** `{type}`, following Rider: braces around the word, not around anything
@@ -59,7 +59,7 @@ function cell(text: string): string {
  * literally there, where a markdown renderer is not in the loop to turn
  * them into italics. */
 function braced(type: string): string {
-  return `{${cell(type)}}`;
+  return `{${type}}`;
 }
 
 /**

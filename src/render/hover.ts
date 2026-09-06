@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 
 import { KernelClient } from '../kernel/client';
-import { Inspected, isFailure } from '../kernel/protocol';
 import { Annotations } from './annotations';
 import { SHOW_OUTPUT } from './decorations';
 import { INSPECT_VALUE } from './explorer';
@@ -11,6 +10,8 @@ import {
 } from './inspector';
 import { staleReasonText } from './registry';
 import { tableMarkdown } from './table';
+import { LiveInspection } from './liveInspection';
+import { literalBlock } from './markdown';
 
 /**
  * Why a stale annotation no longer describes the code beside it (#109).
@@ -73,12 +74,12 @@ function staleExplanation(reason: 'edited' | 'dependency' | undefined): string {
  * #24 hooks in the same way: `annotation.table`, present only when the value
  * duck-typed as one of the shapes `kernel/tabular.py` recognises, is
  * rendered by `render/table.ts`'s `tableMarkdown` and appended after the
- * fenced value. It and the inspection above are elaborations of one trace
- * and do not compete -- the table says what the value *is*, the inspection
- * says what is inside it -- and the inline annotation beside the code is
- * unchanged either way.
+ * fenced value. That table belongs to the captured trace. The separately
+ * labelled inspection reads current storage, only while the kernel is idle,
+ * with a short deadline; it must not hold the cached trace hostage.
  */
 export class ValueHoverProvider implements vscode.HoverProvider {
+  private readonly inspection = new LiveInspection();
   constructor(
     private readonly annotations: Annotations,
     /**
@@ -92,7 +93,8 @@ export class ValueHoverProvider implements vscode.HoverProvider {
   ) {}
 
   async provideHover(
-    document: vscode.TextDocument, position: vscode.Position
+    document: vscode.TextDocument, position: vscode.Position,
+    token?: vscode.CancellationToken
   ): Promise<vscode.Hover | undefined> {
     const annotation = this.annotations.at(document, position.line);
     // Nothing while a statement is still running: `pending` carries no
@@ -108,10 +110,8 @@ export class ValueHoverProvider implements vscode.HoverProvider {
     // value, then the elaborations, then the one link to the channel holding
     // what does not fit here either.
     //
-    // #24's table and #23's inspection are both elaborations of the same
-    // trace and they do not compete: the table describes the value's own
-    // shape when it duck-types as a sequence of records, while the
-    // inspection lists a value's children whatever shape it has. A value
+    // #24's table records the evaluated shape; #23's inspection reads the
+    // current children and is labelled separately. A value
     // that is both a table and worth opening gets both, table first --
     // it says what the thing *is* before the children say what is in it.
     //
@@ -123,17 +123,21 @@ export class ValueHoverProvider implements vscode.HoverProvider {
     if (annotation.stale) {
       lines.push(staleExplanation(annotation.staleReason), '');
     }
-    lines.push('```', annotation.hover, '```');
+    lines.push(literalBlock(annotation.hover));
 
     if (annotation.table) {
       lines.push('', tableMarkdown(annotation.table));
     }
 
-    const inspected = await this.inspect(annotation.display);
+    const client = this.getClient();
+    const inspected = client && isInspectableName(annotation.display)
+      ? await this.inspection.ask(client, annotation.display, token)
+      : undefined;
     if (inspected) {
       const table = inspectionTable(inspected);
       if (table !== undefined) {
-        lines.push('', table);
+        lines.push('', '*Current kernel value (may differ from the trace above)*',
+          '', table);
       }
       if (hasMoreToExplore(inspected)) {
         const args = encodeURIComponent(JSON.stringify([annotation.display]));
@@ -150,36 +154,11 @@ export class ValueHoverProvider implements vscode.HoverProvider {
     // named commands is a link, and a hover that can run anything is a hole.
     message.isTrusted = { enabledCommands: [SHOW_OUTPUT, INSPECT_VALUE] };
 
+    if (token?.isCancellationRequested || document.isClosed
+        || this.annotations.at(document, position.line) !== annotation) {
+      return undefined;
+    }
     return new vscode.Hover(message, document.lineAt(position.line).range);
   }
 
-  /**
-   * One level of `display`'s children, or `undefined` when there is nothing
-   * to ask -- `display` is not a bare name, no kernel has been started yet,
-   * or the request failed for a reason worth showing the plain repr instead
-   * of an error about.
-   *
-   * Never throws: a hover that raised over a failed drill-down would be a
-   * worse regression than showing the value without a table, since the
-   * table is additive and the repr above it is the answer that already
-   * worked before this ticket existed.
-   */
-  private async inspect(
-    display: string | null | undefined
-  ): Promise<Inspected | undefined> {
-    if (!isInspectableName(display)) {
-      return undefined;
-    }
-    const client = this.getClient();
-    if (!client) {
-      return undefined;
-    }
-    try {
-      const response = await client.request(
-        { op: 'inspect', name: display, path: [] });
-      return isFailure(response) ? undefined : (response as Inspected);
-    } catch {
-      return undefined;
-    }
-  }
 }

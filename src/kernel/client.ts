@@ -5,6 +5,7 @@ import {
   ControlMessage,
   ControlRequest,
   InputRequest,
+  InspectRequest,
   LineDecoder,
   Request,
   Response,
@@ -137,6 +138,7 @@ export class KernelClient {
   private process?: KernelProcess;
   /** In-flight spawn, so two fast keypresses do not start two interpreters. */
   private starting?: Promise<KernelProcess>;
+  private acquiring = 0;
   private readonly pending = new Map<number, Deferred<Response>>();
   /**
    * Who wants the statement frames of a load still in flight, by request id.
@@ -226,11 +228,32 @@ export class KernelClient {
       throw new Error('the Evalens kernel client has been disposed');
     }
     const generation = this.generation;
-    const process = await this.ensureStarted();
-    if (this.disposed || generation !== this.generation
-        || process !== this.process) {
-      throw new Error('the Evalens kernel was stopped before the request started');
+    this.acquiring++;
+    try {
+      const process = await this.ensureStarted();
+      if (this.disposed || generation !== this.generation
+          || process !== this.process) {
+        throw new Error('the Evalens kernel was stopped before the request started');
+      }
+      return this.send(process, message, onStatement);
+    } finally {
+      this.acquiring--;
     }
+  }
+
+  /** Optional reads neither start Python nor queue behind explicit work. */
+  requestIfIdle(message: InspectRequest): Promise<Response | undefined> {
+    if (this.disposed || !this.process || this.starting || this.acquiring
+        || this.executing || this.pending.size) {
+      return Promise.resolve(undefined);
+    }
+    return this.send(this.process, message);
+  }
+
+  private async send(
+    process: KernelProcess, message: Request,
+    onStatement?: (frame: StatementFrame) => void
+  ): Promise<Response> {
     const id = this.nextId++;
     const deferred = new Deferred<Response>();
     this.pending.set(id, deferred);

@@ -1059,6 +1059,54 @@ test('hovering a stale dependant explains that a value it reads moved on',
   }
 });
 
+test('busy Python cannot withhold a cached hover', { timeout: 5000 }, async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor("data = {'old': 1}\ninput('waiting')\n");
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  let asked!: () => void;
+  const opened = new Promise<void>((r) => { asked = r; });
+  let answer!: (value: string) => void;
+  (fake.module as { window: { showInputBox: () => Promise<string> } })
+    .window.showInputBox = () => {
+      asked();
+      return new Promise((r) => { answer = r; });
+    };
+  const extension = activated(fake);
+  try {
+    await fake.executeCommand('evalens.evaluateAtCursor');
+    editor.selection = new FakeSelection(1, 0, 1, 0);
+    const waiting = fake.executeCommand('evalens.evaluateAtCursor');
+    await opened;
+    const text = await hoverTextAt(fake, editor, 0);
+    assert.match(text!, /old/);
+    assert.doesNotMatch(text!, /Current kernel value/);
+    answer('done');
+    await waiting;
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('live hover children are distinguished from the earlier trace', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor("data = {'old': 1}\ndata.update({'new': 2})\n");
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    await fake.executeCommand('evalens.evaluateAtCursor');
+    editor.selection = new FakeSelection(1, 0, 1, 0);
+    await fake.executeCommand('evalens.evaluateAtCursor');
+    const text = await hoverTextAt(fake, editor, 0);
+    assert.match(text!, /old/);
+    assert.match(text!, /Current kernel value/);
+    assert.match(text!, /'new' \| \*int\* \| 2/);
+  } finally {
+    extension.deactivate();
+  }
+});
+
 test('hovering a bare dict shows its fields as a table', async () => {
   const fake = createFakeVscode();
   const editor = createEditor("config = {'host': 'localhost', 'port': 8080}\n");
@@ -1074,6 +1122,7 @@ test('hovering a bare dict shows its fields as a table', async () => {
     assert.match(text!, /\| Field \| Type \| Value \|/);
     assert.match(text!, /'host' \| \*str\* \| 'localhost'/);
     assert.match(text!, /'port' \| \*int\* \| 8080/);
+    assert.match(text!, /Current kernel value \(may differ from the trace above\)/);
     // Both fields fit in the table already shown -- nothing more to open.
     assert.doesNotMatch(text!, /Explore/);
   } finally {

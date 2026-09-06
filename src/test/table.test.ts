@@ -71,7 +71,7 @@ test('more columns than shown add a trailing column, not a silent drop', () => {
   }));
   assert.match(markdown, /, 2 of 5 columns shown\*/);
   const lines = markdown.split('\n');
-  assert.equal(lines[2], '| a | b | … (+3 more) |');
+  assert.equal(lines[2], '| a | b | … \\(\\+3 more\\) |');
   assert.equal(lines[3], '| :--- | :--- | :--- |');
   // The data row gains a matching empty cell rather than running short of
   // the header it sits under.
