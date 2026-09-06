@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Symlink the tracked hooks in bin/hooks/ into .git/hooks/ so they actually
-# run. Idempotent; safe to re-run. Run it once per clone AND once per worktree
-# -- a linked worktree shares the repository's hooks, but a fresh clone does
-# not inherit anything.
+# Symlink the tracked hooks in bin/hooks/ into the shared hooks directory so
+# they actually run. Idempotent; safe to re-run from any worktree. Once per
+# clone is enough: linked worktrees share the repository's hooks, and the
+# links always point at the main worktree's copy, so removing a worktree
+# never leaves them dangling.
 #
 #   bin/install-hooks.sh
 set -euo pipefail
@@ -10,7 +11,15 @@ set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 common="$(git rev-parse --git-common-dir)"
 case "$common" in /*) ;; *) common="$root/$common" ;; esac
-src="$root/bin/hooks"
+# The hooks directory is shared by every worktree of this repository, so
+# the symlinks must point at files that outlive any one worktree. #114: run
+# from a linked worktree, this used to install links into the shared hooks
+# directory that pointed at that worktree's own copy of bin/hooks -- and
+# when the worktree was removed after its branch merged, both hooks
+# dangled silently. Always resolve against the main worktree, whichever
+# worktree this is run from.
+main="$(git worktree list --porcelain | sed -n '1s/^worktree //p')"
+src="$main/bin/hooks"
 dst="$common/hooks"
 
 # git consults core.hooksPath INSTEAD of .git/hooks when it is set, so
