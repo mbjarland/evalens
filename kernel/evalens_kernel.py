@@ -453,6 +453,7 @@ from typing import (
 import loops
 import passive
 import tabular
+from capture import OutputCapture
 from resolver import Form, Parsed, form_at, forms_in, parse_prefix, utf8_column
 
 #: Where this kernel's own modules live, resolved once. At startup it is also
@@ -757,8 +758,8 @@ class _UserStream(io.TextIOBase):
     ``_user_io`` still decides:
 
     * **While a statement is running** the text is also captured, so the
-      response still carries everything the statement printed -- the field
-      every consumer already reads -- and the frame is attributed to the
+      response carries a bounded prefix and explicit omission count, while
+      the complete frame is attributed to the
       evaluation in flight. Output written by a thread the statement itself
       started and joined belongs to that statement and lands here, which is
       what a terminal would show.
@@ -777,9 +778,9 @@ class _UserStream(io.TextIOBase):
         self._name = name
         #: Where a running statement's output is accumulating, or None when
         #: nothing is running. Rebound by `_user_io`, read by every thread.
-        self._captured: Optional[io.StringIO] = None
+        self._captured: Optional[OutputCapture] = None
 
-    def capture(self, buffer: Optional[io.StringIO]) -> Optional[io.StringIO]:
+    def capture(self, buffer: Optional[OutputCapture]) -> Optional[OutputCapture]:
         """Start (or stop) collecting into ``buffer``; answer the old one."""
         previous, self._captured = self._captured, buffer
         return previous
@@ -817,7 +818,7 @@ class _UserStream(io.TextIOBase):
         captured = self._captured
         if captured is None:
             return ""
-        return captured.getvalue().rpartition("\n")[2]
+        return captured.tail()
 
 
 #: The two objects user code sees as its standard streams. Module-level and
@@ -1174,7 +1175,7 @@ def _user_io(allow_stdin: bool = False,
              at: Optional[Dict[str, Any]] = None,
              form: Optional[Form] = None,
              filename: Optional[str] = None
-             ) -> Iterator[tuple[io.StringIO, io.StringIO, "_AskingStdin"]]:
+             ) -> Iterator[tuple[OutputCapture, OutputCapture, "_AskingStdin"]]:
     """Attribute this statement's output to it, and let it ask questions.
 
     Two hazards, both silent if unhandled:
@@ -1233,7 +1234,8 @@ def _user_io(allow_stdin: bool = False,
     survive it rather than to assume it cannot happen.
     """
     global _ALLOW_STDIN, _RUNNING_AT
-    out, err = io.StringIO(), io.StringIO()
+    out = OutputCapture(prompt_limit=PROMPT_LIMIT)
+    err = OutputCapture(prompt_limit=PROMPT_LIMIT)
     previous_out = _USER_OUT.capture(out)
     previous_err = _USER_ERR.capture(err)
     comment = (_comment_answers(form, filename)
