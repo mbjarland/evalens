@@ -738,12 +738,12 @@ test('a late result decides evaluated-or-stale only after the whole chain', () =
   };
   const after = reanchorLate(
     candidate,
-    [[edit(2, 2, ' ')], [edit(0, 0, '\n\n')]],
-    shift, against(['', '', 'a = 1', 'b = 2', 'x = 1 ']));
+    [[edit(2, 2, '  # edited')], [edit(0, 0, '\n\n')]],
+    shift, against(['', '', 'a = 1', 'b = 2', 'x = 1  # edited']));
 
   assert.deepEqual(placed([after!]), ['late@4-4']);
   assert.equal(after!.stale, true,
-    "read at its final line, the statement's own text has a trailing space "
+    "read at its final line, the statement's own text carries a comment "
     + 'it did not have when the value was taken');
 });
 
