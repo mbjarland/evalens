@@ -12,6 +12,31 @@ import {
 import { tableMarkdown } from './table';
 
 /**
+ * Why a stale annotation no longer describes the code beside it (#109).
+ *
+ * The chip's own chrome (`render/decorations.ts`) and the gutter icon say
+ * *that* a value is stale; this is the one place that says *why*, for a
+ * reader who has stopped to hover and is asking a question neither a grey
+ * bar nor an icon can answer on their own. The two reasons are
+ * `registry.ts`'s: `afterEdit` sets `'edited'` for a statement whose own
+ * text changed, `markDependents` sets `'dependency'` for one whose text is
+ * untouched but reads a name something below it rebound. `undefined` is not
+ * expected in practice -- both places that ever set `stale` set this
+ * alongside it -- and answers with a claim true of either reason rather
+ * than guessing which one applies.
+ */
+function staleExplanation(reason: 'edited' | 'dependency' | undefined): string {
+  switch (reason) {
+    case 'dependency':
+      return 'Stale: a value this line reads was re-bound since this ran.';
+    case 'edited':
+      return "Stale: this line's code changed since it ran.";
+    default:
+      return 'Stale: this value may no longer match the code beside it.';
+  }
+}
+
+/**
  * The full answer, reachable by hovering the statement it came from.
  *
  * #46: the same content used to hang off a `DecorationOptions.hoverMessage`
@@ -96,7 +121,16 @@ export class ValueHoverProvider implements vscode.HoverProvider {
     // inspection lists a value's children whatever shape it has. A value
     // that is both a table and worth opening gets both, table first --
     // it says what the thing *is* before the children say what is in it.
-    const lines = ['```', annotation.hover, '```'];
+    //
+    // The stale explanation (#109) goes first of all, ahead of the value it
+    // qualifies: a reader hovering a stale line is asking why before they
+    // are asking what, and the chip itself already answered "expired"
+    // without saying which of the two reasons is true here.
+    const lines: string[] = [];
+    if (annotation.stale) {
+      lines.push(staleExplanation(annotation.staleReason), '');
+    }
+    lines.push('```', annotation.hover, '```');
 
     if (annotation.table) {
       lines.push('', tableMarkdown(annotation.table));

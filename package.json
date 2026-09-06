@@ -309,7 +309,7 @@
       },
       {
         "id": "evalens.annotationBorder",
-        "description": "Colour of the 3px border on an annotation's leading edge, marking it as a distinct surface from the source line it sits beside — and, on a line where a user's own trailing comment sits right next to near-identical annotation text, the one mark that says where one stops and the other starts. A saturated violet of its own rather than the dim `evalens.labelForeground`, which exists to recede and would make the bar the quietest thing on the row. Only for a value that is currently evaluated: a stale or still-pending annotation is greyed through `evalens.pendingForeground` instead, and an error takes `evalens.errorForeground` — both already contributed — so the bar never reads more confidently than the state it marks.",
+        "description": "Colour of the 3px border on an annotation's leading edge, marking it as a distinct surface from the source line it sits beside — and, on a line where a user's own trailing comment sits right next to near-identical annotation text, the one mark that says where one stops and the other starts. A saturated violet of its own rather than the dim `evalens.labelForeground`, which exists to recede and would make the bar the quietest thing on the row. Only for a value that is currently evaluated: a still-pending annotation is greyed through `evalens.pendingForeground`, a stale one takes its own `evalens.staleBorder` (#109), and an error takes `evalens.errorForeground` unless it is also stale, in which case stale outranks it — so the bar never reads more confidently than the state it marks.",
         "defaults": {
           "dark": "#e0a3ff",
           "light": "#7a1fa2",
@@ -319,12 +319,32 @@
       },
       {
         "id": "evalens.annotationTint",
-        "description": "Background wash behind one chip of an annotation — a label and the value it introduces, or `printed:` and its text — so each chip reads as a surface rather than as punctuation. The gap between two chips is left untinted on purpose, so the line still parses into distinct facts. One colour for every state, because the accent bar already carries that distinction. Computed at 10% opacity of `evalens.resultForeground`'s own hue per theme, so the surface reads as part of the same palette as the text rather than a neutral, unrelated wash, chosen so no foreground colour this extension paints drops below the contrast ratios already asserted for it.",
+        "description": "Background wash behind one chip of an annotation — a label and the value it introduces, or `printed:` and its text — so each chip reads as a surface rather than as punctuation. The gap between two chips is left untinted on purpose, so the line still parses into distinct facts. One colour for `evaluated` and `pending` alike, because the accent bar already carries most of the distinction between them — `evalens.staleTint` is the one state with a tint of its own. Computed at 10% opacity of `evalens.resultForeground`'s own hue per theme, so the surface reads as part of the same palette as the text rather than a neutral, unrelated wash, chosen so no foreground colour this extension paints drops below the contrast ratios already asserted for it.",
         "defaults": {
           "dark": "#d1a35c1a",
           "light": "#8a6a2b1a",
           "highContrast": "#f0c6741a",
           "highContrastLight": "#6b4a101a"
+        }
+      },
+      {
+        "id": "evalens.staleTint",
+        "description": "Background wash behind a stale chip (#109), replacing `evalens.annotationTint` only there. A stale value keeps its own colour — dimming it would put a claim about the value in competition with the value itself — so the surface behind it is the one thing left that can say it has expired. Computed the way `evalens.annotationTint` was, from `evalens.pendingForeground`'s own grey hue rather than the value's, and at roughly half its alpha, so the chip visibly recedes rather than merely changing hue.",
+        "defaults": {
+          "dark": "#8c8c8c0d",
+          "light": "#7676760d",
+          "highContrast": "#c6c6c60d",
+          "highContrastLight": "#4a4a4a0d"
+        }
+      },
+      {
+        "id": "evalens.staleBorder",
+        "description": "Colour of the 3px border on a stale chip's leading edge (#109), replacing `evalens.annotationBorder` only there. The same grey `evalens.pendingForeground` already uses, but its own contributed id rather than that one directly — pending and stale are different claims, not finished yet against finished but out of date, and retuning one through `workbench.colorCustomizations` should not silently retune the other.",
+        "defaults": {
+          "dark": "#8c8c8c",
+          "light": "#767676",
+          "highContrast": "#c6c6c6",
+          "highContrastLight": "#4a4a4a"
         }
       }
     ],

@@ -249,6 +249,7 @@ interface Valued extends Marked {
   readonly value: string;
   readonly source?: string;
   readonly stale?: boolean;
+  readonly staleReason?: 'edited' | 'dependency';
 }
 
 /** One annotation per line, as evaluating each line in turn would leave. */
@@ -303,6 +304,29 @@ test('editing a line marks it stale and leaves every value alone', () => {
     'the marker is the whole of what changes; the values are a trace and stay');
   assert.equal(after[1], before[1],
     'an annotation the edit did not touch must not even be rebuilt');
+});
+
+test('editing a line records that an edit is why it went stale (#109)', () => {
+  // The hover (`render/hover.ts`) has to tell this apart from a dependency
+  // mark, and `afterEdit` is the one place that can say it happened here --
+  // recovering it later from `stale` alone is not possible, `stale` being
+  // only a boolean.
+  const [marked] = reanchor(
+    evaluatedLines(['x = 1']), [edit(0, 0, '5')], shift, against(['x = 5']));
+  assert.equal(marked?.staleReason, 'edited');
+});
+
+test('undoing the edit preserves the reason, not only the mark (#109)', () => {
+  // `afterEdit`'s undo case returns the same object rather than a copy, so
+  // this is really the same guarantee as "undoing the edit does not clear
+  // stale" above -- written separately because a reader of this file should
+  // not have to infer that identity carries the reason along for free.
+  const before = evaluatedLines(['x = 1']);
+  const edited = reanchor(
+    before, [edit(0, 0, '5')], shift, against(['x = 5']));
+  const undone = reanchor(
+    edited, [edit(0, 0, '1')], shift, against(['x = 1']));
+  assert.equal(undone[0]?.staleReason, 'edited');
 });
 
 test('re-evaluating is what clears stale, and nothing else is', () => {
@@ -512,6 +536,15 @@ test('re-evaluating a binding marks the line below that reads it', () => {
   assert.deepEqual(markers(after), [false, true]);
   assert.deepEqual(after.map((a) => a.value), ['v0', 'v1'],
     'nothing is re-read and nothing is re-run, so no value moves');
+});
+
+test('marking a dependant records why, distinctly from an edit (#109)', () => {
+  // Same two lines as the ticket's own example. Line 2's mark has to say
+  // `'dependency'`, not `'edited'` -- its own text never changed, so telling
+  // the hover it did would be exactly the overclaim #109 exists to stop.
+  const before = [on(0, 'x', ['x'], []), on(1, 'y', ['y'], ['x'])];
+  const after = markDependents(before, before[0]!);
+  assert.equal(after[1]?.staleReason, 'dependency');
 });
 
 test('marking reaches down the file and skips what does not read the name', () => {
