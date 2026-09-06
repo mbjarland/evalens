@@ -342,6 +342,18 @@ export interface FakeWebviewViewProvider {
   ): unknown;
 }
 
+// -- opening a document (#155) ------------------------------------------------
+
+/** One `showTextDocument` call -- recorded rather than acted on, since this
+ * harness has no real editor group to move anything into or out of focus
+ * within. `preserveFocus` is kept exactly as the caller passed it so a test
+ * can check *Open in editor* asked for `false`, the way a click that should
+ * take the reader there does. */
+export interface FakeShownDocument {
+  readonly document: FakeDocument;
+  readonly preserveFocus: boolean | undefined;
+}
+
 // -- disposables and channels -------------------------------------------------
 
 export class FakeDecorationType {
@@ -560,6 +572,16 @@ export interface FakeVscode {
    * reaching past the fake's own typing to get at it.
    */
   readonly executeCommand: (id: string, ...args: unknown[]) => Promise<unknown>;
+  /**
+   * Every `workspace.openTextDocument({ content, language })` call (#155) --
+   * *Open in editor*'s own path, and the only shape this fake implements:
+   * opening an existing file by `Uri` is not something any production code
+   * here does yet, so it is left unimplemented rather than half-faked.
+   */
+  readonly openedDocuments: readonly FakeDocument[];
+  /** Every `window.showTextDocument` call, in order -- see
+   * `FakeShownDocument` for what each entry records and why. */
+  readonly shownDocuments: readonly FakeShownDocument[];
   readonly outputChannels: FakeOutputChannel[];
   readonly decorationTypes: FakeDecorationType[];
   readonly statusBarItems: FakeStatusBarItem[];
@@ -670,6 +692,9 @@ export function createFakeVscode(): FakeVscode {
     readonly value: string | undefined;
     readonly placeHolder: string | undefined;
   }> = [];
+  const openedDocuments: FakeDocument[] = [];
+  const shownDocuments: FakeShownDocument[] = [];
+  let untitledCount = 0;
 
   const windowState: FakeVscode['window'] = {
     activeTextEditor: undefined,
@@ -850,12 +875,37 @@ export function createFakeVscode(): FakeVscode {
         webviewViewProviders.set(viewId, provider);
         return { dispose: () => webviewViewProviders.delete(viewId) };
       },
+      // #155: *Open in editor* opens the document `openTextDocument`
+      // (below) just created. No real editor group exists here to move
+      // focus into, so this only records the call -- `preserveFocus`
+      // included, since a test checks the panel asked to keep it `false`.
+      showTextDocument: (
+        document: FakeDocument, options?: { readonly preserveFocus?: boolean }
+      ) => {
+        shownDocuments.push({ document, preserveFocus: options?.preserveFocus });
+        return Promise.resolve(new FakeEditor(document));
+      },
     },
     workspace: {
       getConfiguration: (section: string) => config.getConfiguration(section),
       onDidChangeTextDocument: emitters.onDidChangeTextDocument.event,
       onDidCloseTextDocument: emitters.onDidCloseTextDocument.event,
       onDidChangeConfiguration: emitters.onDidChangeConfiguration.event,
+      // #155: *Open in editor*'s own path -- an untitled document holding
+      // exactly the `content` it was given, the same shape
+      // `panel/values.ts`'s `openInEditor` calls this with. Real VS Code
+      // names an untitled document itself; this fake only needs each call
+      // to produce a distinct one.
+      openTextDocument: (
+        options?: { readonly content?: string; readonly language?: string }
+      ) => {
+        untitledCount += 1;
+        const document = new FakeDocument(
+          makeUri(`untitled:Untitled-${untitledCount}`),
+          options?.content ?? '', options?.language ?? 'plaintext');
+        openedDocuments.push(document);
+        return Promise.resolve(document);
+      },
     },
     languages: {
       // #46 moved the hover off the decoration and onto a real provider,
@@ -889,6 +939,8 @@ export function createFakeVscode(): FakeVscode {
     webviewViewProviders,
     commands: { registered, executed },
     executeCommand,
+    openedDocuments,
+    shownDocuments,
     outputChannels,
     decorationTypes,
     statusBarItems,

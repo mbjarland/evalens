@@ -4,7 +4,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import {
-  PANEL_PALETTE, PanelAnnotation, rowsFor, valuesHtml,
+  FoldState, PANEL_PALETTE, PanelAnnotation, ValuesRow, fullTextFor, rowsFor,
+  valuesHtml,
 } from '../panel/html';
 import {
   FakePosition, FakeRange, FakeSelection, FakeWebviewView, createEditor,
@@ -33,6 +34,12 @@ function range(startLine: number, endLine: number): PanelAnnotation['range'] {
  * be scoped to content that actually varies with the rows. */
 function summaryOf(html: string): string | undefined {
   return /<div class="summary">([^<]*)<\/div>/.exec(html)?.[1];
+}
+
+/** `count` lines, one-indexed and newline-joined, for building a stream or
+ * a value long enough to fold (#155). */
+function manyLines(count: number, prefix = 'line'): string {
+  return Array.from({ length: count }, (_, i) => `${prefix} ${i + 1}`).join('\n');
 }
 
 test('PANEL_PALETTE agrees with package.json\'s own dark defaults', () => {
@@ -593,6 +600,187 @@ test('valuesHtml carries no reveal target when none is given ' +
   assert.match(html, /\bvar revealLine = null;/);
 });
 
+// -- folding a long block (#155) ---------------------------------------------
+
+/** A stream chip's own footer, exactly as `foldFooterHtml` builds it --
+ * built the same way here so a test can assert on it precisely rather than
+ * on a loose substring that the static stylesheet's own `.fold-footer`,
+ * `.fold-action` and `.fold-label` selectors would also match. */
+function foldedFooter(line: number, blockId: string, remaining: number): string {
+  const action = (label: string, kind: 'expand' | 'open'): string =>
+    `<span class="fold-action" data-fold-action="${kind}" `
+    + `data-fold-line="${line}" data-fold-id="${blockId}">${label}</span>`;
+  return `<div class="fold-footer">… ${remaining} more `
+    + `line${remaining === 1 ? '' : 's'} · ${action('Show all', 'expand')} · `
+    + `${action('Open in editor', 'open')}</div>`;
+}
+
+test('a stream past the output-lines limit folds to exactly the limit, ' +
+  'with a footer naming the rest, Show all and Open in editor', () => {
+  const document = lineSource(['loop()']);
+  const annotations: PanelAnnotation[] = [
+    {
+      range: range(0, 0), value: null, display: null,
+      printed: { stdout: `${manyLines(25)}\n` },
+    },
+  ];
+  const html = valuesHtml(
+    { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
+    undefined, 'n');
+  assert.ok(html.includes('line 1\nline 2'), 'the first lines should show');
+  assert.ok(html.includes('line 20'), 'the 20th (last shown) line should show');
+  assert.ok(!html.includes('line 21'),
+    'nothing past the limit may reach the DOM at all (#155 background)');
+  assert.ok(html.includes(foldedFooter(0, 'printed', 5)),
+    'expected the exact footer: count, Show all and Open in editor');
+});
+
+test('a stream of exactly the output-lines limit has no footer and no ' +
+  'click target', () => {
+  const document = lineSource(['loop()']);
+  const annotations: PanelAnnotation[] = [
+    {
+      range: range(0, 0), value: null, display: null,
+      printed: { stdout: `${manyLines(20)}\n` },
+    },
+  ];
+  const html = valuesHtml(
+    { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
+    undefined, 'n');
+  assert.ok(html.includes('line 20'));
+  assert.doesNotMatch(html, /class="fold-footer"/,
+    'a block within the limit gets no footer');
+  assert.doesNotMatch(html, /data-fold-action=/,
+    'a block within the limit is not a fold click target');
+});
+
+test('one line past the limit says "1 more line", not "lines"', () => {
+  const document = lineSource(['loop()']);
+  const annotations: PanelAnnotation[] = [
+    {
+      range: range(0, 0), value: null, display: null,
+      printed: { stdout: `${manyLines(21)}\n` },
+    },
+  ];
+  const html = valuesHtml(
+    { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
+    undefined, 'n');
+  assert.ok(html.includes(foldedFooter(0, 'printed', 1)));
+});
+
+test('a custom evalens.valuesPanel.outputLines is honoured', () => {
+  const document = lineSource(['loop()']);
+  const annotations: PanelAnnotation[] = [
+    {
+      range: range(0, 0), value: null, display: null,
+      printed: { stdout: `${manyLines(8)}\n` },
+    },
+  ];
+  const fold: FoldState = { outputLines: 5 };
+  const html = valuesHtml(
+    { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
+    undefined, 'n', undefined, fold);
+  assert.ok(html.includes('line 5'));
+  assert.ok(!html.includes('line 6'));
+  assert.ok(html.includes(foldedFooter(0, 'printed', 3)));
+});
+
+test('expanding a row shows the full stream inside a scrolling container, ' +
+  'with Show less and nothing left to open', () => {
+  const document = lineSource(['loop()']);
+  const annotations: PanelAnnotation[] = [
+    {
+      range: range(0, 0), value: null, display: null,
+      printed: { stdout: `${manyLines(25)}\n` },
+    },
+  ];
+  const rows = rowsFor(document, annotations, 'printed');
+  const fold: FoldState = { expandedLines: new Set([rows[0]!.line]) };
+  const html = valuesHtml({ fileName: 'x.py', rows }, undefined, 'n', undefined, fold);
+  assert.ok(html.includes('line 25'), 'every line should show once expanded');
+  assert.match(html, /class="fold-scroll"/,
+    'the full text should sit in its own capped, scrolling container');
+  assert.ok(html.includes(
+    '<div class="fold-footer"><span class="fold-action" '
+    + 'data-fold-action="expand" data-fold-line="0" '
+    + 'data-fold-id="printed">Show less</span></div>'));
+  assert.doesNotMatch(html, />Show all</);
+  assert.doesNotMatch(html, />Open in editor</,
+    'nothing is left folded to open once the row is expanded');
+});
+
+test('a click on the block\'s own label is the same fold toggle as Show all',
+  () => {
+    const document = lineSource(['loop()']);
+    const annotations: PanelAnnotation[] = [
+      {
+        range: range(0, 0), value: null, display: null,
+        printed: { stdout: `${manyLines(25)}\n` },
+      },
+    ];
+    const html = valuesHtml(
+      { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
+      undefined, 'n');
+    assert.ok(html.includes(
+      '<span class="seg-streamLabel fold-label" data-fold-action="expand" '
+      + 'data-fold-line="0" data-fold-id="printed">printed:\n</span>'),
+      'the label should carry the same toggle the footer\'s own actions do');
+  });
+
+test('a value whose own text runs past the limit folds the same way a ' +
+  'stream does', () => {
+  const row: ValuesRow = {
+    line: 0, startLine: 0, endLine: 0, codeLines: ['grid = build_grid()'],
+    state: 'evaluated',
+    groups: [[
+      { role: 'nameLabel', text: 'grid: ' },
+      { role: 'value', text: manyLines(25, 'row') },
+    ]],
+  };
+  const html = valuesHtml({ fileName: 'x.py', rows: [row] }, undefined, 'n');
+  assert.ok(html.includes('row 20'));
+  assert.ok(!html.includes('row 21'));
+  assert.ok(html.includes(foldedFooter(0, 'value-0', 5)));
+  assert.ok(html.includes(
+    '<span class="seg-nameLabel fold-label" data-fold-action="expand" '
+    + 'data-fold-line="0" data-fold-id="value-0">grid: </span>'),
+    'the value\'s own label should become the click target, same as a stream\'s');
+  assert.match(html, /class="chip tone-evaluated block"/,
+    'a folded value promotes to its own block, like a stream');
+});
+
+test('a value within the limit stays an ordinary inline chip, never a block',
+  () => {
+    const row: ValuesRow = {
+      line: 0, startLine: 0, endLine: 0, codeLines: ['x = short()'],
+      state: 'evaluated',
+      groups: [[
+        { role: 'nameLabel', text: 'x: ' },
+        { role: 'value', text: '42' },
+      ]],
+    };
+    const html = valuesHtml({ fileName: 'x.py', rows: [row] }, undefined, 'n');
+    assert.doesNotMatch(html, /class="fold-footer"/);
+    assert.doesNotMatch(html, /class="chip tone-evaluated block"/);
+    assert.match(html, /class="chip tone-evaluated">/);
+  });
+
+test('fullTextFor resolves a stream by its label and a value by its ' +
+  'position, and answers undefined for an id the row does not recognise',
+  () => {
+    const row: ValuesRow = {
+      line: 3, startLine: 3, endLine: 3, codeLines: ['x = compute()'],
+      state: 'evaluated',
+      groups: [[{ role: 'value', text: 'the value text' }]],
+      streams: [{ label: 'printed', text: 'the stream text' }],
+    };
+    assert.equal(fullTextFor(row, 'printed'), 'the stream text');
+    assert.equal(fullTextFor(row, 'value-0'), 'the value text');
+    assert.equal(fullTextFor(row, 'value-1'), undefined,
+      'there is no second group to answer for');
+    assert.equal(fullTextFor(row, 'nonsense'), undefined);
+  });
+
 // -- the provider, through the fake vscode -----------------------------------
 
 /** A fresh fake and a freshly activated (compiled) extension, rooted at the
@@ -935,3 +1123,110 @@ test('the values panel title bar contributes the lock/unlock toggle', () => {
     'the $(unlock) entry should show while following, not while not');
   assert.match(lock!.when!, /!config\.evalens\.valuesPanel\.follow/);
 });
+
+// -- folding a long block, through the real provider (#155) -----------------
+
+test('Show all reveals a long printed stream in full; the state survives ' +
+  'an unrelated evaluation but is dropped when the same row runs again',
+  async () => {
+    const fake = createFakeVscode();
+    const editor = createEditor(
+      "for i in range(25):\n    print('row', i)\nx = 1\n");
+    fake.window.activeTextEditor = editor;
+    fake.window.visibleTextEditors = [editor];
+    const extension = activated(fake);
+    try {
+      const evaluateAtCursor = fake.commands.registered.get(
+        'evalens.evaluateAtCursor') as () => Promise<void>;
+      await evaluateAtCursor();
+
+      const provider = fake.webviewViewProviders.get('evalens.values')!;
+      const view = new FakeWebviewView();
+      provider.resolveWebviewView(view, {}, {});
+      assert.ok(view.webview.html.includes('row 19'), 'setup: folds to 20');
+      assert.ok(!view.webview.html.includes('row 20'),
+        'setup: a 25-line loop should fold by default, nothing past it shown');
+
+      view.webview.fireMessage({ expand: 0 });
+      assert.ok(view.webview.html.includes('row 24'),
+        'expanding should show every line, including the last');
+      assert.match(view.webview.html, />Show less</);
+
+      // An unrelated evaluation elsewhere in the file must not fold it
+      // back -- #155's "survives an unrelated annotation change".
+      editor.selection = new FakeSelection(
+        new FakePosition(2, 0), new FakePosition(2, 0));
+      await evaluateAtCursor();
+      assert.ok(view.webview.html.includes('row 24'),
+        'an unrelated evaluation must not collapse an already-open row');
+
+      // Re-evaluating the SAME row replaces its annotation with a fresh
+      // one -- #155's "dropped when the row's annotation is replaced".
+      editor.selection = new FakeSelection(
+        new FakePosition(0, 0), new FakePosition(0, 0));
+      await evaluateAtCursor();
+      assert.ok(!view.webview.html.includes('row 24'),
+        'the row\'s own re-evaluation should fold it again');
+    } finally {
+      extension.deactivate();
+    }
+  });
+
+test('the open message opens the full captured text as a focused, ' +
+  'untitled plaintext document', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor("print('hello')\n");
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    await (fake.commands.registered.get('evalens.evaluateAtCursor') as
+      () => Promise<void>)();
+
+    const provider = fake.webviewViewProviders.get('evalens.values')!;
+    const view = new FakeWebviewView();
+    provider.resolveWebviewView(view, {}, {});
+
+    view.webview.fireMessage({ open: 0, stream: 'printed' });
+    // openInEditor is fire-and-forget from onMessage's own point of view,
+    // the same as any other webview message handler -- let its two awaits
+    // (openTextDocument, then showTextDocument) settle before asserting.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(fake.openedDocuments.length, 1);
+    assert.equal(fake.openedDocuments[0]!.getText(), 'hello',
+      'the document should hold the exact text the kernel captured');
+    assert.equal(fake.openedDocuments[0]!.languageId, 'plaintext');
+    assert.equal(fake.shownDocuments.length, 1);
+    assert.equal(fake.shownDocuments[0]!.document, fake.openedDocuments[0]);
+    assert.equal(fake.shownDocuments[0]!.preserveFocus, false,
+      'Open in editor should take the reader there, not just create a tab');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('an open message for an id the row no longer carries opens nothing',
+  async () => {
+    const fake = createFakeVscode();
+    const editor = createEditor("print('hello')\n");
+    fake.window.activeTextEditor = editor;
+    fake.window.visibleTextEditors = [editor];
+    const extension = activated(fake);
+    try {
+      await (fake.commands.registered.get('evalens.evaluateAtCursor') as
+        () => Promise<void>)();
+
+      const provider = fake.webviewViewProviders.get('evalens.values')!;
+      const view = new FakeWebviewView();
+      provider.resolveWebviewView(view, {}, {});
+
+      view.webview.fireMessage({ open: 0, stream: 'stderr' });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.equal(fake.openedDocuments.length, 0,
+        'there is no stderr block on this row to open');
+    } finally {
+      extension.deactivate();
+    }
+  });
