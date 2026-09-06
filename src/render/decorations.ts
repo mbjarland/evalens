@@ -38,11 +38,15 @@ export const COLOR_FLASH_REGION = 'evalens.flashRegionBackground';
  * leading edge only -- the far side of the same margin the alignment gap
  * already reserves, so painting it costs no character cell and moves nothing.
  *
- * Used only for a value that is currently and genuinely `evaluated`. A stale
- * or still-pending annotation greys the bar through `COLOR_PENDING` instead,
- * and an error reddens it through `COLOR_ERROR` -- both already contributed
- * and already what that state's own text is painted in -- so the bar never
- * claims more confidence than the state it marks.
+ * Used only for a value that is currently and genuinely `evaluated`. A
+ * still-pending annotation greys the bar through `COLOR_PENDING`, matching
+ * what that state's own text is painted in. A stale one takes its own
+ * `COLOR_STALE_BORDER` instead (#109) -- not `COLOR_PENDING`, because "not
+ * finished yet" and "finished, but out of date" are different claims, and a
+ * bar answering both the same way could not be retuned independently
+ * through `workbench.colorCustomizations`. An error reddens the bar through
+ * `COLOR_ERROR`, unless it is also stale, in which case stale outranks it
+ * here exactly as `markerFor` says it does everywhere else.
  *
  * Deliberately not `COLOR_LABEL`, though the ticket's first draft asked for
  * "the label colour": that colour is dimmed on purpose, to recede behind the
@@ -69,9 +73,15 @@ export const COLOR_ANNOTATION_BORDER = 'evalens.annotationBorder';
  * introduces, or `printed:` and its text -- with the gap between two groups
  * left untinted, so the panel reads as several facts rather than one blur.
  *
- * One colour for every group and every state rather than one per `Marker` --
- * the bar already carries the state distinction, and a tint that also
- * changed hue per state or per role would be a second signal for one fact.
+ * One colour for every group and every role, for `evaluated` and `pending`
+ * alike -- the bar already carries most of a state's distinction, and a
+ * tint that also changed hue per role would be a second signal for one
+ * fact. `stale` is the one exception (#109): before `COLOR_STALE_TINT`
+ * existed, a stale chip stayed exactly this colour at exactly this
+ * strength, and only a 3px bar and a 13px gutter icon said otherwise --
+ * signal too weak to survive the surface #95 gave every annotation, which
+ * is the defect this ticket exists to fix.
+ *
  * Computed faint, the way #83's palette was: low enough alpha that it cannot
  * drop any foreground colour below the contrast floor `colors.test.ts`
  * already asserts, so it can sit behind every role's text without needing a
@@ -80,6 +90,36 @@ export const COLOR_ANNOTATION_BORDER = 'evalens.annotationBorder';
  * the text already uses rather than as a fourth, unrelated colour.
  */
 export const COLOR_ANNOTATION_TINT = 'evalens.annotationTint';
+
+/**
+ * The stale chip's own tint (#109), replacing `COLOR_ANNOTATION_TINT` only
+ * for a value `markerFor` calls `stale`.
+ *
+ * A stale value is still painted in its own colour -- see `COLOR_FOR` and
+ * `IDEA.md`'s rule against dimming a value, which this ticket leaves
+ * untouched -- so the only thing left that can say "this has expired"
+ * without competing with the text is the surface behind it. Computed the
+ * way `COLOR_ANNOTATION_TINT` was, from `COLOR_PENDING`'s own grey hue
+ * rather than the value's, and at roughly half its alpha (10% there, a
+ * little under 6% here): not merely a different hue at the same strength,
+ * but a visibly fainter surface, because a reader who missed a
+ * same-strength chip once (#109's report) is not helped by one that only
+ * changed colour.
+ */
+export const COLOR_STALE_TINT = 'evalens.staleTint';
+
+/**
+ * The stale chip's own leading-edge border (#109), replacing
+ * `COLOR_ANNOTATION_BORDER` only for a value `markerFor` calls `stale`.
+ *
+ * The same grey `COLOR_PENDING` already uses, but under its own contributed
+ * id rather than that one directly: pending and stale are different claims
+ * -- "not finished yet" against "finished, but out of date" -- and a reader
+ * retuning what a still-running statement looks like through
+ * `workbench.colorCustomizations` should not silently retune what an
+ * expired one looks like too.
+ */
+export const COLOR_STALE_BORDER = 'evalens.staleBorder';
 
 /**
  * The blocked half of "pending" -- see `isAsking`. Its own colour rather than
@@ -549,6 +589,14 @@ export class Decorator implements vscode.Disposable {
           },
         });
       } else if (annotation.error) {
+        // `annotation.error` is set, so `markerFor` can only answer `error`
+        // or `stale` here -- never `evaluated`. Stale outranks it (#109,
+        // and see `markerFor`'s own doc comment): a red, saturated chip
+        // claims the code in front of the reader raises right now, and
+        // once that code has been edited nobody has checked that it still
+        // does. Only the chrome recedes -- the message stays in
+        // `COLOR_ERROR`, the one colour this ticket does not touch.
+        const stale = markerFor(annotation) === 'stale';
         errors.push({
           range: at,
           renderOptions: {
@@ -557,6 +605,12 @@ export class Decorator implements vscode.Disposable {
               contentText: errorText(
                 annotation.error.type, annotation.error.message,
                 annotation.partialFrom),
+              ...(stale
+                ? {
+                    backgroundColor: new vscode.ThemeColor(COLOR_STALE_TINT),
+                    borderColor: new vscode.ThemeColor(COLOR_STALE_BORDER),
+                  }
+                : {}),
             },
           },
         });
@@ -632,13 +686,15 @@ export class Decorator implements vscode.Disposable {
             : [[{ role: 'value', text }]];
           // `annotation.error` is undefined on this branch (it is handled
           // above), so `markerFor` can only answer `evaluated` or `stale`
-          // here -- exactly the two the #95 bar needs to tell apart. Stale
-          // reuses the pending colour rather than getting one of its own: the
-          // same mark, not a second kind of amber, this time for a bar
-          // instead of the gutter icon `registry.ts` says that about.
-          const borderColor = markerFor(annotation) === 'stale'
-            ? COLOR_PENDING
+          // here -- exactly the two states a chip's own chrome has to tell
+          // apart (#109). Both colours belong to the chip, never to the
+          // text: `COLOR_FOR[segment.role]` below is unconditional, so what
+          // recedes when a value goes stale is only the surface around it.
+          const stale = markerFor(annotation) === 'stale';
+          const borderColor = stale
+            ? COLOR_STALE_BORDER
             : COLOR_ANNOTATION_BORDER;
+          const tintColor = stale ? COLOR_STALE_TINT : COLOR_ANNOTATION_TINT;
 
           let slot = 0;
           paintedGroups.forEach((group, groupIndex) => {
@@ -678,8 +734,7 @@ export class Decorator implements vscode.Disposable {
                       : {}),
                     contentText: segment.text,
                     color: new vscode.ThemeColor(COLOR_FOR[segment.role]),
-                    backgroundColor: new vscode.ThemeColor(
-                      COLOR_ANNOTATION_TINT),
+                    backgroundColor: new vscode.ThemeColor(tintColor),
                     textDecoration: chipShape(chip.edge, chip.leading),
                   },
                 },

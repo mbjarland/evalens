@@ -44,6 +44,24 @@ export interface Traced extends Anchored {
    * say that the two agree again.
    */
   readonly stale?: boolean;
+  /**
+   * Which of the two things that can make an annotation stale did (#109).
+   *
+   * The two are told apart at the point each is decided -- `afterEdit` sets
+   * `'edited'`, `markDependents` sets `'dependency'` -- because neither can
+   * be recovered later from `stale` alone, and a reader who goes looking for
+   * *why* (the hover, `render/hover.ts`) is asking a question this project
+   * otherwise has no answer to. Absent whenever `stale` is, and also on an
+   * annotation stale for a reason this field predates -- there is no such
+   * annotation in a session that started after this shipped, since both
+   * places that ever set `stale` set this in the same assignment.
+   *
+   * Deliberately not a second `Marker`: the mark stays one thing, painted
+   * one way, for the reasons `markDependents` already gives -- this is
+   * additional detail for a reader who asks, not a second state for
+   * everyone to look at.
+   */
+  readonly staleReason?: 'edited' | 'dependency';
 }
 
 /** How an annotation stands relative to the code it sits beside. */
@@ -146,7 +164,7 @@ export function afterEdit<T extends Traced>(
   if (annotation.source !== undefined && annotation.source === current) {
     return annotation;
   }
-  return { ...annotation, stale: true };
+  return { ...annotation, stale: true, staleReason: 'edited' };
 }
 
 /**
@@ -196,7 +214,7 @@ export function markDependents<T extends Traced>(
       return annotation;
     }
     changed = true;
-    return { ...annotation, stale: true };
+    return { ...annotation, stale: true, staleReason: 'dependency' };
   });
   // Identity when nothing was marked, so the common case -- a statement whose
   // names nothing below it reads -- costs no repaint.

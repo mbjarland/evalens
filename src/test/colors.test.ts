@@ -194,3 +194,42 @@ test('the two labels are peers, separated by hue and not by brightness', () => {
       `${kind}: the two labels are the same colour, so nothing separates them`);
   }
 });
+
+/**
+ * A colour's alpha channel, when it has one -- the last two hex digits of an
+ * 8-digit value. Every default in this file without one (a plain 6-digit
+ * colour) is fully opaque.
+ */
+function alpha(hex: string): number {
+  return hex.length > 7 ? parseInt(hex.slice(-2), 16) : 255;
+}
+
+test('the stale tint is fainter than the evaluated one, not merely a ' +
+  'different hue (#109)', () => {
+  // The report this ticket was filed over: a stale chip stayed exactly as
+  // loud as an evaluated one, because both painted the same tint at the
+  // same strength. Locking in "fainter", not just "different", is what
+  // stops a future edit from re-solving only the hue and reintroducing the
+  // same defect under a new name.
+  const tint = defaults('evalens.annotationTint');
+  const staleTint = defaults('evalens.staleTint');
+  for (const kind of Object.keys(EDITOR_BACKGROUND)) {
+    assert.ok(alpha(staleTint[kind]!) < alpha(tint[kind]!),
+      `${kind}: the stale tint is not fainter than the evaluated one`);
+  }
+});
+
+test('the stale border is quieter than the evaluated border (#109)', () => {
+  // The bar is the other half of the chip's chrome, and the ticket's
+  // constraint is the same for both: the surface must recede, and the
+  // value's own text -- untouched by either of these ids -- must not.
+  const border = defaults('evalens.annotationBorder');
+  const staleBorder = defaults('evalens.staleBorder');
+  for (const [kind, background] of Object.entries(EDITOR_BACKGROUND)) {
+    const evaluatedContrast = contrast(border[kind]!, background);
+    const staleContrast = contrast(staleBorder[kind]!, background);
+    assert.ok(staleContrast < evaluatedContrast,
+      `${kind}: the stale border (${staleContrast.toFixed(2)}:1) is not `
+      + `quieter than the evaluated one (${evaluatedContrast.toFixed(2)}:1)`);
+  }
+});

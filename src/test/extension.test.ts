@@ -828,6 +828,85 @@ async function hoverTextAt(
   return (hover?.contents as FakeMarkdownString | undefined)?.value;
 }
 
+// -- #109: a stale hover says why, not only that -----------------------------
+
+test('hovering a stale line explains that its own code changed', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor('x = [1, 2, 3]\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    await (fake.commands.registered.get('evalens.evaluateAtCursor') as
+      () => Promise<void>)();
+    // A bare digit, not the bracketed list: `preserveSpacing` renders the
+    // painted text with non-breaking spaces, which a plain-space literal
+    // here would not match (#95's own evidence).
+    assert.match(paintedLineText(editor, 0), /3/, 'setup: evaluated');
+
+    // A same-line rewrite, not a line-count change, so `afterEdit` marks the
+    // statement stale instead of `reanchor` dropping it outright (#96).
+    const oldLine = 'x = [1, 2, 3]';
+    editor.document.setText('x = [1, 2, 3, 4]\n');
+    fake.emitters.onDidChangeTextDocument.fire({
+      document: editor.document,
+      contentChanges: [{
+        range: new FakeRange(0, 0, 0, oldLine.length), text: 'x = [1, 2, 3, 4]',
+      }],
+    });
+
+    const text = await hoverTextAt(fake, editor, 0);
+    assert.match(text!, /Stale/);
+    assert.match(text!, /code changed since it ran/i);
+    assert.doesNotMatch(text!, /re-bound/i,
+      'this line was edited directly -- nothing rebound a name it reads');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('hovering a stale dependant explains that a value it reads moved on',
+  async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor('x = 1\ny = x + 1\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    const evaluateAtCursor = fake.commands.registered.get(
+      'evalens.evaluateAtCursor') as () => Promise<void>;
+
+    await evaluateAtCursor(); // line 0: x = 1
+    editor.selection = new FakeSelection(
+      new FakePosition(1, 0), new FakePosition(1, 0));
+    await evaluateAtCursor(); // line 1: y = x + 1, reads x
+    assert.match(paintedLineText(editor, 1), /2/, 'setup: y saw the old x');
+
+    // Line 0 rewritten in place and re-evaluated. Line 1's own text is
+    // untouched throughout -- only `markDependents`, from the landed
+    // re-evaluation of line 0, can be what marks it (registry.ts).
+    const oldLine = 'x = 1';
+    editor.document.setText('x = 5\ny = x + 1\n');
+    fake.emitters.onDidChangeTextDocument.fire({
+      document: editor.document,
+      contentChanges: [
+        { range: new FakeRange(0, 0, 0, oldLine.length), text: 'x = 5' },
+      ],
+    });
+    editor.selection = new FakeSelection(
+      new FakePosition(0, 0), new FakePosition(0, 0));
+    await evaluateAtCursor(); // re-run line 0, which marks line 1's dependant
+
+    const text = await hoverTextAt(fake, editor, 1);
+    assert.match(text!, /Stale/);
+    assert.match(text!, /re-bound/i);
+    assert.doesNotMatch(text!, /code changed/i,
+      "line 1's own text never changed -- only what it reads did");
+  } finally {
+    extension.deactivate();
+  }
+});
+
 test('hovering a bare dict shows its fields as a table', async () => {
   const fake = createFakeVscode();
   const editor = createEditor("config = {'host': 'localhost', 'port': 8080}\n");
