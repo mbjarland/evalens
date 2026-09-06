@@ -277,12 +277,16 @@ function markers(annotations: readonly Valued[]): boolean[] {
   return annotations.map((a) => a.stale === true);
 }
 
-test('normalising only folds physical CRLF line endings', () => {
-  // Whitespace equivalence needs Python token context. Only physical line
-  // endings have a safe context-independent normalization here.
-  assert.equal(normalizeSource('x = 1  '), 'x = 1  ', 'a trailing space');
+test('normalising folds CRLF and strips trailing whitespace per line', () => {
+  // Trailing whitespace cannot change what a line does, so it is the one
+  // kind of whitespace safe to fold without a tokeniser (#151). Leading
+  // whitespace and blank lines still need Python token context and stay.
+  assert.equal(normalizeSource('x = 1  '), 'x = 1', 'a trailing space');
+  assert.equal(normalizeSource('x = 1\t'), 'x = 1', 'a trailing tab');
   assert.equal(normalizeSource('    x = 1'), '    x = 1', 'reindentation');
   assert.equal(normalizeSource('x = 1\r\ny = 2'), 'x = 1\ny = 2');
+  assert.equal(normalizeSource('x = 1  \r\ny = 2\t'), 'x = 1\ny = 2',
+    'every line is stripped, not only the last');
   assert.equal(normalizeSource('if x:\n\n    pass'), 'if x:\n\n    pass',
     'a blank line added inside a statement');
   assert.notEqual(normalizeSource('x = 1'), normalizeSource('x = 2'),
@@ -359,12 +363,34 @@ test('undoing the edit does not clear stale', () => {
     'the text matches again; the value the kernel holds does not');
 });
 
-test('a whitespace-only edit is conservatively marked stale', () => {
+test('a trailing space, added or removed, keeps the trace evaluated', () => {
+  // files.trimTrailingWhitespace, or a stray space typed before Enter, edits
+  // the file without editing the program -- the false positive #124's fully
+  // conservative rule left standing until now (#151).
   const before = evaluatedLines(['x = 1', 'y = 2']);
-  const after = reanchor(
-    before, [edit(0, 0, ' ')], shift, against(['x = 1  ', 'y = 2']));
+  const added = reanchor(
+    before, [edit(0, 0, ' ')], shift, against(['x = 1 ', 'y = 2']));
+  assert.deepEqual(markers(added), [false, false], 'a trailing space added');
 
-  assert.deepEqual(markers(after), [true, false]);
+  const removed = reanchor(
+    evaluatedLines(['x = 1 ', 'y = 2']), [edit(0, 0, '')], shift,
+    against(['x = 1', 'y = 2']));
+  assert.deepEqual(markers(removed), [false, false],
+    'a trailing space removed');
+});
+
+test('a leading space, added or removed, still marks the trace stale', () => {
+  // Indentation decides block membership (#124); #151 narrows the exception
+  // to trailing whitespace only, so a leading space is unaffected by it.
+  const before = evaluatedLines(['x = 1', 'y = 2']);
+  const added = reanchor(
+    before, [edit(0, 0, ' ')], shift, against([' x = 1', 'y = 2']));
+  assert.deepEqual(markers(added), [true, false], 'a leading space added');
+
+  const removed = reanchor(
+    evaluatedLines([' x = 1', 'y = 2']), [edit(0, 0, '')], shift,
+    against(['x = 1', 'y = 2']));
+  assert.deepEqual(markers(removed), [true, false], 'a leading space removed');
 });
 
 test('reindenting a block is conservatively marked stale', () => {
@@ -386,7 +412,6 @@ test('relative indentation and multiline literal whitespace change the trace', (
       'if a:\n    if b:\n        x = 1\n        y = 2'],
     ['s = """a\n  b\n"""', 's = """a\nb\n"""'],
     ['s = """a\n\nb"""', 's = """a\nb"""'],
-    ['s = """a  \nb"""', 's = """a\nb"""'],
   ]) {
     const annotation: Valued = {
       id: 'source', value: 'trace',
@@ -395,6 +420,22 @@ test('relative indentation and multiline literal whitespace change the trace', (
     };
     assert.equal(afterEdit(annotation, normalizeSource(after))?.stale, true);
   }
+});
+
+test('a trailing space inside a multi-line string is the documented exception', () => {
+  // Named in normalizeSource's own docstring: the stripped whitespace is the
+  // string's own content, not padding after a statement, and this module has
+  // no tokeniser to tell the two apart (#151). Unlike the leading-whitespace
+  // and blank-line cases just above, this one is folded away and missed.
+  const annotation: Valued = {
+    id: 'source', value: 'trace',
+    range: { start: { line: 0 }, end: { line: 1 } },
+    source: normalizeSource('s = """a  \nb"""'),
+  };
+  const after = afterEdit(annotation, normalizeSource('s = """a\nb"""'));
+
+  assert.equal(after, annotation,
+    'a real change to the string is folded away and kept evaluated');
 });
 
 test('an annotation with no recorded source is marked, not trusted', () => {
@@ -442,7 +483,7 @@ test('a mark is decided after every change, not while they are applied', () => {
     against(['x = 1', '', '', 'y = 2 ']));
 
   assert.deepEqual(placed(after), ['top@0-0', 'bottom@3-3']);
-  assert.deepEqual(markers(after), [false, true]);
+  assert.deepEqual(markers(after), [false, false]);
 });
 
 // -- orphaned annotations (#96) -----------------------------------------------
