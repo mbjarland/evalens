@@ -378,6 +378,17 @@ test('two resetting loads cannot run between each other\'s reset and load', asyn
   }
 });
 
+// #150: since the edit here lands on line 0 -- the same line `x`'s own
+// statement starts on, in every one of these fixtures -- it always overlaps
+// `x`'s range by `render/registry.ts`'s line-granular `overlaps`, and a
+// one-line insertion is a line-count change, so `reanchorLate` answers this
+// exactly as `reanchor` already answers the same shape for a live edit
+// (`registry.test.ts`'s "an edit reaching into the next line takes its
+// annotation too"): dropped, not shifted. `x`'s own result stays
+// unplaceable after an edit for every command here, which is why every
+// `edit` case below still expects nothing painted except `evaluateFile`'s,
+// where `y` sits entirely below the inserted line, is a pure shift the edit
+// never touches, and is exactly the case #150 exists to stop discarding.
 for (const command of ['evaluateAtCursor', 'evaluateFile', 'evaluateAbove',
   'addInlineWatch']) {
   for (const invalidation of ['edit', 'clear', 'close']) {
@@ -425,7 +436,40 @@ for (const command of ['evaluateAtCursor', 'evaluateFile', 'evaluateAbove',
         await running;
         fake.window.visibleTextEditors = [editor];
         fake.emitters.onDidChangeVisibleTextEditors.fire([editor]);
-        assert.deepEqual(paintedLines(editor), []);
+
+        // #150: every genuine discard writes one line to the output
+        // channel, whichever of the three reasons it is.
+        const channel = fake.outputChannels[0]!;
+        const reasonText = invalidation === 'edit'
+          ? 'edits could not be replayed'
+          : invalidation === 'clear'
+            ? 'annotations were cleared'
+            : 'the document was closed';
+        const discardLines = channel.lines.filter((line) =>
+          /^discarded the result for line \d+: /.test(line)
+            && line.endsWith(reasonText));
+
+        if (command === 'evaluateFile' && invalidation === 'edit') {
+          // `x` is unplaceable (see the loop's own comment above), but `y`
+          // is not: it streams through `LoadPainting.paint` shifted one
+          // line down by the same edit, unmarked because nothing ever
+          // overlapped it.
+          assert.deepEqual(paintedLines(editor), [2]);
+          assert.match(depainted(editor, 2), /2/);
+          assert.equal(discardLines.length, 1,
+            `expected one discard line, got: ${channel.lines.join('; ')}`);
+        } else if (command === 'evaluateFile') {
+          // Closed or cleared before either statement's outcome streamed:
+          // neither `x` nor `y` can be placed, and both go through
+          // `LoadPainting.paint`, so both log their own line.
+          assert.deepEqual(paintedLines(editor), []);
+          assert.equal(discardLines.length, 2,
+            `expected two discard lines, got: ${channel.lines.join('; ')}`);
+        } else {
+          assert.deepEqual(paintedLines(editor), []);
+          assert.equal(discardLines.length, 1,
+            `expected one discard line, got: ${channel.lines.join('; ')}`);
+        }
       } finally {
         extension.deactivate();
       }
