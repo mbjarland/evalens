@@ -136,6 +136,41 @@ export function normalizeSource(text: string): string {
 }
 
 /**
+ * `sourceAt`'s own whole-line slicing (`render/decorations.ts`), against a
+ * plain string rather than a live document -- #150.
+ *
+ * A late result's candidate is built from coordinates the kernel computed
+ * against the file as it stood when the request was sent, and by the time
+ * the result lands the live document may already read differently at those
+ * same coordinates -- possibly as a wholly unrelated statement, once
+ * intervening edits have shifted everything around it. `sourceAt` reads the
+ * live document because every caller of it, before #150, could prove
+ * nothing had changed since the coordinates were taken; a late result
+ * cannot make that claim, so this reads the text captured at request time
+ * instead, sliced the same way.
+ *
+ * Kept in lock-step with `sourceAt`: the same clamping, the same full lines
+ * rather than the exact range, and the same final `normalizeSource` pass.
+ * `\r` is stripped per line before joining rather than left to
+ * `normalizeSource`'s own `\r\n` replacement, because slicing out the last
+ * line of a CRLF file the way `sourceAt` does -- up to the line's own text,
+ * never its terminator -- would otherwise leave that line's `\r` stranded
+ * with no following `\n` for `normalizeSource` to recognise.
+ */
+export function sourceAtText(
+  source: string,
+  range: {
+    readonly start: { readonly line: number };
+    readonly end: { readonly line: number };
+  }
+): string {
+  const lines = source.split('\n').map((line) => line.replace(/\r$/, ''));
+  const last = Math.min(range.end.line, lines.length - 1);
+  const first = Math.min(Math.max(range.start.line, 0), last);
+  return normalizeSource(lines.slice(first, last + 1).join('\n'));
+}
+
+/**
  * Whether the lines an annotation now covers could be a statement at all.
  *
  * Not a parser, deliberately: this module stays free of one so the lifecycle
@@ -454,6 +489,74 @@ export function reanchor<T extends Anchored>(
   // A whitespace-only edit reaches here having marked nothing, and must not
   // cost a repaint either.
   return changed ? settled : current;
+}
+
+/**
+ * Map one annotation across every `onDidChangeTextDocument` event a late
+ * result missed (#150). `events` is oldest first, each entry one event's own
+ * `contentChanges` exactly as `reanchor` takes a single event's.
+ *
+ * The same shift-then-rewrite split `reanchor` applies within one event,
+ * carried across as many of them as it takes to reach the document's
+ * current version: every buffered change is applied before `rewrite` is
+ * asked anything, because only once all of them have run is the range
+ * settled enough to read against the live document. Deciding right after
+ * the first event that touched the annotation would risk comparing against
+ * a line a later event was about to move again -- `reanchor`'s own doc
+ * comment makes the same argument for one event with more than one cursor,
+ * and this is the same argument once more, spanning however many separate
+ * edits happened while a result was in flight rather than however many
+ * cursors one keystroke had.
+ *
+ * `undefined` is a late result finding nowhere to stand: some event cut
+ * lines out of the annotation's range or pasted lines into it while the
+ * value was in flight, the same unrecoverable case `reanchor` answers for
+ * one edit. `rewrite` is required, unlike `reanchor`'s own optional one,
+ * because a late result never wants the older, blunter drop-on-overlap
+ * default -- there is always a document to compare against, so there is
+ * always a judgement to make instead of a guess. And `rewrite` only ever
+ * runs on an annotation some event actually overlapped: one only ever
+ * shifted keeps whatever it already claimed, because a candidate built with
+ * no recorded `source` -- a syntax-error marker, say -- would otherwise be
+ * marked stale by `afterEdit` for having moved, not for having changed.
+ *
+ * Kept apart from `reanchor` rather than folding "one event" and "many"
+ * into a single signature: `reanchor` has one production caller and a long
+ * list of tests built against a single event's shape, and #150 does not
+ * need either to change.
+ */
+export function reanchorLate<T extends Anchored>(
+  annotation: T,
+  events: readonly (readonly TextChange[])[],
+  shift: Shift<T>,
+  rewrite: Rewrite<T>
+): T | undefined {
+  let current: T = annotation;
+  let touched = false;
+
+  for (const changes of events) {
+    // Sorted on a copy, same as `reanchor`: each event's own array is the
+    // editor's, not ours to reorder, and every event still has to be
+    // applied back to front internally even though the events themselves
+    // run oldest first.
+    for (const change of [...changes].sort(lastFirst)) {
+      if (overlaps(current, change)) {
+        if (lineDelta(change) !== 0) {
+          return undefined;
+        }
+        touched = true;
+        continue;
+      }
+      if (current.range.start.line > change.range.end.line) {
+        const delta = lineDelta(change);
+        if (delta !== 0) {
+          current = shift(current, delta);
+        }
+      }
+    }
+  }
+
+  return touched ? rewrite(current) : current;
 }
 
 /**

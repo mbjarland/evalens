@@ -378,6 +378,17 @@ test('two resetting loads cannot run between each other\'s reset and load', asyn
   }
 });
 
+// #150: since the edit here lands on line 0 -- the same line `x`'s own
+// statement starts on, in every one of these fixtures -- it always overlaps
+// `x`'s range by `render/registry.ts`'s line-granular `overlaps`, and a
+// one-line insertion is a line-count change, so `reanchorLate` answers this
+// exactly as `reanchor` already answers the same shape for a live edit
+// (`registry.test.ts`'s "an edit reaching into the next line takes its
+// annotation too"): dropped, not shifted. `x`'s own result stays
+// unplaceable after an edit for every command here, which is why every
+// `edit` case below still expects nothing painted except `evaluateFile`'s,
+// where `y` sits entirely below the inserted line, is a pure shift the edit
+// never touches, and is exactly the case #150 exists to stop discarding.
 for (const command of ['evaluateAtCursor', 'evaluateFile', 'evaluateAbove',
   'addInlineWatch']) {
   for (const invalidation of ['edit', 'clear', 'close']) {
@@ -425,13 +436,181 @@ for (const command of ['evaluateAtCursor', 'evaluateFile', 'evaluateAbove',
         await running;
         fake.window.visibleTextEditors = [editor];
         fake.emitters.onDidChangeVisibleTextEditors.fire([editor]);
-        assert.deepEqual(paintedLines(editor), []);
+
+        // #150: every genuine discard writes one line to the output
+        // channel, whichever of the three reasons it is.
+        const channel = fake.outputChannels[0]!;
+        const reasonText = invalidation === 'edit'
+          ? 'edits could not be replayed'
+          : invalidation === 'clear'
+            ? 'annotations were cleared'
+            : 'the document was closed';
+        const discardLines = channel.lines.filter((line) =>
+          /^discarded the result for line \d+: /.test(line)
+            && line.endsWith(reasonText));
+
+        if (command === 'evaluateFile' && invalidation === 'edit') {
+          // `x` is unplaceable (see the loop's own comment above), but `y`
+          // is not: it streams through `LoadPainting.paint` shifted one
+          // line down by the same edit, unmarked because nothing ever
+          // overlapped it.
+          assert.deepEqual(paintedLines(editor), [2]);
+          assert.match(depainted(editor, 2), /2/);
+          assert.equal(discardLines.length, 1,
+            `expected one discard line, got: ${channel.lines.join('; ')}`);
+        } else if (command === 'evaluateFile') {
+          // Closed or cleared before either statement's outcome streamed:
+          // neither `x` nor `y` can be placed, and both go through
+          // `LoadPainting.paint`, so both log their own line.
+          assert.deepEqual(paintedLines(editor), []);
+          assert.equal(discardLines.length, 2,
+            `expected two discard lines, got: ${channel.lines.join('; ')}`);
+        } else {
+          assert.deepEqual(paintedLines(editor), []);
+          assert.equal(discardLines.length, 1,
+            `expected one discard line, got: ${channel.lines.join('; ')}`);
+        }
       } finally {
         extension.deactivate();
       }
     });
   }
 }
+
+// -- #150: a late result mapped through the edits it missed ------------------
+
+test('a late result after an insertion above its statement paints ' +
+  'evaluated on the shifted line', async () => {
+  const fake = createFakeVscode();
+  // `x` sits on line 1, not line 0, so the insertion below can land at the
+  // end of line 0 -- entirely `pass`'s own line by the line-granular
+  // `overlaps` the loop above relies on -- and never touch `x`'s line at
+  // all, which is what makes this a pure shift rather than the unrecoverable
+  // overlap every fixture up there hits.
+  const editor = createEditor("pass\nx = input('waiting')\n");
+  editor.selection = new FakeSelection(1, 0, 1, 0);
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  let asked!: () => void;
+  const opened = new Promise<void>((resolve) => { asked = resolve; });
+  let answer!: (value: string) => void;
+  (fake.module as { window: { showInputBox: () => Promise<string> } })
+    .window.showInputBox = () => {
+      asked();
+      return new Promise((resolve) => { answer = resolve; });
+    };
+  const extension = activated(fake);
+  try {
+    const running = fake.executeCommand('evalens.evaluateAtCursor');
+    await opened;
+    editor.document.setText("pass\n# moved\nx = input('waiting')\n");
+    fake.emitters.onDidChangeTextDocument.fire({
+      document: editor.document,
+      contentChanges: [{ range: new FakeRange(0, 4, 0, 4), text: '\n# moved' }],
+    });
+    answer('42');
+    await running;
+
+    assert.deepEqual(paintedLines(editor), [2],
+      'x is one line further down than it was when the request was sent');
+    assert.match(depainted(editor, 2), /42/);
+    const text = await hoverTextAt(fake, editor, 2);
+    assert.doesNotMatch(text ?? '', /Stale/,
+      'nothing about the statement itself changed, only where it sits');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('a late result after an edit inside its statement paints stale, ' +
+  'not evaluated', async () => {
+  const editor = createEditor("x = input('waiting')\n");
+  const fake = createFakeVscode();
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  let asked!: () => void;
+  const opened = new Promise<void>((resolve) => { asked = resolve; });
+  let answer!: (value: string) => void;
+  (fake.module as { window: { showInputBox: () => Promise<string> } })
+    .window.showInputBox = () => {
+      asked();
+      return new Promise((resolve) => { answer = resolve; });
+    };
+  const extension = activated(fake);
+  try {
+    const running = fake.executeCommand('evalens.evaluateAtCursor');
+    await opened;
+    // Same line count, different text -- a rewrite `reconcile` keeps and
+    // marks, rather than the line-count change the loop above drops. The
+    // kernel already has the original prompt text; changing it here only
+    // changes what the reader sees beside the value once it lands.
+    const oldLine = "x = input('waiting')";
+    const newLine = "x = input('WAITING')";
+    editor.document.setText(`${newLine}\n`);
+    fake.emitters.onDidChangeTextDocument.fire({
+      document: editor.document,
+      contentChanges: [{
+        range: new FakeRange(0, 0, 0, oldLine.length), text: newLine,
+      }],
+    });
+    answer('42');
+    await running;
+
+    assert.deepEqual(paintedLines(editor), [0]);
+    assert.match(depainted(editor, 0), /42/);
+    const text = await hoverTextAt(fake, editor, 0);
+    assert.match(text!, /Stale/);
+    assert.match(text!, /code changed since it ran/i);
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('a result older than every buffered edit is dropped and logged',
+  { timeout: 5000 }, async () => {
+  const editor = createEditor("x = input('waiting')\n");
+  const fake = createFakeVscode();
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  let asked!: () => void;
+  const opened = new Promise<void>((resolve) => { asked = resolve; });
+  let answer!: (value: string) => void;
+  (fake.module as { window: { showInputBox: () => Promise<string> } })
+    .window.showInputBox = () => {
+      asked();
+      return new Promise((resolve) => { answer = resolve; });
+    };
+  const extension = activated(fake);
+  try {
+    const running = fake.executeCommand('evalens.evaluateAtCursor');
+    await opened;
+    // More edits than render/annotations.ts buffers (200), every one of
+    // them appended well below `x`'s own line 0 -- none ever overlaps it or
+    // even needs to shift it, so the only way this can fail to place is the
+    // buffer itself running out from under the request's own captured
+    // version.
+    for (let i = 0; i < 205; i += 1) {
+      const before = editor.document.getText();
+      const line = before.split('\n').length - 1;
+      const noise = `# noise ${i}\n`;
+      editor.document.setText(before + noise);
+      fake.emitters.onDidChangeTextDocument.fire({
+        document: editor.document,
+        contentChanges: [{ range: new FakeRange(line, 0, line, 0), text: noise }],
+      });
+    }
+    answer('42');
+    await running;
+
+    assert.deepEqual(paintedLines(editor), []);
+    assert.deepEqual(
+      fake.outputChannels[0]!.lines.filter((line) =>
+        line === 'discarded the result for line 1: edits could not be replayed'),
+      ['discarded the result for line 1: edits could not be replayed']);
+  } finally {
+    extension.deactivate();
+  }
+});
 
 test('an inline watch can answer input inside its loop', async () => {
   const fake = createFakeVscode();

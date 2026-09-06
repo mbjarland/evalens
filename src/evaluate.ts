@@ -19,8 +19,8 @@ import { InOrder } from './load';
 import { askForInput } from './prompt';
 import { InterpreterUnavailableError } from './python';
 import { Announcer } from './render/announcer';
-import { Annotations } from './render/annotations';
-import { Annotation, sourceAt, toVsCodeRange } from './render/decorations';
+import { Annotations, Validity } from './render/annotations';
+import { Annotation, toVsCodeRange } from './render/decorations';
 import { Flash, SETTLED, SNAP } from './render/flash';
 import { printedFrom } from './render/format';
 import {
@@ -28,6 +28,7 @@ import {
   partialCause,
   partialOf, present,
 } from './render/present';
+import { sourceAtText } from './render/registry';
 import { capNames, PaintedAbove } from './render/repeats';
 import {
   BlockedMark, Waiting, askingMessage, whileRunning,
@@ -103,20 +104,24 @@ export const STATUS_OUTCOME_MS = 4000;
  * the *text* back off a registered annotation; neither is licensed to make
  * the statement disappear.
  *
- * `document` is here for one field: the statement's own text, taken at the
+ * `source` is here for one field: the statement's own text, taken at the
  * moment its value was, so that a later edit can be compared against what
- * actually ran rather than guessed at. It is a snapshot and stays one --
- * nothing re-reads the buffer to decide whether a value is still true.
+ * actually ran rather than guessed at. It is a snapshot -- the same string
+ * every caller already sent the kernel, never the live document -- and
+ * stays one: nothing re-reads the buffer to decide whether a value is still
+ * true, and a late result reconciled through edits it missed (#150) needs
+ * exactly this text, not whatever the document holds at these coordinates
+ * by the time the result lands.
  */
 function annotationFor(
-  document: vscode.TextDocument, outcome: StatementOutcome
+  source: string, outcome: StatementOutcome
 ): Annotation | undefined {
   if (!outcome.ok) {
     return outcome.range
       ? {
           range: toVsCodeRange(outcome.range),
           ...(outcome.anchor === undefined ? {} : { anchor: outcome.anchor }),
-          source: sourceAt(document, toVsCodeRange(outcome.range)),
+          source: sourceAtText(source, outcome.range),
           ...(outcome.binds === undefined ? {} : { binds: outcome.binds }),
           ...(outcome.reads === undefined ? {} : { reads: outcome.reads }),
           error: { type: outcome.error.type, message: outcome.error.message },
@@ -128,7 +133,7 @@ function annotationFor(
   return {
     range: toVsCodeRange(outcome.range),
     ...(outcome.anchor === undefined ? {} : { anchor: outcome.anchor }),
-    source: sourceAt(document, toVsCodeRange(outcome.range)),
+    source: sourceAtText(source, outcome.range),
     ...(outcome.value === null ? {} : { value: outcome.value }),
     display: outcome.display,
     ...(outcome.loop === undefined ? {} : { loop: outcome.loop }),
@@ -206,7 +211,7 @@ interface Asking {
  * exactly what repeat suppression needs.
  */
 class LoadPainting {
-  private readonly isCurrent: () => boolean;
+  private readonly validity: Validity;
   readonly order: InOrder<StatementOutcome>;
   /**
    * What each name last had painted beside it, walking the file downward.
@@ -231,7 +236,17 @@ class LoadPainting {
 
   constructor(
     private readonly document: vscode.TextDocument,
+    /**
+     * The whole file's text as it was sent to the kernel -- what every
+     * outcome's `range` is measured against, and what `annotationFor` reads
+     * instead of the live document so a statement's recorded `source`
+     * survives an edit that lands before its own outcome does (#150).
+     */
+    private readonly source: string,
     private readonly annotations: Annotations,
+    /** Where every discard this load hits -- closed, cleared, or an edit
+     * `reconcile` could not replay -- logs its one line (#150). */
+    private readonly output: vscode.OutputChannel,
     /**
      * #102: the same `Flash` `evaluateAtCursor`'s single-statement path
      * uses, reused here rather than invented twice, so that a snap and a
@@ -245,7 +260,7 @@ class LoadPainting {
      */
     private readonly editor: vscode.TextEditor
   ) {
-    this.isCurrent = annotations.validity(document);
+    this.validity = annotations.validity(document);
     this.order = new InOrder((outcome) => this.paint(outcome));
   }
 
@@ -284,9 +299,27 @@ class LoadPainting {
    * blocked on `input()`, because nothing has reported an outcome yet, so
    * the sweep visibly stops at the blocked line without this class knowing
    * anything about prompts.
+   *
+   * **A statement whose result is late (#150)** -- the document has moved on
+   * to a version newer than the one this whole load ran against -- is
+   * mapped through whatever was buffered of the edits it missed, via
+   * `place`, before any of what follows: the flash, the repeat rule, and the
+   * cap all have to work from where the statement's value now belongs, not
+   * from where it was when the kernel finished with it. A result `place`
+   * cannot locate is logged and dropped rather than painted anywhere.
    */
   private paint(outcome: StatementOutcome): void {
-    if (!this.isCurrent()) { return; }
+    const built = annotationFor(this.source, outcome);
+    if (built === undefined) {
+      // A failure with no range at all: nothing to point the region at, and
+      // nothing to log a discard against either.
+      return;
+    }
+    if (!this.validity.placeable()) {
+      logDiscard(this.output, built.anchor ?? built.range.end.line,
+        this.validity.reason() ?? 'cleared');
+      return;
+    }
     if (!outcome.ok) {
       this.failures += 1;
     }
@@ -295,9 +328,9 @@ class LoadPainting {
       // about how much of it fitted on screen.
       return;
     }
-    const annotation = annotationFor(this.document, outcome);
+    const annotation = place(
+      this.output, this.document, this.annotations, this.validity, built);
     if (annotation === undefined) {
-      // A failure with no range at all: nothing to point the region at.
       return;
     }
     // Not `settle`: that also announces, and #55 decided bulk work earns one
@@ -339,6 +372,65 @@ function causeAnnotation(partial: PartialParse): Annotation {
   };
 }
 
+/**
+ * One line to the Evalens output channel for a result that could not be
+ * painted, whatever the reason (#150) -- design rule 7 puts the answer on
+ * the line, never in a panel, but this is the one case there is no line to
+ * put it on: the document was closed, its annotations were cleared, or the
+ * edits it missed while in flight could not be replayed. The channel is
+ * overflow for exactly this, and never a notification -- popping one over a
+ * keystroke from several statements ago would be the interruption design
+ * rule 5 exists to keep evaluation from causing on its own.
+ *
+ * `line` is 0-based, matching every other coordinate on the wire, so it is
+ * shifted to the number a human reads here rather than asking every caller
+ * to remember to -- the same choice `input.ts`'s `locatedTitle` makes.
+ */
+function logDiscard(
+  output: vscode.OutputChannel, line: number,
+  reason: 'closed' | 'cleared' | 'unreplayable'
+): void {
+  const why = reason === 'closed'
+    ? 'the document was closed'
+    : reason === 'cleared'
+      ? 'annotations were cleared'
+      : 'edits could not be replayed';
+  output.appendLine(`discarded the result for line ${line + 1}: ${why}`);
+}
+
+/**
+ * Place `candidate` -- built from the coordinates and text a request had
+ * when it was sent, not from whatever the live document says now -- or log
+ * why it cannot be, and answer `undefined` either way so the caller knows
+ * not to paint anything (#150).
+ *
+ * The two failures `logDiscard` can name here are told apart by which check
+ * fails: `validity.placeable()` is the document-closed and
+ * annotations-cleared gates #121 already had, unrelated to how old
+ * `candidate` is; `Annotations.reconcile` is the one this ticket adds, and
+ * its `undefined` means specifically that the edits between `validity`'s
+ * captured version and the document's current one could not be replayed
+ * across `candidate`'s range. Both are genuine discards, and either is
+ * logged once, here, so every caller that places a result gets the same
+ * message for the same failure rather than composing its own.
+ */
+function place(
+  output: vscode.OutputChannel, document: vscode.TextDocument,
+  annotations: Annotations, validity: Validity, candidate: Annotation
+): Annotation | undefined {
+  if (!validity.placeable()) {
+    logDiscard(output, candidate.anchor ?? candidate.range.end.line,
+      validity.reason() ?? 'cleared');
+    return undefined;
+  }
+  const placed = annotations.reconcile(document, validity.version, candidate);
+  if (placed === undefined) {
+    logDiscard(
+      output, candidate.anchor ?? candidate.range.end.line, 'unreplayable');
+  }
+  return placed;
+}
+
 export class Evaluator {
   private readonly gate = new LatestWins<string>();
   private asking?: Asking;
@@ -356,7 +448,11 @@ export class Evaluator {
   /** One user action owns the namespace and its prompts until it finishes. */
   private execute<T>(asking: Asking, action: () => Promise<T>): Promise<T> {
     const context = {
-      ...asking, isCurrent: this.annotations.validity(asking.document),
+      // A prompt is live interaction, not a result to reconcile: whether to
+      // mark and reveal the statement asking for input is answered exactly
+      // as it was before #150, from `Validity.current()`, unrelated to
+      // whether a late *result* could later be placed through an edit.
+      ...asking, isCurrent: this.annotations.validity(asking.document).current,
     };
     const generation = this.executionGeneration;
     const work = this.execution.then(async () => {
@@ -684,7 +780,8 @@ export class Evaluator {
     let response: FileResponse;
     // The load's paint state, built before the request because the first
     // statement can report before the await has yielded once.
-    const load = new LoadPainting(document, this.annotations, this.flash, editor);
+    const load = new LoadPainting(
+      document, source, this.annotations, this.output, this.flash, editor);
     const blocked = new BlockedMark();
     // Set before the request, for the same reason.
     try {
@@ -760,19 +857,31 @@ export class Evaluator {
       blocked.release();
     }
 
-    if (!isCurrent()) { return; }
+    if (!isCurrent.placeable()) {
+      // Closed or cleared while the file was loading. Every statement that
+      // streamed already logged its own discard through `LoadPainting.paint`
+      // above, and there is no version left here for a syntax error or a
+      // partial-parse marker to be reconciled against either.
+      return;
+    }
     if (!response.ok) {
       // Only a syntax error reaches here: nothing could run, so there is
       // nothing partial to report.
       void vscode.window.showErrorMessage(
         `Evalens: ${response.error.type}: ${response.error.message}`);
       if (response.range) {
-        this.annotations.add(document, {
-          range: toVsCodeRange(response.range),
-          source: sourceAt(document, toVsCodeRange(response.range)),
-          error: { type: response.error.type, message: response.error.message },
-          hover: response.error.traceback || response.error.message,
-        });
+        const placed = place(this.output, document, this.annotations,
+          isCurrent, {
+            range: toVsCodeRange(response.range),
+            source: sourceAtText(source, response.range),
+            error: {
+              type: response.error.type, message: response.error.message,
+            },
+            hover: response.error.traceback || response.error.message,
+          });
+        if (placed !== undefined) {
+          this.annotations.add(document, placed);
+        }
       }
       return;
     }
@@ -787,7 +896,11 @@ export class Evaluator {
       // case is the one that most needs the reason on screen: a selection
       // below the break matches nothing in the part that parsed, so it runs
       // nothing, and the break is the whole explanation for a count of zero.
-      this.annotations.add(document, causeAnnotation(response.partial));
+      const placed = place(this.output, document, this.annotations, isCurrent,
+        causeAnnotation(response.partial));
+      if (placed !== undefined) {
+        this.annotations.add(document, placed);
+      }
     }
 
     if (lines && response.statements === 0) {
@@ -896,7 +1009,8 @@ export class Evaluator {
     // Built before the request, for the same reason `evaluateFile` builds
     // its painting state first: the first statement can report before the
     // `await` below has yielded even once.
-    const load = new LoadPainting(document, this.annotations, this.flash, editor);
+    const load = new LoadPainting(
+      document, source, this.annotations, this.output, this.flash, editor);
     const blocked = new BlockedMark();
     try {
       response = await this.execute(
@@ -930,19 +1044,30 @@ export class Evaluator {
       blocked.release();
     }
 
-    if (!isCurrent()) { return; }
+    if (!isCurrent.placeable()) {
+      // Closed or cleared while the run was in flight. Every statement that
+      // streamed already logged its own discard through `LoadPainting.paint`
+      // above.
+      return;
+    }
     if (!response.ok) {
       // Only a syntax error reaches here: nothing could even be resolved
       // against the tree, so there is nothing partial to report either.
       void vscode.window.showErrorMessage(
         `Evalens: ${response.error.type}: ${response.error.message}`);
       if (response.range) {
-        this.annotations.add(document, {
-          range: toVsCodeRange(response.range),
-          source: sourceAt(document, toVsCodeRange(response.range)),
-          error: { type: response.error.type, message: response.error.message },
-          hover: response.error.traceback || response.error.message,
-        });
+        const placed = place(this.output, document, this.annotations,
+          isCurrent, {
+            range: toVsCodeRange(response.range),
+            source: sourceAtText(source, response.range),
+            error: {
+              type: response.error.type, message: response.error.message,
+            },
+            hover: response.error.traceback || response.error.message,
+          });
+        if (placed !== undefined) {
+          this.annotations.add(document, placed);
+        }
       }
       return;
     }
@@ -951,7 +1076,11 @@ export class Evaluator {
       // A break below the boundary the cursor implied: the prefix above it
       // still ran, and this is why the reader may see fewer statements than
       // the file appears to have.
-      this.annotations.add(document, causeAnnotation(response.partial));
+      const placed = place(this.output, document, this.annotations, isCurrent,
+        causeAnnotation(response.partial));
+      if (placed !== undefined) {
+        this.annotations.add(document, placed);
+      }
     }
 
     load.order.settle(response.results);
@@ -1043,11 +1172,18 @@ export class Evaluator {
     }
 
     const response = run.value;
-    if (!isCurrent() || !this.gate.isCurrent(key, token)) {
+    if (!this.gate.isCurrent(key, token)) {
       // A newer evaluation has already claimed this line. Painting this one
       // would leave a value beside code it did not come from -- and its mark
-      // belongs to nothing now either.
+      // belongs to nothing now either. Unrelated to how old the document is:
+      // a second keypress on the same line supersedes the first regardless
+      // of whether anything was ever edited.
       run.waiting.withdraw();
+      return;
+    }
+    if (!isCurrent.placeable()) {
+      run.waiting.withdraw();
+      logDiscard(this.output, cursor.line, isCurrent.reason() ?? 'cleared');
       return;
     }
 
@@ -1057,7 +1193,11 @@ export class Evaluator {
     // on one line the value the user asked for is what survives `merge`.
     const partial = partialOf(response);
     if (partial) {
-      this.annotations.add(document, causeAnnotation(partial));
+      const placedCause = place(this.output, document, this.annotations,
+        isCurrent, causeAnnotation(partial));
+      if (placedCause !== undefined) {
+        this.annotations.add(document, placedCause);
+      }
     }
 
     const evaluated = present(response, cursor.line);
@@ -1090,9 +1230,11 @@ export class Evaluator {
             ...(presentation.anchor === undefined
               ? {}
               : { anchor: presentation.anchor }),
-            // Taken now, beside the value, so an edit can be judged against
-            // the code that actually ran rather than against the buffer.
-            source: sourceAt(document, toVsCodeRange(presentation.range)),
+            // Taken from the snapshot sent with the request, so an edit that
+            // lands before this response does can still be judged against
+            // the code that actually ran rather than against wherever the
+            // live buffer now reads at these coordinates (#150).
+            source: sourceAtText(source, presentation.range),
             ...(presentation.binds === undefined
               ? {}
               : { binds: presentation.binds }),
@@ -1110,7 +1252,9 @@ export class Evaluator {
             ...(presentation.anchor === undefined
               ? {}
               : { anchor: presentation.anchor }),
-            source: sourceAt(document, toVsCodeRange(presentation.range)),
+            // See the error branch above for why this reads the request's
+            // own snapshot rather than the live document (#150).
+            source: sourceAtText(source, presentation.range),
             display: presentation.display,
             // A loop that ran zero times has a trace and no value, which is
             // still an answer -- and the only thing that keeps the previous
@@ -1167,13 +1311,19 @@ export class Evaluator {
     // landed in, and relying on those two to coincide is a bug waiting for
     // the first statement whose range does not cover the cursor.
     run.waiting.withdraw();
-    // Painted regardless of what stands above it. An explicit evaluation
-    // always shows its result: staying silent because the value has not
-    // changed since a line further up is indistinguishable from the keypress
-    // being ignored, which is a failure this project has already shipped. The
-    // repeat rule belongs to bulk annotation, where nobody is waiting on any
-    // one line.
-    this.annotations.settle(document, annotation);
+    // Placed through whatever edits arrived between the keypress and this
+    // answer (#150) before it is shown at all: painted regardless of what
+    // stands above it once it is placed, the same as before this ticket. An
+    // explicit evaluation always shows its result -- staying silent because
+    // the value has not changed since a line further up is indistinguishable
+    // from the keypress being ignored, which is a failure this project has
+    // already shipped. The repeat rule belongs to bulk annotation, where
+    // nobody is waiting on any one line.
+    const placed = place(
+      this.output, document, this.annotations, isCurrent, annotation);
+    if (placed !== undefined) {
+      this.annotations.settle(document, placed);
+    }
   }
 
   /**
@@ -1268,9 +1418,10 @@ export class Evaluator {
       // box as though Escape had been pressed, discarding what was typed.
       ignoreFocusOut: true,
     });
-    if (typed === undefined || !isCurrent()) {
+    if (typed === undefined || !isCurrent.current()) {
       // Escape, the close button, or the palette opening over it. Nothing
-      // has been sent yet, so there is nothing to undo.
+      // has been sent yet, so there is nothing to undo -- and nothing to
+      // reconcile either: no request has been made for #150 to apply to.
       return;
     }
     const expr = typed.trim();
@@ -1305,16 +1456,24 @@ export class Evaluator {
       return;
     }
 
-    if (!isCurrent()) { return; }
+    if (!isCurrent.placeable()) {
+      logDiscard(this.output, selection.start.line,
+        isCurrent.reason() ?? 'cleared');
+      return;
+    }
     if (!response.ok) {
       // `annotationFor` paints this when there is a range to paint it on --
       // an ordinary failure of the loop itself, exactly as `evaluateAtCursor`
       // shows one. A nomination-level problem -- not a loop, an expression
       // that will not parse -- carries none, and is said instead rather than
       // painted nowhere.
-      const annotation = annotationFor(document, response);
-      if (annotation) {
-        this.annotations.settle(document, annotation);
+      const built = annotationFor(source, response);
+      if (built) {
+        const placed = place(
+          this.output, document, this.annotations, isCurrent, built);
+        if (placed !== undefined) {
+          this.annotations.settle(document, placed);
+        }
       } else {
         void vscode.window.showErrorMessage(
           `Evalens: ${response.error.type}: ${response.error.message}`);
@@ -1328,9 +1487,13 @@ export class Evaluator {
       return;
     }
 
-    const annotation = annotationFor(document, response);
-    if (annotation) {
-      this.annotations.settle(document, annotation);
+    const built = annotationFor(source, response);
+    if (built) {
+      const placed = place(
+        this.output, document, this.annotations, isCurrent, built);
+      if (placed !== undefined) {
+        this.annotations.settle(document, placed);
+      }
     }
   }
 
@@ -1362,9 +1525,12 @@ export class Evaluator {
       this.reportFailure(error);
       return;
     }
-    if (!isCurrent()
+    if (!isCurrent.current()
         || editor.selection.active.line !== cursor.line
         || editor.selection.active.character !== cursor.character) {
+      // Whether to move the cursor at all, not whether to paint a result --
+      // #150's reconciliation is `evaluateAtCursor`'s own concern, dispatched
+      // below regardless of what this check decides.
       return;
     }
     const stop = statements
