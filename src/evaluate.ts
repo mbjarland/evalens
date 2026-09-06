@@ -174,6 +174,7 @@ function withoutText(annotation: Annotation): Annotation {
  * which is the only answer that does not leave the kernel waiting.
  */
 interface Asking {
+  readonly isCurrent?: () => boolean;
   readonly document: vscode.TextDocument;
   /**
    * The mark the keypress already put up, when there is one.
@@ -204,6 +205,7 @@ interface Asking {
  * exactly what repeat suppression needs.
  */
 class LoadPainting {
+  private readonly isCurrent: () => boolean;
   readonly order: InOrder<StatementOutcome>;
   /**
    * What each name last had painted beside it, walking the file downward.
@@ -242,6 +244,7 @@ class LoadPainting {
      */
     private readonly editor: vscode.TextEditor
   ) {
+    this.isCurrent = annotations.validity(document);
     this.order = new InOrder((outcome) => this.paint(outcome));
   }
 
@@ -282,6 +285,7 @@ class LoadPainting {
    * anything about prompts.
    */
   private paint(outcome: StatementOutcome): void {
+    if (!this.isCurrent()) { return; }
     if (!outcome.ok) {
       this.failures += 1;
     }
@@ -342,16 +346,19 @@ export class Evaluator {
 
   /** One user action owns the namespace and its prompts until it finishes. */
   private execute<T>(asking: Asking, action: () => Promise<T>): Promise<T> {
+    const context = {
+      ...asking, isCurrent: this.annotations.validity(asking.document),
+    };
     const generation = this.executionGeneration;
     const work = this.execution.then(async () => {
       if (generation !== this.executionGeneration) {
         throw new Error('evaluation cancelled before it started');
       }
-      this.asking = asking;
+      this.asking = context;
       try {
         return await action();
       } finally {
-        if (this.asking === asking) {
+        if (this.asking === context) {
           this.asking = undefined;
         }
       }
@@ -443,7 +450,9 @@ export class Evaluator {
     // the whole difference afterwards: a borrowed mark goes back to saying
     // what it said, a made one has to be taken away again.
     const borrowed = asking.waiting;
-    const marker = borrowed ?? this.markWhereItAsked(asking.document, request);
+    const current = asking.isCurrent?.() !== false;
+    const marker = current
+      ? borrowed ?? this.markWhereItAsked(asking.document, request) : undefined;
     // Tagged rather than plain: this is the one call site that puts a
     // statement in the "your turn" state rather than the "merely slow" one,
     // and `askingMessage` is how that survives down to the paint layer.
@@ -452,7 +461,7 @@ export class Evaluator {
     try {
       const answer = await askForInput(
         request, asking.load?.offerSkip === true,
-        this.titleFor(asking.document, request));
+        current ? this.titleFor(asking.document, request) : undefined);
       asking.load?.record(answer.kind);
       return answer.kind === 'value' ? answer.value : null;
     } finally {
@@ -657,6 +666,7 @@ export class Evaluator {
     const asScript = options?.asScript ?? false;
     const document = editor.document;
     const source = document.getText();
+    const isCurrent = this.annotations.validity(document);
     const selection = editor.selection;
     const lines = asScript ? undefined : selectedLines(selection);
     // See the doc comment above: a selection never resets, a script run
@@ -743,6 +753,7 @@ export class Evaluator {
       blocked.release();
     }
 
+    if (!isCurrent()) { return; }
     if (!response.ok) {
       // Only a syntax error reaches here: nothing could run, so there is
       // nothing partial to report.
@@ -872,6 +883,7 @@ export class Evaluator {
   async evaluateAbove(editor: vscode.TextEditor): Promise<void> {
     const document = editor.document;
     const source = document.getText();
+    const isCurrent = this.annotations.validity(document);
     const line = editor.selection.active.line;
     let response: FileResponse;
     // Built before the request, for the same reason `evaluateFile` builds
@@ -913,6 +925,7 @@ export class Evaluator {
       blocked.release();
     }
 
+    if (!isCurrent()) { return; }
     if (!response.ok) {
       // Only a syntax error reaches here: nothing could even be resolved
       // against the tree, so there is nothing partial to report either.
@@ -969,6 +982,7 @@ export class Evaluator {
   ): Promise<void> {
     const document = editor.document;
     const source = document.getText();
+    const isCurrent = this.annotations.validity(document);
     const cursor = at ?? editor.selection.active;
     // Keyed by line as well as document. Two presses on one line race, and the
     // newer one is the answer -- but two presses on different lines are not
@@ -1026,7 +1040,7 @@ export class Evaluator {
     }
 
     const response = run.value;
-    if (!this.gate.isCurrent(key, token)) {
+    if (!isCurrent() || !this.gate.isCurrent(key, token)) {
       // A newer evaluation has already claimed this line. Painting this one
       // would leave a value beside code it did not come from -- and its mark
       // belongs to nothing now either.
@@ -1229,6 +1243,8 @@ export class Evaluator {
    */
   async addInlineWatch(editor: vscode.TextEditor): Promise<void> {
     const document = editor.document;
+    const source = document.getText();
+    const isCurrent = this.annotations.validity(document);
     const selection = editor.selection;
     const preselected = document.getText(selection).trim();
     // A selection always wins: it is text the reader chose, which is a
@@ -1249,7 +1265,7 @@ export class Evaluator {
       // box as though Escape had been pressed, discarding what was typed.
       ignoreFocusOut: true,
     });
-    if (typed === undefined) {
+    if (typed === undefined || !isCurrent()) {
       // Escape, the close button, or the palette opening over it. Nothing
       // has been sent yet, so there is nothing to undo.
       return;
@@ -1263,7 +1279,6 @@ export class Evaluator {
 
     let response: EvalResponse;
     try {
-      const source = document.getText();
       response = await this.execute({ document }, async () => {
       const client = await this.client();
       return (await this.watch(
@@ -1289,6 +1304,7 @@ export class Evaluator {
       return;
     }
 
+    if (!isCurrent()) { return; }
     if (!response.ok) {
       // `annotationFor` paints this when there is a range to paint it on --
       // an ordinary failure of the loop itself, exactly as `evaluateAtCursor`
@@ -1336,8 +1352,14 @@ export class Evaluator {
    */
   async evaluateAndAdvance(editor: vscode.TextEditor): Promise<void> {
     const document = editor.document;
+    const isCurrent = this.annotations.validity(document);
     const cursor = editor.selection.active;
     const statements = await this.statementsOf(document);
+    if (!isCurrent()
+        || editor.selection.active.line !== cursor.line
+        || editor.selection.active.character !== cursor.character) {
+      return;
+    }
     const stop = statements
       ? nextStop(
           statements,
@@ -1393,6 +1415,8 @@ export class Evaluator {
     document: vscode.TextDocument
   ): Promise<readonly StatementSpan[] | undefined> {
     const key = document.uri.toString();
+    const version = document.version;
+    const source = document.getText();
     const plan = outlinePlan(this.outline, key, document.version, this.busy());
     if (plan.kind === 'cached') {
       return plan.statements;
@@ -1411,7 +1435,7 @@ export class Evaluator {
       const client = await this.kernel();
       response = (await client.request({
         op: 'outline',
-        source: document.getText(),
+        source,
         filename: document.uri.fsPath,
       })) as OutlineResponse;
     } catch {
@@ -1420,14 +1444,14 @@ export class Evaluator {
       // twice in the output channel is how a log stops being read.
       return undefined;
     }
-    if (!response.ok) {
+    if (!response.ok || document.version !== version) {
       // A syntax error, and the only failure this op has. Same reasoning: the
       // evaluation paints it where the user can see it.
       return undefined;
     }
 
     this.outline = {
-      key, version: document.version, statements: response.statements,
+      key, version, statements: response.statements,
     };
     return response.statements;
   }

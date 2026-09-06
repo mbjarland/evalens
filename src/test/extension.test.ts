@@ -321,6 +321,61 @@ test('two resetting loads cannot run between each other\'s reset and load', asyn
   }
 });
 
+for (const command of ['evaluateAtCursor', 'evaluateFile', 'evaluateAbove',
+  'addInlineWatch']) {
+  for (const invalidation of ['edit', 'clear', 'close']) {
+    test(`${command} cannot repaint after ${invalidation} during input`,
+      { timeout: 5000 }, async () => {
+      const fake = createFakeVscode();
+      const watch = command === 'addInlineWatch';
+      const editor = createEditor(watch
+        ? "for i in [1]:\n    x = input('waiting')\n"
+        : "x = input('waiting')\ny = 2\n");
+      if (command === 'evaluateAbove') {
+        editor.selection = new FakeSelection(1, 0, 1, 0);
+      }
+      fake.window.activeTextEditor = editor;
+      fake.window.visibleTextEditors = [editor];
+      let asked!: () => void;
+      const opened = new Promise<void>((resolve) => { asked = resolve; });
+      let answer!: (value: string) => void;
+      let calls = 0;
+      (fake.module as { window: { showInputBox: () => Promise<string> } })
+        .window.showInputBox = () => {
+          if (watch && calls++ === 0) { return Promise.resolve('i'); }
+          asked();
+          return new Promise((resolve) => { answer = resolve; });
+        };
+      const extension = activated(fake);
+      try {
+        const running = fake.executeCommand(`evalens.${command}`);
+        await opened;
+        if (invalidation === 'edit') {
+          editor.document.setText('# moved\n' + editor.document.getText());
+          fake.emitters.onDidChangeTextDocument.fire({
+            document: editor.document,
+            contentChanges: [{
+              range: new FakeRange(0, 0, 0, 0), text: '# moved\n',
+            }],
+          });
+        } else if (invalidation === 'clear') {
+          await fake.executeCommand('evalens.clearResults');
+        } else {
+          fake.emitters.onDidCloseTextDocument.fire(editor.document);
+          fake.window.visibleTextEditors = [];
+        }
+        answer('42');
+        await running;
+        fake.window.visibleTextEditors = [editor];
+        fake.emitters.onDidChangeVisibleTextEditors.fire([editor]);
+        assert.deepEqual(paintedLines(editor), []);
+      } finally {
+        extension.deactivate();
+      }
+    });
+  }
+}
+
 test('an inline watch can answer input inside its loop', async () => {
   const fake = createFakeVscode();
   const editor = createEditor("for i in [1]:\n    value = input('watch')\n");

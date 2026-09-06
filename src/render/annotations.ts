@@ -57,6 +57,19 @@ export const HAS_ANNOTATIONS = 'evalens.hasAnnotations';
  * kind of over-claiming, and `afterEdit` drops the annotation instead (#96).
  */
 export class Annotations implements vscode.Disposable {
+  private readonly epochs = new WeakMap<vscode.TextDocument, number>();
+  private generation = 0;
+  private disposed = false;
+
+  /** A result may only paint the document and lifecycle that requested it. */
+  validity(document: vscode.TextDocument): () => boolean {
+    const version = document.version;
+    const generation = this.generation;
+    const epoch = this.epochs.get(document);
+    return () => !this.disposed && !document.isClosed
+      && document.version === version && this.generation === generation
+      && this.epochs.get(document) === epoch;
+  }
   private readonly registry = new AnnotationRegistry<Annotation>();
   private readonly decorator: Decorator;
   private readonly subscriptions: vscode.Disposable[] = [];
@@ -97,8 +110,10 @@ export class Annotations implements vscode.Disposable {
           return;
         }
 
+        const retained = event.contentChanges.length > 0
+          ? before.filter((annotation) => !annotation.pending) : before;
         const after = reanchor(
-          before, event.contentChanges, shifted,
+          retained, event.contentChanges, shifted,
           // The document has already been updated by the time this fires, so
           // this reads what the statement says *after* the edit -- which is
           // the only thing that can be compared with what it said when it
@@ -127,6 +142,7 @@ export class Annotations implements vscode.Disposable {
       }),
 
       vscode.workspace.onDidCloseTextDocument((document) => {
+        this.epochs.set(document, (this.epochs.get(document) ?? 0) + 1);
         // Without this the map grows for the life of the window.
         this.registry.forget(document.uri.toString());
         this.updateContext();
@@ -198,7 +214,9 @@ export class Annotations implements vscode.Disposable {
 
     return {
       say: (message) => {
-        if (withdrawn) {
+        if (withdrawn || !this.registry
+            .get(document.uri.toString()).includes(current)) {
+          withdrawn = true;
           // The evaluation finished, or was abandoned, while something was
           // still being said about it. Re-adding the mark now would leave a
           // line claiming to be running something that is over.
@@ -257,6 +275,7 @@ export class Annotations implements vscode.Disposable {
   }
 
   clear(document: vscode.TextDocument): void {
+    this.epochs.set(document, (this.epochs.get(document) ?? 0) + 1);
     if (this.registry.clear(document.uri.toString())) {
       this.repaint(document);
     }
@@ -264,6 +283,7 @@ export class Annotations implements vscode.Disposable {
   }
 
   clearAll(): void {
+    this.generation += 1;
     this.registry.clearAll();
     this.repaintAllVisible();
     this.updateContext();
@@ -275,6 +295,7 @@ export class Annotations implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.registry.clearAll();
     this.decorator.dispose();
     for (const subscription of this.subscriptions) {
