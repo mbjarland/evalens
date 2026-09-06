@@ -142,7 +142,7 @@ npm run compile          # tsc -p .
 npm run watch            # the same, watching
 npm test                 # 396 tests; pretest compiles first
 npm run test:kernel      # 395 tests, python3 -m unittest
-npm run package          # python-inline-values-<version>.vsix, 35 files
+npm run package          # evalens-<version>.vsix, 35 files
 gh issue list            # the tracker
 python3 prototype/form_at_cursor.py FILE LINE…   # the superseded AST proof
 ```
