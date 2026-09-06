@@ -604,9 +604,24 @@ tr.cursor .line-cell {
  * The two messages this view ever posts to the extension, handled entirely
  * on this side without a rebuild: `{ cursor }` moves the highlighted row,
  * `{ goto }` (a click) is sent up for `panel/values.ts` to act on. Neither
- * payload is ever more than the one number it needs.
+ * payload is ever more than the one number it needs. The `cursor` handler
+ * only ever toggles a class -- it must never scroll (#149): moving the
+ * cursor is not a change, and the row it lands on may already be off screen
+ * on purpose, because the reader scrolled there themselves.
+ *
+ * `revealLine` (#149) is the one thing this script does on load rather than
+ * in response to a message: `panel/values.ts` has already decided, before
+ * this HTML was ever built, whether following is on and which line to
+ * reveal, so there is nothing left to ask the extension here -- the same
+ * "decided before the render, never re-asked afterwards" `valuesHtml` is
+ * documented as being pure by, below. `null` means nothing to reveal --
+ * following is off, or the change that triggered this rebuild carried no
+ * line -- and the reveal step is then a no-op by construction, not by a
+ * second flag threaded through.
  */
-const SCRIPT = `
+function script(revealLine: number | undefined): string {
+  const literal = revealLine === undefined ? 'null' : String(revealLine);
+  return `
 (function () {
   var vscode = acquireVsCodeApi();
   var rows = Array.prototype.slice.call(document.querySelectorAll('tr.row'));
@@ -627,22 +642,42 @@ const SCRIPT = `
       row.classList.toggle('cursor', line >= start && line <= end);
     });
   });
+  var revealLine = ${literal};
+  if (revealLine !== null) {
+    var target = rows.filter(function (row) {
+      var start = Number(row.getAttribute('data-start'));
+      var end = Number(row.getAttribute('data-end'));
+      return revealLine >= start && revealLine <= end;
+    })[0];
+    if (target) {
+      target.scrollIntoView({ block: 'nearest' });
+    }
+  }
 }());
 `;
+}
 
 /**
  * The panel's whole HTML document, for `data` as it stands right now.
  *
- * A pure function of its three arguments: no clock, no random beyond the
+ * A pure function of its arguments: no clock, no random beyond the
  * caller-supplied `nonce`, so the same inputs always produce the same
  * markup and a test never has to launch a webview to check one. CSP is
  * `default-src 'none'` plus the one nonce for both the style block and the
  * script -- every colour rides a CSS custom property or a class already in
  * that block, so nothing here ever needs an inline `style="…"` attribute,
  * which a nonce does not cover.
+ *
+ * `revealLine` (#149) is the line the on-load script scrolls into view, or
+ * `undefined` for none -- `panel/values.ts` is the only caller that ever
+ * decides this, from `Annotations.onDidChange`'s own payload and the
+ * `evalens.valuesPanel.follow` setting; this function only ever bakes
+ * whatever it is handed into the page, the same way it already does for
+ * `cursorLine`.
  */
 export function valuesHtml(
-  data: ValuesPanelData, cursorLine: number | undefined, nonce: string
+  data: ValuesPanelData, cursorLine: number | undefined, nonce: string,
+  revealLine?: number
 ): string {
   const body = data.fileName === undefined
     ? emptyStateHtml(NO_EDITOR_MESSAGE)
@@ -661,7 +696,7 @@ export function valuesHtml(
 </head>
 <body>
 ${body}
-<script nonce="${nonce}">${SCRIPT}</script>
+<script nonce="${nonce}">${script(revealLine)}</script>
 </body>
 </html>`;
 }
