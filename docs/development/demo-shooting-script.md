@@ -87,6 +87,6 @@ entire thing being sold, and it is the one thing a still image cannot say.
 
 - GIF, 12–15fps, under 3MB so GitHub and the marketplace both inline it.
 - `media/demo/evalens.gif`, referenced from `README.md`'s Demo section,
-  replacing `tour-still.png`.
+  replacing `hero.png`.
 - Keep the still as a fallback: the marketplace renders the README from the
   packaged copy, and a GIF that fails to load leaves nothing behind.

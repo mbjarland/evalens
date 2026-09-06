@@ -15,11 +15,14 @@
 </p>
 
 <p align="center">
-  <img src="media/demo/tour-still.png" width="640" alt="Four lines of
-    Python in VS Code, each annotated inline with the value it produced">
+  <img src="media/demo/hero.png" width="720" alt="A seven-line Python
+    program in VS Code after one press of Evaluate File: every line carries
+    its value, the loop carries its history, the comprehension shows the
+    values it filtered, and the print shows what it printed">
 </p>
-<p align="center"><sub>Rendered from the real kernel and the real renderer,
-not drawn by hand — but not yet a screen recording.
+<p align="center"><sub>That is <a href="examples/grades.py"><code>examples/grades.py</code></a>
+after one press of Evaluate File — rendered from the real kernel and the
+real renderer, not drawn by hand, but not yet a screen recording.
 <a href="examples/demo.py"><code>examples/demo.py</code></a> is the file to
 film and
 <a href="docs/development/demo-shooting-script.md">the shooting script</a>
@@ -57,6 +60,20 @@ line two produced. You are looking at the history of the program, laid out
 down the page in the same order you wrote it. That is the thing a terminal
 scrolls away, a debugger collapses into "now", and a notebook only gives you
 if you stop writing programs and start writing cells.
+
+<p align="center">
+  <img src="media/demo/spot-the-bug.png" width="720" alt="The same program
+    with total = s instead of total += s: the loop's history reads total ×4:
+    72, 85, 91, 64, and average: 16.0 follows two lines later">
+</p>
+
+**Here is the same program with one character missing** — `total = s` where
+it should say `total += s`. Read line 3: `total ×4: 72, 85, 91, 64`. The
+accumulator never accumulates; it just takes each score in turn. Two lines
+down, `average: 16.0` is the consequence. A debugger stopped at the end
+would show you `total: 64` and nothing about how it got there. The trace
+shows you the bug on the line that has it, without a breakpoint, without a
+`print()`, without leaving the file.
 
 ## Who this is for
 
