@@ -2,8 +2,8 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 import {
-  followValuesPanel, printedLabel as printedLabelSetting,
-  valuesPanelOutputLines,
+  followValuesCursor, followValuesPanel, printedLabel as printedLabelSetting,
+  setFollowValuesCursor, valuesPanelOutputLines,
 } from '../config';
 import { AnnotationChangeEvent, Annotations } from '../render/annotations';
 import {
@@ -71,6 +71,29 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
    */
   private readonly expandedLines = new Map<string, Set<number>>();
 
+  /** Incremented on every rebuild (#154); a message from the webview that
+   * does not echo the current value is a click queued against HTML that
+   * has since been replaced, and `onMessage` drops it rather than acting on
+   * rows that may no longer mean the same thing. */
+  private revision = 0;
+  /** What the webview was last rendered from -- `onMessage`'s own source of
+   * truth for whether a `goto` still names a row that exists, since the
+   * document's own annotations can have changed between the render and the
+   * click landing. */
+  private renderedData: ValuesPanelData = { fileName: undefined, rows: [] };
+  private markedEditor: vscode.TextEditor | undefined;
+  /** The source-side half of linked navigation (#154): a frame around the
+   * statement the panel's current row belongs to, independent of the
+   * inline annotation's own decorations. */
+  private readonly navigation = vscode.window.createTextEditorDecorationType({
+    isWholeLine: true,
+    borderWidth: '1px 0 1px 3px',
+    borderStyle: 'solid',
+    borderColor: new vscode.ThemeColor('focusBorder'),
+    backgroundColor: new vscode.ThemeColor('editor.rangeHighlightBackground'),
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
+  });
+
   constructor(private readonly annotations: Annotations) {
     this.subscriptions.push(
       // The one non-polling trigger design rule 6's spirit asks for: the
@@ -85,7 +108,12 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
         this.dropExpandedFor(event);
         this.rebuild(this.revealLineFor(event));
       }),
-      vscode.window.onDidChangeActiveTextEditor(() => this.rebuild()),
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration('evalens.valuesPanel.followCursor')) {
+          void this.view?.webview.postMessage({ followCursor: followValuesCursor() });
+        }
+      }),
+      vscode.window.onDidChangeActiveTextEditor(() => this.rebuild(this.cursorRevealLine())),
       // Cursor movement never rebuilds -- it only moves the highlighted row,
       // in the webview's own script, from the one number `onSelection` posts.
       vscode.window.onDidChangeTextEditorSelection(
@@ -105,15 +133,22 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     webviewView.webview.options = { enableScripts: true };
     this.viewSubscriptions = [
       webviewView.onDidDispose(() => {
+        this.clearMarker();
         this.view = undefined;
         this.viewSubscriptions = [];
       }),
+      webviewView.onDidChangeVisibility(() => {
+        if (webviewView.visible) this.rebuild(this.cursorRevealLine());
+        else this.clearMarker();
+      }),
       webviewView.webview.onDidReceiveMessage((message) => this.onMessage(message)),
     ];
-    this.rebuild();
+    this.rebuild(this.cursorRevealLine());
   }
 
   dispose(): void {
+    this.clearMarker();
+    this.navigation.dispose();
     for (const subscription of this.subscriptions) {
       subscription.dispose();
     }
@@ -126,61 +161,100 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
 
   // -- internals --------------------------------------------------------------
 
-  /** `{ cursor: line }`, so the webview's own script moves the highlight
-   * without a rebuild -- posting the HTML again on every keystroke of
-   * cursor movement would be the polling design rule 6 rules out, aimed at
-   * the wrong target. */
+  private cursorRevealLine(): number | undefined {
+    return followValuesCursor() ? vscode.window.activeTextEditor?.selection.active.line
+      : undefined;
+  }
+
+  private clearMarker(): void {
+    this.markedEditor?.setDecorations(this.navigation, []);
+    this.markedEditor = undefined;
+  }
+
+  private mark(editor: vscode.TextEditor, line: number): void {
+    this.clearMarker();
+    const annotation = this.annotations.at(editor.document, line);
+    if (annotation) {
+      editor.setDecorations(this.navigation, [annotation.range]);
+      this.markedEditor = editor;
+    }
+  }
+
+  /** Navigation reads captured annotations only, and never focuses a pane. */
   private onSelection(event: vscode.TextEditorSelectionChangeEvent): void {
-    if (!this.view) {
-      return;
-    }
-    if (event.textEditor !== vscode.window.activeTextEditor) {
-      return;
-    }
-    if (event.textEditor.document.languageId !== 'python') {
-      return;
-    }
+    if (!this.view?.visible || event.textEditor !== vscode.window.activeTextEditor
+      || event.textEditor.document.languageId !== 'python') return;
     const active = event.selections[0]?.active.line;
-    if (active === undefined) {
-      return;
-    }
-    void this.view.webview.postMessage({ cursor: active });
+    if (active === undefined) return;
+    this.mark(event.textEditor, active);
+    void this.view.webview.postMessage({
+      cursor: active, reveal: followValuesCursor(),
+    });
   }
 
   /**
-   * The three messages the webview ever posts (#116, #155). `{ goto: line }`
-   * from a clicked row reveals that line and puts the cursor there -- the
-   * panel never evaluates anything, clicking included, this only moves the
-   * reader to the code the row is about. `{ expand: line }` is *Show all*,
-   * *Show less* or a click on a foldable block's own label, all one toggle;
-   * `{ open: line, stream }` is *Open in editor*. Neither of the fold
-   * messages moves the reader anywhere or touches the kernel.
+   * Every message the webview posts (#116, #154, #155): `{ goto, revision,
+   * explicit }` from a clicked or keyboard-activated row, `{ followCursor,
+   * revision }` from the panel's own checkbox, `{ expand: line }` from
+   * *Show all*, *Show less* or a click on a foldable block's label, and
+   * `{ open: line, stream }` from *Open in editor*. None of the four
+   * evaluates anything or touches the kernel.
+   *
+   * `revision` guards the first two: `rebuild` increments it on every
+   * render and a message carrying any other value is a click queued
+   * against HTML that has since been replaced, dropped rather than acted
+   * on against rows that may no longer mean what they did. The fold
+   * messages carry no revision of their own -- toggling or opening a block
+   * that has since been re-evaluated is harmless, since `pruneExpanded`
+   * (see `rebuild`, below) already drops whatever line no longer has a row
+   * to belong to.
+   *
+   * A hidden panel acts on none of these: there is no reader looking at it
+   * to have produced the message.
    */
   private onMessage(message: unknown): void {
-    const payload = message as {
-      readonly goto?: unknown; readonly expand?: unknown;
-      readonly open?: unknown; readonly stream?: unknown;
-    } | undefined;
+    if (!message || typeof message !== 'object' || !this.view?.visible) {
+      return;
+    }
+    const data = message as {
+      goto?: unknown; revision?: unknown; followCursor?: unknown;
+      explicit?: unknown; expand?: unknown; open?: unknown; stream?: unknown;
+    };
 
-    if (typeof payload?.expand === 'number') {
-      this.toggleExpanded(payload.expand);
+    if (typeof data.expand === 'number') {
+      this.toggleExpanded(data.expand);
       return;
     }
-    if (typeof payload?.open === 'number') {
+    if (typeof data.open === 'number') {
       void this.openInEditor(
-        payload.open, typeof payload.stream === 'string' ? payload.stream : undefined);
+        data.open, typeof data.stream === 'string' ? data.stream : undefined);
       return;
     }
-    if (typeof payload?.goto !== 'number') {
+
+    if (data.revision !== this.revision) {
+      return;
+    }
+    if (typeof data.followCursor === 'boolean') {
+      void setFollowValuesCursor(data.followCursor);
+      return;
+    }
+    if (!followValuesCursor() && data.explicit !== true) {
       return;
     }
     const editor = vscode.window.activeTextEditor;
-    if (!editor) {
+    if (!editor || editor.document.languageId !== 'python'
+      || typeof data.goto !== 'number' || !Number.isInteger(data.goto)) {
       return;
     }
-    const position = new vscode.Position(payload.goto, 0);
+    // Ignore queued messages from previous HTML and nonexistent rows.
+    const row = this.renderedData.rows.find((row) => row.line === data.goto);
+    if (!row) {
+      return;
+    }
+    const position = new vscode.Position(row.line, 0);
     editor.selection = new vscode.Selection(position, position);
     editor.revealRange(new vscode.Range(position, position));
+    this.mark(editor, row.line);
   }
 
   /**
@@ -323,13 +397,18 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     if (!this.view) {
       return;
     }
+    this.clearMarker();
     const editor = vscode.window.activeTextEditor;
     const cursorLine = editor?.selection.active.line;
-    const data = this.dataFor(editor);
-    const expandedLines = this.pruneExpanded(editor, data.rows);
+    this.renderedData = this.dataFor(editor);
+    const expandedLines = this.pruneExpanded(editor, this.renderedData.rows);
     this.view.webview.html = valuesHtml(
-      data, cursorLine, nonce(), revealLine,
-      { outputLines: valuesPanelOutputLines(), expandedLines });
+      this.renderedData, cursorLine, nonce(), revealLine,
+      { outputLines: valuesPanelOutputLines(), expandedLines },
+      followValuesCursor(), ++this.revision);
+    if (editor && this.view.visible && cursorLine !== undefined) {
+      this.mark(editor, cursorLine);
+    }
   }
 
   /** What `valuesHtml` renders from, for whatever the active editor is right

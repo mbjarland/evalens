@@ -330,6 +330,12 @@ export class FakeWebviewView {
   onDidDispose = this.disposeEmitter.event;
   onDidChangeVisibility = this.visibilityEmitter.event;
 
+  /** Test-only: simulate hiding or revealing the panel. */
+  setVisible(visible: boolean): void {
+    this.visible = visible;
+    this.visibilityEmitter.fire(undefined);
+  }
+
   /** Test-only: simulate VS Code tearing this view down. */
   fireDispose(): void {
     this.disposeEmitter.fire(undefined);
