@@ -424,6 +424,7 @@ Requires Python 3.9 or later (``ast.unparse``).
 from __future__ import annotations
 
 import _thread
+import __future__ as _future
 import ast
 import builtins
 import collections
@@ -3309,6 +3310,23 @@ def _above_boundary(forms: List[Form], line: int) -> int:
     return len(forms)
 
 
+def _future_flags(tree: ast.Module) -> int:
+    """The source module's explicit compiler context, never the kernel's."""
+    flags = 0
+    for index, node in enumerate(tree.body):
+        if (index == 0 and isinstance(node, ast.Expr)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)):
+            continue
+        if not isinstance(node, ast.ImportFrom) or node.module != "__future__":
+            break
+        for alias in node.names:
+            feature = getattr(_future, alias.name, None)
+            if isinstance(feature, _future._Feature):
+                flags |= feature.compiler_flag
+    return flags
+
+
 class Kernel:
     """The namespace and the operations that act on it."""
 
@@ -3480,6 +3498,7 @@ class Kernel:
         # and names what the same line would under `python3 file.py`.
         with self._as_module(filename):
             outcome = self._run(form, filename,
+                                compiler_flags=_future_flags(parsed.tree),
                                 allow_stdin=bool(request.get("allow_stdin")),
                                 limits=_limits(request))
         outcome.update(partial)
@@ -3612,6 +3631,7 @@ class Kernel:
 
         with self._as_module(filename):
             outcome = self._run(form, filename,
+                                compiler_flags=_future_flags(parsed.tree),
                                 allow_stdin=bool(request.get("allow_stdin")),
                                 limits=_limits(request), watches=watches)
         outcome.update(partial)
@@ -3792,6 +3812,7 @@ class Kernel:
         # statement in one request is answering the same keypress, so they had
         # better be shown on the same terms.
         limits = _limits(request)
+        compiler_flags = _future_flags(parsed.tree)
         # Once for the whole load rather than once per statement: the imports
         # at the top of a file and the function bodies further down that import
         # lazily are the same file, and get the same name and the same path.
@@ -3802,6 +3823,7 @@ class Kernel:
                 # way; nothing about running many statements makes the person
                 # watching them go away.
                 outcome = self._run(form, filename, allow_stdin=allow_stdin,
+                                    compiler_flags=compiler_flags,
                                     limits=limits)
                 results.append(outcome)
                 # Announced immediately after it is collected, so the two can
@@ -3973,9 +3995,11 @@ class Kernel:
         results = []
         ran = 0
         limits = _limits(request)
+        compiler_flags = _future_flags(parsed.tree)
         with self._as_module(filename):
             for index, form in enumerate(above):
                 outcome = self._run(form, filename, allow_stdin=allow_stdin,
+                                    compiler_flags=compiler_flags,
                                     limits=limits)
                 results.append(outcome)
                 control({
@@ -4118,7 +4142,8 @@ class Kernel:
              allow_stdin: bool = False,
              limits: Optional[Dict[str, int]] = None,
              watches: Optional[
-                 Dict[loops.LoopKey, List[Tuple[str, ast.expr]]]] = None
+                 Dict[loops.LoopKey, List[Tuple[str, ast.expr]]]] = None,
+             compiler_flags: int = 0
              ) -> Dict[str, Any]:
         limits = _DEFAULT_LIMITS if limits is None else limits
         node, recorders, comp_recorders = _instrumented(
@@ -4177,6 +4202,7 @@ class Kernel:
                     with loops.installed(self.namespace, active_recorders):
                         value = eval(  # noqa: S307 - evaluating user code is the product
                             compile(expression, filename, "eval",
+                                    flags=compiler_flags,
                                     dont_inherit=True), self.namespace)
                     if form.display is not None:
                         shown, raw_repr, table = wire_value_and_table(value)
@@ -4189,6 +4215,7 @@ class Kernel:
                     with loops.installed(self.namespace, active_recorders):
                         with _Capture(self.namespace, form.captured) as kept:
                             exec(compile(statement, filename, "exec",
+                                         flags=compiler_flags,
                                          dont_inherit=True), self.namespace)
                     if recorders:
                         # A loop reports what it saw, not what its target
