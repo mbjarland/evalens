@@ -64,7 +64,61 @@ test('rows come back in document order, not registry order', () => {
   ];
   const rows = rowsFor(document, annotations, 'printed');
   assert.deepEqual(rows.map((row) => row.line), [0, 1, 2]);
-  assert.deepEqual(rows.map((row) => row.code), ['a = 1', 'b = 2', 'c = 3']);
+  assert.deepEqual(
+    rows.map((row) => row.codeLines), [['a = 1'], ['b = 2'], ['c = 3']]);
+});
+
+// -- the CODE cell shows the whole statement, not just its header (#153) ----
+
+test('a compound statement\'s CODE cell shows every line of its own ' +
+  'source, indentation kept', () => {
+  const document = lineSource(['for v in x:', '    print(v)', '    y = v']);
+  const annotations: PanelAnnotation[] = [
+    { range: range(0, 2), anchor: 0, value: null, display: null },
+  ];
+  const rows = rowsFor(document, annotations, 'printed');
+  assert.deepEqual(
+    rows[0]!.codeLines, ['for v in x:', '    print(v)', '    y = v']);
+  assert.equal(rows[0]!.codeMoreCount, undefined);
+  const html = valuesHtml(
+    { fileName: 'x.py', rows }, undefined, 'n');
+  assert.equal((html.match(/class="code-line/g) ?? []).length, 3);
+  assert.match(html, /<div class="code-line">    print\(v\)<\/div>/);
+  assert.match(html, /<div class="code-line">    y = v<\/div>/);
+});
+
+test('a single-line statement\'s CODE cell is unchanged', () => {
+  const document = lineSource(['x = 1']);
+  const annotations: PanelAnnotation[] = [
+    { range: range(0, 0), value: '1', display: 'x', isBinding: true },
+  ];
+  const rows = rowsFor(document, annotations, 'printed');
+  assert.deepEqual(rows[0]!.codeLines, ['x = 1']);
+  assert.equal(rows[0]!.codeMoreCount, undefined);
+  const html = valuesHtml(
+    { fileName: 'x.py', rows }, undefined, 'n');
+  assert.equal((html.match(/class="code-line/g) ?? []).length, 1);
+  assert.match(html, /<div class="code-line">x = 1<\/div>/);
+});
+
+test('a statement past the cap is truncated with a final line count', () => {
+  const lines = [
+    'def f():',
+    ...Array.from({ length: 29 }, (_, i) => `    line_${i} = ${i}`),
+  ];
+  const document = lineSource(lines);
+  const annotations: PanelAnnotation[] = [
+    { range: range(0, 29), anchor: 0, value: 'f', display: 'f', isBinding: true },
+  ];
+  const rows = rowsFor(document, annotations, 'printed');
+  assert.equal(rows[0]!.codeLines.length, 11, 'only 11 real lines should show');
+  assert.deepEqual(rows[0]!.codeLines[0], 'def f():');
+  assert.equal(rows[0]!.codeMoreCount, 19, '30 lines total, 11 shown, 19 left');
+  const html = valuesHtml(
+    { fileName: 'x.py', rows }, undefined, 'n');
+  assert.equal((html.match(/class="code-line/g) ?? []).length, 12,
+    '11 real lines plus the "+N lines" marker, never more than 12');
+  assert.match(html, /<div class="code-line code-more">… \(\+19 lines\)<\/div>/);
 });
 
 test('a value containing markup renders as text, never as an element', () => {

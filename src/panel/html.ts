@@ -23,7 +23,9 @@ import {
   Printed, STDERR_LABEL, Segment, SegmentRole, collapseLines, isStreamGroup,
   resultGroups,
 } from '../render/format';
-import { Marker, markerFor, staleReasonText } from '../render/registry';
+import {
+  Marker, markerFor, normalizeSource, staleReasonText,
+} from '../render/registry';
 import { pendingText } from '../render/status';
 
 // -- building rows from annotations ------------------------------------------
@@ -82,8 +84,20 @@ export interface ValuesRow {
    * row, the same containment `Annotations.at` already applies. */
   readonly startLine: number;
   readonly endLine: number;
-  /** The line's own text, trimmed. */
-  readonly code: string;
+  /**
+   * Every line of the statement's own source that fits the CODE cell's cap
+   * -- `range.start.line` through `range.end.line` (the same whole-line
+   * range `sourceAt` in `render/decorations.ts` reads for this annotation),
+   * in order, indentation as written and only trailing whitespace stripped.
+   * A single-line statement has exactly one entry. Capped at
+   * `MAX_CODE_LINES - 1` real lines when the statement runs longer than
+   * that -- `codeMoreCount` then says how many were left out, so a
+   * 200-line `def` cannot dominate the panel.
+   */
+  readonly codeLines: readonly string[];
+  /** Set only when `codeLines` left lines out past the cap; the count the
+   * CODE cell's own final `… (+N lines)` line reports. */
+  readonly codeMoreCount?: number;
   readonly state: RowState;
   /** Present only when `state` is `'stale'`. */
   readonly staleReason?: 'edited' | 'dependency';
@@ -146,6 +160,35 @@ function streamsFor(
   return streams;
 }
 
+/** How many source lines the CODE cell shows before the rest folds into one
+ * final `… (+N lines)` marker -- capping the cell's own height so a
+ * 200-line `def` cannot push every other row on the panel out of view. */
+const MAX_CODE_LINES = 12;
+
+/**
+ * The statement's own source lines, `startLine` through `endLine` inclusive
+ * -- the same whole-line range `sourceAt` (`render/decorations.ts`) reads
+ * for the same annotation. Each line goes through `normalizeSource` on its
+ * own, which strips only trailing whitespace: a body line's leading
+ * indentation is exactly what makes a multi-line statement legible in the
+ * cell, and `white-space: pre` in the stylesheet (`codeCellHtml`, below) is
+ * what keeps it once there.
+ *
+ * Never reads more than `MAX_CODE_LINES` lines: past `MAX_CODE_LINES - 1`
+ * real lines, the rest is reported back as `moreCount` rather than read at
+ * all, so a caller never has to slice what this already capped.
+ */
+function sourceLines(
+  document: LineSource, startLine: number, endLine: number
+): { readonly lines: readonly string[]; readonly moreCount?: number } {
+  const total = endLine - startLine + 1;
+  const shown = total > MAX_CODE_LINES ? MAX_CODE_LINES - 1 : total;
+  const lines = Array.from(
+    { length: shown },
+    (_, i) => normalizeSource(document.lineAt(startLine + i).text));
+  return total > MAX_CODE_LINES ? { lines, moreCount: total - shown } : { lines };
+}
+
 /**
  * One annotation, as a row.
  *
@@ -172,8 +215,12 @@ function rowFor(
   const line = annotation.anchor ?? annotation.range.end.line;
   const startLine = annotation.range.start.line;
   const endLine = annotation.range.end.line;
-  const code = document.lineAt(line).text.trim();
-  const base = { line, startLine, endLine, code };
+  const { lines: codeLines, moreCount: codeMoreCount } =
+    sourceLines(document, startLine, endLine);
+  const base = {
+    line, startLine, endLine, codeLines,
+    ...(codeMoreCount === undefined ? {} : { codeMoreCount }),
+  };
 
   if (annotation.pending) {
     return { ...base, state: 'pending', pendingText: pendingText(annotation.pending) };
@@ -451,6 +498,22 @@ function valueCellHtml(row: ValuesRow): string {
     : value;
 }
 
+/** The CODE column's whole content for one row: every line `rowFor` kept,
+ * indentation preserved -- `white-space: pre` in the stylesheet is what
+ * keeps it once there -- each in its own block so `text-overflow: ellipsis`
+ * cuts a too-wide line on its own rather than the cell as a whole. The
+ * final `… (+N lines)` line, when `row.codeMoreCount` is set, carries its
+ * own class so it reads as a note rather than as code. */
+function codeCellHtml(row: ValuesRow): string {
+  const lines = row.codeLines
+    .map((line) => `<div class="code-line">${escapeHtml(line)}</div>`);
+  const more = row.codeMoreCount === undefined
+    ? []
+    : [`<div class="code-line code-more">`
+      + `${escapeHtml(`… (+${row.codeMoreCount} lines)`)}</div>`];
+  return [...lines, ...more].join('');
+}
+
 /** One `<tr>`, carrying the line data the embedded script needs to move the
  * cursor highlight and to jump to a click without a rebuild. */
 function rowHtml(row: ValuesRow, cursorLine: number | undefined): string {
@@ -460,7 +523,7 @@ function rowHtml(row: ValuesRow, cursorLine: number | undefined): string {
   return `<tr class="row${cursorClass}" data-goto="${row.line}" `
     + `data-start="${row.startLine}" data-end="${row.endLine}">`
     + `<td class="line-cell"><span class="line-num">${row.line + 1}</span></td>`
-    + `<td class="code-cell"><span>${escapeHtml(row.code)}</span></td>`
+    + `<td class="code-cell">${codeCellHtml(row)}</td>`
     + `<td class="value-cell">${valueCellHtml(row)}</td>`
     + `</tr>`;
 }
@@ -529,10 +592,19 @@ tr.row:hover { background: var(--vscode-list-hoverBackground, transparent); }
 }
 .code-cell {
   color: var(--vscode-descriptionForeground, #9d9d9d);
-  white-space: nowrap;
+}
+/* One line of a (possibly multi-line) statement's own source (#153): its
+   own block, not the cell's whole text, so a too-wide line ellipsises on
+   its own rather than the CODE cell doing it once across every line
+   flattened together. white-space: pre, not nowrap, because indentation is
+   exactly what makes a multi-line statement's body legible here, and
+   nowrap collapses the very runs of leading spaces that carry it. */
+.code-line {
+  white-space: pre;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.code-line.code-more { font-style: italic; }
 .value-cell { overflow-wrap: anywhere; }
 tr.cursor {
   background: color-mix(in srgb, ${cssVar('border')} 15%, transparent);
