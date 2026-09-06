@@ -1,0 +1,738 @@
+{
+  "python": "3.11.6",
+  "platform": "Darwin",
+  "fixture_transport": "real kernel subprocess, JSON request/response",
+  "observations": [
+    {
+      "case": "accumulator",
+      "source": "total = 0\nfor x in [1, 2, 3, 4]:\n    total += x\n",
+      "line": 1,
+      "watch": null,
+      "response": {
+        "ok": true,
+        "resolved": true,
+        "value": "4",
+        "display": "x",
+        "kind": "For",
+        "range": {
+          "start": {
+            "line": 1,
+            "character": 0
+          },
+          "end": {
+            "line": 2,
+            "character": 14
+          }
+        },
+        "anchor": 1,
+        "binds": [
+          "x",
+          "total"
+        ],
+        "reads": [
+          "total",
+          "x"
+        ],
+        "stdout": "",
+        "stderr": "",
+        "is_binding": true,
+        "loop": {
+          "values": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ],
+          "last": null,
+          "count": 4
+        },
+        "bindings": [
+          {
+            "name": "total",
+            "values": [
+              "1",
+              "3",
+              "6",
+              "10"
+            ],
+            "last": null,
+            "count": 4
+          }
+        ]
+      },
+      "response_compact_bytes": 376
+    },
+    {
+      "case": "continue",
+      "source": "for x in [1, 2, 3, 4]:\n    if x % 2:\n        continue\n    doubled = x * 2\n",
+      "line": 0,
+      "watch": null,
+      "response": {
+        "ok": true,
+        "resolved": true,
+        "value": "4",
+        "display": "x",
+        "kind": "For",
+        "range": {
+          "start": {
+            "line": 0,
+            "character": 0
+          },
+          "end": {
+            "line": 3,
+            "character": 19
+          }
+        },
+        "anchor": 0,
+        "binds": [
+          "x",
+          "doubled"
+        ],
+        "reads": [
+          "x"
+        ],
+        "stdout": "",
+        "stderr": "",
+        "is_binding": true,
+        "loop": {
+          "values": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ],
+          "last": null,
+          "count": 4
+        },
+        "bindings": [
+          {
+            "name": "doubled",
+            "values": [
+              "4",
+              "8"
+            ],
+            "last": null,
+            "count": 2
+          }
+        ]
+      },
+      "response_compact_bytes": 363
+    },
+    {
+      "case": "break",
+      "source": "for x in [1, 2, 3, 4]:\n    if x == 3:\n        break\n    doubled = x * 2\n",
+      "line": 0,
+      "watch": null,
+      "response": {
+        "ok": true,
+        "resolved": true,
+        "value": "3",
+        "display": "x",
+        "kind": "For",
+        "range": {
+          "start": {
+            "line": 0,
+            "character": 0
+          },
+          "end": {
+            "line": 3,
+            "character": 19
+          }
+        },
+        "anchor": 0,
+        "binds": [
+          "x",
+          "doubled"
+        ],
+        "reads": [
+          "x"
+        ],
+        "stdout": "",
+        "stderr": "",
+        "is_binding": true,
+        "loop": {
+          "values": [
+            "1",
+            "2",
+            "3"
+          ],
+          "last": null,
+          "count": 3
+        },
+        "bindings": [
+          {
+            "name": "doubled",
+            "values": [
+              "2",
+              "4"
+            ],
+            "last": null,
+            "count": 2
+          }
+        ]
+      },
+      "response_compact_bytes": 359
+    },
+    {
+      "case": "failing_watch",
+      "source": "for x in [1, 0, 2, 0, 3]:\n    pass\n",
+      "line": 0,
+      "watch": "1/x",
+      "response": {
+        "ok": true,
+        "resolved": true,
+        "value": "3",
+        "display": "x",
+        "kind": "For",
+        "range": {
+          "start": {
+            "line": 0,
+            "character": 0
+          },
+          "end": {
+            "line": 1,
+            "character": 8
+          }
+        },
+        "anchor": 0,
+        "binds": [
+          "x"
+        ],
+        "stdout": "",
+        "stderr": "evalens: watching '1/x' raised ZeroDivisionError: division by zero (1 more)\n",
+        "is_binding": true,
+        "loop": {
+          "values": [
+            "1",
+            "0",
+            "2",
+            "0",
+            "3"
+          ],
+          "last": null,
+          "count": 5
+        },
+        "bindings": [
+          {
+            "name": "1/x",
+            "values": [
+              "1.0",
+              "0.5",
+              "0.3333333333333333"
+            ],
+            "last": null,
+            "count": 3,
+            "error": {
+              "type": "ZeroDivisionError",
+              "message": "division by zero"
+            },
+            "failed": 1
+          }
+        ]
+      },
+      "response_compact_bytes": 517
+    },
+    {
+      "case": "constant",
+      "source": "for x in [1, 2, 3, 4]:\n    c = 7\n",
+      "line": 0,
+      "watch": null,
+      "response": {
+        "ok": true,
+        "resolved": true,
+        "value": "4",
+        "display": "x",
+        "kind": "For",
+        "range": {
+          "start": {
+            "line": 0,
+            "character": 0
+          },
+          "end": {
+            "line": 1,
+            "character": 9
+          }
+        },
+        "anchor": 0,
+        "binds": [
+          "x",
+          "c"
+        ],
+        "stdout": "",
+        "stderr": "",
+        "is_binding": true,
+        "loop": {
+          "values": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ],
+          "last": null,
+          "count": 4
+        },
+        "bindings": [
+          {
+            "name": "c",
+            "values": [
+              "7"
+            ],
+            "last": null,
+            "count": 4,
+            "constant": true
+          }
+        ]
+      },
+      "response_compact_bytes": 348
+    },
+    {
+      "case": "nested",
+      "source": "for outer in [10, 20]:\n    for inner in [1, 2]:\n        pair = (outer, inner)\n",
+      "line": 0,
+      "watch": null,
+      "response": {
+        "ok": true,
+        "resolved": true,
+        "value": "20",
+        "display": "outer",
+        "kind": "For",
+        "range": {
+          "start": {
+            "line": 0,
+            "character": 0
+          },
+          "end": {
+            "line": 2,
+            "character": 29
+          }
+        },
+        "anchor": 0,
+        "binds": [
+          "outer",
+          "inner",
+          "pair"
+        ],
+        "reads": [
+          "outer",
+          "inner"
+        ],
+        "stdout": "",
+        "stderr": "",
+        "is_binding": true,
+        "loop": {
+          "values": [
+            "10",
+            "20"
+          ],
+          "last": null,
+          "count": 2
+        },
+        "names": [
+          {
+            "name": "inner",
+            "value": "2"
+          },
+          {
+            "name": "pair",
+            "value": "(20, 2)"
+          }
+        ]
+      },
+      "response_compact_bytes": 383
+    },
+    {
+      "case": "comprehension",
+      "source": "kept = [x * 2 for x in [1, 2, 3, 4] if x % 2 == 0]\n",
+      "line": 0,
+      "watch": null,
+      "response": {
+        "ok": true,
+        "resolved": true,
+        "value": "[4, 8]",
+        "display": "kept",
+        "kind": "Assign",
+        "range": {
+          "start": {
+            "line": 0,
+            "character": 0
+          },
+          "end": {
+            "line": 0,
+            "character": 50
+          }
+        },
+        "binds": [
+          "kept"
+        ],
+        "stdout": "",
+        "stderr": "",
+        "is_binding": true,
+        "bindings": [
+          {
+            "name": "x",
+            "values": [
+              "1",
+              "2",
+              "3",
+              "4"
+            ],
+            "last": null,
+            "count": 4
+          }
+        ]
+      },
+      "response_compact_bytes": 286
+    },
+    {
+      "case": "retained_binding",
+      "source": "for x in [1, 2, 3]:\n    if x == 1:\n        kept = 7\n",
+      "line": 0,
+      "watch": null,
+      "response": {
+        "ok": true,
+        "resolved": true,
+        "value": "3",
+        "display": "x",
+        "kind": "For",
+        "range": {
+          "start": {
+            "line": 0,
+            "character": 0
+          },
+          "end": {
+            "line": 2,
+            "character": 16
+          }
+        },
+        "anchor": 0,
+        "binds": [
+          "x",
+          "kept"
+        ],
+        "reads": [
+          "x"
+        ],
+        "stdout": "",
+        "stderr": "",
+        "is_binding": true,
+        "loop": {
+          "values": [
+            "1",
+            "2",
+            "3"
+          ],
+          "last": null,
+          "count": 3
+        },
+        "bindings": [
+          {
+            "name": "kept",
+            "values": [
+              "7"
+            ],
+            "last": null,
+            "count": 3,
+            "constant": true
+          }
+        ]
+      },
+      "response_compact_bytes": 365
+    }
+  ],
+  "proposed_hand_worked": {
+    "accumulator": {
+      "count": "4",
+      "rows": [
+        {
+          "iteration": "1",
+          "target": "1",
+          "end_reached": true,
+          "observations": {
+            "total": "1"
+          }
+        },
+        {
+          "iteration": "2",
+          "target": "2",
+          "end_reached": true,
+          "observations": {
+            "total": "3"
+          }
+        },
+        {
+          "iteration": "3",
+          "target": "3",
+          "end_reached": true,
+          "observations": {
+            "total": "6"
+          }
+        },
+        {
+          "iteration": "4",
+          "target": "4",
+          "end_reached": true,
+          "observations": {
+            "total": "10"
+          }
+        }
+      ],
+      "omitted": "0"
+    },
+    "continue": {
+      "count": "4",
+      "rows": [
+        {
+          "iteration": "1",
+          "target": "1",
+          "end_reached": false,
+          "observations": {}
+        },
+        {
+          "iteration": "2",
+          "target": "2",
+          "end_reached": true,
+          "observations": {
+            "doubled": "4"
+          }
+        },
+        {
+          "iteration": "3",
+          "target": "3",
+          "end_reached": false,
+          "observations": {}
+        },
+        {
+          "iteration": "4",
+          "target": "4",
+          "end_reached": true,
+          "observations": {
+            "doubled": "8"
+          }
+        }
+      ],
+      "omitted": "0"
+    },
+    "break": {
+      "count": "3",
+      "rows": [
+        {
+          "iteration": "1",
+          "target": "1",
+          "end_reached": true,
+          "observations": {
+            "doubled": "2"
+          }
+        },
+        {
+          "iteration": "2",
+          "target": "2",
+          "end_reached": true,
+          "observations": {
+            "doubled": "4"
+          }
+        },
+        {
+          "iteration": "3",
+          "target": "3",
+          "end_reached": false,
+          "observations": {}
+        }
+      ],
+      "omitted": "0"
+    },
+    "failing_watch": {
+      "count": "5",
+      "rows": [
+        {
+          "iteration": "1",
+          "target": "1",
+          "end_reached": true,
+          "observations": {
+            "1/x": "1.0"
+          }
+        },
+        {
+          "iteration": "2",
+          "target": "0",
+          "end_reached": true,
+          "observations": {
+            "1/x": {
+              "error": "ZeroDivisionError"
+            }
+          }
+        },
+        {
+          "iteration": "3",
+          "target": "2",
+          "end_reached": true,
+          "observations": {
+            "1/x": "0.5"
+          }
+        },
+        {
+          "iteration": "4",
+          "target": "0",
+          "end_reached": true,
+          "observations": {
+            "1/x": {
+              "error": "ZeroDivisionError"
+            }
+          }
+        },
+        {
+          "iteration": "5",
+          "target": "3",
+          "end_reached": true,
+          "observations": {
+            "1/x": "0.3333333333333333"
+          }
+        }
+      ],
+      "omitted": "0"
+    },
+    "constant": {
+      "count": "4",
+      "rows": [
+        {
+          "iteration": "1",
+          "target": "1",
+          "end_reached": true,
+          "observations": {
+            "c": "7"
+          }
+        },
+        {
+          "iteration": "2",
+          "target": "2",
+          "end_reached": true,
+          "observations": {
+            "c": "7"
+          }
+        },
+        {
+          "iteration": "3",
+          "target": "3",
+          "end_reached": true,
+          "observations": {
+            "c": "7"
+          }
+        },
+        {
+          "iteration": "4",
+          "target": "4",
+          "end_reached": true,
+          "observations": {
+            "c": "7"
+          }
+        }
+      ],
+      "omitted": "0"
+    },
+    "nested": {
+      "supported_in_first_build": false,
+      "hand_worked_inner_samples": [
+        {
+          "outer_iteration": "1",
+          "inner_iteration": "1",
+          "pair": "(10, 1)"
+        },
+        {
+          "outer_iteration": "1",
+          "inner_iteration": "2",
+          "pair": "(10, 2)"
+        },
+        {
+          "outer_iteration": "2",
+          "inner_iteration": "1",
+          "pair": "(20, 1)"
+        },
+        {
+          "outer_iteration": "2",
+          "inner_iteration": "2",
+          "pair": "(20, 2)"
+        }
+      ],
+      "missing_protocol_identity": "loop site plus invocation/parent path"
+    },
+    "comprehension": {
+      "supported_in_first_build": false,
+      "clause_draws": [
+        {
+          "iteration": "1",
+          "target": "1"
+        },
+        {
+          "iteration": "2",
+          "target": "2"
+        },
+        {
+          "iteration": "3",
+          "target": "3"
+        },
+        {
+          "iteration": "4",
+          "target": "4"
+        }
+      ],
+      "result": "[4, 8]",
+      "element_correspondence": "not observed by the current clause hook"
+    }
+  },
+  "recorder_microbenchmark": [
+    {
+      "iterations": 1000,
+      "proposal_added": false,
+      "median_seconds": 0.000259,
+      "retained_traced_bytes": 1701,
+      "peak_traced_bytes": 1874,
+      "compact_payload_bytes": 157
+    },
+    {
+      "iterations": 1000,
+      "proposal_added": true,
+      "median_seconds": 0.000516,
+      "retained_traced_bytes": 4860,
+      "peak_traced_bytes": 5033,
+      "compact_payload_bytes": 702
+    },
+    {
+      "iterations": 10000,
+      "proposal_added": false,
+      "median_seconds": 0.002454,
+      "retained_traced_bytes": 1703,
+      "peak_traced_bytes": 1877,
+      "compact_payload_bytes": 161
+    },
+    {
+      "iterations": 10000,
+      "proposal_added": true,
+      "median_seconds": 0.005099,
+      "retained_traced_bytes": 4831,
+      "peak_traced_bytes": 5005,
+      "compact_payload_bytes": 711
+    },
+    {
+      "iterations": 100000,
+      "proposal_added": false,
+      "median_seconds": 0.024979,
+      "retained_traced_bytes": 1705,
+      "peak_traced_bytes": 1880,
+      "compact_payload_bytes": 165
+    },
+    {
+      "iterations": 100000,
+      "proposal_added": true,
+      "median_seconds": 0.051213,
+      "retained_traced_bytes": 4794,
+      "peak_traced_bytes": 4969,
+      "compact_payload_bytes": 720
+    }
+  ],
+  "limitations": [
+    "Microbenchmark excludes AST rewrite, frame reads and UI.",
+    "Memory is Python traced allocations, not process RSS.",
+    "Compact JSON bytes are calculated, not actual framing bytes.",
+    "Proposed examples are manually correlated, never decoded from legacy traces.",
+    "No timing or memory thresholds; numbers vary by interpreter and machine."
+  ]
+}
