@@ -7,7 +7,7 @@ import {
   PANEL_PALETTE, PanelAnnotation, rowsFor, valuesHtml,
 } from '../panel/html';
 import {
-  FakePosition, FakeSelection, FakeWebviewView, createEditor,
+  FakePosition, FakeRange, FakeSelection, FakeWebviewView, createEditor,
   createExtensionContext, createFakeVscode, loadCompiledExtension,
 } from './harness/fakeVscode';
 
@@ -408,6 +408,37 @@ test('the CSP allows only the one nonce and nothing external', () => {
     'no external resource should ever be referenced');
 });
 
+// -- the reveal line (#149): scroll the row that just changed into view -----
+
+test('valuesHtml carries the reveal line and the script that scrolls to it',
+  () => {
+    const document = lineSource(['a = 1', 'b = 2']);
+    const annotations: PanelAnnotation[] = [
+      { range: range(0, 0), value: '1', display: 'a', isBinding: true },
+      { range: range(1, 1), value: '2', display: 'b', isBinding: true },
+    ];
+    const html = valuesHtml(
+      { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
+      undefined, 'n', 1);
+    // Baked into the on-load script as a literal, the same way `nonce` and
+    // `cursorLine` already are -- never re-asked of the extension after the
+    // page has loaded.
+    assert.match(html, /\bvar revealLine = 1;/);
+    assert.match(html, /\.scrollIntoView\(\{\s*block:\s*'nearest'\s*\}\)/);
+  });
+
+test('valuesHtml carries no reveal target when none is given ' +
+  '(following is off, or the change named no line)', () => {
+  const document = lineSource(['a = 1']);
+  const annotations: PanelAnnotation[] = [
+    { range: range(0, 0), value: '1', display: 'a', isBinding: true },
+  ];
+  const html = valuesHtml(
+    { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
+    undefined, 'n');
+  assert.match(html, /\bvar revealLine = null;/);
+});
+
 // -- the provider, through the fake vscode -----------------------------------
 
 /** A fresh fake and a freshly activated (compiled) extension, rooted at the
@@ -619,4 +650,134 @@ test('Evalens: Show Values Panel focuses the contributed view', async () => {
   } finally {
     extension.deactivate();
   }
+});
+
+// -- following the newest change, through the real provider (#149) ---------
+
+test('an evaluation reveals the row it just produced, following on by ' +
+  'default', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor('1 + 1\n2 + 2\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    const provider = fake.webviewViewProviders.get('evalens.values')!;
+    const view = new FakeWebviewView();
+    provider.resolveWebviewView(view, {}, {});
+
+    editor.selection = new FakeSelection(
+      new FakePosition(1, 0), new FakePosition(1, 0));
+    await (fake.commands.registered.get('evalens.evaluateAtCursor') as
+      () => Promise<void>)();
+
+    assert.match(view.webview.html, /\bvar revealLine = 1;/,
+      'the provider should reveal the line Annotations.onDidChange named');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('evalens.valuesPanel.follow off means an evaluation reveals nothing',
+  async () => {
+    const fake = createFakeVscode();
+    fake.config.set('evalens', 'valuesPanel.follow', false);
+    const editor = createEditor('1 + 1\n');
+    fake.window.activeTextEditor = editor;
+    fake.window.visibleTextEditors = [editor];
+    const extension = activated(fake);
+    try {
+      const provider = fake.webviewViewProviders.get('evalens.values')!;
+      const view = new FakeWebviewView();
+      provider.resolveWebviewView(view, {}, {});
+
+      await (fake.commands.registered.get('evalens.evaluateAtCursor') as
+        () => Promise<void>)();
+
+      assert.match(view.webview.html, /\bvar revealLine = null;/,
+        'following is off, so the panel must still rebuild but never reveal');
+    } finally {
+      extension.deactivate();
+    }
+  });
+
+test('an edit that cannot name a single line falls back to the cursor',
+  async () => {
+    const fake = createFakeVscode();
+    const editor = createEditor('x = [1, 2, 3]\n');
+    fake.window.activeTextEditor = editor;
+    fake.window.visibleTextEditors = [editor];
+    const extension = activated(fake);
+    try {
+      await (fake.commands.registered.get('evalens.evaluateAtCursor') as
+        () => Promise<void>)();
+
+      const provider = fake.webviewViewProviders.get('evalens.values')!;
+      const view = new FakeWebviewView();
+      provider.resolveWebviewView(view, {}, {});
+
+      // A same-line rewrite marks the annotation stale through `reanchor`
+      // (render/registry.ts) rather than through `add`, so the fired event
+      // carries no line and the reveal has to fall back to wherever the
+      // cursor actually is (#149) -- put it on the file's other (blank)
+      // line, so a wrong fallback to line 0, the line the edit touched,
+      // would be caught.
+      const oldLine = 'x = [1, 2, 3]';
+      editor.document.setText('x = [1, 2, 3, 4]\n');
+      editor.selection = new FakeSelection(
+        new FakePosition(1, 0), new FakePosition(1, 0));
+      fake.emitters.onDidChangeTextDocument.fire({
+        document: editor.document,
+        contentChanges: [{
+          range: new FakeRange(0, 0, 0, oldLine.length),
+          text: 'x = [1, 2, 3, 4]',
+        }],
+      });
+
+      assert.match(view.webview.html, /\bvar revealLine = 1;/,
+        'with no line on the event, the reveal should fall back to the ' +
+        'cursor line rather than the line the edit actually touched');
+    } finally {
+      extension.deactivate();
+    }
+  });
+
+test('Evalens: Toggle Follow in Values Panel flips the setting', async () => {
+  const fake = createFakeVscode();
+  const extension = activated(fake);
+  try {
+    const follow = (): unknown =>
+      fake.config.getConfiguration('evalens').get('valuesPanel.follow', true);
+    assert.equal(follow(), true, 'setup: unset, so defaults to true');
+
+    await fake.executeCommand('evalens.toggleValuesPanelFollow');
+    assert.equal(follow(), false);
+
+    await fake.executeCommand('evalens.toggleValuesPanelFollow');
+    assert.equal(follow(), true);
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('the values panel title bar contributes the lock/unlock toggle', () => {
+  const entries: ReadonlyArray<{
+    readonly command: string; readonly when?: string; readonly icon?: string;
+  }> = manifest.contributes?.menus?.['view/title'] ?? [];
+  const forThisView =
+    entries.filter((entry) => entry.when?.includes('view == evalens.values'));
+  assert.equal(forThisView.length, 2,
+    'expected exactly two view/title entries for the values panel');
+  assert.ok(
+    forThisView.every((entry) => entry.command === 'evalens.toggleValuesPanelFollow'),
+    'both entries should point at the one toggle command');
+
+  const unlock = forThisView.find((entry) => entry.icon === '$(unlock)');
+  const lock = forThisView.find((entry) => entry.icon === '$(lock)');
+  assert.ok(unlock, 'no $(unlock) entry for the values panel');
+  assert.ok(lock, 'no $(lock) entry for the values panel');
+  assert.match(unlock!.when!, /config\.evalens\.valuesPanel\.follow/);
+  assert.doesNotMatch(unlock!.when!, /!config\.evalens\.valuesPanel\.follow/,
+    'the $(unlock) entry should show while following, not while not');
+  assert.match(lock!.when!, /!config\.evalens\.valuesPanel\.follow/);
 });
