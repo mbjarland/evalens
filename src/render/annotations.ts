@@ -82,6 +82,26 @@ export class Annotations implements vscode.Disposable {
    */
   private readonly announcer: Announcer;
 
+  /**
+   * Fired whenever a document's annotations change shape -- added, cleared,
+   * marked stale by an edit or by `markDependents`. Carries no payload: the
+   * one subscriber this exists for (the values panel, #116) always rebuilds
+   * from whatever `vscode.window.activeTextEditor` is *at the moment the
+   * event is handled*, not from a document captured here, since the active
+   * editor can itself change between one microtask and the next. A void
+   * event also means every mutation point below can fire it the same way,
+   * whether or not it happens to be holding a `vscode.TextDocument` --
+   * `clearAll` only ever has the URIs `AnnotationRegistry` handed back.
+   *
+   * Nothing here polls: this is the one place raised, and `show`, `clear`
+   * and `clearAll` are the only three ways the registry's content changes,
+   * `add`, `pending` and the `onDidChangeTextDocument` handler all reach it
+   * through `show`.
+   */
+  private readonly changeEmitter = new vscode.EventEmitter<void>();
+
+  readonly onDidChange = this.changeEmitter.event;
+
   constructor(extensionUri: vscode.Uri, flash: Flash, announcer: Announcer) {
     this.decorator = new Decorator(extensionUri);
     this.flash = flash;
@@ -121,9 +141,7 @@ export class Annotations implements vscode.Disposable {
         // Nothing is re-evaluated here. A surviving annotation is still the
         // value its statement produced when it last ran, which is all it ever
         // claimed to be -- and the marker is the extension saying so out loud.
-        this.registry.set(uri, after);
-        this.repaint(event.document);
-        this.updateContext();
+        this.show(event.document, after);
       }),
 
       vscode.workspace.onDidCloseTextDocument((document) => {
@@ -148,6 +166,7 @@ export class Annotations implements vscode.Disposable {
     this.registry.set(document.uri.toString(), annotations);
     this.repaint(document);
     this.updateContext();
+    this.changeEmitter.fire();
   }
 
   /**
@@ -256,15 +275,29 @@ export class Annotations implements vscode.Disposable {
     return annotationAt(this.registry.get(document.uri.toString()), line);
   }
 
+  /**
+   * Every annotation currently painted in `document`, for a reader that
+   * wants the whole picture rather than one line -- the values panel (#116),
+   * which lists a row per annotation rather than answering about a single
+   * cursor position the way `at` does.
+   *
+   * A read of what is already in the registry, on the same terms as `at`:
+   * no kernel request, no re-evaluation, no re-reading of the buffer.
+   */
+  all(document: vscode.TextDocument): readonly Annotation[] {
+    return this.registry.get(document.uri.toString());
+  }
+
   clear(document: vscode.TextDocument): void {
     if (this.registry.clear(document.uri.toString())) {
       this.repaint(document);
+      this.changeEmitter.fire();
     }
     this.updateContext();
   }
 
   clearAll(): void {
-    this.registry.clearAll();
+    const cleared = this.registry.clearAll();
     this.repaintAllVisible();
     this.updateContext();
     // The announced channel goes with them. A value still sitting in the
@@ -272,6 +305,9 @@ export class Annotations implements vscode.Disposable {
     // something that is no longer on screen, and the one place a
     // screen-reader user goes back to is the worst place to leave one.
     this.announcer.silence();
+    if (cleared.length > 0) {
+      this.changeEmitter.fire();
+    }
   }
 
   dispose(): void {
@@ -281,6 +317,7 @@ export class Annotations implements vscode.Disposable {
       subscription.dispose();
     }
     this.subscriptions.length = 0;
+    this.changeEmitter.dispose();
     void vscode.commands.executeCommand('setContext', HAS_ANNOTATIONS, false);
   }
 
