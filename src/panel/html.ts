@@ -361,7 +361,8 @@ const NO_ANNOTATIONS_MESSAGE =
   + 'its values here.';
 const FOOTER_TEXT =
   'Values are what each line produced when it ran. Click a row to jump to '
-  + 'the line. Nothing here is re-evaluated.';
+  + 'the line. Use Up/Down or Home/End to browse, Enter or Space to reveal '
+  + 'source. Nothing here is re-evaluated.';
 
 function pluralize(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? '' : 's'}`;
@@ -516,13 +517,13 @@ function codeCellHtml(row: ValuesRow): string {
 
 /** One `<tr>`, carrying the line data the embedded script needs to move the
  * cursor highlight and to jump to a click without a rebuild. */
-function rowHtml(row: ValuesRow, cursorLine: number | undefined): string {
-  const isCursor = cursorLine !== undefined
-    && cursorLine >= row.startLine && cursorLine <= row.endLine;
+function rowHtml(row: ValuesRow, isCursor: boolean): string {
   const cursorClass = isCursor ? ' cursor' : '';
   return `<tr class="row${cursorClass}" data-goto="${row.line}" `
-    + `data-start="${row.startLine}" data-end="${row.endLine}">`
-    + `<td class="line-cell"><span class="line-num">${row.line + 1}</span></td>`
+    + `data-start="${row.startLine}" data-end="${row.endLine}" `
+    + `tabindex="${isCursor ? 0 : -1}" aria-current="${isCursor}">`
+    + `<td class="line-cell"><span class="navigation-arrow" aria-hidden="true">› </span>`
+    + `<span class="line-num">${row.line + 1}</span></td>`
     + `<td class="code-cell">${codeCellHtml(row)}</td>`
     + `<td class="value-cell">${valueCellHtml(row)}</td>`
     + `</tr>`;
@@ -537,7 +538,11 @@ function tableHtml(
 ): string {
   const summary =
     `<div class="summary">${escapeHtml(summaryLine(fileName, rows))}</div>`;
-  const body = rows.map((row) => rowHtml(row, cursorLine)).join('\n');
+  const current = rows.find((row) => row.line === cursorLine)
+    ?? rows.filter((row) => cursorLine !== undefined
+      && cursorLine >= row.startLine && cursorLine <= row.endLine)
+      .sort((a, b) => (a.endLine - a.startLine) - (b.endLine - b.startLine))[0];
+  const body = rows.map((row) => rowHtml(row, row === current)).join('\n');
   const table = '<table>'
     + '<colgroup><col class="col-line"><col class="col-code">'
     + '<col class="col-value"></colgroup>'
@@ -607,11 +612,27 @@ tr.row:hover { background: var(--vscode-list-hoverBackground, transparent); }
 .code-line.code-more { font-style: italic; }
 .value-cell { overflow-wrap: anywhere; }
 tr.cursor {
-  background: color-mix(in srgb, ${cssVar('border')} 15%, transparent);
+  background: var(--vscode-list-inactiveSelectionBackground);
+  outline: 2px solid var(--vscode-focusBorder, currentColor);
+  outline-offset: -2px;
 }
 tr.cursor .line-cell {
-  border-left-color: ${cssVar('border')};
-  color: ${cssVar('border')};
+  border-left-color: var(--vscode-focusBorder, currentColor);
+  font-weight: bold;
+}
+.navigation-arrow { visibility: hidden; }
+tr.cursor .navigation-arrow { visibility: visible; }
+tr.row:focus-visible {
+  outline: 2px dashed var(--vscode-focusBorder, currentColor);
+  outline-offset: -2px;
+}
+.navigation-control {
+  display: block;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 4px 0 8px;
+  background: var(--vscode-panel-background, #1e1e1e);
 }
 .chip {
   display: inline;
@@ -668,59 +689,100 @@ tr.cursor .line-cell {
 }
 `;
 
-/**
- * The two messages this view ever posts to the extension, handled entirely
- * on this side without a rebuild: `{ cursor }` moves the highlighted row,
- * `{ goto }` (a click) is sent up for `panel/values.ts` to act on. Neither
- * payload is ever more than the one number it needs. The `cursor` handler
- * only ever toggles a class -- it must never scroll (#149): moving the
- * cursor is not a change, and the row it lands on may already be off screen
- * on purpose, because the reader scrolled there themselves.
- *
- * `revealLine` (#149) is the one thing this script does on load rather than
- * in response to a message: `panel/values.ts` has already decided, before
- * this HTML was ever built, whether following is on and which line to
- * reveal, so there is nothing left to ask the extension here -- the same
- * "decided before the render, never re-asked afterwards" `valuesHtml` is
- * documented as being pure by, below. `null` means nothing to reveal --
- * following is off, or the change that triggered this rebuild carried no
- * line -- and the reveal step is then a no-op by construction, not by a
- * second flag threaded through.
- */
-function script(revealLine: number | undefined): string {
+/** Cursor navigation uses messages; only trace/document changes rebuild rows. */
+function script(
+  revealLine: number | undefined, followCursor: boolean, revision: number
+): string {
   const literal = revealLine === undefined ? 'null' : String(revealLine);
   return `
 (function () {
   var vscode = acquireVsCodeApi();
+  var followCursor = ${followCursor};
+  var revision = ${revision};
   var rows = Array.prototype.slice.call(document.querySelectorAll('tr.row'));
-  rows.forEach(function (row) {
-    row.addEventListener('click', function () {
-      vscode.postMessage({ goto: Number(row.getAttribute('data-goto')) });
-    });
+  var control = document.getElementById('follow-cursor');
+  control.addEventListener('change', function () {
+    followCursor = control.checked;
+    vscode.postMessage({ followCursor: followCursor, revision: revision });
   });
-  window.addEventListener('message', function (event) {
-    var message = event.data;
-    if (!message || typeof message.cursor !== 'number') {
-      return;
-    }
-    var line = message.cursor;
-    rows.forEach(function (row) {
-      var start = Number(row.getAttribute('data-start'));
-      var end = Number(row.getAttribute('data-end'));
-      row.classList.toggle('cursor', line >= start && line <= end);
-    });
-  });
-  var revealLine = ${literal};
-  if (revealLine !== null) {
-    var target = rows.filter(function (row) {
-      var start = Number(row.getAttribute('data-start'));
-      var end = Number(row.getAttribute('data-end'));
-      return revealLine >= start && revealLine <= end;
+  function matching(line) {
+    return rows.find(function (row) { return Number(row.dataset.goto) === line; })
+      || rows.filter(function (row) {
+      return line >= Number(row.getAttribute('data-start'))
+        && line <= Number(row.getAttribute('data-end'));
+    }).sort(function (a, b) {
+      return (Number(a.dataset.end) - Number(a.dataset.start))
+        - (Number(b.dataset.end) - Number(b.dataset.start));
     })[0];
-    if (target) {
-      target.scrollIntoView({ block: 'nearest' });
+  }
+  function reveal(row) {
+    if (!row) return;
+    var rect = row.getBoundingClientRect();
+    var top = document.getElementById('navigation-control').getBoundingClientRect().bottom;
+    var bottom = window.innerHeight;
+    if ((rect.top >= top && rect.bottom <= bottom)
+      || (rect.top <= top && rect.bottom >= bottom)) return;
+    // Reveal only the nearest edge, allowing for the sticky setting. A tall
+    // off-screen row starts at its beginning; one spanning the view stays put.
+    var delta = rect.top < top || rect.bottom - rect.top > bottom - top
+      ? rect.top - top : rect.bottom - bottom;
+    window.scrollBy({ top: delta, behavior: 'instant' });
+  }
+  function mark(target) {
+    rows.forEach(function (row) {
+      var active = row === target;
+      row.classList.toggle('cursor', active);
+      row.setAttribute('aria-current', String(active));
+      row.tabIndex = active ? 0 : -1;
+    });
+    if (!target && rows[0]) rows[0].tabIndex = 0;
+  }
+  function activate(row, explicit) {
+    mark(row);
+    if (followCursor || explicit) {
+      vscode.postMessage({ goto: Number(row.dataset.goto), revision: revision,
+        explicit: explicit });
     }
   }
+  rows.forEach(function (row, index) {
+    row.addEventListener('click', function () {
+      row.focus({ preventScroll: true });
+      activate(row, true);
+    });
+    row.addEventListener('keydown', function (event) {
+      var target;
+      if (event.key === 'ArrowDown') target = rows[Math.min(index + 1, rows.length - 1)];
+      else if (event.key === 'ArrowUp') target = rows[Math.max(index - 1, 0)];
+      else if (event.key === 'Home') target = rows[0];
+      else if (event.key === 'End') target = rows[rows.length - 1];
+      else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        activate(row, true);
+        return;
+      } else return;
+      event.preventDefault();
+      target.focus({ preventScroll: true });
+      reveal(target);
+      activate(target, false);
+    });
+  });
+  if (!rows.some(function (row) { return row.tabIndex === 0; }) && rows[0]) {
+    rows[0].tabIndex = 0;
+  }
+  window.addEventListener('message', function (event) {
+    var message = event.data;
+    if (!message) return;
+    if (typeof message.followCursor === 'boolean') {
+      followCursor = message.followCursor;
+      control.checked = followCursor;
+    }
+    if (typeof message.cursor !== 'number') return;
+    var target = matching(message.cursor);
+    mark(target);
+    if (message.reveal) reveal(target);
+  });
+  var revealLine = ${literal};
+  if (revealLine !== null) reveal(matching(revealLine));
 }());
 `;
 }
@@ -739,13 +801,14 @@ function script(revealLine: number | undefined): string {
  * `revealLine` (#149) is the line the on-load script scrolls into view, or
  * `undefined` for none -- `panel/values.ts` is the only caller that ever
  * decides this, from `Annotations.onDidChange`'s own payload and the
- * `evalens.valuesPanel.follow` setting; this function only ever bakes
+ * `evalens.valuesPanel.follow` setting, or the current cursor on opening
+ * the panel with cursor following enabled. This function only ever bakes
  * whatever it is handed into the page, the same way it already does for
  * `cursorLine`.
  */
 export function valuesHtml(
   data: ValuesPanelData, cursorLine: number | undefined, nonce: string,
-  revealLine?: number
+  revealLine?: number, followCursor = true, revision = 0
 ): string {
   const body = data.fileName === undefined
     ? emptyStateHtml(NO_EDITOR_MESSAGE)
@@ -763,8 +826,10 @@ export function valuesHtml(
 <style nonce="${nonce}">${STYLE}</style>
 </head>
 <body>
+<label id="navigation-control" class="navigation-control">
+<input id="follow-cursor" type="checkbox" ${followCursor ? 'checked' : ''}> Follow cursor between code and values</label>
 ${body}
-<script nonce="${nonce}">${script(revealLine)}</script>
+<script nonce="${nonce}">${script(revealLine, followCursor, revision)}</script>
 </body>
 </html>`;
 }

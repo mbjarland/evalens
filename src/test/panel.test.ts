@@ -578,7 +578,7 @@ test('valuesHtml carries the reveal line and the script that scrolls to it',
     // `cursorLine` already are -- never re-asked of the extension after the
     // page has loaded.
     assert.match(html, /\bvar revealLine = 1;/);
-    assert.match(html, /\.scrollIntoView\(\{\s*block:\s*'nearest'\s*\}\)/);
+    assert.match(html, /window\.scrollBy\(/);
   });
 
 test('valuesHtml carries no reveal target when none is given ' +
@@ -747,13 +747,13 @@ test('moving the cursor posts a message instead of rebuilding the panel',
 
       assert.equal(view.webview.html, htmlBefore,
         'a cursor move must not rebuild the panel');
-      assert.deepEqual(view.webview.posted, [{ cursor: 0 }]);
+      assert.deepEqual(view.webview.posted, [{ cursor: 0, reveal: true }]);
     } finally {
       extension.deactivate();
     }
   });
 
-test('a click message moves the cursor to the line and reveals it', () => {
+test('a click message moves the cursor to the line and reveals it', async () => {
   const fake = createFakeVscode();
   const editor = createEditor('1\n2\n3\n');
   fake.window.activeTextEditor = editor;
@@ -764,7 +764,11 @@ test('a click message moves the cursor to the line and reveals it', () => {
     const view = new FakeWebviewView();
     provider.resolveWebviewView(view, {}, {});
 
-    view.webview.fireMessage({ goto: 2 });
+    editor.selection = new FakeSelection(new FakePosition(2, 0), new FakePosition(2, 0));
+    await fake.executeCommand('evalens.evaluateAtCursor');
+    editor.selection = new FakeSelection(new FakePosition(0, 0), new FakePosition(0, 0));
+    const revision = Number(/var revision = (\d+)/.exec(view.webview.html)![1]);
+    view.webview.fireMessage({ goto: 2, revision, explicit: true });
 
     assert.equal(editor.selection.active.line, 2);
     assert.equal(editor.selection.anchor.line, 2);
@@ -934,4 +938,158 @@ test('the values panel title bar contributes the lock/unlock toggle', () => {
   assert.doesNotMatch(unlock!.when!, /!config\.evalens\.valuesPanel\.follow/,
     'the $(unlock) entry should show while following, not while not');
   assert.match(lock!.when!, /!config\.evalens\.valuesPanel\.follow/);
+});
+
+// -- linked navigation (#154) -----------------------------------------------
+
+function panelRevision(view: FakeWebviewView): number {
+  return Number(/var revision = (\d+)/.exec(view.webview.html)![1]);
+}
+
+async function navigationFixture() {
+  const fake = createFakeVscode();
+  const editor = createEditor('x = 1\ny = 2\n\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  await fake.executeCommand('evalens.evaluateFile');
+  const view = new FakeWebviewView();
+  const provider = fake.webviewViewProviders.get('evalens.values')!;
+  provider.resolveWebviewView(view, {}, {});
+  const decoration = fake.decorationTypes.find((type) =>
+    (type.options as { borderWidth?: string }).borderWidth === '1px 0 1px 3px')!;
+  assert.ok(decoration, 'a dedicated source-navigation marker must exist');
+  return { fake, editor, extension, view, provider, decoration };
+}
+
+test('navigation setting gates passive row navigation, not explicit activation', async () => {
+  const { fake, editor, extension, view, decoration } = await navigationFixture();
+  try {
+    fake.config.set('evalens', 'valuesPanel.followCursor', false);
+    view.webview.fireMessage({ goto: 1, revision: panelRevision(view), explicit: false });
+    assert.equal(editor.selection.active.line, 0);
+    view.webview.fireMessage({ goto: 1, revision: panelRevision(view), explicit: true });
+    assert.equal(editor.selection.active.line, 1);
+    assert.equal(editor.painted.get(decoration)?.length, 1);
+    assert.equal(fake.window.activeTextEditor, editor, 'navigation keeps the editor context');
+    fake.emitters.onDidChangeTextEditorSelection.fire({
+      textEditor: editor, selections: [editor.selection],
+    });
+    assert.deepEqual(view.webview.posted.at(-1), { cursor: 1, reveal: false });
+  } finally { extension.deactivate(); }
+});
+
+test('row messages cannot navigate missing, fractional or outdated results', async () => {
+  const { fake, editor, extension, view } = await navigationFixture();
+  try {
+    const revision = panelRevision(view);
+    for (const goto of [-1, 1.5, NaN, Infinity, 999, '1']) {
+      view.webview.fireMessage({ goto, revision, explicit: true });
+    }
+    assert.equal(editor.selection.active.line, 0);
+    await fake.executeCommand('evalens.clearResults');
+    view.webview.fireMessage({ goto: 1, revision, explicit: true });
+    view.webview.fireMessage({ goto: 1, revision: panelRevision(view), explicit: true });
+    assert.equal(editor.selection.active.line, 0);
+  } finally { extension.deactivate(); }
+});
+
+test('source marker clears on unmatched lines, hiding, disposal and result removal', async () => {
+  const { fake, editor, extension, view, provider, decoration } = await navigationFixture();
+  try {
+    const cursor = (line: number) => {
+      editor.selection = new FakeSelection(new FakePosition(line, 0), new FakePosition(line, 0));
+      fake.emitters.onDidChangeTextEditorSelection.fire({
+        textEditor: editor, selections: [editor.selection],
+      });
+    };
+    assert.equal(editor.painted.get(decoration)?.length, 1);
+    cursor(2);
+    assert.equal(editor.painted.get(decoration)?.length, 0);
+    cursor(1);
+    assert.equal(editor.painted.get(decoration)?.length, 1);
+    view.setVisible(false);
+    assert.equal(editor.painted.get(decoration)?.length, 0);
+    const messages = view.webview.posted.length;
+    cursor(0);
+    assert.equal(view.webview.posted.length, messages, 'a hidden panel stays inactive');
+    view.setVisible(true);
+    assert.equal(editor.painted.get(decoration)?.length, 1);
+    await fake.executeCommand('evalens.clearResults');
+    assert.equal(editor.painted.get(decoration)?.length, 0);
+    await fake.executeCommand('evalens.evaluateAtCursor');
+    assert.equal(editor.painted.get(decoration)?.length, 1);
+    view.fireDispose();
+    assert.equal(editor.painted.get(decoration)?.length, 0);
+  } finally { extension.deactivate(); }
+  (provider as unknown as { dispose(): void }).dispose();
+  assert.equal(decoration.disposed, true);
+});
+
+test('switching documents clears the source marker and rejects queued navigation', async () => {
+  const { fake, editor, extension, view, decoration } = await navigationFixture();
+  try {
+    const revision = panelRevision(view);
+    const other = createEditor('a = 10\nb = 20', '/fake/other.py');
+    fake.window.activeTextEditor = other;
+    fake.window.visibleTextEditors = [editor, other];
+    fake.emitters.onDidChangeActiveTextEditor.fire(other);
+    assert.equal(editor.painted.get(decoration)?.length, 0);
+    view.webview.fireMessage({ goto: 1, revision, explicit: true });
+    assert.equal(other.selection.active.line, 0);
+    assert.equal(other.painted.get(decoration), undefined);
+  } finally { extension.deactivate(); }
+});
+
+test('rapid navigation reads the captured trace without evaluating user code', async () => {
+  const { fake, editor, extension, view } = await navigationFixture();
+  try {
+    const html = view.webview.html;
+    // A second execution would print this sentinel and replace the result.
+    editor.document.setText('print("MUST NOT EXECUTE")\ny = 2\n\n');
+    for (let i = 0; i < 30; i++) {
+      view.webview.fireMessage({ goto: i % 2, revision: panelRevision(view), explicit: true });
+      fake.emitters.onDidChangeTextEditorSelection.fire({
+        textEditor: editor, selections: [editor.selection],
+      });
+    }
+    assert.equal(view.webview.html, html);
+    assert.equal(view.webview.posted.length, 30);
+    assert.doesNotMatch(view.webview.html, /MUST NOT EXECUTE/);
+  } finally { extension.deactivate(); }
+});
+
+test('compound, stale and error rows keep their real source range during navigation', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor('if True:\n    x = 1\n\n1 / 0\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    await fake.executeCommand('evalens.evaluateFile');
+    const provider = fake.webviewViewProviders.get('evalens.values')!;
+    const view = new FakeWebviewView();
+    provider.resolveWebviewView(view, {}, {});
+    const decoration = fake.decorationTypes.find((type) =>
+      (type.options as { borderWidth?: string }).borderWidth === '1px 0 1px 3px')!;
+    const markedRange = () => editor.painted.get(decoration)?.[0] as unknown as FakeRange;
+    editor.selection = new FakeSelection(new FakePosition(1, 0), new FakePosition(1, 0));
+    fake.emitters.onDidChangeTextEditorSelection.fire({
+      textEditor: editor, selections: [editor.selection],
+    });
+    assert.equal(markedRange().start.line, 0);
+    assert.equal(markedRange().end.line, 1);
+    view.webview.fireMessage({ goto: 3, revision: panelRevision(view), explicit: true });
+    assert.equal(markedRange().start.line, 3);
+    assert.match(view.webview.html, /ZeroDivisionError/);
+    editor.document.setText('if True:\n    x = 2\n\n1 / 0\n');
+    fake.emitters.onDidChangeTextDocument.fire({
+      document: editor.document,
+      contentChanges: [{ range: new FakeRange(1, 8, 1, 9), text: '2' }],
+    });
+    view.webview.fireMessage({ goto: 0, revision: panelRevision(view), explicit: true });
+    assert.equal(markedRange().start.line, 0);
+    assert.equal(markedRange().end.line, 1);
+    assert.match(view.webview.html, /1 stale/);
+  } finally { extension.deactivate(); }
 });

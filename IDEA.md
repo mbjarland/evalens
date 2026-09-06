@@ -526,6 +526,18 @@ rather than assumed. It has a rough edge — a cursor on a line holding no
 statement crashes it instead of reporting nothing — which is acceptable for
 what it now is, and would not be if anything depended on it.
 
+### Navigating captured results
+
+The optional Values panel shows the existing trace at full width. With
+`evalens.valuesPanel.followCursor` on (the default), moving the editor cursor
+reveals the matching row, and navigating rows reveals the corresponding source.
+Both destinations carry a theme-aware frame; the row also carries an arrow.
+Keyboard focus stays in the pane being used. Up/Down and Home/End browse rows;
+Enter, Space or a click explicitly reveals source even with cursor following
+off. The panel's checkbox controls this preference separately from
+`evalens.valuesPanel.follow`, which follows newly evaluated results. Neither
+navigation mode evaluates code or opens a hidden panel.
+
 ## The hard parts, and where each stands
 
 **Ordering and state.** Evaluating line 40 requires lines 1–39 to have run.
