@@ -304,6 +304,62 @@ class NeverConsumed(unittest.TestCase):
 
 
 class CellRepresentation(unittest.TestCase):
+    def test_wide_rows_and_records_only_format_visible_cells(self):
+        width = 10000
+        for row in (list(range(width)), {str(i): i for i in range(width)}):
+            counter = CountingRepr()
+            table = tabular.describe([row, row], counter)
+            self.assertEqual(counter.calls, 2 * tabular.MAX_COLUMNS)
+            self.assertEqual(table["col_count"], width)
+            self.assertEqual(table["more_cols"], width - tabular.MAX_COLUMNS)
+
+    def test_wide_frame_only_reads_visible_headers(self):
+        width = 10000
+        frame = DataFrameDuckType.fake_dataframe(
+            rows=[list(range(width))], columns=range(width))
+        seen = []
+
+        def labels():
+            for i in range(width):
+                seen.append(i)
+                yield str(i)
+
+        frame.columns = labels()
+        counter = CountingRepr()
+        table = tabular.describe(frame, counter)
+        self.assertEqual(len(seen), tabular.MAX_COLUMNS)
+        self.assertEqual(counter.calls, tabular.MAX_COLUMNS)
+        self.assertEqual(table["col_count"], width)
+
+    def test_custom_traversal_and_metaclass_hooks_are_not_dispatched(self):
+        calls = []
+
+        class Meta(type):
+            def __getattribute__(self, name):
+                calls.append(name)
+                return super().__getattribute__(name)
+
+        class Sequence(list, metaclass=Meta):
+            def __getitem__(self, key):
+                calls.append("getitem")
+                return super().__getitem__(key)
+
+        class Row(dict):
+            def items(self):
+                calls.append("items")
+                return super().items()
+
+        class Tuple(tuple):
+            @property
+            def _fields(self):
+                calls.append("fields")
+                return ("x",)
+
+        for value in (Sequence([[1]]), [Sequence([1])], [Row(a=1)],
+                      [Tuple((1,))]):
+            tabular.describe(value, identity_repr)
+        self.assertEqual(calls, [])
+
     def test_cell_repr_is_called_once_per_shown_cell_and_nothing_more(self):
         rows = [{"a": i, "b": i * i} for i in range(1000)]
         counter = CountingRepr()

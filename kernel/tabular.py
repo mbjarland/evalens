@@ -62,6 +62,11 @@ total is always known even when only a slice of it is shown. ``MAX_COLUMNS``
 bounds the same way sideways, for a dict with more keys than a screen has
 room for.
 
+Only visible record keys/fields are compared, along with total column
+counts. A key outside the bounded sample is never searched for: a wide
+record whose visible keys cannot be aligned is left as its ordinary repr.
+Container storage is read with native operations, never subclass hooks.
+
 What is not checked, and why that is the honest answer rather than an
 oversight: consistency (matching keys, matching length) is only ever verified
 across the bounded sample this looks at. A ten-million-row list whose keys
@@ -73,6 +78,8 @@ the rest to rule that out is the walk this module exists not to take.
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from itertools import islice
+import passive
 
 #: A value's own bounded repr, injected rather than imported -- this module
 #: must not import `evalens_kernel` (which imports this one) or pandas
@@ -109,10 +116,7 @@ def _cap(text: str, limit: int) -> str:
 def _header(value: Any) -> str:
     """A column label, as text -- a dict key or a namedtuple field may be
     anything hashable, and a header is read, never computed with."""
-    try:
-        text = value if isinstance(value, str) else str(value)
-    except BaseException:  # noqa: BLE001 - a user __str__ can raise too
-        text = "?"
+    text = value if type(value) is str else passive.text(value, HEADER_LIMIT)
     return _cap(text, HEADER_LIMIT)
 
 
@@ -127,13 +131,9 @@ def _plain(value: Any, base: type) -> bool:
     anyway would be the extension overruling that statement -- exactly what
     `describe()` already declines to do for any other type.
     """
-    kind = type(value)
-    if kind is base:
-        return True
-    try:
-        return issubclass(kind, base) and kind.__repr__ is base.__repr__
-    except BaseException:  # noqa: BLE001 - a metaclass can raise even here
-        return False
+    return (passive.base_type(value) is base
+            and passive.member(type(value), "__repr__")
+            is passive.member(base, "__repr__"))
 
 
 def _is_dataframe(value: Any) -> bool:
@@ -152,17 +152,11 @@ def _is_dataframe(value: Any) -> bool:
     segment, and nothing else legitimately will.
     """
     kind = type(value)
-    module = getattr(kind, "__module__", None)
-    qualname = getattr(kind, "__qualname__", None)
-    if not isinstance(module, str) or not isinstance(qualname, str):
+    module = passive.member(kind, "__module__")
+    qualname = type.__dict__["__qualname__"].__get__(kind)
+    if type(module) is not str or type(qualname) is not str:
         return False
     return module.split(".", 1)[0] == "pandas" and qualname == "DataFrame"
-
-
-def _bounded_columns(labels: List[str]) -> Tuple[List[str], int]:
-    if len(labels) <= MAX_COLUMNS:
-        return labels, 0
-    return labels[:MAX_COLUMNS], len(labels) - MAX_COLUMNS
 
 
 def _table(
@@ -190,8 +184,7 @@ def _describe_dataframe(
 ) -> Optional[Dict[str, Any]]:
     if not _is_dataframe(value):
         return None
-    # `.shape` and `.columns` are metadata reads -- O(1) and O(columns), never
-    # O(rows) -- so asking them costs nothing on a million-row frame. Calling
+    # `.shape` is metadata; `.columns` is sampled before formatting. Calling
     # them is introspection on the value already in hand, on the same terms
     # `len()`, `repr()` and `reversed()` already are elsewhere in this kernel;
     # it is not re-running the statement that produced the frame.
@@ -199,26 +192,31 @@ def _describe_dataframe(
         n_rows, n_cols = value.shape
     except BaseException:  # noqa: BLE001 - .shape is a property; trust none of it
         return None
-    if n_rows <= 0 or n_cols <= 0:
+    if (type(n_rows) is not int or type(n_cols) is not int
+            or n_rows <= 0 or n_cols <= 0):
         return None
     try:
-        all_labels = [_header(c) for c in value.columns]
+        columns = [_header(c) for c in islice(value.columns, MAX_COLUMNS)]
     except BaseException:  # noqa: BLE001
         return None
-    columns, more_cols = _bounded_columns(all_labels)
+    if len(columns) != min(n_cols, MAX_COLUMNS):
+        return None
+    more_cols = n_cols - len(columns)
     keep = len(columns)
     head_n = min(HEAD_ROWS, n_rows)
     tail_n = min(TAIL_ROWS, max(0, n_rows - head_n))
     try:
         rows: List[List[str]] = []
         head = value.iloc[:head_n, :keep]
-        for record in head.itertuples(index=False, name=None):
-            rows.append([cell_repr(cell) for cell in record])
+        for record in islice(head.itertuples(index=False, name=None), head_n):
+            rows.append([cell_repr(cell) for cell in islice(record, keep)])
         if tail_n:
             tail = value.iloc[n_rows - tail_n:, :keep]
-            for record in tail.itertuples(index=False, name=None):
-                rows.append([cell_repr(cell) for cell in record])
+            for record in islice(tail.itertuples(index=False, name=None), tail_n):
+                rows.append([cell_repr(cell) for cell in islice(record, keep)])
     except BaseException:  # noqa: BLE001 - any of the above is pandas' code
+        return None
+    if len(rows) != head_n + tail_n or any(len(row) != keep for row in rows):
         return None
     more_rows = n_rows - len(rows)
     return _table("dataframe", columns, rows, n_rows, more_rows, n_cols,
@@ -234,17 +232,51 @@ def _sample(value: Any) -> Tuple[list, int]:
     asks: whether the shape is consistent, and what to show, so nothing here
     is walked twice.
     """
-    n = len(value)
+    base = passive.base_type(value)
+    n = base.__len__(value)
     head_n = min(HEAD_ROWS, n)
     tail_n = min(TAIL_ROWS, max(0, n - head_n))
-    sample = list(value[:head_n])
+    sample = list(base.__getitem__(value, slice(None, head_n)))
     if tail_n:
-        sample += list(value[n - tail_n:])
+        sample += list(base.__getitem__(value, slice(n - tail_n, None)))
     return sample, n
 
 
-def _sample_shape(sample: list) -> Optional[Tuple[str, list]]:
-    """`(kind, raw_columns)` the sample agrees on, or None.
+def _same_key(left: Any, right: Any) -> bool:
+    if left is right:
+        return True
+    return (type(left) is type(right)
+            and any(type(left) is kind for kind in
+                    (str, bytes, int, float, complex, bool, type(None)))
+            and left == right)
+
+
+def _record_values(item: dict, keys: list) -> Optional[list]:
+    # Match only the bounded visible sample, without custom hashing/equality.
+    # Different insertion orders are fine within that sample. If a visible
+    # key moved beyond it, decline the table instead of walking a wide dict.
+    entries = list(islice(dict.items(item), MAX_COLUMNS))
+    values = []
+    for key in keys:
+        for candidate, value in entries:
+            if _same_key(key, candidate):
+                values.append(value)
+                break
+        else:
+            return None
+    return values
+
+
+def _fields(item: Any) -> Optional[tuple]:
+    if passive.base_type(item) is tuple:
+        fields = passive.member(type(item), "_fields")
+        if type(fields) is tuple:
+            return fields
+    return None
+
+
+def _sample_shape(sample: list) -> Optional[Tuple[str, list, int]]:
+    """`(kind, bounded raw_columns, total_columns)` or None.
 
     `raw_columns` are the columns' own keys/fields/positions, unconverted --
     what a row is later indexed by -- never the header text, which is a
@@ -252,33 +284,39 @@ def _sample_shape(sample: list) -> Optional[Tuple[str, list]]:
     """
     first = sample[0]
     if _plain(first, dict):
-        keys = list(first.keys())
+        keys = list(islice(dict.keys(first), MAX_COLUMNS))
         if not keys:
             return None
-        wanted = set(keys)
+        count = dict.__len__(first)
         for item in sample[1:]:
-            if not _plain(item, dict) or set(item.keys()) != wanted:
+            if (not _plain(item, dict) or dict.__len__(item) != count
+                    or _record_values(item, keys) is None):
                 return None
-        return "records", keys
-    if isinstance(first, tuple) and isinstance(
-            getattr(first, "_fields", None), tuple):
-        fields = first._fields
+        return "records", keys, count
+    fields = _fields(first)
+    if fields is not None:
         if not fields:
             return None
-        for item in sample[1:]:
-            if not (isinstance(item, tuple)
-                    and getattr(item, "_fields", None) == fields):
+        visible = list(fields[:MAX_COLUMNS])
+        if any(type(field) is not str for field in visible):
+            return None
+        for item in sample:
+            other = _fields(item)
+            if (other is None or len(other) != len(fields)
+                    or tuple.__len__(item) != len(fields)
+                    or not all(_same_key(a, b) for a, b in
+                               zip(visible, other[:MAX_COLUMNS]))):
                 return None
-        return "namedtuples", list(fields)
+        return "namedtuples", visible, len(fields)
     if _plain(first, list) or _plain(first, tuple):
-        length = len(first)
+        length = passive.base_type(first).__len__(first)
         if length == 0:
             return None
         for item in sample[1:]:
             if not ((_plain(item, list) or _plain(item, tuple))
-                    and len(item) == length):
+                    and passive.base_type(item).__len__(item) == length):
                 return None
-        return "rows", [str(i) for i in range(length)]
+        return "rows", list(range(min(length, MAX_COLUMNS))), length
     return None
 
 
@@ -286,10 +324,13 @@ def _row_cells(
     item: Any, kind: str, raw_columns: list, cell_repr: CellRepr
 ) -> Optional[List[str]]:
     if kind == "records":
-        return [cell_repr(item[key]) for key in raw_columns]
+        values = _record_values(item, raw_columns)
+        return None if values is None else [cell_repr(v) for v in values]
     # "namedtuples" and "rows" are both already positional tuples/lists in
     # field/index order, so iterating `item` itself is the row.
-    return [cell_repr(cell) for cell in item]
+    base = passive.base_type(item)
+    return [cell_repr(cell) for cell in
+            islice(base.__iter__(item), len(raw_columns))]
 
 
 def _describe_sequence(
@@ -303,13 +344,13 @@ def _describe_sequence(
     # a failed check.
     if not (_plain(value, list) or _plain(value, tuple)):
         return None
-    if len(value) == 0:
+    if passive.base_type(value).__len__(value) == 0:
         return None
     sample, n = _sample(value)
     shape = _sample_shape(sample)
     if shape is None:
         return None
-    kind, raw_columns = shape
+    kind, raw_columns, col_count = shape
     try:
         rows = [_row_cells(item, kind, raw_columns, cell_repr)
                 for item in sample]
@@ -317,12 +358,10 @@ def _describe_sequence(
         return None
     if any(row is None for row in rows):
         return None
-    labels = [_header(c) for c in raw_columns]
-    columns, more_cols = _bounded_columns(labels)
-    keep = len(columns)
-    rows = [row[:keep] for row in rows]
+    columns = [_header(c) for c in raw_columns]
+    more_cols = col_count - len(columns)
     more_rows = n - len(sample)
-    return _table(kind, columns, rows, n, more_rows, len(raw_columns),
+    return _table(kind, columns, rows, n, more_rows, col_count,
                   more_cols)
 
 
