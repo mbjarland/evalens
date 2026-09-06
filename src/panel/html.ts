@@ -112,6 +112,12 @@ function nonEmpty(text: string | undefined): boolean {
   return (text ?? '') !== '';
 }
 
+/** `format.preserveSpacing`'s non-breaking spaces, undone (#116 review):
+ * see the comment where this is called, in `rowFor`. */
+function ordinarySpacing(text: string): string {
+  return text.split(' ').join(' ');
+}
+
 /**
  * A stream's text, in full and with its own trailing newline removed -- the
  * same rule `format.streamPiece` applies to the one-line inline summary, for
@@ -189,6 +195,15 @@ function rowFor(
     annotation.isBinding);
   const streamCount = (nonEmpty(annotation.printed?.stdout) ? 1 : 0)
     + (nonEmpty(annotation.printed?.stderr) ? 1 : 0);
+  // `resultGroups` substitutes non-breaking spaces throughout
+  // (`format.preserveSpacing`), because the inline chip is a VS Code
+  // decoration `contentText` and VS Code collapses runs of ordinary spaces
+  // there. A webview has no such problem -- this is real HTML -- and an
+  // NBSP is, by definition, never a line-break opportunity: left in place,
+  // a long list becomes one unbreakable word and `overflow-wrap: anywhere`
+  // shreds it mid-number instead of wrapping at its own ", " boundaries
+  // (#116 review). So every segment's text is put back to ordinary spaces
+  // before it is ever rendered.
   const allGroups = resultGroups({
     value: annotation.value ?? null,
     display: annotation.display,
@@ -200,7 +215,8 @@ function rowFor(
     isBinding: annotation.isBinding,
     partialFrom: annotation.partialFrom,
     maxValueLength: FULL_VALUE_LENGTH,
-  });
+  }).map((group) => group.map(
+    (segment) => ({ ...segment, text: ordinarySpacing(segment.text) })));
   // The elided stream groups `resultGroups` built sit between the slots and
   // the footnotes; cut out by position rather than kept, since they are
   // exactly the "first line …(N lines)" summary this ticket asks the panel
@@ -326,9 +342,24 @@ function summaryLine(fileName: string, rows: readonly ValuesRow[]): string {
 
 type Tone = 'evaluated' | 'stale' | 'error' | 'pending';
 
-function chip(innerHtml: string, tone: Tone, leading: boolean): string {
-  const classes = ['chip', `tone-${tone}`, ...(leading ? ['leading'] : [])];
-  return `<span class="${classes.join(' ')}">${innerHtml}</span>`;
+/**
+ * One chip -- `inline` beside the others on the row, or `block`, under them
+ * on a line of its own, for printed output (#116 review).
+ *
+ * `leading` puts a `.bar` element immediately before the chip rather than a
+ * border on the chip itself: a border is part of the box
+ * `box-decoration-break: clone` clones onto every fragment a wrapped inline
+ * element paints, so the old single-element chip repeated its bar on every
+ * wrapped line. A `.bar` is its own small element with nothing to wrap, so
+ * it can only ever appear once, beside the chip's own first line, exactly
+ * where "the accent bar on the first chip of the row" belongs.
+ */
+function chip(
+  innerHtml: string, tone: Tone, leading: boolean, variant: 'inline' | 'block' = 'inline'
+): string {
+  const bar = leading ? `<span class="bar tone-${tone}"></span>` : '';
+  const classes = ['chip', `tone-${tone}`, ...(variant === 'block' ? ['block'] : [])];
+  return `${bar}<span class="${classes.join(' ')}">${innerHtml}</span>`;
 }
 
 function segmentHtml(segment: Segment): string {
@@ -342,25 +373,32 @@ function groupHtml(group: readonly Segment[]): string {
 
 /**
  * `printed: ` (or `»` for a glyph label, per `evalens.printedLabel`) and the
- * full text after it, `white-space: pre-wrap` so a multi-line print keeps
- * its own line breaks rather than folding to the single space the browser's
- * ordinary text flow would otherwise collapse them to.
+ * full text after it, as one `block` chip under the line's value chips
+ * (#116 review) -- `white-space: pre-wrap` on the chip itself keeps every
+ * line the statement printed, label and all, inside the one box, rather
+ * than folding them to the single space the browser's ordinary text flow
+ * would otherwise collapse them to.
  */
 function streamChipHtml(stream: FullStream, tone: Tone, leading: boolean): string {
   const said = /[A-Za-z0-9]$/.test(stream.label)
     ? `${stream.label}: ` : `${stream.label} `;
   const inner = `<span class="seg-streamLabel">${escapeHtml(said)}</span>`
-    + `<span class="seg-value stream-text">${escapeHtml(stream.text)}</span>`;
-  return chip(inner, tone, leading);
+    + `<span class="seg-value">${escapeHtml(stream.text)}</span>`;
+  return chip(inner, tone, leading, 'block');
 }
 
-/** The hover's own words for why a stale value is stale (#109), as a
- * standalone sentence rather than the hover's `Stale: …` -- the row's own
- * grey surface already says "stale" once. */
+/**
+ * The hover's own words for why a stale value is stale (#109), as dimmed
+ * italic prose in the UI font after the chips (#116 review) -- never
+ * monospace, value-coloured text carried on inside the chip flow, which
+ * reads as part of the value rather than as a remark about it. A standalone
+ * sentence rather than the hover's `Stale: …`, since the row's own grey
+ * surface already says "stale" once.
+ */
 function staleReasonHtml(reason: 'edited' | 'dependency'): string {
   const clause = staleReasonText(reason);
   const sentence = `${clause.charAt(0).toUpperCase()}${clause.slice(1)}.`;
-  return ` <span class="stale-reason">${escapeHtml(sentence)}</span>`;
+  return `<div class="stale-reason">${escapeHtml(sentence)}</div>`;
 }
 
 /** The VALUE column's whole content for one row. */
@@ -384,22 +422,26 @@ function valueCellHtml(row: ValuesRow): string {
       : errorChip;
   }
 
-  // `streamChipHtml` already returns a whole `<span class="chip …">`, unlike
-  // `groupHtml`, which is only ever a chip's *contents* -- so the two are
-  // built into finished chips in the same loop rather than wrapped by one
-  // shared `.map` afterwards, which would wrap a stream's chip a second
-  // time. `leading` is true for exactly the first chip either loop produces.
+  // Inline value chips share one line, space-separated; a stream is its own
+  // block underneath, so the two are built into separate lists rather than
+  // one -- joining them the same way would put a stream chip on the value
+  // chips' own line. `leading` still tracks across both: whichever chip is
+  // built first overall -- ordinarily a value chip, but a bare `print()`
+  // with no name to report has only a stream chip -- carries the bar.
   const tone: Tone = row.state === 'stale' ? 'stale' : 'evaluated';
-  const chips: string[] = [];
-  for (const group of row.groups ?? []) {
-    chips.push(chip(groupHtml(group), tone, chips.length === 0));
-  }
-  for (const stream of row.streams ?? []) {
-    chips.push(streamChipHtml(stream, tone, chips.length === 0));
-  }
+  let leadingTaken = false;
+  const takeLeading = (): boolean => {
+    const first = !leadingTaken;
+    leadingTaken = true;
+    return first;
+  };
+  const inlineChips = (row.groups ?? [])
+    .map((group) => chip(groupHtml(group), tone, takeLeading()));
+  const blockChips = (row.streams ?? [])
+    .map((stream) => streamChipHtml(stream, tone, takeLeading()));
   // A statement with nothing to show at all -- an `if`, a `del` -- paints no
   // chip, the same as the inline annotation does.
-  const value = chips.join(' ');
+  const value = inlineChips.join(' ') + blockChips.join('');
   return row.state === 'stale' && row.staleReason !== undefined
     ? value + staleReasonHtml(row.staleReason)
     : value;
@@ -505,17 +547,49 @@ tr.cursor .line-cell {
   background: ${cssVar('tint')};
 }
 .chip.tone-stale { background: ${cssVar('staleTint')}; }
-.chip.leading { border-left: 3px solid ${cssVar('border')}; }
-.chip.leading.tone-stale { border-left-color: ${cssVar('staleBorder')}; }
-.chip.leading.tone-error { border-left-color: ${cssVar('error')}; }
-.chip.leading.tone-pending { border-left-color: ${cssVar('pending')}; }
+/* Printed output (#116 review): a block of its own under the line's value
+   chips, not one more inline chip beside them -- so it never shares a line
+   with them and never needs box-decoration-break to keep its own shape. */
+.chip.block {
+  display: block;
+  white-space: pre-wrap;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 4px;
+}
+/* The accent bar (#116 review): its own element immediately before the
+   leading chip, not a border on the chip itself -- a border is part of the
+   box that box-decoration-break: clone clones onto every wrapped line, and
+   the bar belongs on the first line only. Sized to one line of text and
+   placed inline, so it appears once, beside the chip's own first line, and
+   never reappears when that chip wraps. */
+.bar {
+  display: inline-block;
+  width: 3px;
+  height: 1.3em;
+  vertical-align: middle;
+  border-radius: 1px;
+  background: ${cssVar('border')};
+}
+.bar.tone-stale { background: ${cssVar('staleBorder')}; }
+.bar.tone-error { background: ${cssVar('error')}; }
+.bar.tone-pending { background: ${cssVar('pending')}; }
 .seg-value { color: ${cssVar('value')}; }
 .seg-nameLabel { color: ${cssVar('nameLabel')}; }
 .seg-streamLabel { color: ${cssVar('streamLabel')}; }
 .error-text { color: ${cssVar('error')}; }
 .pending-text { color: ${cssVar('pending')}; }
-.stream-text { white-space: pre-wrap; }
-.stale-reason { font-style: italic; }
+/* The stale reason (#116 review): dimmed italic prose in the UI font,
+   after the chips with a margin -- never monospace value-coloured text
+   inside the chip flow, which is what a plain inline span here used to be. */
+.stale-reason {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+  font-style: italic;
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+}
 `;
 
 /**

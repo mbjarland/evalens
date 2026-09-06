@@ -127,9 +127,12 @@ test('a stale error keeps the message under the grey, stale surface', () => {
   assert.equal(rows[0]!.errorText, 'ZeroDivisionError: division by zero');
   const html = valuesHtml({ fileName: 'x.py', rows }, undefined, 'n');
   // The static stylesheet always defines a `.tone-error` rule, whether or
-  // not any row uses it -- so the check is against the chip's own class
-  // attribute, not the whole document.
-  assert.match(html, /class="chip tone-stale leading"/);
+  // not any row uses it -- so the check is against the chip's and bar's own
+  // class attributes, not the whole document. The bar -- not the chip -- is
+  // what carries the state's colour now (#116 review).
+  assert.match(html, /class="bar tone-stale">/);
+  assert.match(html, /class="chip tone-stale">/);
+  assert.doesNotMatch(html, /class="bar tone-error/);
   assert.doesNotMatch(html, /class="chip tone-error/);
   assert.match(html, /ZeroDivisionError: division by zero/);
   assert.match(html, /code changed since it ran/);
@@ -148,14 +151,7 @@ test('a pending row shows the pending mark, never a stale value', () => {
 });
 
 test('the full value is shown, not the inline chip\'s 120-character cut', () => {
-  // No spaces in the separator: `resultGroups` runs every value segment
-  // through `format.preserveSpacing`, which turns an ordinary space into a
-  // non-breaking one (the same substitution the inline chip needs, for the
-  // same reason -- see `format.ts`), so a literal `', '` would never be
-  // found verbatim in the rendered text. Commas alone side-step that rather
-  // than asserting around it, since spacing fidelity is `format.test.ts`'s
-  // concern and not this one's.
-  const long = Array.from({ length: 60 }, (_, i) => i).join(',');
+  const long = Array.from({ length: 60 }, (_, i) => i).join(', ');
   const document = lineSource(['xs = list(range(60))']);
   const annotations: PanelAnnotation[] = [
     { range: range(0, 0), value: long, display: 'xs', isBinding: true },
@@ -166,6 +162,26 @@ test('the full value is shown, not the inline chip\'s 120-character cut', () => 
   assert.ok(html.includes(long),
     'the panel truncated a value the inline chip alone would have cut');
   assert.ok(!html.includes('more character'), 'no truncation marker should appear');
+});
+
+test('a value\'s spaces are ordinary, not the inline chip\'s non-breaking ' +
+  'ones, so a list wraps at its own commas', () => {
+  // format.resultGroups substitutes non-breaking spaces throughout
+  // (format.preserveSpacing), because the *inline* chip is a VS Code
+  // decoration contentText and VS Code collapses runs of ordinary spaces
+  // there. A webview has none of that problem, and an NBSP is by
+  // definition never a line-break opportunity -- left in place, a long
+  // list becomes one unbreakable word and overflow-wrap: anywhere shreds
+  // it mid-number instead of wrapping at ", " (#116 review).
+  const document = lineSource(['a = 1']);
+  const annotations: PanelAnnotation[] = [
+    { range: range(0, 0), value: '1, 2, 3', display: 'a', isBinding: true },
+  ];
+  const html = valuesHtml(
+    { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
+    undefined, 'n');
+  assert.ok(html.includes('1, 2, 3'), 'the value should carry ordinary spaces');
+  assert.ok(!html.includes(' '), 'no non-breaking space should reach the page');
 });
 
 test('printed output keeps every line, not the inline chip\'s summary', () => {
@@ -182,7 +198,48 @@ test('printed output keeps every line, not the inline chip\'s summary', () => {
   assert.match(html, /one[\s\S]*two[\s\S]*three/);
   assert.ok(!html.includes('…(3 lines)'),
     'the panel must not fall back to the inline elision');
-  assert.match(html, /\.stream-text\s*\{\s*white-space:\s*pre-wrap/);
+  assert.match(html, /\.chip\.block\s*\{[^}]*white-space:\s*pre-wrap/);
+});
+
+test('printed output is a single block chip under the value chips, not ' +
+  'one inline chip per line', () => {
+  const document = lineSource(['x = compute()']);
+  const annotations: PanelAnnotation[] = [
+    {
+      range: range(0, 0), value: '42', display: 'x', isBinding: true,
+      printed: { stdout: 'one\ntwo\nthree\n' },
+    },
+  ];
+  const html = valuesHtml(
+    { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
+    undefined, 'n');
+  // Exactly two chips: the value ("x: 42") and one block chip carrying all
+  // three printed lines -- never three chips, one per line.
+  const chipCount = (html.match(/class="chip /g) ?? []).length;
+  assert.equal(chipCount, 2,
+    'expected one value chip and one block printed chip, not one per line');
+  assert.match(html, /class="chip tone-evaluated block"/);
+  // Only the value chip is leading -- the printed block sits under it and
+  // carries no bar of its own.
+  const barCount = (html.match(/class="bar /g) ?? []).length;
+  assert.equal(barCount, 1, 'only the first chip of the row gets a bar');
+});
+
+test('the accent bar is one element before the leading chip, never a ' +
+  'border repeated on every wrapped line', () => {
+  const long = Array.from({ length: 60 }, (_, i) => i).join(', ');
+  const document = lineSource(['xs = list(range(60))']);
+  const annotations: PanelAnnotation[] = [
+    { range: range(0, 0), value: long, display: 'xs', isBinding: true },
+  ];
+  const html = valuesHtml(
+    { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
+    undefined, 'n');
+  const barCount = (html.match(/class="bar /g) ?? []).length;
+  assert.equal(barCount, 1,
+    'a chip long enough to wrap must still carry exactly one bar');
+  assert.doesNotMatch(html, /\.chip\s*\{[^}]*border-left/,
+    'the chip itself must not carry a border-left any more');
 });
 
 test('a loop\'s iterations are shown the way the inline chip shows them', () => {
