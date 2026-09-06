@@ -5,7 +5,8 @@ import { Announcer } from './announcer';
 import { Annotation, Decorator, sourceAt } from './decorations';
 import { Flash, SETTLED } from './flash';
 import {
-  AnnotationRegistry, afterEdit, markDependents, merge, reanchor,
+  AnnotationRegistry, TextChange, afterEdit, markDependents, merge, reanchor,
+  reanchorLate,
 } from './registry';
 import { Waiting } from './status';
 
@@ -49,6 +50,54 @@ export interface AnnotationChangeEvent {
 }
 
 /**
+ * What `validity` hands back (#150) -- the closed-over check #121 shipped as
+ * a single `() => boolean`, split so a caller can tell "nothing has changed"
+ * from "something changed, but a late result might still be placed".
+ */
+export interface Validity {
+  /**
+   * Every #121 gate except the document version: not disposed, not closed,
+   * the same clear-all generation and the same clear/close epoch this
+   * document had when the request was made. A result that fails this is
+   * dropped outright -- see `reason` -- because there is no version left
+   * that could mean anything: the document this was for is gone, or every
+   * annotation living in it was dismissed on purpose.
+   */
+  readonly placeable: () => boolean;
+  /** `placeable()`, and the document has not changed at all since. The
+   * whole of what `validity` answered before #150. */
+  readonly current: () => boolean;
+  /** The document version this was captured against, for `reconcile`. */
+  readonly version: number;
+  /** Why `placeable()` answers false, for the discard message `evaluate.ts`
+   * logs -- `undefined` for as long as it still answers true. */
+  readonly reason: () => 'closed' | 'cleared' | undefined;
+}
+
+/**
+ * One `onDidChangeTextDocument` event, kept long enough for a late result
+ * dispatched before it to be mapped across it -- see `reconcile`.
+ */
+interface BufferedEdit {
+  /** The version `changes` was applied to produce the document's current
+   * one -- what `reconcile` matches a late result's own captured version
+   * against to find where its replay has to start. */
+  readonly versionBefore: number;
+  readonly changes: readonly TextChange[];
+}
+
+/**
+ * How many of a document's edits `reconcile` keeps looking back through.
+ * "A few hundred changes" per #150's own ticket -- generous against any
+ * evaluation that is merely slow, and cheap to keep: each entry is one
+ * keystroke's `contentChanges`, not a copy of the document. Past this, a
+ * result older than everything still buffered is dropped rather than
+ * guessed at, the same conservative default #121 already chose for a
+ * document closed out from under a request.
+ */
+const MAX_BUFFERED_EDITS = 200;
+
+/**
  * Owns what is painted, and when it stops being painted.
  *
  * A value out of sync with the code beside it is the notebook's original sin,
@@ -68,18 +117,80 @@ export interface AnnotationChangeEvent {
  */
 export class Annotations implements vscode.Disposable {
   private readonly epochs = new WeakMap<vscode.TextDocument, number>();
+  /**
+   * Documents `onDidCloseTextDocument` has fired for, independent of
+   * `document.isClosed` -- kept only to word a discard message correctly
+   * (#150): epoch already invalidates a closed document exactly as it did
+   * before this ticket, so nothing here changes *whether* one is dropped.
+   */
+  private readonly closedDocuments = new WeakSet<vscode.TextDocument>();
+  /** Recent edits per document, oldest first -- see `reconcile`. */
+  private readonly recentEdits =
+    new WeakMap<vscode.TextDocument, readonly BufferedEdit[]>();
   private generation = 0;
   private disposed = false;
 
   /** A result may only paint the document and lifecycle that requested it. */
-  validity(document: vscode.TextDocument): () => boolean {
+  validity(document: vscode.TextDocument): Validity {
     const version = document.version;
     const generation = this.generation;
     const epoch = this.epochs.get(document);
-    return () => !this.disposed && !document.isClosed
-      && document.version === version && this.generation === generation
-      && this.epochs.get(document) === epoch;
+    const placeable = (): boolean => !this.disposed && !document.isClosed
+      && this.generation === generation && this.epochs.get(document) === epoch;
+    return {
+      placeable,
+      current: () => placeable() && document.version === version,
+      version,
+      reason: () => placeable()
+        ? undefined
+        : (this.disposed || document.isClosed
+            || this.closedDocuments.has(document))
+          ? 'closed' : 'cleared',
+    };
   }
+
+  /**
+   * Map a result computed against `document` as it stood at `version` onto
+   * where its statement stands now, or say it cannot be (#150).
+   *
+   * The common case is the fast path: nothing has touched the document
+   * since `version`, so `candidate` comes back exactly as it arrived --
+   * checked first, and it is the only work a result that is not late ever
+   * costs. Otherwise every edit buffered since `version` is replayed
+   * against it with `reanchorLate`, deferring the evaluated-or-stale
+   * decision to the end for the same reason that function's own doc
+   * comment gives: only once every buffered edit has run is the range
+   * settled enough to compare against the live document.
+   *
+   * `undefined` when the gap cannot be covered: `version` is older than
+   * everything still buffered -- trimmed by `MAX_BUFFERED_EDITS`, or from
+   * before this document was ever edited under this activation -- or some
+   * buffered edit cut into or pasted into the statement's own lines.
+   * `evaluate.ts` is what logs the discard; this only decides there is one.
+   *
+   * Nothing here asks the kernel anything, and nothing re-reads the buffer
+   * to decide whether `candidate`'s own value is still correct (design
+   * rules 3 and 4) -- only the coordinates move, and only `afterEdit`'s
+   * existing comparison, the same one an edit arriving on time already
+   * runs, decides evaluated from stale.
+   */
+  reconcile(
+    document: vscode.TextDocument, version: number, candidate: Annotation
+  ): Annotation | undefined {
+    if (document.version === version) {
+      return candidate;
+    }
+    const buffered = this.recentEdits.get(document) ?? [];
+    const start = buffered.findIndex((edit) => edit.versionBefore === version);
+    if (start === -1) {
+      return undefined;
+    }
+    return reanchorLate(
+      candidate, buffered.slice(start).map((edit) => edit.changes), shifted,
+      (annotation) => afterEdit(annotation, sourceAt(document, annotation.range))
+    );
+  }
+
   private readonly registry = new AnnotationRegistry<Annotation>();
   private readonly decorator: Decorator;
   private readonly subscriptions: vscode.Disposable[] = [];
@@ -139,6 +250,13 @@ export class Annotations implements vscode.Disposable {
     this.announcer = announcer;
     this.subscriptions.push(
       vscode.workspace.onDidChangeTextDocument((event) => {
+        // Buffered before anything else below returns early: a late result
+        // needs this record whether or not the document currently carries
+        // any annotations of its own to re-anchor (#150).
+        if (event.contentChanges.length > 0) {
+          this.bufferEdit(event.document, event.contentChanges);
+        }
+
         // An edit invalidates what it touched, and nothing else. An
         // annotation ten lines above it was not made untrue by it, and taking
         // it away costs the user the thing they were reading.
@@ -178,6 +296,7 @@ export class Annotations implements vscode.Disposable {
       }),
 
       vscode.workspace.onDidCloseTextDocument((document) => {
+        this.closedDocuments.add(document);
         this.epochs.set(document, (this.epochs.get(document) ?? 0) + 1);
         // Without this the map grows for the life of the window.
         this.registry.forget(document.uri.toString());
@@ -380,6 +499,31 @@ export class Annotations implements vscode.Disposable {
   }
 
   // -- internals ------------------------------------------------------------
+
+  /**
+   * Record one event's `changes` for `reconcile` to find later, bounded to
+   * `MAX_BUFFERED_EDITS`.
+   *
+   * `versionBefore` is `document.version - 1` rather than tracked
+   * separately: `onDidChangeTextDocument` fires once per applied edit and
+   * the document has already been updated by the time it does (the same
+   * fact the existing re-anchor handler relies on above), so the version
+   * this event moved the document *from* is always one less than the
+   * version it left it at. A caller whose own captured version turns out
+   * not to equal any `versionBefore` here -- because it predates everything
+   * still buffered -- gets `undefined` from `reconcile` rather than a wrong
+   * guess; see that method's own doc comment.
+   */
+  private bufferEdit(
+    document: vscode.TextDocument, changes: readonly TextChange[]
+  ): void {
+    const kept = this.recentEdits.get(document) ?? [];
+    const entry: BufferedEdit = { versionBefore: document.version - 1, changes };
+    const trimmed = kept.length >= MAX_BUFFERED_EDITS
+      ? kept.slice(kept.length - MAX_BUFFERED_EDITS + 1)
+      : kept;
+    this.recentEdits.set(document, [...trimmed, entry]);
+  }
 
   private repaint(document: vscode.TextDocument): void {
     const annotations = this.registry.get(document.uri.toString());

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   AnnotationRegistry, afterEdit, lineDelta, markDependents, markerFor, merge,
-  normalizeSource, overlaps, reanchor,
+  normalizeSource, overlaps, reanchor, reanchorLate, sourceAtText,
 } from '../render/registry';
 
 test('annotations belong to a document, not to the window', () => {
@@ -685,4 +685,107 @@ test('the three states are told apart, and stale outranks error', () => {
   assert.equal(
     markerFor({ stale: true, error: { type: 'NameError', message: 'x' } }),
     'stale');
+});
+
+// -- #150: mapping a late result across everything it missed -----------------
+
+test('reanchorLate with nothing buffered leaves the candidate untouched', () => {
+  const candidate = at(4, 'late');
+  assert.equal(
+    reanchorLate(candidate, [], shift, () => { throw new Error('unreached'); }),
+    candidate, 'no events at all is the fast path: identity, no rewrite');
+});
+
+test('a late result shifts across as many buffered events as it takes', () => {
+  // Three separate onDidChangeTextDocument events, each its own array -- the
+  // same shape `reconcile` slices `versionBefore`-onward buffered edits
+  // into -- every one inserted above line 5 and none of them ever
+  // overlapping the candidate's own line.
+  const candidate = at(5, 'late');
+  const after = reanchorLate(
+    candidate,
+    [[edit(0, 0, '\n')], [edit(0, 0, '\n\n')], [edit(0, 0, '\n')]],
+    shift, () => { throw new Error('unreached: never overlapped'); });
+
+  assert.deepEqual(placed([after!]), ['late@9-9'],
+    'one plus two plus one lines inserted above, each in its own event');
+});
+
+test('a late result pastes into it during the chain still cannot be placed', () => {
+  // The first event only shifts; the second pastes two lines into the
+  // candidate's own range -- unrecoverable regardless of which event in the
+  // chain does it, the same as `reanchor` answers for one edit.
+  const candidate = at(2, 'late');
+  const after = reanchorLate(
+    candidate,
+    [[edit(0, 0, '\n')], [edit(3, 3, 'a\nb')]],
+    shift, () => { throw new Error('unreached: nothing to rewrite'); });
+
+  assert.equal(after, undefined);
+});
+
+test('a late result decides evaluated-or-stale only after the whole chain', () => {
+  // The same property `reanchor`'s own "a mark is decided after every
+  // change, not while they are applied" proves for one event's several
+  // changes, spanning instead however many separate events happened while
+  // the result was in flight: an in-place rewrite in the first event marks
+  // the candidate for a final decision, and a second, unrelated event
+  // shifts it two lines further down before that decision is made. Reading
+  // the comparison right after the first event would find the wrong line.
+  const candidate: Valued = {
+    range: { start: { line: 2 }, end: { line: 2 } },
+    id: 'late', value: 'v', source: 'x = 1',
+  };
+  const after = reanchorLate(
+    candidate,
+    [[edit(2, 2, ' ')], [edit(0, 0, '\n\n')]],
+    shift, against(['', '', 'a = 1', 'b = 2', 'x = 1 ']));
+
+  assert.deepEqual(placed([after!]), ['late@4-4']);
+  assert.equal(after!.stale, true,
+    "read at its final line, the statement's own text has a trailing space "
+    + 'it did not have when the value was taken');
+});
+
+test('a late result only ever overlapped is left exactly as it was', () => {
+  // Never touched, only shifted: `rewrite` is never asked anything, so a
+  // candidate with no recorded `source` at all -- a syntax-error marker,
+  // say -- is not marked stale merely for having moved.
+  const candidate = { range: { start: { line: 0 }, end: { line: 0 } }, id: 'e' };
+  const after = reanchorLate(
+    candidate, [[edit(3, 3, '\n')]], shift,
+    () => { throw new Error('unreached: never overlapped'); });
+
+  assert.equal(after, candidate, 'untouched and unshifted: below the edit');
+});
+
+test('sourceAtText slices a plain string the way sourceAt slices a document', () => {
+  const source = 'a = 1\nb = 2\nc = 3\n';
+  assert.equal(
+    sourceAtText(source, { start: { line: 1 }, end: { line: 1 } }), 'b = 2');
+  assert.equal(
+    sourceAtText(source, { start: { line: 0 }, end: { line: 2 } }),
+    'a = 1\nb = 2\nc = 3');
+});
+
+test('sourceAtText clamps a range past the end of a shorter snapshot', () => {
+  // A late candidate's own recorded range can reach past however much of
+  // the file survived the edits it missed -- clamped rather than thrown, the
+  // same tolerance `sourceAt` gives a document an edit has shortened. No
+  // trailing newline here deliberately: with one, splitting on '\n' gives a
+  // real trailing empty line, exactly as `document.lineCount` would for the
+  // same text, and clamping into it is a different (and correct) case from
+  // the one this test isolates.
+  const source = 'a = 1\nb = 2';
+  assert.equal(
+    sourceAtText(source, { start: { line: 0 }, end: { line: 5 } }),
+    'a = 1\nb = 2');
+});
+
+test('sourceAtText folds CRLF the same way sourceAt does', () => {
+  const source = 'a = 1\r\nb = 2\r\nc = 3\r\n';
+  assert.equal(
+    sourceAtText(source, { start: { line: 0 }, end: { line: 1 } }),
+    'a = 1\nb = 2',
+    'no stray \\r left behind at the slice boundary');
 });
