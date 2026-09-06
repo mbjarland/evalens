@@ -263,14 +263,31 @@ function chipShape(edge: ChipEdge): string {
  * annotation's continuous tint -- see `chipSlots` in `layers.ts`, which
  * `show` gives the true, two-slots-per-divider total so a divider always
  * lands on `'middle'`, never on the one leading or trailing position the
- * whole run keeps for its own two outer ends. Both paint empty content: the
- * two paddings and the rule are the whole of what there is to see, so there
- * is nothing left to write into either slot's `contentText`.
+ * whole run keeps for its own two outer ends.
+ *
+ * Both paint `DIVIDER_TEXT`, a zero-width space, rather than truly empty
+ * content -- the bug an earlier revision of this shipped, caught by the
+ * maintainer pixel-probing the rendered still rather than trusting
+ * `getBoundingClientRect()`: an attachment with no content at all has no
+ * line box, so its horizontal-only padding still gives it a width, but its
+ * *height* collapses to zero, and a zero-height box paints neither a
+ * background nor a `border-left` of any width, however many pixels wide
+ * its box measures. A character with real text metrics and zero advance
+ * width gives the box the same text-height every other segment already
+ * has -- from real content, the same reason every other segment has one --
+ * while adding nothing to the 8px / 1px / 8px this geometry depends on.
  */
 const DIVIDER_LEAD_SHAPE = `none; padding: 0 0 0 ${CHIP_PAD}px;`;
 const DIVIDER_RULE_SHAPE = `none; padding: 0 ${CHIP_PAD}px 0 0;`;
-/** Content for both divider slots: chrome that paints nothing to read. */
-const DIVIDER_TEXT = '';
+/**
+ * Content for both divider slots: a zero-width space (`U+200B`), not an
+ * empty string -- see the doc comment above. It is text with zero advance
+ * width in every font this renders in (a formatting character, not a
+ * glyph, so no font has to cover it and no fallback-font substitution can
+ * widen it the way a missing glyph would), which is what makes it safe to
+ * use purely to give the box a height rather than anything to read.
+ */
+const DIVIDER_TEXT = '​';
 
 /**
  * The `border` value that makes only the leading edge visible: every side
