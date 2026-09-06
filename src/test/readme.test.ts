@@ -37,6 +37,49 @@ test('the README says every command is in the Command Palette', () => {
   assert.match(readme, /Command Palette/);
 });
 
+test('no bare Cmd+ chord above Keybindings: every one names Ctrl too', () => {
+  // #117: the README used to teach Cmd+Enter as though every reader had a
+  // Mac, with a "read Ctrl for Cmd" footnote a beginner never reaches. A
+  // Windows or Linux reader must see the chord that exists on their own
+  // keyboard, Windows/Linux first, everywhere above the reference table.
+  // Table rows pair by column instead of by wording, so they are excluded.
+  const idx = readme.indexOf('## Keybindings');
+  assert.notEqual(idx, -1, 'README has no "## Keybindings" heading');
+  const prose = readme
+    .slice(0, idx)
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('|'))
+    .join('\n')
+    // Bold markers and line-wrap whitespace are layout, not content: a key
+    // bolded for emphasis or a phrase reflowed onto two lines is still
+    // paired, so both are normalised away before the check below.
+    .replace(/\*\*/g, '');
+
+  const everyMac = prose.match(/`Cmd\+[A-Za-z+]+`/g) ?? [];
+  const paired = prose.match(
+    /`Ctrl\+([A-Za-z+]+)`\s*\(`Cmd\+\1`\s+on\s+a\s+Mac\)/g) ?? [];
+  assert.equal(everyMac.length, paired.length,
+    'expected every `Cmd+...` above Keybindings to read `Ctrl+X` ' +
+    `(\`Cmd+X\` on a Mac); found ${everyMac.length} Cmd+ chord(s) but only ` +
+    `${paired.length} paired that way`);
+});
+
+test('the four-key table teaches Windows/Linux keys first', () => {
+  // The larger audience reads first, and a macOS reader is already used to
+  // translating a chord; a Windows or Linux reader is not. This table is
+  // the one a screenshot of the README lands on, so its column order must
+  // not regress silently. Alt+Enter runs Evaluate at Cursor on every
+  // platform -- a manifest `key` with no `mac` override still applies on
+  // macOS, as the Keybindings section below says of Jupyter's own binding
+  // -- so both cells offer it (#117 correction), not just one.
+  const fourKeys = section('Learn it in four keys');
+  assert.ok(
+    fourKeys.indexOf('Windows / Linux') < fourKeys.indexOf('macOS'),
+    'the four-key table should list Windows / Linux before macOS');
+  assert.match(fourKeys, /`Ctrl\+Enter` or `Alt\+Enter`/);
+  assert.match(fourKeys, /`Cmd\+Enter` or `Alt\+Enter`/);
+});
+
 test('the keybinding conflict is stated next to the table, not footnoted', () => {
   // The whole failure mode is a silently dead key. A user who reads the
   // keybinding table and stops reading has to have been told there already;
