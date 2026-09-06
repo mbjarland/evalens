@@ -1,0 +1,659 @@
+/**
+ * The Values panel's content, built and testable with no webview (#116).
+ *
+ * The panel is the trace, full width, in the bottom panel -- what a narrow
+ * editor cannot show beside the code, shown under it instead. It reads
+ * `Annotations` and nothing else: design rule 3 governs it exactly as it
+ * governs the hover, and this module never reaches for the kernel. Every
+ * value here is a `repr()` already captured, never re-read.
+ *
+ * Kept free of `vscode` on purpose, the same split `format.ts`, `layers.ts`
+ * and `announce.ts` already make: `rowsFor` needs only `LineSource`, a
+ * one-method structural stand-in for `vscode.TextDocument`, and
+ * `PanelAnnotation`, a structural stand-in for `render/decorations.ts`'s
+ * `Annotation` built from `announce.ts`'s own `Announceable` -- a real
+ * `Annotation` satisfies both without a cast, and a test can build one from
+ * a plain object literal without an editor. `panel/values.ts` is the only
+ * file here that imports `vscode`; it translates a real `vscode.TextEditor`
+ * into these two shapes and calls `valuesHtml` for the rest.
+ */
+
+import { Announceable } from '../render/announce';
+import {
+  Printed, STDERR_LABEL, Segment, SegmentRole, collapseLines, paintedSlots,
+  resultGroups,
+} from '../render/format';
+import { Marker, markerFor, staleReasonText } from '../render/registry';
+import { pendingText } from '../render/status';
+
+// -- building rows from annotations ------------------------------------------
+
+/**
+ * The minimum `rowsFor` needs to read a line's own source text. A real
+ * `vscode.TextDocument` satisfies this structurally; `panel/values.ts` never
+ * has to build anything to hand one over.
+ */
+export interface LineSource {
+  lineAt(line: number): { readonly text: string };
+}
+
+/**
+ * The parts of an annotation the panel reads, kept structural for the same
+ * reason `registry.ts`'s `Traced`/`Anchored` are: a real `render/decorations
+ * .ts` `Annotation` satisfies this without a cast (its `range` is a
+ * `vscode.Range`, which has `.start.line`/`.end.line`), and a test can build
+ * one from a plain object with no `vscode.Range` in sight. `Announceable`
+ * already carries everything about *what a statement produced* -- value,
+ * display, loop, bindings, names, printed, more, error, partialFrom, stale,
+ * pending -- because the panel and the announced-result channel read the
+ * same trace; only `range`, `anchor` and `staleReason` are this module's own
+ * addition, for the two things `announce.ts` never needed: where a row
+ * belongs, and why a stale one is stale.
+ */
+export interface PanelAnnotation extends Announceable {
+  readonly range: {
+    readonly start: { readonly line: number };
+    readonly end: { readonly line: number };
+  };
+  readonly anchor?: number;
+  readonly staleReason?: 'edited' | 'dependency';
+}
+
+/** Which of the panel's four row states one row is in -- `Marker`'s three,
+ * plus `'pending'` for a statement that has not finished. */
+export type RowState = Marker | 'pending';
+
+/** One stream a statement wrote to, in full -- never the line's own
+ * first-line-plus-count summary, per the ticket: the panel has the room. */
+export interface FullStream {
+  readonly label: string;
+  readonly text: string;
+}
+
+/** One row of the panel's table, already resolved from an annotation and a
+ * line of source -- everything `valuesHtml` needs and nothing it has to ask
+ * `vscode` for. */
+export interface ValuesRow {
+  /** 0-based line the value is painted on -- `anchor` when set, matching
+   * where `decorations.ts` paints the inline chip. */
+  readonly line: number;
+  /** 0-based first and last line of the statement, so a cursor anywhere
+   * inside a multi-line statement -- not only on `line` -- highlights this
+   * row, the same containment `Annotations.at` already applies. */
+  readonly startLine: number;
+  readonly endLine: number;
+  /** The line's own text, trimmed. */
+  readonly code: string;
+  readonly state: RowState;
+  /** Present only when `state` is `'stale'`. */
+  readonly staleReason?: 'edited' | 'dependency';
+  /** Chip groups exactly as `resultGroups` builds them, at full length --
+   * absent for a pending or error row, which paint their own message
+   * instead, and absent for a row with nothing to show at all. */
+  readonly groups?: readonly (readonly Segment[])[];
+  /** Every stream the statement wrote to, in full. Absent when it wrote
+   * nothing. */
+  readonly streams?: readonly FullStream[];
+  /** `"TypeName: message"`, present only when the annotation carries an
+   * error -- whether or not `state` is `'error'`: a stale annotation that
+   * was also an error still shows the error text, greyed by the stale
+   * surface rather than displaced by it (`markerFor`'s own ranking). */
+  readonly errorText?: string;
+  /** Present only when `state` is `'pending'`. */
+  readonly pendingText?: string;
+}
+
+/** How wide a value is shown before it is cut -- effectively never, for the
+ * panel: `format.truncateValue`'s cut exists for the inline chip's column,
+ * and the whole point of a panel is the room a column does not have. */
+const FULL_VALUE_LENGTH = Number.MAX_SAFE_INTEGER;
+
+function nonEmpty(text: string | undefined): boolean {
+  return (text ?? '') !== '';
+}
+
+/** `format.preserveSpacing`'s non-breaking spaces, undone (#116 review):
+ * see the comment where this is called, in `rowFor`. */
+function ordinarySpacing(text: string): string {
+  return text.split(' ').join(' ');
+}
+
+/**
+ * A stream's text, in full and with its own trailing newline removed -- the
+ * same rule `format.streamPiece` applies to the one-line inline summary, for
+ * the same reason: the newline `print` writes is how a line ends, not a line
+ * of its own. Unlike the inline summary, every remaining line survives,
+ * including embedded blank ones -- only a *wholly* empty result reads as a
+ * bug rather than as the answer, so that one case alone is named.
+ */
+function fullStreamText(raw: string): string {
+  const stripped = raw.replace(/\r?\n$/, '');
+  return stripped === '' ? '(blank line)' : stripped;
+}
+
+/** Every stream a statement wrote to, labelled and in full -- stdout first,
+ * on the same terms `format.ts`'s own (private) `streamsOf` uses. */
+function streamsFor(
+  printed: Printed | undefined, printedLabel: string
+): readonly FullStream[] {
+  const streams: FullStream[] = [];
+  if (nonEmpty(printed?.stdout)) {
+    streams.push({ label: printedLabel, text: fullStreamText(printed!.stdout!) });
+  }
+  if (nonEmpty(printed?.stderr)) {
+    streams.push({ label: STDERR_LABEL, text: fullStreamText(printed!.stderr!) });
+  }
+  return streams;
+}
+
+/**
+ * One annotation, as a row.
+ *
+ * `resultGroups` already builds the value/name/binding/more/partial chips at
+ * whatever width it is asked for, so a full-length call to it is reused for
+ * everything but the printed streams -- which it can only elide to a single
+ * line plus a count, never what this ticket asks for. So it is called with
+ * the real `printed` (its presence still decides whether a produced `None`
+ * gets suppressed -- see `paintedSlots`), and the elided stream groups it
+ * produces are then cut back out by position: `paintedSlots` -- called here
+ * on the same arguments, since it is what decides how many groups precede
+ * the streams -- says how many groups are the statement's own slots, and a
+ * stream is emitted only when its side actually wrote something, which is
+ * the same `nonEmpty` check `format.ts`'s own (private) `streamsOf` makes.
+ * Whatever streams there were are then rebuilt in full by `streamsFor`.
+ */
+function rowFor(
+  document: LineSource, annotation: PanelAnnotation, printedLabel: string
+): ValuesRow {
+  const line = annotation.anchor ?? annotation.range.end.line;
+  const startLine = annotation.range.start.line;
+  const endLine = annotation.range.end.line;
+  const code = document.lineAt(line).text.trim();
+  const base = { line, startLine, endLine, code };
+
+  if (annotation.pending) {
+    return { ...base, state: 'pending', pendingText: pendingText(annotation.pending) };
+  }
+
+  const state = markerFor(annotation);
+  const staleReason = state === 'stale' ? { staleReason: annotation.staleReason } : {};
+
+  if (annotation.error !== undefined) {
+    const summary = collapseLines(annotation.error.message);
+    return {
+      ...base,
+      state,
+      ...staleReason,
+      errorText: summary
+        ? `${annotation.error.type}: ${summary}` : annotation.error.type,
+    };
+  }
+
+  const slots = paintedSlots(
+    annotation.value ?? null, annotation.display, annotation.loop,
+    annotation.names, annotation.bindings, annotation.printed,
+    annotation.isBinding);
+  const streamCount = (nonEmpty(annotation.printed?.stdout) ? 1 : 0)
+    + (nonEmpty(annotation.printed?.stderr) ? 1 : 0);
+  // `resultGroups` substitutes non-breaking spaces throughout
+  // (`format.preserveSpacing`), because the inline chip is a VS Code
+  // decoration `contentText` and VS Code collapses runs of ordinary spaces
+  // there. A webview has no such problem -- this is real HTML -- and an
+  // NBSP is, by definition, never a line-break opportunity: left in place,
+  // a long list becomes one unbreakable word and `overflow-wrap: anywhere`
+  // shreds it mid-number instead of wrapping at its own ", " boundaries
+  // (#116 review). So every segment's text is put back to ordinary spaces
+  // before it is ever rendered.
+  const allGroups = resultGroups({
+    value: annotation.value ?? null,
+    display: annotation.display,
+    loop: annotation.loop,
+    names: annotation.names,
+    bindings: annotation.bindings,
+    printed: annotation.printed,
+    more: annotation.more,
+    isBinding: annotation.isBinding,
+    partialFrom: annotation.partialFrom,
+    maxValueLength: FULL_VALUE_LENGTH,
+  }).map((group) => group.map(
+    (segment) => ({ ...segment, text: ordinarySpacing(segment.text) })));
+  // The elided stream groups `resultGroups` built sit between the slots and
+  // the footnotes; cut out by position rather than kept, since they are
+  // exactly the "first line …(N lines)" summary this ticket asks the panel
+  // not to show.
+  const groups = [
+    ...allGroups.slice(0, slots.length),
+    ...allGroups.slice(slots.length + streamCount),
+  ].filter((group) => group.length > 0);
+  const streams = streamsFor(annotation.printed, printedLabel);
+
+  return {
+    ...base,
+    state,
+    ...staleReason,
+    ...(groups.length > 0 ? { groups } : {}),
+    ...(streams.length > 0 ? { streams } : {}),
+  };
+}
+
+/**
+ * Every annotation of a document, as rows in document order.
+ *
+ * `AnnotationRegistry` (`registry.ts`) holds annotations in the order
+ * `merge` last touched them, not the order they sit in the file -- so this
+ * sorts by `line`, the row's own display line, before anything is rendered.
+ */
+export function rowsFor(
+  document: LineSource, annotations: readonly PanelAnnotation[],
+  printedLabel: string
+): readonly ValuesRow[] {
+  return annotations
+    .map((annotation) => rowFor(document, annotation, printedLabel))
+    .sort((a, b) => a.line - b.line);
+}
+
+// -- rendering ----------------------------------------------------------------
+
+/** What the panel shows: the active Python file's rows, or `undefined` for
+ * "no active Python editor" -- the one fact `valuesHtml` cannot work out for
+ * itself, since an empty `rows` array is also what a Python file with no
+ * annotations yet looks like. */
+export interface ValuesPanelData {
+  readonly fileName: string | undefined;
+  readonly rows: readonly ValuesRow[];
+}
+
+/**
+ * Theme colours this view paints with, and their dark-theme fallback.
+ *
+ * Declared here rather than imported from `render/decorations.ts`: that
+ * module's top-level `import 'vscode'` would drag this one's own "testable
+ * with no webview" claim down with it the moment anything imported from it.
+ * `panel.test.ts` cross-checks every id and fallback against `package.json`
+ * directly, the same "declared twice, and a test that they agree" shape
+ * `colors.test.ts` and `readme.test.ts` already hold the rest of the
+ * extension's colours to, rather than reading the manifest at run time from
+ * inside the shipped extension.
+ */
+export const PANEL_PALETTE = {
+  value: { id: 'evalens.resultForeground', fallback: '#d1a35c' },
+  nameLabel: { id: 'evalens.labelForeground', fallback: '#8d7a5a' },
+  streamLabel: { id: 'evalens.outputLabelForeground', fallback: '#5c7fa6' },
+  border: { id: 'evalens.annotationBorder', fallback: '#e0a3ff' },
+  tint: { id: 'evalens.annotationTint', fallback: '#d1a35c1a' },
+  staleTint: { id: 'evalens.staleTint', fallback: '#8c8c8c0d' },
+  staleBorder: { id: 'evalens.staleBorder', fallback: '#8c8c8c' },
+  error: { id: 'evalens.errorForeground', fallback: '#f14c4c' },
+  pending: { id: 'evalens.pendingForeground', fallback: '#8c8c8c' },
+} as const;
+
+/**
+ * `var(--vscode-<id>, <fallback>)` for a contributed colour id.
+ *
+ * VS Code exposes every colour it knows about to a webview as a CSS custom
+ * property named for the id with its dots turned to dashes -- documented
+ * behaviour for a webview's own stylesheet, and true of an id this extension
+ * contributes exactly as it is of one VS Code ships. The fallback is what
+ * paints if that turns out not to hold for a contributed id in some VS Code
+ * version this was not checked against: never invisible, only untinted.
+ */
+function cssVar(key: keyof typeof PANEL_PALETTE): string {
+  const { id, fallback } = PANEL_PALETTE[key];
+  return `var(--vscode-${id.replace(/\./g, '-')}, ${fallback})`;
+}
+
+/** Reads as annotation rather than as any other text on the row. */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+const NO_EDITOR_MESSAGE = 'Open a Python file.';
+const NO_ANNOTATIONS_MESSAGE =
+  'Evaluate a line with ⌘⏎ (Ctrl+Enter on Windows/Linux) to see '
+  + 'its values here.';
+const FOOTER_TEXT =
+  'Values are what each line produced when it ran. Click a row to jump to '
+  + 'the line. Nothing here is re-evaluated.';
+
+function pluralize(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? '' : 's'}`;
+}
+
+/** `basics.py · 8 values · 1 stale · 1 error` -- the counts that are zero
+ * say nothing, the way `format.ts`'s own `…+N more` only appears at all
+ * when there is one. */
+function summaryLine(fileName: string, rows: readonly ValuesRow[]): string {
+  const stale = rows.filter((row) => row.state === 'stale').length;
+  const error = rows.filter((row) => row.state === 'error').length;
+  const parts = [pluralize(rows.length, 'value')];
+  if (stale > 0) {
+    parts.push(`${stale} stale`);
+  }
+  if (error > 0) {
+    parts.push(`${error} error`);
+  }
+  return `${fileName} · ${parts.join(' · ')}`;
+}
+
+type Tone = 'evaluated' | 'stale' | 'error' | 'pending';
+
+/**
+ * One chip -- `inline` beside the others on the row, or `block`, under them
+ * on a line of its own, for printed output (#116 review).
+ *
+ * `leading` puts a `.bar` element immediately before the chip rather than a
+ * border on the chip itself: a border is part of the box
+ * `box-decoration-break: clone` clones onto every fragment a wrapped inline
+ * element paints, so the old single-element chip repeated its bar on every
+ * wrapped line. A `.bar` is its own small element with nothing to wrap, so
+ * it can only ever appear once, beside the chip's own first line, exactly
+ * where "the accent bar on the first chip of the row" belongs.
+ */
+function chip(
+  innerHtml: string, tone: Tone, leading: boolean, variant: 'inline' | 'block' = 'inline'
+): string {
+  const bar = leading ? `<span class="bar tone-${tone}"></span>` : '';
+  const classes = ['chip', `tone-${tone}`, ...(variant === 'block' ? ['block'] : [])];
+  return `${bar}<span class="${classes.join(' ')}">${innerHtml}</span>`;
+}
+
+function segmentHtml(segment: Segment): string {
+  const role: SegmentRole = segment.role;
+  return `<span class="seg-${role}">${escapeHtml(segment.text)}</span>`;
+}
+
+function groupHtml(group: readonly Segment[]): string {
+  return group.map(segmentHtml).join('');
+}
+
+/**
+ * `printed: ` (or `»` for a glyph label, per `evalens.printedLabel`) and the
+ * full text after it, as one `block` chip under the line's value chips
+ * (#116 review) -- `white-space: pre-wrap` on the chip itself keeps every
+ * line the statement printed, label and all, inside the one box, rather
+ * than folding them to the single space the browser's ordinary text flow
+ * would otherwise collapse them to.
+ */
+function streamChipHtml(stream: FullStream, tone: Tone, leading: boolean): string {
+  const said = /[A-Za-z0-9]$/.test(stream.label)
+    ? `${stream.label}: ` : `${stream.label} `;
+  const inner = `<span class="seg-streamLabel">${escapeHtml(said)}</span>`
+    + `<span class="seg-value">${escapeHtml(stream.text)}</span>`;
+  return chip(inner, tone, leading, 'block');
+}
+
+/**
+ * The hover's own words for why a stale value is stale (#109), as dimmed
+ * italic prose in the UI font after the chips (#116 review) -- never
+ * monospace, value-coloured text carried on inside the chip flow, which
+ * reads as part of the value rather than as a remark about it. A standalone
+ * sentence rather than the hover's `Stale: …`, since the row's own grey
+ * surface already says "stale" once.
+ */
+function staleReasonHtml(reason: 'edited' | 'dependency'): string {
+  const clause = staleReasonText(reason);
+  const sentence = `${clause.charAt(0).toUpperCase()}${clause.slice(1)}.`;
+  return `<div class="stale-reason">${escapeHtml(sentence)}</div>`;
+}
+
+/** The VALUE column's whole content for one row. */
+function valueCellHtml(row: ValuesRow): string {
+  if (row.state === 'pending') {
+    return chip(
+      `<span class="pending-text">${escapeHtml(row.pendingText ?? '')}</span>`,
+      'pending', true);
+  }
+
+  if (row.errorText !== undefined) {
+    // Stale outranks error here exactly as `markerFor` says it does
+    // everywhere else: a failed statement that has since been edited is not
+    // reporting the current code's failure, so the surface recedes to grey
+    // while the message -- still in the error colour -- says what it was.
+    const tone: Tone = row.state === 'stale' ? 'stale' : 'error';
+    const errorChip = chip(
+      `<span class="error-text">${escapeHtml(row.errorText)}</span>`, tone, true);
+    return row.state === 'stale' && row.staleReason !== undefined
+      ? errorChip + staleReasonHtml(row.staleReason)
+      : errorChip;
+  }
+
+  // Inline value chips share one line, space-separated; a stream is its own
+  // block underneath, so the two are built into separate lists rather than
+  // one -- joining them the same way would put a stream chip on the value
+  // chips' own line. `leading` still tracks across both: whichever chip is
+  // built first overall -- ordinarily a value chip, but a bare `print()`
+  // with no name to report has only a stream chip -- carries the bar.
+  const tone: Tone = row.state === 'stale' ? 'stale' : 'evaluated';
+  let leadingTaken = false;
+  const takeLeading = (): boolean => {
+    const first = !leadingTaken;
+    leadingTaken = true;
+    return first;
+  };
+  const inlineChips = (row.groups ?? [])
+    .map((group) => chip(groupHtml(group), tone, takeLeading()));
+  const blockChips = (row.streams ?? [])
+    .map((stream) => streamChipHtml(stream, tone, takeLeading()));
+  // A statement with nothing to show at all -- an `if`, a `del` -- paints no
+  // chip, the same as the inline annotation does.
+  const value = inlineChips.join(' ') + blockChips.join('');
+  return row.state === 'stale' && row.staleReason !== undefined
+    ? value + staleReasonHtml(row.staleReason)
+    : value;
+}
+
+/** One `<tr>`, carrying the line data the embedded script needs to move the
+ * cursor highlight and to jump to a click without a rebuild. */
+function rowHtml(row: ValuesRow, cursorLine: number | undefined): string {
+  const isCursor = cursorLine !== undefined
+    && cursorLine >= row.startLine && cursorLine <= row.endLine;
+  const cursorClass = isCursor ? ' cursor' : '';
+  return `<tr class="row${cursorClass}" data-goto="${row.line}" `
+    + `data-start="${row.startLine}" data-end="${row.endLine}">`
+    + `<td class="line-cell"><span class="line-num">${row.line + 1}</span></td>`
+    + `<td class="code-cell"><span>${escapeHtml(row.code)}</span></td>`
+    + `<td class="value-cell">${valueCellHtml(row)}</td>`
+    + `</tr>`;
+}
+
+function emptyStateHtml(message: string): string {
+  return `<p class="empty">${escapeHtml(message)}</p>`;
+}
+
+function tableHtml(
+  fileName: string, rows: readonly ValuesRow[], cursorLine: number | undefined
+): string {
+  const summary =
+    `<div class="summary">${escapeHtml(summaryLine(fileName, rows))}</div>`;
+  const body = rows.map((row) => rowHtml(row, cursorLine)).join('\n');
+  const table = '<table>'
+    + '<colgroup><col class="col-line"><col class="col-code">'
+    + '<col class="col-value"></colgroup>'
+    + `<tbody>\n${body}\n</tbody></table>`;
+  const footer = `<p class="footer">${escapeHtml(FOOTER_TEXT)}</p>`;
+  return `${summary}\n${table}\n${footer}`;
+}
+
+const STYLE = `
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 6px 10px 10px;
+  background: var(--vscode-panel-background, #1e1e1e);
+  color: var(--vscode-foreground, #cccccc);
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+}
+.empty, .summary, .footer {
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+}
+.empty { padding: 8px 2px; }
+.summary {
+  padding: 2px 2px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.footer { font-style: italic; padding: 6px 2px 2px; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 13px);
+}
+col.col-line { width: 44px; }
+col.col-code { width: 300px; }
+td {
+  vertical-align: top;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--vscode-panel-border, transparent);
+}
+tr.row { cursor: pointer; }
+tr.row:hover { background: var(--vscode-list-hoverBackground, transparent); }
+.line-cell {
+  text-align: right;
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+  border-left: 3px solid transparent;
+  padding-left: 3px;
+}
+.code-cell {
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.value-cell { overflow-wrap: anywhere; }
+tr.cursor {
+  background: color-mix(in srgb, ${cssVar('border')} 15%, transparent);
+}
+tr.cursor .line-cell {
+  border-left-color: ${cssVar('border')};
+  color: ${cssVar('border')};
+}
+.chip {
+  display: inline;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  padding: 0 6px;
+  border-radius: 3px;
+  font-style: italic;
+  background: ${cssVar('tint')};
+}
+.chip.tone-stale { background: ${cssVar('staleTint')}; }
+/* Printed output (#116 review): a block of its own under the line's value
+   chips, not one more inline chip beside them -- so it never shares a line
+   with them and never needs box-decoration-break to keep its own shape. */
+.chip.block {
+  display: block;
+  white-space: pre-wrap;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 4px;
+}
+/* The accent bar (#116 review): its own element immediately before the
+   leading chip, not a border on the chip itself -- a border is part of the
+   box that box-decoration-break: clone clones onto every wrapped line, and
+   the bar belongs on the first line only. Sized to one line of text and
+   placed inline, so it appears once, beside the chip's own first line, and
+   never reappears when that chip wraps. */
+.bar {
+  display: inline-block;
+  width: 3px;
+  height: 1.3em;
+  vertical-align: middle;
+  border-radius: 1px;
+  background: ${cssVar('border')};
+}
+.bar.tone-stale { background: ${cssVar('staleBorder')}; }
+.bar.tone-error { background: ${cssVar('error')}; }
+.bar.tone-pending { background: ${cssVar('pending')}; }
+.seg-value { color: ${cssVar('value')}; }
+.seg-nameLabel { color: ${cssVar('nameLabel')}; }
+.seg-streamLabel { color: ${cssVar('streamLabel')}; }
+.error-text { color: ${cssVar('error')}; }
+.pending-text { color: ${cssVar('pending')}; }
+/* The stale reason (#116 review): dimmed italic prose in the UI font,
+   after the chips with a margin -- never monospace value-coloured text
+   inside the chip flow, which is what a plain inline span here used to be. */
+.stale-reason {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+  font-style: italic;
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+}
+`;
+
+/**
+ * The two messages this view ever posts to the extension, handled entirely
+ * on this side without a rebuild: `{ cursor }` moves the highlighted row,
+ * `{ goto }` (a click) is sent up for `panel/values.ts` to act on. Neither
+ * payload is ever more than the one number it needs.
+ */
+const SCRIPT = `
+(function () {
+  var vscode = acquireVsCodeApi();
+  var rows = Array.prototype.slice.call(document.querySelectorAll('tr.row'));
+  rows.forEach(function (row) {
+    row.addEventListener('click', function () {
+      vscode.postMessage({ goto: Number(row.getAttribute('data-goto')) });
+    });
+  });
+  window.addEventListener('message', function (event) {
+    var message = event.data;
+    if (!message || typeof message.cursor !== 'number') {
+      return;
+    }
+    var line = message.cursor;
+    rows.forEach(function (row) {
+      var start = Number(row.getAttribute('data-start'));
+      var end = Number(row.getAttribute('data-end'));
+      row.classList.toggle('cursor', line >= start && line <= end);
+    });
+  });
+}());
+`;
+
+/**
+ * The panel's whole HTML document, for `data` as it stands right now.
+ *
+ * A pure function of its three arguments: no clock, no random beyond the
+ * caller-supplied `nonce`, so the same inputs always produce the same
+ * markup and a test never has to launch a webview to check one. CSP is
+ * `default-src 'none'` plus the one nonce for both the style block and the
+ * script -- every colour rides a CSS custom property or a class already in
+ * that block, so nothing here ever needs an inline `style="…"` attribute,
+ * which a nonce does not cover.
+ */
+export function valuesHtml(
+  data: ValuesPanelData, cursorLine: number | undefined, nonce: string
+): string {
+  const body = data.fileName === undefined
+    ? emptyStateHtml(NO_EDITOR_MESSAGE)
+    : data.rows.length === 0
+      ? emptyStateHtml(NO_ANNOTATIONS_MESSAGE)
+      : tableHtml(data.fileName, data.rows, cursorLine);
+
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; `
+    + `style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
+<title>Evalens Values</title>
+<style nonce="${nonce}">${STYLE}</style>
+</head>
+<body>
+${body}
+<script nonce="${nonce}">${SCRIPT}</script>
+</body>
+</html>`;
+}

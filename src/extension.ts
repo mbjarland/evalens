@@ -4,6 +4,7 @@ import { Evaluator, STATUS_ACK_MS } from './evaluate';
 import { fixKeybindingConflict, reportKeybindingConflicts } from './conflicts';
 import { resolveInterpreter } from './config';
 import { KernelClient } from './kernel/client';
+import { VALUES_VIEW_ID, ValuesViewProvider } from './panel/values';
 import { Announcer } from './render/announcer';
 import { Annotations } from './render/annotations';
 import { exploreValue } from './render/explorer';
@@ -50,6 +51,26 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.languages.registerHoverProvider(
       'python', new ValueHoverProvider(annotations, () => client))
+  );
+
+  // #116: the persistent, full-width version of the same trace, for a
+  // half-width editor where an inline value runs off the right of the
+  // window. Not auto-revealed -- the user opens it once, the same way any
+  // other panel view is opened, and VS Code remembers whether it stayed
+  // open.
+  const valuesProvider = new ValuesViewProvider(annotations);
+  context.subscriptions.push(valuesProvider);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(VALUES_VIEW_ID, valuesProvider)
+  );
+  context.subscriptions.push(
+    // By its literal id, the way every other command here is registered --
+    // see `announceResultAtCursor`'s own comment below for why a shared
+    // constant at this call site would hide a drift `manifest.test.ts`
+    // exists to catch.
+    vscode.commands.registerCommand('evalens.showValuesPanel', async () => {
+      await vscode.commands.executeCommand(`${VALUES_VIEW_ID}.focus`);
+    })
   );
 
   context.subscriptions.push(
