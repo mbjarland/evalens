@@ -96,8 +96,30 @@
       {
         "command": "evalens.inspectValue",
         "title": "Evalens: Inspect Value"
+      },
+      {
+        "command": "evalens.showValuesPanel",
+        "title": "Evalens: Show Values Panel"
       }
     ],
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "evalens",
+          "title": "Evalens",
+          "icon": "media/panel.svg"
+        }
+      ]
+    },
+    "views": {
+      "evalens": [
+        {
+          "type": "webview",
+          "id": "evalens.values",
+          "name": "Values"
+        }
+      ]
+    },
     "configuration": {
       "title": "Evalens",
       "properties": {
