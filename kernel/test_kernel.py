@@ -1089,6 +1089,46 @@ class Prompts(KernelTest):
         self.k.send_control(op="input_reply", seq=request["seq"], value="hunter2")
         self.assertEqual(self.k.read()["value"], "'hunter2'")
 
+    def test_consumed_password_is_neither_logged_nor_replayed(self):
+        self.k.send(op="eval_file", source=(
+            "import getpass\n"
+            "def consume():\n"
+            "    getpass.fallback_getpass('Password: ')\n"))
+        for secret in ("synthetic-secret-one", "synthetic-secret-two"):
+            request = self.ask("consume() # evalens: not-a-password\n")
+            self.assertTrue(request["password"])
+            self.k.send_control(op="input_reply", seq=request["seq"], value=secret)
+            result = self.k.read()
+            self.assertTrue(result["ok"], result)
+            self.assertNotIn(secret, json.dumps(result))
+            self.assertFalse(result.get("stdin"))
+
+    def test_password_holes_do_not_shift_ordinary_replay_answers(self):
+        self.k.send(op="eval_file", source=(
+            "import getpass\n"
+            "def consume():\n"
+            "    input('Before: ')\n"
+            "    getpass.fallback_getpass('Password: ')\n"
+            "    input('After: ')\n"))
+        request = self.ask("consume()\n")
+        for i, value in enumerate(("before", "synthetic-secret", "after")):
+            if i:
+                request = self.k.read_control_until("input_request")
+            self.k.send_control(op="input_reply", seq=request["seq"], value=value)
+        first = self.k.read()
+        self.assertNotIn("synthetic-secret", json.dumps(first))
+        self.assertEqual([entry["value"] for entry in first["stdin"]],
+                         ["before", "after"])
+        request = self.ask("consume()\n")
+        self.assertTrue(request["password"], "the ordinary first read replays")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="new-secret")
+        second = self.k.read()
+        self.assertNotIn("new-secret", json.dumps(second))
+        self.assertEqual(second["stdin"], [
+            {"value": "before", "source": "replay"},
+            {"value": "after", "source": "replay"},
+        ])
+
     def test_output_arrives_while_the_statement_is_still_running(self):
         # Invisible in any test that only reads the response: the captured
         # stdout would look the same either way. This one reads the printed

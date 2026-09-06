@@ -618,7 +618,9 @@ _RUNNING_AT: Optional[Dict[str, Any]] = None
 #: prompting statements without ever resetting is not a case this feature
 #: optimises for, and pruning by guesswork is how a still-wanted answer gets
 #: discarded instead.
-_REPLAY_ANSWERS: Dict[str, List[str]] = {}
+# Password positions are holes, never answers. The indices still align when
+# ordinary and password reads occur in the same statement.
+_REPLAY_ANSWERS: Dict[str, List[Optional[str]]] = {}
 
 
 def _open_control(argv: list) -> Tuple[Optional[TextIO], Optional[TextIO]]:
@@ -917,15 +919,18 @@ class _AskingStdin(io.TextIOBase):
         _INPUT_SEQ += 1
         wanted = _INPUT_SEQ
         index, self._call = self._call, self._call + 1
+        password = _reading_a_password()
 
         source: Optional[str] = None
         canned: Optional[str] = None
-        if self._comment is not None and index < len(self._comment):
+        if (not password and self._comment is not None
+                and index < len(self._comment)):
             canned, source = self._comment[index], "comment"
-        elif self._replay_key is not None:
+        elif not password and self._replay_key is not None:
             stored = _REPLAY_ANSWERS.get(self._replay_key)
             if stored is not None and index < len(stored):
-                canned, source = stored[index], "replay"
+                canned = stored[index]
+                source = "replay" if canned is not None else None
 
         if canned is None:
             # The prompt is whatever user code has written and not
@@ -936,7 +941,7 @@ class _AskingStdin(io.TextIOBase):
                 "op": "input_request",
                 "seq": wanted,
                 "prompt": _capped(prompt, PROMPT_LIMIT),
-                "password": _reading_a_password(),
+                "password": password,
                 # Which line is asking. The extension marks and reveals it, so
                 # a prompt from a statement scrolled off screen brings the
                 # reader to it rather than opening a box about code they
@@ -980,13 +985,13 @@ class _AskingStdin(io.TextIOBase):
             # already wins every time, so a copy of it would only be a second
             # place for the same value to go stale.
             source = "typed"
-            if self._replay_key is not None:
+            if not password and self._replay_key is not None:
                 answers = _REPLAY_ANSWERS.setdefault(self._replay_key, [])
-                if index < len(answers):
-                    answers[index] = value
-                else:
-                    answers.append(value)
-        self.log.append({"value": value, "source": source})
+                while len(answers) <= index:
+                    answers.append(None)
+                answers[index] = value
+        if not password:
+            self.log.append({"value": value, "source": source})
         return value if value.endswith("\n") else value + "\n"
 
     def read(self, size: int = -1) -> str:  # noqa: ARG002 - size ignored
