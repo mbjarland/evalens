@@ -332,6 +332,10 @@ kernel's own directory is removed from `sys.path` at startup, with `resolver`
 and `loops` lifted out of `sys.modules`, so a user's `import resolver` cannot
 silently get ours.
 
+Every form is compiled with the source module's explicit future flags and
+`dont_inherit=True`: source directives apply even to a selection, while
+the kernel's own directives and other documents' flags never leak.
+
 Python 3.9 is the support floor, set by `ast.unparse`. CI runs the kernel
 suite on 3.9, 3.11 and 3.13; it was run locally on 3.9 through 3.14 before
 that claim was made.
