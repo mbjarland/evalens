@@ -997,6 +997,27 @@ export function resultGroups(rendered: Rendered): readonly (readonly Segment[])[
     (segment) => ({ ...segment, text: preserveSpacing(segment.text) })));
 }
 
+/**
+ * Does this group, one of `resultGroups`' own, say what a statement wrote to
+ * a stream, rather than one of its values or footnotes?
+ *
+ * `streamPiece` is the only place that ever produces the `streamLabel`
+ * role, and always as the group's first segment, so asking about the group
+ * is asking about that one segment. Exported for `panel/html.ts` (#152): the
+ * values panel rebuilds printed output as its own full block and has to cut
+ * `resultGroups`' elided version back out, and an earlier version did that
+ * by position -- trusting the statement's own slots to come first and the
+ * streams right after them, which broke the moment #118 started hoisting a
+ * shared count to the front of the line and shifted every index by one. A
+ * group is what it is regardless of where `resultGroups` puts it, and
+ * checking the role also sidesteps matching against the label's own text,
+ * which `evalens.printedLabel` can change out from under a caller that
+ * tried.
+ */
+export function isStreamGroup(group: readonly Segment[]): boolean {
+  return group[0]?.role === 'streamLabel';
+}
+
 /** The same annotation as the one string it used to be. */
 export function resultText(rendered: Rendered): string {
   return joinSegments(resultSegments(rendered));
