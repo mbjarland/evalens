@@ -6,7 +6,8 @@ import {
   resetOnLoad,
 } from './config';
 import {
-  LoadPrompts, enclosingLoopHeader, locatedTitle, waitingLabel,
+  LoadPrompts, cursorWatchPrefill, enclosingLoopHeader, locatedTitle,
+  waitingLabel,
 } from './input';
 import { describeInterrupt, settlesWithin } from './interrupt';
 import { KernelClient } from './kernel/client';
@@ -1167,14 +1168,18 @@ export class Evaluator {
    * resolves the loop it actually attaches to from the real tree once the
    * request is sent, independently of whatever the title guessed.
    *
-   * **Not the identifier under the cursor, with no selection or typing at
-   * all.** That zero-effort default needs the same `resolver.py`-level
-   * `ast` reach #48 already declined for a cursor-only resolution, for the
-   * same reason: telling an identifier apart from an attribute access, a
-   * call, or a keyword at a bare cursor position is expression-level
-   * parsing, not a selection or a typed string. #104 declines it again
-   * rather than let the input box wait on it -- it is a legitimate
-   * follow-up, tracked as #106.
+   * **With no selection, the box prefills with the bare identifier under the
+   * cursor (#106) -- never anything wider.** `cursorWatchPrefill` in
+   * `input.ts` is plain word-boundary matching, the same reach
+   * `getWordRangeAtPosition` has, and it declines whenever that is not
+   * enough to trust: a keyword, a token starting with a digit, a word inside
+   * a string or a comment, or a word immediately after a `.` (an attribute
+   * name, almost never itself a bound variable). Resolving anything wider --
+   * an attribute chain, a call, an operator expression -- from a bare cursor
+   * still needs the same `resolver.py`-level `ast` reach #48 declined and
+   * #104 declined again; this does not add it. An empty prefill is always
+   * the fallback, and typing over any prefill works exactly as it did
+   * before this box existed.
    *
    * The response is the same shape `evaluateAtCursor` already paints from --
    * `eval_watch` answers with an ordinary `Evaluated`/`Failed`, its nominated
@@ -1195,11 +1200,18 @@ export class Evaluator {
     const document = editor.document;
     const selection = editor.selection;
     const preselected = document.getText(selection).trim();
+    // A selection always wins: it is text the reader chose, which is a
+    // stronger signal than a cursor merely resting somewhere. Only with
+    // nothing selected does the box fall back to the identifier the cursor
+    // sits on, and `cursorWatchPrefill` itself falls back to nothing when
+    // that word is not one this can trust -- see the doc comment above.
+    const prefill = preselected !== '' ? preselected : cursorWatchPrefill(
+      document.lineAt(selection.start.line).text, selection.start.character);
 
     const typed = await vscode.window.showInputBox({
       title: this.watchBoxTitle(document, selection.start.line),
       prompt: 'Evalens: trace this expression across the loop, once, now',
-      value: preselected,
+      value: prefill,
       placeHolder: 'e.g. total * 2',
       // Matches `askForInput`'s own box: without it, clicking back into the
       // editor to re-read the loop before finishing typing dismisses the
