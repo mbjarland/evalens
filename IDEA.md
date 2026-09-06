@@ -797,8 +797,10 @@ Python's user base. Both figures come from the same September 2026 gathering
 as the table above and are not re-verified.
 
 `package.json` uses both name fields, so brandability and searchability are not
-a trade-off: `"name": "python-inline-values"` is the id and the marketplace URL
-slug, and `"displayName": "Evalens — Inline Python Values"` is what humans see.
+a trade-off: `"name": "evalens"` is the id and the marketplace URL slug
+(`mbjarland.evalens`, decided before the first upload made it permanent), and
+`"displayName": "Evalens — Inline Python Values"` is what humans see and what
+search matches on, alongside the keywords.
 `keywords` includes `calva` and `arepl` deliberately — people searching those
 terms are precisely the target audience — and `categories` is
 `["Debuggers", "Visualization", "Programming Languages"]`.
