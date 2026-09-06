@@ -28,8 +28,9 @@ film and
 <a href="docs/development/demo-shooting-script.md">the shooting script</a>
 is the recipe.</sub></p>
 
-Put the cursor on a line. Press `Cmd+Enter`. The value appears beside the
-code — and stays there while you press it on the next line, and the next.
+Put the cursor on a line. Press `Ctrl+Enter` (`Cmd+Enter` on a Mac). The
+value appears beside the code — and stays there while you press it on the
+next line, and the next.
 
 <p align="center">
   <img src="media/demo/aliasing.png" width="600" alt="Four lines pressed one
@@ -119,41 +120,41 @@ You need VS Code and **Python 3.9 or later on your `PATH`**. Nothing else.
 code --install-extension evalens-0.0.1.vsix   # from a release or a friend
 ```
 
-Open any `.py` file, put the cursor on a line, press **`Cmd+Enter`**
-(`Ctrl+Enter` elsewhere). Then hold **`Cmd+Shift+Enter`** and watch it walk
-down the file. Full install options, including building from source, are
-under [Install](#install) below.
+Open any `.py` file, put the cursor on a line, press **`Ctrl+Enter`**
+(`Cmd+Enter` on a Mac). Then hold **`Ctrl+Shift+Enter`** (`Cmd+Shift+Enter`
+on a Mac) and watch it walk down the file. Full install options, including
+building from source, are under [Install](#install) below.
 
 ## Learn it in four keys
 
-Everything Evalens does starts from one of these. On Windows and Linux read
-`Ctrl` for `Cmd`.
+Everything Evalens does starts from one of these.
 
-| Press | What happens |
-| :--- | :--- |
-| `Cmd+Enter` | Run the statement under the cursor. Its value appears beside it. |
-| `Cmd+Shift+Enter` | The same, then move to the next statement — hold it to walk the file. |
-| `Cmd+Alt+Enter` | Run the whole file from a clean namespace, top to bottom. |
-| `Escape` | Clear every annotation in the editor. |
+| Windows / Linux | macOS | What happens |
+| :--- | :--- | :--- |
+| `Ctrl+Enter` or `Alt+Enter` | `Cmd+Enter` | Run the statement under the cursor. Its value appears beside it. |
+| `Ctrl+Shift+Enter` | `Cmd+Shift+Enter` | The same, then move to the next statement — hold it to walk the file. |
+| `Ctrl+Alt+Enter` | `Cmd+Alt+Enter` | Run the whole file from a clean namespace, top to bottom. |
+| `Escape` | `Escape` | Clear every annotation in the editor. |
 
 `Alt+Enter` also runs the statement under the cursor, as a spare in case
-`Cmd+Enter` is taken on your machine — if it is, the tool tells you and
-offers to fix it.
+`Ctrl+Enter` (`Cmd+Enter` on a Mac) is taken on your machine — if it is, the
+tool tells you and offers to fix it.
 
-**Everything else is in the Command Palette.** Press `Cmd+Shift+P`, type
-`Evalens`, and every command appears with its name in front: *Run File as
-Script*, *Evaluate Above Cursor*, *Add Inline Watch*, *Inspect Value*,
-*Interrupt Evaluation*, *Restart Kernel*. You never need to remember more
-than the word.
+**Everything else is in the Command Palette.** Press `F1`, or
+`Ctrl+Shift+P` (`Cmd+Shift+P` on a Mac); type `Evalens`, and every command
+appears with its name in front: *Run File as Script*, *Evaluate Above
+Cursor*, *Add Inline Watch*, *Inspect Value*, *Interrupt Evaluation*,
+*Restart Kernel*. You never need to remember more than the word.
 
-**Your first two minutes.** Open any `.py` file. Put the cursor on the first
-line and press `Cmd+Enter` — the value lands beside it. Press
-`Cmd+Shift+Enter` and keep pressing: the cursor walks down the file and each
-line answers as you reach it. Hover any answer to see the whole value, and a
-table or a list of fields when there is one. When you change a line, its
-marker in the gutter changes so you know that answer is from before the
-edit; press the key again and it catches up. That is the whole tool. The
-rest of this page is detail.
+**Your first two minutes.** Open any `.py` file. Put the cursor on the
+first line and press `Ctrl+Enter` (`Cmd+Enter` on a Mac) — the value lands
+beside it. Press `Ctrl+Shift+Enter` (`Cmd+Shift+Enter` on a Mac) and keep
+pressing: the cursor walks down the file and each line answers as you reach
+it. Hover any answer to see the whole value, and a table or a list of
+fields when there is one. When you change a line, its marker in the gutter
+changes so you know that answer is from before the edit; press the key
+again and it catches up. That is the whole tool. The rest of this page is
+detail.
 
 ## What you get
 
@@ -409,9 +410,9 @@ beyond them.
 
 1. Get `evalens-<version>.vsix` however it reaches you — a
    shared file, a USB stick, a link to a GitHub Release.
-2. In VS Code, open the Extensions view (`Cmd+Shift+X` / `Ctrl+Shift+X`),
-   open its `···` menu, and choose **Install from VSIX...**, then pick the
-   file. From a terminal instead:
+2. In VS Code, open the Extensions view — `Ctrl+Shift+X` (`Cmd+Shift+X` on
+   a Mac) — open its `···` menu, and choose **Install from VSIX...**, then
+   pick the file. From a terminal instead:
    ```bash
    code --install-extension evalens-0.0.1.vsix
    ```
@@ -435,9 +436,9 @@ above.
 
 ## Commands
 
-**Every command is in the Command Palette** (`Cmd+Shift+P` / `Ctrl+Shift+P`),
-prefixed with `Evalens:`. That matters more here than it usually does — see
-the keybinding conflict below — because a stolen key then never leaves you
+**Every command is in the Command Palette** (`F1`), prefixed with
+`Evalens:`. That matters more here than it usually does — see the
+keybinding conflict below — because a stolen key then never leaves you
 without a way to run these.
 
 | Command | What it does |
@@ -575,12 +576,12 @@ for is one nobody can reason about.
 
 ## Keybindings
 
-| macOS | Windows / Linux | Command |
+| Windows / Linux | macOS | Command |
 |---|---|---|
 | `Alt+Enter` | `Alt+Enter` | Evalens: Evaluate at Cursor — the top-level form |
-| `Cmd+Enter` | `Ctrl+Enter` | Evalens: Evaluate at Cursor — the same command |
-| `Cmd+Shift+Enter` | `Ctrl+Shift+Enter` | Evalens: Evaluate and Advance |
-| `Cmd+Alt+Enter` | `Ctrl+Alt+Enter` | Evalens: Evaluate File |
+| `Ctrl+Enter` | `Cmd+Enter` | Evalens: Evaluate at Cursor — the same command |
+| `Ctrl+Shift+Enter` | `Cmd+Shift+Enter` | Evalens: Evaluate and Advance |
+| `Ctrl+Alt+Enter` | `Cmd+Alt+Enter` | Evalens: Evaluate File |
 | `Escape` | `Escape` | Evalens: Clear Inline Results |
 
 **`Alt+Enter` is the top-level-form key.** Evaluate at Cursor resolves the
