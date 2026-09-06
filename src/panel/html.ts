@@ -20,7 +20,7 @@
 
 import { Announceable } from '../render/announce';
 import {
-  Printed, STDERR_LABEL, Segment, SegmentRole, collapseLines, paintedSlots,
+  Printed, STDERR_LABEL, Segment, SegmentRole, collapseLines, isStreamGroup,
   resultGroups,
 } from '../render/format';
 import { Marker, markerFor, staleReasonText } from '../render/registry';
@@ -155,12 +155,16 @@ function streamsFor(
  * line plus a count, never what this ticket asks for. So it is called with
  * the real `printed` (its presence still decides whether a produced `None`
  * gets suppressed -- see `paintedSlots`), and the elided stream groups it
- * produces are then cut back out by position: `paintedSlots` -- called here
- * on the same arguments, since it is what decides how many groups precede
- * the streams -- says how many groups are the statement's own slots, and a
- * stream is emitted only when its side actually wrote something, which is
- * the same `nonEmpty` check `format.ts`'s own (private) `streamsOf` makes.
- * Whatever streams there were are then rebuilt in full by `streamsFor`.
+ * produces are then dropped in favour of `streamsFor`'s full rebuild below.
+ *
+ * Dropped by role, not by position (#152). An earlier version cut
+ * `allGroups` by index, trusting the statement's own slots to come first and
+ * the streams right after them -- true until #118 started hoisting a shared
+ * `×N` count to the front of the line, which shifted every index by one and
+ * dropped a value group instead of a stream. `isStreamGroup` asks what a
+ * group *is* -- whether its first segment carries `streamPiece`'s own
+ * `streamLabel` role -- so the cut keeps working whatever `resultGroups`
+ * puts first.
  */
 function rowFor(
   document: LineSource, annotation: PanelAnnotation, printedLabel: string
@@ -189,12 +193,6 @@ function rowFor(
     };
   }
 
-  const slots = paintedSlots(
-    annotation.value ?? null, annotation.display, annotation.loop,
-    annotation.names, annotation.bindings, annotation.printed,
-    annotation.isBinding);
-  const streamCount = (nonEmpty(annotation.printed?.stdout) ? 1 : 0)
-    + (nonEmpty(annotation.printed?.stderr) ? 1 : 0);
   // `resultGroups` substitutes non-breaking spaces throughout
   // (`format.preserveSpacing`), because the inline chip is a VS Code
   // decoration `contentText` and VS Code collapses runs of ordinary spaces
@@ -217,14 +215,12 @@ function rowFor(
     maxValueLength: FULL_VALUE_LENGTH,
   }).map((group) => group.map(
     (segment) => ({ ...segment, text: ordinarySpacing(segment.text) })));
-  // The elided stream groups `resultGroups` built sit between the slots and
-  // the footnotes; cut out by position rather than kept, since they are
-  // exactly the "first line …(N lines)" summary this ticket asks the panel
-  // not to show.
-  const groups = [
-    ...allGroups.slice(0, slots.length),
-    ...allGroups.slice(slots.length + streamCount),
-  ].filter((group) => group.length > 0);
+  // A stream group is exactly the "first line …(N lines)" summary this
+  // ticket asks the panel not to show, since `streamsFor` rebuilds the same
+  // streams in full below -- dropped by asking `isStreamGroup` what each
+  // group is, never by where it sits in `allGroups` (#152).
+  const groups = allGroups.filter(
+    (group) => group.length > 0 && !isStreamGroup(group));
   const streams = streamsFor(annotation.printed, printedLabel);
 
   return {

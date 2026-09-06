@@ -286,6 +286,106 @@ test('a multi-line stderr block follows the same rule as printed (#148)',
       'every stderr line, first included, must start after the break');
   });
 
+// -- #152: a stream group is dropped by role, not by its position among ----
+// -- the hoisted `×N` group #118 can put ahead of the statement's slots ----
+
+test('a hoisted loop count keeps every value chip and shows a printed ' +
+  'stream once, as a block', () => {
+  // The ticket's own scene: `for v in x: u = 4 * v; print(...)`. `v` (the
+  // loop target) and `u` (the body binding) share one iteration count, so
+  // #118 hoists it to a leading `×3` group ahead of both names -- exactly
+  // the shape that made the old position-based cut mistake `u` for the
+  // elided stream and let the stream itself through twice.
+  const document = lineSource([
+    'for v in x:', '    u = 4 * v', '    print("value is " + str(u))',
+  ]);
+  const annotations: PanelAnnotation[] = [
+    {
+      range: range(0, 2), anchor: 0, value: '3', display: 'v',
+      loop: { values: ['1', '2', '3'], last: null, count: 3 },
+      bindings: [{ name: 'u', values: ['4', '8', '12'], last: null, count: 3 }],
+      printed: { stdout: 'value is 4\nvalue is 8\nvalue is 12\n' },
+    },
+  ];
+  const html = valuesHtml(
+    { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
+    undefined, 'n');
+  assert.ok(html.includes('<span class="seg-nameLabel">×3</span>'),
+    'the shared count should still lead the row');
+  assert.ok(html.includes('<span class="seg-nameLabel">v: </span>'),
+    'v must keep its own chip -- the old bug dropped it');
+  assert.ok(html.includes('1, 2, 3'), 'v\'s sequence should be shown in full');
+  assert.ok(html.includes('<span class="seg-nameLabel">u: </span>'),
+    'u must keep its own chip');
+  assert.ok(html.includes('4, 8, 12'), 'u\'s sequence should be shown in full');
+  assert.ok(!html.includes('…(3 lines)'),
+    'the panel must not fall back to the inline elision');
+  const blockCount = (html.match(/class="chip tone-evaluated block"/g) ?? []).length;
+  assert.equal(blockCount, 1, 'the stream should appear exactly once, as a block');
+  const chipCount = (html.match(/class="chip /g) ?? []).length;
+  assert.equal(chipCount, 4, 'expected ×3, v, u and one printed block, no more');
+  const barCount = (html.match(/class="bar /g) ?? []).length;
+  assert.equal(barCount, 1, 'only the first chip of the row gets a bar');
+});
+
+test('a loop with mismatched counts keeps its own inline ×N labels and ' +
+  'still shows one printed block', () => {
+  // A filter loop: `u` only bound on two of the three iterations, so #118
+  // leaves each name its own inline count rather than folding one that
+  // would misstate the other -- no hoisted group at all. The old
+  // position-based cut already got this shape right; this guards the fix
+  // does not regress it.
+  const document = lineSource([
+    'for v in x:', '    if v > 1:', '        u = 4 * v',
+    '        print("value is " + str(u))',
+  ]);
+  const annotations: PanelAnnotation[] = [
+    {
+      range: range(0, 3), anchor: 0, value: '3', display: 'v',
+      loop: { values: ['1', '2', '3'], last: null, count: 3 },
+      bindings: [{ name: 'u', values: ['8', '12'], last: null, count: 2 }],
+      printed: { stdout: 'value is 8\nvalue is 12\n' },
+    },
+  ];
+  const html = valuesHtml(
+    { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
+    undefined, 'n');
+  assert.ok(html.includes('<span class="seg-nameLabel">v ×3: </span>'),
+    'v keeps its own inline count -- nothing was shared to hoist');
+  assert.ok(html.includes('<span class="seg-nameLabel">u ×2: </span>'),
+    'u keeps its own, differing inline count');
+  assert.ok(!html.includes('…(2 lines)'),
+    'the panel must not fall back to the inline elision');
+  const blockCount = (html.match(/class="chip tone-evaluated block"/g) ?? []).length;
+  assert.equal(blockCount, 1, 'the stream should appear exactly once, as a block');
+  const chipCount = (html.match(/class="chip /g) ?? []).length;
+  assert.equal(chipCount, 3, 'expected v, u and one printed block, no more');
+});
+
+test('a statement writing to both streams shows two blocks and no inline ' +
+  'stream chip for either', () => {
+  const document = lineSource(['both()']);
+  const annotations: PanelAnnotation[] = [
+    {
+      range: range(0, 0), value: '42', display: 'x', isBinding: true,
+      printed: { stdout: 'fine\nand dandy\n', stderr: 'careful\nagain\n' },
+    },
+  ];
+  const html = valuesHtml(
+    { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
+    undefined, 'n');
+  assert.ok(html.includes('and dandy'), 'stdout should be shown in full');
+  assert.ok(html.includes('again'), 'stderr should be shown in full');
+  assert.ok(!/…\(\d+ lines?\)/.test(html),
+    'the panel must not fall back to either stream\'s inline elision');
+  const blockCount = (html.match(/class="chip tone-evaluated block"/g) ?? []).length;
+  assert.equal(blockCount, 2, 'stdout and stderr should each render as one block');
+  const chipCount = (html.match(/class="chip /g) ?? []).length;
+  assert.equal(chipCount, 3, 'expected the value chip plus two stream blocks, no more');
+  const barCount = (html.match(/class="bar /g) ?? []).length;
+  assert.equal(barCount, 1, 'only the first chip of the row gets a bar');
+});
+
 test('the accent bar is one element before the leading chip, never a ' +
   'border repeated on every wrapped line', () => {
   const long = Array.from({ length: 60 }, (_, i) => i).join(', ');
