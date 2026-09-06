@@ -503,11 +503,25 @@ export class FakeConfig {
     this.sections.get(section)!.set(key, value);
   }
 
-  getConfiguration(section: string): { get<T>(key: string, fallback?: T): T } {
+  getConfiguration(section: string): {
+    get<T>(key: string, fallback?: T): T;
+    update(key: string, value: unknown, target?: unknown): Promise<void>;
+  } {
     const store = this.sections.get(section);
     return {
       get: <T>(key: string, fallback?: T): T =>
         store?.has(key) ? (store.get(key) as T) : (fallback as T),
+      // #149: the values panel's follow toggle is the first setting this
+      // extension ever writes rather than only reads -- `target` (a real
+      // `vscode.ConfigurationTarget`) is accepted and ignored, the same way
+      // a real `WorkspaceConfiguration.update` would ignore an
+      // incompatible one for an `"application"`-scoped setting, since this
+      // fake has no notion of separate user/workspace stores to route it
+      // to.
+      update: (key: string, value: unknown): Promise<void> => {
+        this.set(section, key, value);
+        return Promise.resolve();
+      },
     };
   }
 }
@@ -744,6 +758,11 @@ export function createFakeVscode(): FakeVscode {
     },
     ProgressLocation: { SourceControl: 1, Window: 10, Notification: 15 },
     StatusBarAlignment: { Left: 1, Right: 2 },
+    // #149: `toggleFollowValuesPanel` (config.ts) passes this to `update`,
+    // the same real enum a `WorkspaceConfiguration.update` call takes --
+    // this fake's `update` ignores the value (see `FakeConfig`, above) but
+    // the identifier still has to exist for the compiled extension to read.
+    ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
     commands: {
       registerCommand: (id: string, handler: (...args: unknown[]) => unknown) => {
         registered.set(id, handler);

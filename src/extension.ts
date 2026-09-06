@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 import { Evaluator, STATUS_ACK_MS } from './evaluate';
 import { fixKeybindingConflict, reportKeybindingConflicts } from './conflicts';
-import { resolveInterpreter } from './config';
+import { resolveInterpreter, toggleFollowValuesPanel } from './config';
 import { KernelClient } from './kernel/client';
 import { VALUES_VIEW_ID, ValuesViewProvider } from './panel/values';
 import { Announcer } from './render/announcer';
@@ -71,6 +71,16 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('evalens.showValuesPanel', async () => {
       await vscode.commands.executeCommand(`${VALUES_VIEW_ID}.focus`);
     })
+  );
+
+  context.subscriptions.push(
+    // #149: the lock toggle in the values panel's own title bar. Two
+    // `view/title` entries in package.json point at this one command with
+    // opposite `when` clauses on `evalens.valuesPanel.follow`, so only one
+    // of `$(unlock)` / `$(lock)` shows at a time and either one flips the
+    // same setting -- see `toggleFollowValuesPanel`'s own comment.
+    vscode.commands.registerCommand(
+      'evalens.toggleValuesPanelFollow', () => toggleFollowValuesPanel())
   );
 
   context.subscriptions.push(

@@ -1,7 +1,9 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 
-import { printedLabel as printedLabelSetting } from '../config';
+import {
+  followValuesPanel, printedLabel as printedLabelSetting,
+} from '../config';
 import { AnnotationChangeEvent, Annotations } from '../render/annotations';
 import { PanelAnnotation, ValuesPanelData, rowsFor, valuesHtml } from './html';
 
@@ -135,7 +137,10 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
 
   /**
    * Which row to scroll into view for one `onDidChange` event (#149), or
-   * `undefined` for none.
+   * `undefined` for none -- always `undefined` while
+   * `evalens.valuesPanel.follow` is off, which is the whole of what that
+   * setting and its title-bar lock toggle do: they never change what is
+   * painted, only whether a rebuild is allowed to move the reader's eye.
    *
    * `event.line` is already exactly the right answer whenever the mutation
    * that fired it could name one -- see `Annotations.onDidChange`'s own doc
@@ -146,6 +151,9 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
    * already looking.
    */
   private revealLineFor(event: AnnotationChangeEvent): number | undefined {
+    if (!followValuesPanel()) {
+      return undefined;
+    }
     return event.line ?? vscode.window.activeTextEditor?.selection.active.line;
   }
 

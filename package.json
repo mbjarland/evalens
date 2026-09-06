@@ -100,6 +100,10 @@
       {
         "command": "evalens.showValuesPanel",
         "title": "Evalens: Show Values Panel"
+      },
+      {
+        "command": "evalens.toggleValuesPanelFollow",
+        "title": "Evalens: Toggle Follow in Values Panel"
       }
     ],
     "viewsContainers": {
@@ -117,6 +121,22 @@
           "type": "webview",
           "id": "evalens.values",
           "name": "Values"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "evalens.toggleValuesPanelFollow",
+          "when": "view == evalens.values && config.evalens.valuesPanel.follow",
+          "group": "navigation",
+          "icon": "$(unlock)"
+        },
+        {
+          "command": "evalens.toggleValuesPanelFollow",
+          "when": "view == evalens.values && !config.evalens.valuesPanel.follow",
+          "group": "navigation",
+          "icon": "$(lock)"
         }
       ]
     },
@@ -206,6 +226,12 @@
           "default": true,
           "scope": "application",
           "markdownDescription": "Whether **Evalens: Evaluate File** clears the namespace before it runs the whole file, rather than running on top of whatever an earlier load left there. On (the default), a binding deleted from the file and reloaded is actually gone, and a second file cannot quietly read back a name an earlier one defined — the notebook trap this project exists to argue against. Off buys back the setup cost of a slow import block or a large cache built at the top of the file, at the price of the namespace remembering more than the file on screen defines; turn it off only for that specific workflow, and see **Evalens: Evaluate File** paint a status-bar note when it does. **Evaluate at Cursor** and **Evaluate and Advance** never reset, and a run over a selection never resets regardless of this setting — only a whole-file run does. **Evalens: Run File as Script** always resets, whatever this says, because it exists to answer whether the file matches `python3 file.py`, a question a carried-over namespace would make unanswerable."
+        },
+        "evalens.valuesPanel.follow": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "Whether the values panel scrolls the row that just changed into view, every time an evaluation lands. On (the default), the newest value is always what you see, which is the point of a panel that would otherwise keep showing whatever was on screen while new rows land out of sight below the fold. Off keeps your scroll position exactly where you left it — useful for reading back through a file's history without the view jumping away from it underneath you. **Evalens: Toggle Follow in Values Panel** flips this from the command palette or from the `$(unlock)` / `$(lock)` button in the values panel's own title bar, so you never have to leave the panel to turn it off mid-session."
         }
       }
     },
