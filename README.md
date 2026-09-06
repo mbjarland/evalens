@@ -31,7 +31,7 @@ is the recipe.</sub></p>
 Put the cursor on a line. Press `Cmd+Enter`. The value appears beside the
 code — and stays there while you press it on the next line, and the next.
 
-```python
+```
 lst = [1, 2, 3]      ▌lst: [1, 2, 3]
 other = lst          ▌other: [1, 2, 3]   lst: [1, 2, 3]
 other.append(4)      ▌other: [1, 2, 3, 4]
@@ -152,7 +152,7 @@ rest of this page is detail.
 
 ### A loop tells you what it did, not just where it ended
 
-```python
+```
 for n in range(5):      ▌n ×5: 0, 1, 2, 3, 4   squared ×5: 0, 1, 4, 9, 16   printed: n is 0 …(5 lines)
     squared = n * n
     print("n is", n)
@@ -166,7 +166,7 @@ beside `kept ×2`.
 
 ### A comprehension stops hiding its loop
 
-```python
+```
 squares = [n * n for n in range(6)]   ▌squares: [0, 1, 4, 9, 16, 25]   n ×6: 0, 1, 2, 3, 4, 5
 ```
 
@@ -178,7 +178,7 @@ name.
 
 ### What a line printed, beside what it produced
 
-```python
+```
 total = sum(squares)          ▌total: 55
 print("the total is", total)  ▌printed: the total is 55
 ```
@@ -214,7 +214,7 @@ evaluate that property to show you a number. This will not.
 
 ### Errors are answers
 
-```python
+```
 int("not a number")   ▌=> ValueError: invalid literal for int() with base 10: 'not a number'
 ```
 
@@ -257,7 +257,7 @@ A loop already shows you what its target took and what its body bound —
 is not in the code. Put the cursor in the loop, run **Add Inline Watch**,
 and type any expression:
 
-```python
+```
 for x in [1, 2, 3, 4]:   ▌x ×4: 1, 2, 3, 4   total ×4: 1, 3, 6, 10   total > 5 ×4: False, False, True, True
     total += x
 ```
