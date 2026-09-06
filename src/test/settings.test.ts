@@ -34,9 +34,15 @@ test('every setting id is the same shape', () => {
   // UI, which sorts alphabetically, files everything about loops together and
   // everything about names together. `alignColumn` became `resultColumn` for
   // exactly that reason.
+  //
+  // One optional extra `.group` segment (#149's `valuesPanel.follow`) is the
+  // one addition to that shape: a feature with more than one setting of its
+  // own groups them under a shared noun rather than repeating it as a prefix
+  // -- `valuesPanelFollow` would file next to nothing else about the panel
+  // in that same alphabetical list the plain shape is for.
   for (const [id] of settings) {
-    assert.match(id, /^evalens\.[a-z][a-zA-Z]+$/,
-      `${id} is not evalens.<lowerCamelCase>`);
+    assert.match(id, /^evalens\.[a-z][a-zA-Z]+(\.[a-z][a-zA-Z]+)?$/,
+      `${id} is not evalens.<lowerCamelCase> or evalens.<group>.<lowerCamelCase>`);
   }
 });
 
@@ -109,7 +115,10 @@ test('config.ts is the only module that reads a setting', () => {
 /** The fallback each `config.get` call site passes, by setting name. */
 function fallbacks(): Map<string, unknown> {
   const found = new Map<string, unknown>();
-  const pattern = /\.get<\w+>\(\s*'([A-Za-z]+)',\s*([^)]+?)\s*\)/g;
+  // `[A-Za-z.]+` rather than `[A-Za-z]+`: #149's `valuesPanel.follow` is
+  // read as one dotted key, the same as `getConfiguration('evalens.foo')
+  // .get('bar')` would be -- see `followValuesPanel` in config.ts.
+  const pattern = /\.get<\w+>\(\s*'([A-Za-z.]+)',\s*([^)]+?)\s*\)/g;
   for (const match of configSource.matchAll(pattern)) {
     const [, name, literal] = match;
     let value: unknown;

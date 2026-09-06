@@ -488,6 +488,7 @@ because a stolen key then never leaves you without a way to run these.
 | Evalens: Clear Input Answers | Forgets every replayed `input()` answer, keeping the namespace |
 | Evalens: Show Output | Opens the Evalens output channel without taking the cursor out of the editor |
 | Evalens: Show Values Panel | Opens the bottom-panel view listing the active file's annotations full width, wrapping, and synced to the cursor |
+| Evalens: Toggle Follow in Values Panel | Flips `evalens.valuesPanel.follow`; also the `$(unlock)` / `$(lock)` button in the values panel's own title bar |
 | Evalens: Fix Keybinding Conflict | Hands you the user keybinding described below |
 
 **Evaluate File clears the namespace before it runs the whole file, by
@@ -971,6 +972,7 @@ description says what the option *costs* rather than what it is called.
 | `evalens.advanceSkipsComments` | `true` | Whether Evaluate and Advance steps over comment lines. Off, it stops once per comment block — one more press each, and that press evaluates nothing |
 | `evalens.announceResults` | `"auto"` | Whether a result is announced as well as painted, for a screen reader. `auto` follows `editor.accessibilitySupport`; `always` announces every one; `never` announces none. See above |
 | `evalens.resetOnLoad` | `true` | Whether Evaluate File clears the namespace before running the whole file. On, a deleted binding is actually gone and a second file cannot read back an earlier one's leftovers. Off keeps expensive setup from an earlier load, at the cost of the namespace remembering more than the file defines — Evalens then notes it in the status bar. A selection never resets regardless; Run File as Script always does |
+| `evalens.valuesPanel.follow` | `true` | Whether the values panel scrolls the row that just changed into view on every evaluation. On, the newest value is always what you see. Off keeps your scroll position exactly where you left it, for reading back through a file's history — flip it from the panel's own `$(unlock)` / `$(lock)` title-bar button as well as from here |
 
 Two of them are off switches on purpose. Loop sequences and read-name
 annotations are the two things Evalens adds that a reader might not want, and

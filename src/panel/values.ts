@@ -1,8 +1,10 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 
-import { printedLabel as printedLabelSetting } from '../config';
-import { Annotations } from '../render/annotations';
+import {
+  followValuesPanel, printedLabel as printedLabelSetting,
+} from '../config';
+import { AnnotationChangeEvent, Annotations } from '../render/annotations';
 import { PanelAnnotation, ValuesPanelData, rowsFor, valuesHtml } from './html';
 
 /**
@@ -50,8 +52,10 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     this.subscriptions.push(
       // The one non-polling trigger design rule 6's spirit asks for: the
       // registry's own mutation points say when they changed, rather than
-      // this provider guessing by re-reading on a timer.
-      annotations.onDidChange(() => this.rebuild()),
+      // this provider guessing by re-reading on a timer. #149 extends this
+      // to say *which line* changed, so the rebuild below can also reveal
+      // it -- see `revealLineFor`.
+      annotations.onDidChange((event) => this.rebuild(this.revealLineFor(event))),
       vscode.window.onDidChangeActiveTextEditor(() => this.rebuild()),
       // Cursor movement never rebuilds -- it only moves the highlighted row,
       // in the webview's own script, from the one number `onSelection` posts.
@@ -131,13 +135,36 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     editor.revealRange(new vscode.Range(position, position));
   }
 
-  private rebuild(): void {
+  /**
+   * Which row to scroll into view for one `onDidChange` event (#149), or
+   * `undefined` for none -- always `undefined` while
+   * `evalens.valuesPanel.follow` is off, which is the whole of what that
+   * setting and its title-bar lock toggle do: they never change what is
+   * painted, only whether a rebuild is allowed to move the reader's eye.
+   *
+   * `event.line` is already exactly the right answer whenever the mutation
+   * that fired it could name one -- see `Annotations.onDidChange`'s own doc
+   * comment for which those are. When it cannot -- a bulk edit, a clear --
+   * the active editor's cursor is what is left to go on: for **Evaluate at
+   * Cursor** and **Evaluate and Advance** that is the line just evaluated
+   * or the one right after it, which in both cases is where the reader is
+   * already looking.
+   */
+  private revealLineFor(event: AnnotationChangeEvent): number | undefined {
+    if (!followValuesPanel()) {
+      return undefined;
+    }
+    return event.line ?? vscode.window.activeTextEditor?.selection.active.line;
+  }
+
+  private rebuild(revealLine?: number): void {
     if (!this.view) {
       return;
     }
     const editor = vscode.window.activeTextEditor;
     const cursorLine = editor?.selection.active.line;
-    this.view.webview.html = valuesHtml(this.dataFor(editor), cursorLine, nonce());
+    this.view.webview.html =
+      valuesHtml(this.dataFor(editor), cursorLine, nonce(), revealLine);
   }
 
   /** What `valuesHtml` renders from, for whatever the active editor is right

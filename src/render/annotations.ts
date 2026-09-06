@@ -39,6 +39,16 @@ function shifted(annotation: Annotation, lines: number): Annotation {
 export const HAS_ANNOTATIONS = 'evalens.hasAnnotations';
 
 /**
+ * `Annotations.onDidChange`'s payload (#149): which line to scroll the
+ * values panel to, when the mutation that fired the event can name one. See
+ * `changeEmitter`'s own doc comment, on the class below, for exactly when
+ * `line` is present and what a consumer does when it is not.
+ */
+export interface AnnotationChangeEvent {
+  readonly line?: number;
+}
+
+/**
  * Owns what is painted, and when it stops being painted.
  *
  * A value out of sync with the code beside it is the notebook's original sin,
@@ -97,21 +107,29 @@ export class Annotations implements vscode.Disposable {
 
   /**
    * Fired whenever a document's annotations change shape -- added, cleared,
-   * marked stale by an edit or by `markDependents`. Carries no payload: the
-   * one subscriber this exists for (the values panel, #116) always rebuilds
-   * from whatever `vscode.window.activeTextEditor` is *at the moment the
-   * event is handled*, not from a document captured here, since the active
-   * editor can itself change between one microtask and the next. A void
-   * event also means every mutation point below can fire it the same way,
-   * whether or not it happens to be holding a `vscode.TextDocument` --
-   * `clearAll` only ever has the URIs `AnnotationRegistry` handed back.
+   * marked stale by an edit or by `markDependents`. The values panel (#116)
+   * always rebuilds from whatever `vscode.window.activeTextEditor` is *at
+   * the moment the event is handled*, not from a document captured here,
+   * since the active editor can itself change between one microtask and the
+   * next -- which is also why the payload never carries a document, only
+   * the one thing the panel cannot otherwise work out for itself: which
+   * line to scroll into view (#149).
+   *
+   * `line` is the annotation's own display line whenever the mutation that
+   * fired this can name exactly one: `add` (an evaluation just landed) and
+   * the still-running mark `pending` keeps live both know precisely which
+   * row changed. It is absent whenever there is no single line to name --
+   * `clear` and `clearAll` drop everything at once, and an edit `reanchor`
+   * re-anchors can touch more than one annotation in the same event -- and
+   * the panel's own answer to an absent line is the active editor's cursor,
+   * which is where the reader's attention already is.
    *
    * Nothing here polls: this is the one place raised, and `show`, `clear`
    * and `clearAll` are the only three ways the registry's content changes,
    * `add`, `pending` and the `onDidChangeTextDocument` handler all reach it
    * through `show`.
    */
-  private readonly changeEmitter = new vscode.EventEmitter<void>();
+  private readonly changeEmitter = new vscode.EventEmitter<AnnotationChangeEvent>();
 
   readonly onDidChange = this.changeEmitter.event;
 
@@ -177,12 +195,21 @@ export class Annotations implements vscode.Disposable {
     );
   }
 
-  /** Replace this document's annotations outright. */
-  show(document: vscode.TextDocument, annotations: readonly Annotation[]): void {
+  /**
+   * Replace this document's annotations outright.
+   *
+   * `changedLine` is passed straight through to `onDidChange` (#149) -- see
+   * that event's own doc comment, above, for what it means and which
+   * callers have one to give.
+   */
+  show(
+    document: vscode.TextDocument, annotations: readonly Annotation[],
+    changedLine?: number
+  ): void {
     this.registry.set(document.uri.toString(), annotations);
     this.repaint(document);
     this.updateContext();
-    this.changeEmitter.fire();
+    this.changeEmitter.fire({ line: changedLine });
   }
 
   /**
@@ -203,8 +230,14 @@ export class Annotations implements vscode.Disposable {
    */
   add(document: vscode.TextDocument, annotation: Annotation): void {
     const uri = document.uri.toString();
-    this.show(document, markDependents(
-      merge(this.registry.get(uri), annotation), annotation));
+    this.show(
+      document,
+      markDependents(merge(this.registry.get(uri), annotation), annotation),
+      // The row this just added -- `anchor` when the statement set one,
+      // matching exactly where `panel/html.ts`'s own `rowFor` displays it
+      // (#149), so the values panel reveals the row a reader would
+      // recognise as the one that just changed.
+      annotation.anchor ?? annotation.range.end.line);
   }
 
   /**
@@ -249,7 +282,7 @@ export class Annotations implements vscode.Disposable {
           .get(document.uri.toString())
           .filter((each) => each !== current);
         current = next;
-        this.show(document, merge(kept, next));
+        this.show(document, merge(kept, next), next.anchor ?? next.range.end.line);
       },
       withdraw: () => {
         if (withdrawn) {
@@ -310,7 +343,9 @@ export class Annotations implements vscode.Disposable {
     this.epochs.set(document, (this.epochs.get(document) ?? 0) + 1);
     if (this.registry.clear(document.uri.toString())) {
       this.repaint(document);
-      this.changeEmitter.fire();
+      // No line: everything in the document just disappeared, and there is
+      // nothing left to reveal (#149).
+      this.changeEmitter.fire({});
     }
     this.updateContext();
   }
@@ -326,7 +361,9 @@ export class Annotations implements vscode.Disposable {
     // screen-reader user goes back to is the worst place to leave one.
     this.announcer.silence();
     if (cleared.length > 0) {
-      this.changeEmitter.fire();
+      // No line, for the same reason `clear` gives no line above: a
+      // clear-all leaves nothing anywhere to reveal (#149).
+      this.changeEmitter.fire({});
     }
   }
 

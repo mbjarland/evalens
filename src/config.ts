@@ -78,6 +78,47 @@ export function resetOnLoad(): boolean {
     .get<boolean>('resetOnLoad', true);
 }
 
+/**
+ * Whether the values panel scrolls the row that just changed into view,
+ * every time an evaluation lands (#149).
+ *
+ * Read fresh on every rebuild, like everything else here: the panel decides
+ * whether to reveal at the moment it repaints, not once when the view was
+ * first opened. On (the default), the newest value is always what is on
+ * screen, which is the whole reason this exists -- otherwise the panel
+ * keeps showing whatever was there while evaluations append new rows out of
+ * sight below the fold. Off keeps the reader's own scroll position exactly
+ * where they left it, for reading back through a file's history without the
+ * view jumping away underneath them. This is also what the `$(lock)` /
+ * `$(unlock)` toggle in the panel's own title bar flips, so a reader never
+ * has to find the settings UI to turn it off mid-session.
+ */
+export function followValuesPanel(): boolean {
+  return vscode.workspace
+    .getConfiguration('evalens')
+    .get<boolean>('valuesPanel.follow', true);
+}
+
+/**
+ * Flip `evalens.valuesPanel.follow`, for **Evalens: Toggle Follow in Values
+ * Panel** and the lock toggle it drives in the values panel's title bar
+ * (#149).
+ *
+ * Always writes to the user's global settings, matching "flips the setting
+ * globally" -- a reading habit belongs to the person at the keyboard, not to
+ * whichever workspace happens to be open. `contributes.menus` shows one icon
+ * or the other from the setting alone, since VS Code re-evaluates a `when`
+ * clause reading `config.*` the moment the value changes -- so nothing here
+ * has to repaint anything beyond writing the new value.
+ */
+export async function toggleFollowValuesPanel(): Promise<void> {
+  await vscode.workspace
+    .getConfiguration('evalens')
+    .update(
+      'valuesPanel.follow', !followValuesPanel(),
+      vscode.ConfigurationTarget.Global);
+}
+
 /** The column inline results line up on; 0 follows the code instead. */
 export function resultColumn(): number {
   return vscode.workspace
