@@ -70,7 +70,7 @@ export async function exploreValue(
     const picked = await vscode.window.showQuickPick(
       trail.length > 1 ? [BACK, ...items] : items,
       {
-        title: breadcrumbTitle(trail.map((frame) => frame.label)),
+        title: `Current value: ${breadcrumbTitle(trail.map((frame) => frame.label))}`,
         placeHolder: `{${inspected.type}} ${inspected.value ?? ''}`,
         matchOnDescription: true,
         matchOnDetail: true,

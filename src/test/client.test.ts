@@ -113,6 +113,31 @@ function clientWith(options: HarnessOptions = {}): Harness {
   return { client, spawned, calls, started };
 }
 
+test('optional inspection neither spawns nor queues behind explicit requests',
+async () => {
+  const { client, started, spawned } = clientWith();
+  const inspect = { op: 'inspect' as const, name: 'x', path: [] };
+  assert.equal(await client.requestIfIdle(inspect), undefined);
+  assert.equal(spawned.length, 0);
+  const ping = client.request({ op: 'ping' });
+  assert.equal(await client.requestIfIdle(inspect), undefined);
+  const process = await started();
+  process.reply({ id: 1, ok: true });
+  await ping;
+  const reset = client.request({ op: 'reset' });
+  assert.equal(await client.requestIfIdle(inspect), undefined);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(process.requests().map((r) => r.op), ['ping', 'reset']);
+  process.reply({ id: 2, ok: true });
+  await reset;
+  const reading = client.requestIfIdle(inspect);
+  assert.equal(process.requests()[2]!.op, 'inspect', 'reservation is synchronous');
+  assert.equal(await client.requestIfIdle(inspect), undefined);
+  process.reply({ id: 3, ok: true });
+  await reading;
+  client.dispose();
+});
+
 test('the kernel is not spawned until the first request', async () => {
   const { client, spawned, started } = clientWith();
   assert.equal(spawned.length, 0, 'constructing must not start an interpreter');

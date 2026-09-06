@@ -32,6 +32,7 @@
  */
 
 import { TableWire } from '../kernel/protocol';
+import { literalCell } from './markdown';
 
 /**
  * Markdown-escape one cell or header, and flatten it to a single line.
@@ -44,8 +45,7 @@ import { TableWire } from '../kernel/protocol';
  * merging two rows into garbled markdown.
  */
 function escapeCell(text: string): string {
-  return text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|')
-    .replace(/\r?\n/g, ' ⏎ ');
+  return literalCell(text, ' ⏎ ');
 }
 
 function row(cells: readonly string[]): string {
