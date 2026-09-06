@@ -495,7 +495,7 @@ first-party default, not an oversight.
 The build is deliberately plain, and the earlier plan to scaffold with
 `yo code` was not followed: `tsc -p .` compiles, `node --test` runs the suite,
 four devDependencies, no runtime dependencies, no bundler. `npm run package`
-produces `python-inline-values-0.0.1.vsix`, 35 files. There is no marketplace
+produces `evalens-0.0.1.vsix`, 35 files. There is no marketplace
 listing.
 
 ### The prototype
