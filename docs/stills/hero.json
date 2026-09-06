@@ -1,0 +1,16 @@
+{
+  "title": "grades.py",
+  "width": 760,
+  "mode": "load",
+  "lines": [
+    "scores = [72, 85, 91, 64]",
+    "total = 0",
+    "for s in scores:",
+    "    total += s",
+    "average = total / len(scores)",
+    "passed = [s for s in scores if s >= 70]",
+    "print(f\"{len(passed)} passed, average {average:.1f}\")"
+  ],
+  "output": "media/demo/hero.png",
+  "hash": "8b8364dffef6688d83a8fe2569d511723115328ad0835f879d68b03f1d9bb1b0"
+}
