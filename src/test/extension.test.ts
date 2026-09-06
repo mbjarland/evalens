@@ -293,16 +293,19 @@ test('addInlineWatch traces a typed expression that is not in the source ' +
     const evaluateAtCursor = fake.commands.registered.get('evalens.evaluateAtCursor');
     await (evaluateAtCursor as () => Promise<void>)();
 
-    // No selection: the cursor merely sits inside the loop's body.
+    // No selection, and the cursor sits in the body line's indentation --
+    // not on the word "total" -- so #106's cursor prefill has nothing to
+    // offer either; the box opens exactly as empty as it always has here.
     editor.selection = new FakeSelection(
-      new FakePosition(2, 4), new FakePosition(2, 4));
+      new FakePosition(2, 0), new FakePosition(2, 0));
     fake.inputBox.answers.push('total * 2');
     const addInlineWatch = fake.commands.registered.get('evalens.addInlineWatch');
     await (addInlineWatch as () => Promise<void>)();
 
     assert.equal(fake.inputBox.calls.length, 1, 'the box was shown');
     assert.equal(fake.inputBox.calls[0].value, '',
-      'nothing was selected, so nothing is prefilled');
+      'nothing was selected and the cursor touches no word, so nothing is ' +
+      'prefilled');
     assert.match(fake.inputBox.calls[0].title ?? '', /for x in/,
       'the box names the loop this nomination lands in');
 
@@ -348,6 +351,89 @@ test('addInlineWatch still offers the selection as the box\'s default',
       extension.deactivate();
     }
   });
+
+// -- #106: with no selection, the box prefills with the word under the ------
+// -- cursor, when that word is one this can trust -----------------------------
+
+test('addInlineWatch prefills the bare name under the cursor with no ' +
+  'selection', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor(
+    'total = 0\nfor x in [1, 2, 3, 4]:\n    total += x\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    const evaluateAtCursor = fake.commands.registered.get('evalens.evaluateAtCursor');
+    await (evaluateAtCursor as () => Promise<void>)();
+
+    // No selection: an empty range sitting on the word "total" itself, the
+    // zero-effort case #106 exists for.
+    editor.selection = new FakeSelection(
+      new FakePosition(2, 4), new FakePosition(2, 4));
+    fake.inputBox.answers.push('total');
+    const addInlineWatch = fake.commands.registered.get('evalens.addInlineWatch');
+    await (addInlineWatch as () => Promise<void>)();
+
+    assert.equal(fake.inputBox.calls[0].value, 'total',
+      'the identifier under the cursor is offered with nothing selected');
+    const text = depainted(editor, 1);
+    assert.match(text, /total ×4: 1, 3, 6, 10/);
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('addInlineWatch leaves the box empty when the cursor sits on a word ' +
+  'this cannot trust', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor('for x in [1, 2, 3, 4]:\n    pass\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    // No selection, cursor resting on the loop's own keyword "for".
+    editor.selection = new FakeSelection(
+      new FakePosition(0, 1), new FakePosition(0, 1));
+    fake.inputBox.answers.push('x');
+    const addInlineWatch = fake.commands.registered.get('evalens.addInlineWatch');
+    await (addInlineWatch as () => Promise<void>)();
+
+    assert.equal(fake.inputBox.calls[0].value, '',
+      '"for" is a keyword, never offered, however loudly the cursor sits ' +
+      'on it');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('a selection wins over the cursor outright, even one starting on a ' +
+  'keyword', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor('for x in [1, 2, 3, 4]:\n    pass\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    // Selecting "for x" whole: `selection.start` sits on the keyword "for",
+    // which #106's cursor prefill declines on its own -- but a selection is
+    // text the reader chose, and it is offered verbatim regardless of what a
+    // cursor-only reading of the same position would have made of it.
+    editor.selection = new FakeSelection(
+      new FakePosition(0, 0), new FakePosition(0, 5));
+    fake.inputBox.answers.push('x');
+    const addInlineWatch = fake.commands.registered.get('evalens.addInlineWatch');
+    await (addInlineWatch as () => Promise<void>)();
+
+    assert.equal(fake.inputBox.calls[0].value, 'for x',
+      'the selection is offered exactly as selected, keyword text included');
+  } finally {
+    extension.deactivate();
+  }
+});
 
 test('cancelling the watch box leaves no request sent and nothing painted',
   async () => {

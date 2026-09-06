@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  ESCAPE_HINT, LoadPrompts, SKIP_HINT, SKIP_LABEL, enclosingLoopHeader,
-  locatedTitle, offersSkip, promptLabel, waitingLabel,
+  ESCAPE_HINT, LoadPrompts, SKIP_HINT, SKIP_LABEL, cursorWatchPrefill,
+  enclosingLoopHeader, locatedTitle, offersSkip, promptLabel, waitingLabel,
 } from '../input';
 
 /** `lineText` for `enclosingLoopHeader`, over a fixed array of lines. */
@@ -159,3 +159,64 @@ test('skipping is described as cancelling the rest, not as abandoning', () => {
   assert.match(SKIP_HINT, /rest of the file still runs/);
   assert.match(SKIP_LABEL, /Skip/);
 });
+
+// -- #106: what the watch box prefills with nothing selected -----------------
+
+test('a bare name is offered, touching either edge of the word counts',
+  () => {
+    const line = '    total += x';
+    assert.equal(cursorWatchPrefill(line, 4), 'total',
+      'resting immediately before the word still counts as on it');
+    assert.equal(cursorWatchPrefill(line, 7), 'total', 'the middle of it');
+    assert.equal(cursorWatchPrefill(line, 9), 'total',
+      'resting immediately after the word still counts as on it');
+  });
+
+test('a keyword is never offered, however often a cursor lands on one', () => {
+  // "for", "in", "if" and "not" are the loudest case #106 names by name:
+  // the words a beginner's cursor sits on constantly inside a loop header.
+  const forIn = 'for x in data:';
+  assert.equal(cursorWatchPrefill(forIn, 1), '', '"for"');
+  assert.equal(cursorWatchPrefill(forIn, 8), '', '"in"');
+  const ifNot = 'if not seen:';
+  assert.equal(cursorWatchPrefill(ifNot, 0), '', '"if"');
+  assert.equal(cursorWatchPrefill(ifNot, 4), '', '"not"');
+});
+
+test('a word inside a string literal is declined, not offered as a name',
+  () => {
+    const line = "greeting = 'hello world'";
+    assert.equal(cursorWatchPrefill(line, 14), '',
+      'the cursor sits on text the quotes hold, not a name in scope');
+  });
+
+test('a word inside a comment is declined, but code before the # is not',
+  () => {
+    const line = 'value  # comment';
+    assert.equal(cursorWatchPrefill(line, 12), '',
+      'a word from the comment itself');
+    assert.equal(cursorWatchPrefill(line, 2), 'value',
+      'the code before the # is unaffected by the comment after it');
+  });
+
+test('a number is declined -- it is a literal, never an identifier', () => {
+  assert.equal(cursorWatchPrefill('x = 42', 5), '');
+  assert.equal(cursorWatchPrefill('x = 0x1F', 6), '',
+    'a hex literal is still a token that starts with a digit');
+});
+
+test('whitespace, and an empty line, have no word to offer', () => {
+  assert.equal(cursorWatchPrefill('    total += x', 0), '');
+  assert.equal(cursorWatchPrefill('', 0), '');
+});
+
+test('an attribute name is declined, but the name before the dot is not',
+  () => {
+    // obj.attr is exactly the multi-token reach #48 and #104 both declined
+    // to add here -- "attr" alone reads as ordinary Python but is essentially
+    // never itself a bound name, so it is declined the same way a keyword is.
+    const line = 'value = obj.attr';
+    assert.equal(cursorWatchPrefill(line, 13), '', 'cursor on "attr"');
+    assert.equal(cursorWatchPrefill(line, 9), 'obj',
+      'the base name is an ordinary bare identifier');
+  });

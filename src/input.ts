@@ -1,12 +1,15 @@
 /**
  * How a prompt from the running code is worded in the box that asks for it,
- * and -- since #104 -- how the box that asks the reader to nominate a watch
- * expression is titled before anything has run at all.
+ * how the box that asks the reader to nominate a watch expression is titled
+ * before anything has run at all (#104), and -- #106 -- what that same box
+ * should be prefilled with when the reader selected nothing at all.
  *
  * Separated from the editor so the wording can be checked without one, and
  * because the interesting case is the one with nothing to say: beginner code
  * writes `input()` with no argument at all, and a box with an empty label is
- * a box with no explanation of why the editor suddenly wants something.
+ * a box with no explanation of why the editor suddenly wants something. For
+ * #106 the interesting case is the reverse -- knowing when to say nothing at
+ * all, because a wrong prefill is worse than an empty box.
  *
  * Nothing here imports `vscode`.
  */
@@ -76,6 +79,167 @@ export function locatedTitle(line: number, code: string): string {
     ? `${code.slice(0, LABEL_LIMIT)}…`
     : code;
   return `line ${line + 1} · ${trimmed}`;
+}
+
+/**
+ * Python's reserved words -- `keyword.kwlist` inlined rather than imported,
+ * since this file runs with no Python in reach and nothing here imports
+ * `vscode` either. This is the "loudest case" #106 asks a cursor prefill to
+ * cover: a beginner's cursor sits on `for`, `in`, `if` and `not` constantly,
+ * and none of them is ever a legal watch expression by itself.
+ */
+const PYTHON_KEYWORDS = new Set([
+  'False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break',
+  'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally',
+  'for', 'from', 'global', 'if', 'import', 'in', 'is', 'lambda', 'nonlocal',
+  'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield',
+]);
+
+/** A character `getWordRangeAtPosition`'s default word pattern would keep. */
+function isWordChar(ch: string | undefined): boolean {
+  return ch !== undefined && /[A-Za-z0-9_]/.test(ch);
+}
+
+/**
+ * The maximal run of identifier characters touching `column`, honouring the
+ * same "touching either edge still counts" rule
+ * `TextDocument.getWordRangeAtPosition` does: a cursor resting immediately
+ * before the first letter of a word, or immediately after the last one, is
+ * on that word, not beside it. `undefined` when no word touches `column` at
+ * all -- whitespace, punctuation, or an empty line.
+ */
+function wordAt(
+  lineText: string, column: number
+): { start: number; text: string } | undefined {
+  let start = column;
+  while (start > 0 && isWordChar(lineText[start - 1])) {
+    start -= 1;
+  }
+  let end = column;
+  while (end < lineText.length && isWordChar(lineText[end])) {
+    end += 1;
+  }
+  if (start === end) {
+    return undefined;
+  }
+  return { start, text: lineText.slice(start, end) };
+}
+
+/**
+ * Where, on this one line, an unquoted `'` or `"` opens a string that has not
+ * yet closed, and where an unquoted `#` opens a comment.
+ *
+ * Single line only, deliberately: `cursorWatchPrefill` only ever has the one
+ * line the cursor sits on, and there is no honest way to tell from it alone
+ * whether an unterminated quote here is the middle of a triple-quoted string
+ * opened three lines up. That blind spot is accepted rather than papered
+ * over, exactly `enclosingLoopHeader`'s trade below -- because the only
+ * failure it can cause is declining a spot that a wider view would have
+ * allowed (always the safe direction), never offering a prefill that this
+ * line, read on its own, does not already look like a string or a comment.
+ * A `\`-escaped quote does not close the string it is inside, so `'it\'s'`
+ * is tracked as one run rather than closing after three characters.
+ */
+function scanQuotesAndComment(
+  lineText: string
+): { inString: readonly boolean[]; commentStart: number } {
+  const inString: boolean[] = [];
+  let quote: string | undefined;
+  let commentStart = -1;
+  let i = 0;
+  while (i < lineText.length) {
+    const ch = lineText[i];
+    if (quote) {
+      inString[i] = true;
+      if (ch === '\\' && i + 1 < lineText.length) {
+        inString[i + 1] = true;
+        i += 2;
+        continue;
+      }
+      if (ch === quote) {
+        quote = undefined;
+      }
+      i += 1;
+      continue;
+    }
+    inString[i] = false;
+    if (ch === '"' || ch === '\'') {
+      quote = ch;
+      i += 1;
+      continue;
+    }
+    if (ch === '#') {
+      commentStart = i;
+      break;
+    }
+    i += 1;
+  }
+  return { inString, commentStart };
+}
+
+/**
+ * What `addInlineWatch`'s box should be prefilled with when nothing is
+ * selected and the cursor sits on `lineText` at `column` -- the pure half of
+ * #106, split out for the same reason `enclosingLoopHeader` was: a unit test
+ * can drive it with no editor in reach.
+ *
+ * The empty string -- decline to prefill -- is the answer far more often
+ * than the word touching the cursor, because plain word-boundary matching
+ * cannot tell a bound name from a keyword, a fragment of a string, a comment
+ * word, a number, or an attribute name, and per the ticket this is what
+ * makes the empty box the safe default: **an empty box is always a safe
+ * fallback; a wrong prefill never is**, because the reader has to notice and
+ * remove a wrong prefill before they can type what they meant, which costs
+ * more than the empty box this whole feature exists to save them from typing
+ * into. Every case below is declined for that reason, not merely because it
+ * is awkward to resolve:
+ *
+ * - **no word touches the cursor** (whitespace, punctuation, an empty line)
+ *   -- there is nothing to offer.
+ * - **a Python keyword** (`for`, `in`, `not`, `None`, ...) -- never a legal
+ *   expression on its own, and the single most common word a beginner's
+ *   cursor sits on inside a loop header.
+ * - **a token starting with a digit** (`3`, `0x1F`, `1_000`) -- not a legal
+ *   Python identifier, so word-boundary matching found a number literal, not
+ *   a name.
+ * - **inside an unterminated `'`/`"` on this line** -- a word from the text
+ *   of a string, not a name in scope. See `scanQuotesAndComment` for the
+ *   single-line limit this accepts.
+ * - **at or after an unquoted `#` on this line** -- a word from a comment.
+ * - **immediately after a `.`** (`obj.attr`, cursor on `attr`) -- an
+ *   attribute name is essentially never itself a bound variable, so the bare
+ *   word a text match returns reads as plausible Python while almost
+ *   certainly not being the name the reader has in scope; what they meant is
+ *   `obj.attr`, which is exactly the multi-token reach #48 and #104 both
+ *   declined to add here. That makes this the same call as declining a
+ *   keyword, not a new one.
+ *
+ * Anything else -- a bare name sitting in ordinary code, which is the common
+ * case this ticket exists for -- is returned as-is, ready to submit unedited
+ * or type over.
+ */
+export function cursorWatchPrefill(lineText: string, column: number): string {
+  const word = wordAt(lineText, column);
+  if (word === undefined) {
+    return '';
+  }
+  if (PYTHON_KEYWORDS.has(word.text)) {
+    return '';
+  }
+  if (/^[0-9]/.test(word.text)) {
+    return '';
+  }
+  const { inString, commentStart } = scanQuotesAndComment(lineText);
+  if (inString[word.start]) {
+    return '';
+  }
+  if (commentStart !== -1 && word.start >= commentStart) {
+    return '';
+  }
+  if (lineText[word.start - 1] === '.') {
+    return '';
+  }
+  return word.text;
 }
 
 /** Does this trimmed line open a `for` or `async for` statement? */

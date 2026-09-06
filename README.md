@@ -294,7 +294,7 @@ without a way to run these.
 |---|---|
 | Evalens: Evaluate at Cursor | Evaluates the form the cursor is in and paints its value beside it |
 | Evalens: Evaluate and Advance | The same, then moves to the next top-level statement — hold the key to walk a file |
-| Evalens: Add Inline Watch | Prompts for an expression (prefilled with the selection, if any) and traces it inside the enclosing loop at every iteration, alongside the loop's own sequence |
+| Evalens: Add Inline Watch | Prompts for an expression — prefilled with the selection, or the identifier under the cursor when there is none — and traces it inside the enclosing loop at every iteration, alongside the loop's own sequence |
 | Evalens: Evaluate File | Clears the namespace, then runs the file top to bottom, annotating each statement — or the selected statements, when there is a selection, which never resets |
 | Evalens: Run File as Script | Runs the whole file the way `python3 file.py` would, so an `if __name__ == "__main__":` block runs |
 | Evalens: Evaluate Above Cursor | Resets the namespace and runs everything above the statement the cursor is in, stopping at the first failure |
@@ -339,8 +339,15 @@ box the key opens, and pressing Enter runs that loop once more, this time
 also capturing the nominated expression's value at every iteration — painted
 the same way a body binding is. Select the expression first and the box opens
 prefilled with it, so the older select-and-press gesture still works
-unchanged; with nothing selected the box is empty and titled with the loop's
-own header line, so it is clear which loop is about to run. It is a trace,
+unchanged. With nothing selected, the box prefills with the identifier the
+cursor is on — placing the cursor on `total` and pressing the key is now as
+fast as selecting it — but only when that word is one worth offering: a
+Python keyword, a word inside a string or a comment, a number, or a name
+immediately after a `.` (an attribute is essentially never itself a bound
+variable) all leave the box empty instead, because a wrong prefill costs more
+to notice and remove than typing from nothing does. The box is always titled
+with the loop's own header line, so it is clear which loop is about to run
+regardless of what filled it. It is a trace,
 exactly like the rest of the line: each value is read the moment that
 iteration produced it, not fetched afterwards, and nothing is kept between
 presses — nominate again after editing the loop to see the new values. An
