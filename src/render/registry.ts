@@ -87,6 +87,28 @@ export function markerFor(
 }
 
 /**
+ * Why a stale annotation no longer describes the code beside it (#109), as a
+ * clause rather than a sentence -- shared so the hover (`render/hover.ts`)
+ * and the values panel (`panel/html.ts`) describe the same fact in the same
+ * words instead of drifting into two answers to one question. `undefined` is
+ * not expected in practice: both places that ever set `stale` set
+ * `staleReason` alongside it, and this answers with a claim true of either
+ * reason rather than guessing which one applies.
+ */
+export function staleReasonText(
+  reason: 'edited' | 'dependency' | undefined
+): string {
+  switch (reason) {
+    case 'dependency':
+      return 'a value this line reads was re-bound since this ran';
+    case 'edited':
+      return "this line's code changed since it ran";
+    default:
+      return 'this value may no longer match the code beside it';
+  }
+}
+
+/**
  * Preserve the source that produced a trace. Indentation and whitespace
  * inside multiline strings are semantic in Python; trimming each line
  * silently treated changed programs as unchanged. Conservative staleness

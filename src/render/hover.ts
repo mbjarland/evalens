@@ -9,6 +9,7 @@ import { hasOutput } from './format';
 import {
   hasMoreToExplore, inspectionTable, isInspectableName,
 } from './inspector';
+import { staleReasonText } from './registry';
 import { tableMarkdown } from './table';
 
 /**
@@ -20,20 +21,12 @@ import { tableMarkdown } from './table';
  * bar nor an icon can answer on their own. The two reasons are
  * `registry.ts`'s: `afterEdit` sets `'edited'` for a statement whose own
  * text changed, `markDependents` sets `'dependency'` for one whose text is
- * untouched but reads a name something below it rebound. `undefined` is not
- * expected in practice -- both places that ever set `stale` set this
- * alongside it -- and answers with a claim true of either reason rather
- * than guessing which one applies.
+ * untouched but reads a name something below it rebound. The clause itself
+ * lives in `registry.staleReasonText`, shared with the values panel (#116),
+ * so the two surfaces never say this in two different ways.
  */
 function staleExplanation(reason: 'edited' | 'dependency' | undefined): string {
-  switch (reason) {
-    case 'dependency':
-      return 'Stale: a value this line reads was re-bound since this ran.';
-    case 'edited':
-      return "Stale: this line's code changed since it ran.";
-    default:
-      return 'Stale: this value may no longer match the code beside it.';
-  }
+  return `Stale: ${staleReasonText(reason)}.`;
 }
 
 /**

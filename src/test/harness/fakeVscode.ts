@@ -149,7 +149,8 @@ export class FakeDocument {
 
   constructor(
     public readonly uri: FakeUri,
-    text: string
+    text: string,
+    public readonly languageId: string = 'python'
   ) {
     this.lines = text.split('\n');
   }
@@ -271,6 +272,74 @@ export function paintedLineText(editor: FakeEditor, line: number): string {
 export function paintedLines(editor: FakeEditor): readonly number[] {
   return [...new Set(paintedTexts(editor).map((entry) => entry.range.start.line))]
     .sort((a, b) => a - b);
+}
+
+// -- webview views (#116) -----------------------------------------------------
+
+/**
+ * Enough of `vscode.Webview` for `panel/values.ts`'s `ValuesViewProvider`: an
+ * `html` setter/getter a test can read back, `postMessage` recorded rather
+ * than sent anywhere, and `onDidReceiveMessage` driven by the test through
+ * `fireMessage` the way a real webview's own script would call
+ * `acquireVsCodeApi().postMessage(...)`.
+ */
+export class FakeWebview {
+  private htmlValue = '';
+  options: { enableScripts?: boolean; localResourceRoots?: readonly FakeUri[] } = {};
+  readonly cspSource = 'vscode-webview://fake-instance';
+  readonly posted: unknown[] = [];
+  private readonly messages = new FakeEmitter<unknown>();
+
+  onDidReceiveMessage = this.messages.event;
+
+  get html(): string {
+    return this.htmlValue;
+  }
+
+  set html(value: string) {
+    this.htmlValue = value;
+  }
+
+  postMessage(message: unknown): Thenable<boolean> {
+    this.posted.push(message);
+    return Promise.resolve(true);
+  }
+
+  asWebviewUri(uri: FakeUri): FakeUri {
+    return uri;
+  }
+
+  /** Test-only: simulate the webview's own script posting `message` back. */
+  fireMessage(message: unknown): void {
+    this.messages.fire(message);
+  }
+}
+
+/**
+ * Enough of `vscode.WebviewView` for `resolveWebviewView` to be driven the
+ * way `window.registerWebviewViewProvider`'s real caller drives it -- a
+ * `webview`, a `visible` flag, and the two lifecycle events a provider is
+ * free to ignore but must not be required to subscribe to.
+ */
+export class FakeWebviewView {
+  readonly webview = new FakeWebview();
+  visible = true;
+  private readonly disposeEmitter = new FakeEmitter<void>();
+  private readonly visibilityEmitter = new FakeEmitter<void>();
+
+  onDidDispose = this.disposeEmitter.event;
+  onDidChangeVisibility = this.visibilityEmitter.event;
+
+  /** Test-only: simulate VS Code tearing this view down. */
+  fireDispose(): void {
+    this.disposeEmitter.fire(undefined);
+  }
+}
+
+export interface FakeWebviewViewProvider {
+  resolveWebviewView(
+    webviewView: FakeWebviewView, context: unknown, token: unknown
+  ): unknown;
 }
 
 // -- disposables and channels -------------------------------------------------
@@ -396,6 +465,32 @@ export class FakeEmitter<T> {
   }
 }
 
+/**
+ * Stands in for `vscode.EventEmitter`, which `render/annotations.ts` now
+ * constructs directly (`new vscode.EventEmitter<void>()`, #116) rather than
+ * only ever consuming an `.event` this harness already owned. Wraps a
+ * `FakeEmitter` instead of extending it, so the fake's own public shape --
+ * `.event`, `.fire`, `.dispose` -- matches the three members every caller of
+ * the real class actually uses.
+ */
+export class FakeEventEmitter<T> {
+  private readonly emitter = new FakeEmitter<T>();
+
+  readonly event = this.emitter.event;
+
+  fire(value: T): void {
+    this.emitter.fire(value);
+  }
+
+  dispose(): void {
+    // Nothing owns a resource beyond its listeners, and disposing a real
+    // `vscode.EventEmitter` does not silently unsubscribe them either --
+    // only stops it from being fired again correctly. Callers here always
+    // drop their own reference after disposing, so a no-op is faithful
+    // enough for what this harness is asked to prove.
+  }
+}
+
 // -- configuration --------------------------------------------------------
 
 export class FakeConfig {
@@ -433,6 +528,13 @@ export interface FakeVscode {
   readonly hoverProviders: ReadonlyArray<{
     readonly selector: unknown; readonly provider: unknown;
   }>;
+  /**
+   * Every `window.registerWebviewViewProvider` call activation made, keyed
+   * by view id -- #116's values panel. A provider that never registers is
+   * the same silent nothing an unregistered command or hover provider is:
+   * the contributed view exists in `package.json` and opens to a blank pane.
+   */
+  readonly webviewViewProviders: ReadonlyMap<string, FakeWebviewViewProvider>;
   readonly commands: {
     readonly registered: ReadonlyMap<string, (...args: unknown[]) => unknown>;
     readonly executed: ReadonlyArray<{ readonly id: string; readonly args: readonly unknown[] }>;
@@ -519,6 +621,11 @@ export interface FakeVscode {
     readonly onDidChangeConfiguration: FakeEmitter<{
       affectsConfiguration(section: string): boolean;
     }>;
+    /** #116: the values panel's own cursor sync. */
+    readonly onDidChangeTextEditorSelection: FakeEmitter<{
+      readonly textEditor: FakeEditor;
+      readonly selections: readonly FakeSelection[];
+    }>;
   };
 }
 
@@ -561,7 +668,10 @@ export function createFakeVscode(): FakeVscode {
     onDidChangeActiveTextEditor: new FakeEmitter(),
     onDidChangeVisibleTextEditors: new FakeEmitter(),
     onDidChangeConfiguration: new FakeEmitter(),
+    onDidChangeTextEditorSelection: new FakeEmitter(),
   };
+
+  const webviewViewProviders = new Map<string, FakeWebviewViewProvider>();
 
   function showMessage(
     kind: 'error' | 'warning' | 'information',
@@ -587,6 +697,10 @@ export function createFakeVscode(): FakeVscode {
     'workbench.action.openSettings',
     'workbench.action.openGlobalKeybindings',
     'workbench.action.openGlobalKeybindingsFile',
+    // Auto-generated by VS Code for every contributed view, never registered
+    // by this extension -- the values panel's `Evalens: Show Values Panel`
+    // command (#116) runs it to reveal and focus the view.
+    'evalens.values.focus',
   ]);
 
   async function executeCommand(id: string, ...args: unknown[]): Promise<unknown> {
@@ -617,6 +731,7 @@ export function createFakeVscode(): FakeVscode {
     ThemeIcon: FakeThemeIcon,
     MarkdownString: FakeMarkdownString,
     Hover: FakeHover,
+    EventEmitter: FakeEventEmitter,
     Uri: {
       file: (fsPath: string) => makeUri(fsPath),
       joinPath: (base: FakeUri, ...segments: string[]) =>
@@ -705,6 +820,17 @@ export function createFakeVscode(): FakeVscode {
       ) => task({ report: () => undefined }, { onCancellationRequested: () => undefined }),
       onDidChangeActiveTextEditor: emitters.onDidChangeActiveTextEditor.event,
       onDidChangeVisibleTextEditors: emitters.onDidChangeVisibleTextEditors.event,
+      onDidChangeTextEditorSelection: emitters.onDidChangeTextEditorSelection.event,
+      // #116: the values panel's own registration, on the same terms
+      // `registerHoverProvider` below already documents -- a provider that
+      // fails to register is a contributed view that opens to a blank pane,
+      // silently.
+      registerWebviewViewProvider: (
+        viewId: string, provider: FakeWebviewViewProvider
+      ) => {
+        webviewViewProviders.set(viewId, provider);
+        return { dispose: () => webviewViewProviders.delete(viewId) };
+      },
     },
     workspace: {
       getConfiguration: (section: string) => config.getConfiguration(section),
@@ -741,6 +867,7 @@ export function createFakeVscode(): FakeVscode {
   return {
     module: vscodeModule,
     hoverProviders,
+    webviewViewProviders,
     commands: { registered, executed },
     executeCommand,
     outputChannels,
@@ -765,8 +892,10 @@ function stringItems(rest: readonly unknown[]): string[] {
 }
 
 /** A one-document editor, visible and active, ready to hand to a command. */
-export function createEditor(text: string, fsPath = '/fake/example.py'): FakeEditor {
-  const document = new FakeDocument(makeUri(fsPath), text);
+export function createEditor(
+  text: string, fsPath = '/fake/example.py', languageId = 'python'
+): FakeEditor {
+  const document = new FakeDocument(makeUri(fsPath), text, languageId);
   return new FakeEditor(document);
 }
 
