@@ -52,7 +52,7 @@ test('an empty set of children renders no table at all', () => {
   assert.equal(inspectionTable(inspected({ children: [] })), undefined);
 });
 
-test('a table has one row per child, with type in braces', () => {
+test('a table has one row per child, with type in italics', () => {
   const table = inspectionTable(inspected({
     children: [
       child({ name: "'host'", type: 'str', value: "'localhost'" }),
@@ -60,8 +60,20 @@ test('a table has one row per child, with type in braces', () => {
     ],
   }))!;
   assert.match(table, /\| Field \| Type \| Value \|/);
-  assert.match(table, /\| 'host' \| \{str\} \| 'localhost' \|/);
-  assert.match(table, /\| 'port' \| \{int\} \| 8080 \|/);
+  assert.match(table, /\| 'host' \| \*str\* \| 'localhost' \|/);
+  assert.match(table, /\| 'port' \| \*int\* \| 8080 \|/);
+});
+
+test('every column separator requests explicit left alignment', () => {
+  // Bare `---` asks a renderer for no alignment, which is what left a
+  // hover table's header centred over left-aligned data (#105): VS Code's
+  // `marked` turns `:---` into an `align="left"` attribute that survives
+  // the renderer's sanitizer, where bare `---` leaves nothing for it to
+  // carry over.
+  const table = inspectionTable(inspected({
+    children: [child({ name: "'host'", type: 'str', value: "'localhost'" })],
+  }))!;
+  assert.equal(table.split('\n')[1], '| :--- | :--- | :--- |');
 });
 
 test('a property is shown as not evaluated, never with a value', () => {
@@ -71,7 +83,7 @@ test('a property is shown as not evaluated, never with a value', () => {
       expandable: false, evaluated: false, step: undefined,
     })],
   }))!;
-  assert.match(table, /\| url \| \{property\} \| \*not evaluated\* \|/);
+  assert.match(table, /\| url \| \*property\* \| \*not evaluated\* \|/);
 });
 
 test('a pipe in a value cannot break the table', () => {
@@ -138,6 +150,17 @@ test('every item keeps the child it came from, step included', () => {
   const theChild = child({ name: 'host' });
   const items = quickPickItems(inspected({ children: [theChild] }));
   assert.deepEqual(items[0]!.child, theChild);
+});
+
+test('a description still braces its type, unlike the markdown table', () => {
+  // `description` is plain text a QuickPick renders as-is -- no markdown
+  // engine sits between this string and the screen, so `*str*` would show
+  // its own asterisks rather than becoming italic. #105 only changed how
+  // the Type column reads inside `inspectionTable`'s markdown table.
+  const items = quickPickItems(inspected({
+    children: [child({ name: 'host', type: 'str' })],
+  }));
+  assert.equal(items[0]!.description, '{str}');
 });
 
 test('a property item says it is not evaluated instead of showing a value', () => {

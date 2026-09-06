@@ -579,8 +579,8 @@ test('hovering a bare dict shows its fields as a table', async () => {
     const text = await hoverTextAt(fake, editor, 0);
     assert.ok(text, 'expected a hover over the annotated line');
     assert.match(text!, /\| Field \| Type \| Value \|/);
-    assert.match(text!, /'host' \| \{str\} \| 'localhost'/);
-    assert.match(text!, /'port' \| \{int\} \| 8080/);
+    assert.match(text!, /'host' \| \*str\* \| 'localhost'/);
+    assert.match(text!, /'port' \| \*int\* \| 8080/);
     // Both fields fit in the table already shown -- nothing more to open.
     assert.doesNotMatch(text!, /Explore/);
   } finally {
@@ -621,7 +621,7 @@ test('a value with something further to open gets an Explore link', async () => 
       () => Promise<void>)();
 
     const text = await hoverTextAt(fake, editor, 0);
-    assert.match(text!, /'user' \| \{dict\}/);
+    assert.match(text!, /'user' \| \*dict\*/);
     assert.match(text!, /\[Explore ▸\]\(command:evalens\.inspectValue\?/);
     assert.match(text!, /%22data%22/, // encodeURIComponent(JSON.stringify(["data"]))
       'the link must carry the exact namespace name, not a guess at one');
@@ -655,7 +655,7 @@ test('a property is shown unevaluated in the hover table, and never called', asy
 
     const text = await hoverTextAt(fake, editor, 6);
     assert.match(text!, /'localhost'/);
-    assert.match(text!, /\| url \| \{property\} \| \*not evaluated\* \|/);
+    assert.match(text!, /\| url \| \*property\* \| \*not evaluated\* \|/);
   } finally {
     extension.deactivate();
   }

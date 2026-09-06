@@ -81,9 +81,16 @@ const KIND_LABEL: Record<TableWire['kind'], string> = {
  * a trailing column of its own, so a table truncated sideways says so beside
  * the columns it did keep rather than only in the caption above them.
  *
- * The two-row header (labels, then a `---` per column) is what markdown
- * requires to recognise a table at all; there is no meaningful alignment
- * choice underneath it, so every column separator is the same plain `---`.
+ * The two-row header (labels, then a separator per column) is what
+ * markdown requires to recognise a table at all. Every separator is
+ * `:---`, requesting explicit left alignment rather than the bare `---`
+ * this emitted before #105 -- `.monaco-hover` has no stylesheet rule of
+ * its own for a table cell, so an unaligned column fell through to the
+ * browser's default, a centred `th` over a left `td`, and the header
+ * stopped sitting over its own column. `inspector.ts`'s `inspectionTable`
+ * carries the same requirement and the same reasoning: two tables can
+ * share one hover, and one aligning while the other did not would read
+ * worse than either aligning badly alone.
  */
 export function tableMarkdown(table: TableWire): string {
   const rowsNote = omittedNote(table.shown_rows, table.row_count, 'row');
@@ -99,7 +106,7 @@ export function tableMarkdown(table: TableWire): string {
     caption,
     '',
     row(columns),
-    row(columns.map(() => '---')),
+    row(columns.map(() => ':---')),
     ...table.rows.map((cells) => row(
       table.more_cols ? [...cells, ''] : cells)),
   ];

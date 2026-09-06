@@ -38,9 +38,19 @@ test('the header and a separator row are both markdown table rows', () => {
   const markdown = tableMarkdown(table());
   const lines = markdown.split('\n');
   assert.equal(lines[2], '| name | age |');
-  assert.equal(lines[3], '| --- | --- |');
+  assert.equal(lines[3], '| :--- | :--- |');
   assert.equal(lines[4], '| Ada | 36 |');
   assert.equal(lines[5], '| Alan | 41 |');
+});
+
+test('the separator requests explicit left alignment, not bare dashes', () => {
+  // Bare `---` asks a renderer for no alignment, which is what left a
+  // hover table's header centred over left-aligned data (#105).
+  // `inspectionTable`'s table carries the identical separator, because two
+  // tables sharing one hover must agree on how they align.
+  const markdown = tableMarkdown(table({ columns: ['solo'],
+    rows: [['x']], col_count: 1, shown_cols: 1 }));
+  assert.equal(markdown.split('\n')[3], '| :--- |');
 });
 
 test('a dataframe is labelled by its real name, not its wire kind', () => {
@@ -62,7 +72,7 @@ test('more columns than shown add a trailing column, not a silent drop', () => {
   assert.match(markdown, /, 2 of 5 columns shown\*/);
   const lines = markdown.split('\n');
   assert.equal(lines[2], '| a | b | … (+3 more) |');
-  assert.equal(lines[3], '| --- | --- | --- |');
+  assert.equal(lines[3], '| :--- | :--- | :--- |');
   // The data row gains a matching empty cell rather than running short of
   // the header it sits under.
   assert.equal(lines[4], '| 1 | 2 |  |');
