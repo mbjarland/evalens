@@ -199,7 +199,7 @@ test('a stop while the interpreter resolves leaves no process behind', async () 
   // arrives afterwards belongs to nobody, and an orphaned interpreter is a
   // bug users see in Activity Monitor and never report.
   let release: (path: string) => void = () => undefined;
-  const { client, started } = clientWith({
+  const { client, spawned } = clientWith({
     resolvePython: () => new Promise<string>((resolve) => { release = resolve; }),
   });
   const pending = client.request({ op: 'ping' });
@@ -208,10 +208,61 @@ test('a stop while the interpreter resolves leaves no process behind', async () 
   client.dispose();
   release('python3');
 
-  const proc = await started();
-  assert.equal(proc.killed, true, 'a kernel nothing holds a handle to');
-  assert.equal(proc.stdinEnded, true);
   await rejected;
+  assert.equal(spawned.length, 0, 'cancelled startup must not execute Python');
+});
+
+test('retired process events cannot stop or contaminate its replacement', async () => {
+  const { client, started } = clientWith();
+  const oldRequest = client.request({ op: 'ping' });
+  const old = await started();
+  client.restart();
+  await assert.rejects(oldRequest, /restarted/);
+  const nextRequest = client.request({ op: 'ping' });
+  const next = await started(2);
+  old.stdout.emit('data', '{"id":');
+  old.controlOut.emit('data', '{"op":"status",');
+  old.says({ op: 'status', state: 'busy' });
+  old.emit('error', new Error('late failure'));
+  old.emit('exit', 0, null);
+  assert.equal(next.killed, false);
+  assert.equal(client.busy, false);
+  next.reply({ id: 2, ok: true });
+  assert.equal((await nextRequest).ok, true);
+  client.dispose();
+});
+
+test('restart during resolution admits a new startup immediately', async () => {
+  const resolvers: Array<(path: string) => void> = [];
+  const { client, spawned, started } = clientWith({
+    resolvePython: () => new Promise((resolve) => resolvers.push(resolve)),
+  });
+  const oldRequest = client.request({ op: 'ping' });
+  client.restart();
+  const rejected = assert.rejects(oldRequest, /stopped while it was starting/);
+  const nextRequest = client.request({ op: 'ping' });
+  assert.equal(resolvers.length, 2);
+  resolvers[0]('old-python');
+  await rejected;
+  const concurrent = client.request({ op: 'ping' });
+  assert.equal(resolvers.length, 2, 'old completion must not clear new startup');
+  resolvers[1]('new-python');
+  const next = await started();
+  assert.equal(spawned.length, 1);
+  next.reply({ id: 1, ok: true });
+  next.reply({ id: 2, ok: true });
+  await Promise.all([nextRequest, concurrent]);
+  client.dispose();
+});
+
+test('a read pipe failure rejects pending work and retires the process', async () => {
+  const { client, started } = clientWith();
+  const request = client.request({ op: 'ping' });
+  const proc = await started();
+  proc.stdout.emit('error', new Error('pipe closed'));
+  await assert.rejects(request, /pipe failed: pipe closed/);
+  assert.equal(proc.killed, true);
+  client.dispose();
 });
 
 test('restart kills the old process and the next request starts a new one', async () => {

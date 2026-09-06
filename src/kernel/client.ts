@@ -34,7 +34,11 @@ const DEFAULT_STRAY_GRACE = 2000;
 const STRAY_QUOTE_LIMIT = 120;
 
 type Stream = NodeJS.EventEmitter & { setEncoding?(encoding: string): void };
-type Sink = { write(chunk: string): void; end(): void };
+type Sink = {
+  write(chunk: string): void;
+  end(): void;
+  on?(event: 'error', listener: (error: Error) => void): void;
+};
 
 /**
  * The subset of a child process this client uses.
@@ -60,7 +64,7 @@ export interface KernelProcess {
   readonly controlOut?: Stream;
   on(event: 'exit', listener: (code: number | null, signal: string | null) => void): void;
   on(event: 'error', listener: (error: Error) => void): void;
-  kill(): void;
+  kill(signal?: NodeJS.Signals): void;
 }
 
 export type SpawnFn = (command: string, args: readonly string[]) => KernelProcess;
@@ -221,7 +225,12 @@ export class KernelClient {
     if (this.disposed) {
       throw new Error('the Evalens kernel client has been disposed');
     }
+    const generation = this.generation;
     const process = await this.ensureStarted();
+    if (this.disposed || generation !== this.generation
+        || process !== this.process) {
+      throw new Error('the Evalens kernel was stopped before the request started');
+    }
     const id = this.nextId++;
     const deferred = new Deferred<Response>();
     this.pending.set(id, deferred);
@@ -297,11 +306,14 @@ export class KernelClient {
     if (this.starting) {
       return this.starting;
     }
-    this.starting = this.start();
+    const starting = this.start();
+    this.starting = starting;
     try {
-      return await this.starting;
+      return await starting;
     } finally {
-      this.starting = undefined;
+      if (this.starting === starting) {
+        this.starting = undefined;
+      }
     }
   }
 
@@ -313,9 +325,14 @@ export class KernelClient {
     // one nothing holds a handle to and nothing ever kills.
     const generation = this.generation;
     const pythonPath = await this.options.resolvePython();
+    if (this.generation !== generation) {
+      throw new Error('the Evalens kernel was stopped while it was starting');
+    }
     // -u so nothing sits in a buffer waiting for a fuller write. The kernel
     // flushes explicitly too; this covers the paths that do not.
     const process = this.spawnFn(pythonPath, ['-u', kernelPath]);
+    const current = () =>
+      this.process === process && this.generation === generation;
 
     if (this.generation !== generation) {
       this.discard(process);
@@ -326,23 +343,27 @@ export class KernelClient {
     process.stderr.setEncoding?.('utf8');
 
     process.stdout.on('data', (chunk: string | Buffer) => {
+      if (!current()) { return; }
       for (const line of this.decoder.push(chunk.toString())) {
         this.deliver(line);
       }
     });
 
     process.stderr.on('data', (chunk: string | Buffer) => {
+      if (!current()) { return; }
       this.options.onStderr?.(chunk.toString());
     });
 
     process.controlOut?.setEncoding?.('utf8');
     process.controlOut?.on('data', (chunk: string | Buffer) => {
+      if (!current()) { return; }
       for (const line of this.controlDecoder.push(chunk.toString())) {
         this.onControl(line);
       }
     });
 
     process.on('error', (error: Error) => {
+      if (!current()) { return; }
       // The most common real failure: the interpreter does not exist. Name it,
       // rather than surfacing a bare ENOENT that says nothing about which
       // Python was tried.
@@ -355,6 +376,7 @@ export class KernelClient {
     });
 
     process.on('exit', (code, signal) => {
+      if (!current()) { return; }
       this.stop(
         new Error(
           `the Evalens kernel exited (code ${code ?? 'null'}, ` +
@@ -364,6 +386,16 @@ export class KernelClient {
       this.options.onExit?.(code, signal);
     });
 
+    for (const stream of [
+      process.stdin, process.control, process.stdout,
+      process.stderr, process.controlOut,
+    ]) {
+      stream?.on?.('error', (error: Error) => {
+        if (current()) {
+          this.stop(new Error(`the Evalens kernel pipe failed: ${error.message}`));
+        }
+      });
+    }
     this.process = process;
     return process;
   }
@@ -444,7 +476,7 @@ export class KernelClient {
         deferred.reject(new Error(
           'this evaluation was lost: something that is not a response was ' +
           `written on the kernel's protocol channel ("${quoted}"). ` +
-          'Evaluating the line again is safe; the namespace is intact.'
+          'The code may already have run; check its effects before trying again.'
         ));
       }
     }, this.strayGrace);
@@ -520,9 +552,13 @@ export class KernelClient {
       // for one.
       return;
     }
-    this.writeControl(this.process, {
-      op: 'input_reply', seq: request.seq, value,
-    });
+    try {
+      this.writeControl(this.process, {
+        op: 'input_reply', seq: request.seq, value,
+      });
+    } catch (error) {
+      this.stop(new Error(`the Evalens kernel input pipe failed: ${String(error)}`));
+    }
   }
 
   private writeControl(process: KernelProcess, message: ControlRequest): void {
@@ -540,6 +576,7 @@ export class KernelClient {
   private stop(reason: Error): void {
     const process = this.process;
     this.process = undefined;
+    this.starting = undefined;
     this.generation += 1;
     this.decoder.reset();
     this.controlDecoder.reset();
@@ -578,7 +615,7 @@ export class KernelClient {
         // Already gone; killing below is what matters.
       }
     }
-    process.kill();
+    process.kill('SIGKILL');
   }
 }
 
