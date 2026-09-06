@@ -1,52 +1,102 @@
-# Evalens — Inline Python Values
-
-**Put the cursor on a line. Press a key. See what that line produced,
-painted beside the code.**
-
-```python
-lst = [1, 2, 3]     ▌lst: [1, 2, 3]
-other = lst         ▌other: [1, 2, 3]
-other.append(4)     ▌other: [1, 2, 3, 4]
-lst                 ▌lst: [1, 2, 3, 4]
-```
-
-Read the block, not the mechanism. Four lines, four answers, all visible at
-once, in the order they appear in the file — and the fourth line is the
-lesson, because `lst` changed without `lst` ever being on the left of
-anything.
-
-A terminal shows you those four values one after another and then scrolls
-them away. A debugger stopped at the end shows you the last one, by which
-time both names read `[1, 2, 3, 4]` and the thing worth learning has already
-happened. Neither shows the *shape* of what happened, which is exactly what
-someone learning aliasing is trying to see.
-
-That is the whole product. Everything below is a consequence of it.
-
-> **The notebook feedback loop, on a file that never stops being source
-> code, with the state visible instead of hidden.**
-
-No `print()`. No debugger. No notebook. No cell markers. The file stays a
-plain `.py` that `python3 yourfile.py` runs unchanged, and the only thing
-you need installed is Python itself.
-
-## Demo
-
 <p align="center">
-  <img src="media/demo/tour-still.png" width="620" alt="Four lines of
-    Python, each annotated inline with the value it produced, after four
-    presses of Evaluate and Advance">
+  <img src="media/icon.png" width="112" alt="Evalens">
 </p>
 
-*A rendered stand-in, not yet a screen recording.* The text on it is real —
-produced by driving `kernel/evalens_kernel.py` through the same renderer the
-extension paints with, and `src/test/integration.test.ts` asserts those four
-strings against the running kernel. What is missing is the animation, which
-needs a human, an editor and a screen capture.
-[`examples/demo.py`](examples/demo.py) is written for exactly that: ten
-beats, each one line, ordered so every press lands harder than the last.
-[`docs/development/demo-shooting-script.md`](docs/development/demo-shooting-script.md)
-is the recipe.
+<h1 align="center">eval·lens</h1>
+
+<p align="center">
+  <em><b>eval</b>uate your Python, through a <b>lens</b>.</em><br>
+  <sub>Evalens is a VS Code extension.</sub>
+</p>
+
+<p align="center">
+  <b>Live, line-by-line Python inside an ordinary <code>.py</code> file —
+  the feedback loop of a notebook, for people who are not allowed one.</b>
+</p>
+
+<p align="center">
+  <img src="media/demo/tour-still.png" width="640" alt="Four lines of
+    Python in VS Code, each annotated inline with the value it produced">
+</p>
+<p align="center"><sub>Rendered from the real kernel and the real renderer,
+not drawn by hand — but not yet a screen recording.
+<a href="examples/demo.py"><code>examples/demo.py</code></a> is the file to
+film and
+<a href="docs/development/demo-shooting-script.md">the shooting script</a>
+is the recipe.</sub></p>
+
+Put the cursor on a line. Press `Cmd+Enter`. The value appears beside the
+code — and stays there while you press it on the next line, and the next.
+
+```python
+lst = [1, 2, 3]      ▌lst: [1, 2, 3]
+other = lst          ▌other: [1, 2, 3]   lst: [1, 2, 3]
+other.append(4)      ▌other: [1, 2, 3, 4]
+lst                  ▌lst: [1, 2, 3, 4]
+```
+
+Four lines, four answers, all on screen at once, in the order they sit in
+the file. The fourth line is the lesson: `lst` changed, and `lst` was never
+on the left of anything. A student who *sees* that has understood aliasing.
+A student who is told it has been told something.
+
+## A trace, not a current value
+
+This is the idea the whole tool is built on, and it is worth one paragraph.
+
+A debugger shows you the **current** value of a variable: stop the program
+somewhere and look. That is one moment, and it is always the last one. Stop
+after `other.append(4)` above and both names read `[1, 2, 3, 4]` — correct,
+and useless, because the thing worth learning was that they *used to* be the
+same object *before* anyone could tell.
+
+Evalens shows you a **trace**: what each line produced **when it ran**,
+kept beside the line, never re-read later. Line two still says
+`other: [1, 2, 3]` after line three has changed it, because that is what
+line two produced. You are looking at the history of the program, laid out
+down the page in the same order you wrote it. That is the thing a terminal
+scrolls away, a debugger collapses into "now", and a notebook only gives you
+if you stop writing programs and start writing cells.
+
+## Who this is for
+
+**Someone learning Python who has to write real programs.** Many first-year
+courses forbid notebooks for exactly the reason they are seductive: a
+notebook lets you run cells in any order, accumulate state nobody can see,
+and never once produce a file that runs top to bottom. That habit does not
+ship a Mars lander, a trading system, or a passing assignment. So the course
+says *write `.py` files* — and takes the notebook's one genuine gift, the
+tight see-what-happened loop, away with it.
+
+Evalens gives that loop back **without giving back the notebook**:
+
+- The file stays a plain `.py`. `python3 yourfile.py` runs it unchanged.
+  There are no cell markers, no magic comments, nothing to strip out before
+  you hand it in.
+- Nothing runs until you ask. You press a key; one statement runs. No
+  evaluate-as-you-type, which on beginner code means re-launching a program
+  stuck at `input()` every time you pause.
+- The state is *visible*. Every value is beside the line that made it, so
+  "why is this 55?" is answered by reading upward, not by adding a
+  `print()`.
+- The only thing you install is Python. No Jupyter, no `ipykernel`, no
+  interpreter picker, no `launch.json`.
+
+It is also for anyone who has ever added `print(x)` on line 40 to find out
+what line 12 did — which is everyone.
+
+## Try it in sixty seconds
+
+You need VS Code and **Python 3.9 or later on your `PATH`**. Nothing else.
+
+```bash
+code --install-extension python-inline-values-0.0.1.vsix   # from a release or a friend
+```
+
+Open any `.py` file, put the cursor on a line, press **`Cmd+Enter`**
+(`Ctrl+Enter` elsewhere). Then hold **`Cmd+Shift+Enter`** and watch it walk
+down the file. Full install options, including building from source, are
+under [Install](#install) below.
 
 ## What you get
 
