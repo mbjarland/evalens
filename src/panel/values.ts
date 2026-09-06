@@ -7,7 +7,7 @@ import {
 } from '../config';
 import { AnnotationChangeEvent, Annotations } from '../render/annotations';
 import {
-  PanelAnnotation, ValuesPanelData, ValuesRow, rowsFor, valuesHtml,
+  PanelAnnotation, ValuesPanelData, ValuesRow, fullTextFor, rowsFor, valuesHtml,
 } from './html';
 
 /** No document has anything expanded -- the common case, and the one that
@@ -148,20 +148,27 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   /**
-   * The messages the webview posts (#116, #155). `{ goto: line }` from a
-   * clicked row reveals that line and puts the cursor there -- the panel
-   * never evaluates anything, clicking included, this only moves the reader
-   * to the code the row is about. `{ expand: line }` is *Show all*, *Show
-   * less* or a click on a foldable block's own label, all one toggle, and
-   * never moves the reader anywhere.
+   * The three messages the webview ever posts (#116, #155). `{ goto: line }`
+   * from a clicked row reveals that line and puts the cursor there -- the
+   * panel never evaluates anything, clicking included, this only moves the
+   * reader to the code the row is about. `{ expand: line }` is *Show all*,
+   * *Show less* or a click on a foldable block's own label, all one toggle;
+   * `{ open: line, stream }` is *Open in editor*. Neither of the fold
+   * messages moves the reader anywhere or touches the kernel.
    */
   private onMessage(message: unknown): void {
     const payload = message as {
       readonly goto?: unknown; readonly expand?: unknown;
+      readonly open?: unknown; readonly stream?: unknown;
     } | undefined;
 
     if (typeof payload?.expand === 'number') {
       this.toggleExpanded(payload.expand);
+      return;
+    }
+    if (typeof payload?.open === 'number') {
+      void this.openInEditor(
+        payload.open, typeof payload.stream === 'string' ? payload.stream : undefined);
       return;
     }
     if (typeof payload?.goto !== 'number') {
@@ -201,6 +208,33 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       this.expandedLines.set(key, lines);
     }
     this.rebuild();
+  }
+
+  /**
+   * *Open in editor* (#155): the full text `blockId` names, as a new
+   * untitled plaintext document beside the panel. `fullTextFor` only ever
+   * reads text this provider already rendered from -- the same text the
+   * kernel sent when the statement ran -- so nothing here evaluates
+   * anything or asks the kernel a second time. Silently does nothing for a
+   * `blockId` the current row no longer recognises: the row can have
+   * rebuilt between the click landing in the webview and this message
+   * reaching the extension, and there is no code beside it to report an
+   * error about.
+   */
+  private async openInEditor(line: number, blockId: string | undefined): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || blockId === undefined) {
+      return;
+    }
+    const row = this.dataFor(editor).rows.find((each) => each.line === line);
+    const text = row && fullTextFor(row, blockId);
+    if (text === undefined) {
+      return;
+    }
+    const document = await vscode.workspace.openTextDocument({
+      content: text, language: 'plaintext',
+    });
+    await vscode.window.showTextDocument(document, { preserveFocus: false });
   }
 
   /**
