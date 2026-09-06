@@ -28,8 +28,9 @@ film and
 <a href="docs/development/demo-shooting-script.md">the shooting script</a>
 is the recipe.</sub></p>
 
-Put the cursor on a line. Press `Cmd+Enter`. The value appears beside the
-code — and stays there while you press it on the next line, and the next.
+Put the cursor on a line. Press `Cmd+Enter` (`Ctrl+Enter` on
+Windows/Linux). The value appears beside the code — and stays there while
+you press it on the next line, and the next.
 
 <p align="center">
   <img src="media/demo/aliasing.png" width="600" alt="Four lines pressed one
@@ -120,40 +121,43 @@ code --install-extension evalens-0.0.1.vsix   # from a release or a friend
 ```
 
 Open any `.py` file, put the cursor on a line, press **`Cmd+Enter`**
-(`Ctrl+Enter` elsewhere). Then hold **`Cmd+Shift+Enter`** and watch it walk
-down the file. Full install options, including building from source, are
-under [Install](#install) below.
+(`Ctrl+Enter` on Windows/Linux). Then hold **`Cmd+Shift+Enter`**
+(`Ctrl+Shift+Enter` on Windows/Linux) and watch it walk down the file. Full
+install options, including building from source, are under
+[Install](#install) below.
 
 ## Learn it in four keys
 
-Everything Evalens does starts from one of these. On Windows and Linux read
-`Ctrl` for `Cmd`.
+Everything Evalens does starts from one of these.
 
-| Press | What happens |
-| :--- | :--- |
-| `Cmd+Enter` | Run the statement under the cursor. Its value appears beside it. |
-| `Cmd+Shift+Enter` | The same, then move to the next statement — hold it to walk the file. |
-| `Cmd+Alt+Enter` | Run the whole file from a clean namespace, top to bottom. |
-| `Escape` | Clear every annotation in the editor. |
+| macOS | Windows / Linux | What happens |
+| :--- | :--- | :--- |
+| `Cmd+Enter` or `Alt+Enter` | `Ctrl+Enter` or `Alt+Enter` | Run the statement under the cursor. Its value appears beside it. |
+| `Cmd+Shift+Enter` | `Ctrl+Shift+Enter` | The same, then move to the next statement — hold it to walk the file. |
+| `Cmd+Alt+Enter` | `Ctrl+Alt+Enter` | Run the whole file from a clean namespace, top to bottom. |
+| `Escape` | `Escape` | Clear every annotation in the editor. |
 
 `Alt+Enter` also runs the statement under the cursor, as a spare in case
-`Cmd+Enter` is taken on your machine — if it is, the tool tells you and
-offers to fix it.
+`Cmd+Enter` (`Ctrl+Enter` on Windows/Linux) is taken on your machine — if
+it is, the tool tells you and offers to fix it.
 
-**Everything else is in the Command Palette.** Press `Cmd+Shift+P`, type
-`Evalens`, and every command appears with its name in front: *Run File as
-Script*, *Evaluate Above Cursor*, *Add Inline Watch*, *Inspect Value*,
-*Interrupt Evaluation*, *Restart Kernel*. You never need to remember more
-than the word.
+**Everything else is in the Command Palette.** Press `Cmd+Shift+P`
+(`Ctrl+Shift+P` on Windows/Linux) — or `F1`, which works on every
+platform; type `Evalens`, and every command appears with its name in
+front: *Run File as Script*, *Evaluate Above Cursor*, *Add Inline Watch*,
+*Inspect Value*, *Interrupt Evaluation*, *Restart Kernel*. You never need
+to remember more than the word.
 
-**Your first two minutes.** Open any `.py` file. Put the cursor on the first
-line and press `Cmd+Enter` — the value lands beside it. Press
-`Cmd+Shift+Enter` and keep pressing: the cursor walks down the file and each
-line answers as you reach it. Hover any answer to see the whole value, and a
-table or a list of fields when there is one. When you change a line, its
-marker in the gutter changes so you know that answer is from before the
-edit; press the key again and it catches up. That is the whole tool. The
-rest of this page is detail.
+**Your first two minutes.** Open any `.py` file. Put the cursor on the
+first line and press `Cmd+Enter` (`Ctrl+Enter` on Windows/Linux) — the
+value lands beside it. Press `Cmd+Shift+Enter` (`Ctrl+Shift+Enter` on
+Windows/Linux) and keep pressing: the cursor walks down the file and each
+line answers as you reach
+it. Hover any answer to see the whole value, and a table or a list of
+fields when there is one. When you change a line, its marker in the gutter
+changes so you know that answer is from before the edit; press the key
+again and it catches up. That is the whole tool. The rest of this page is
+detail.
 
 ## What you get
 
@@ -328,6 +332,29 @@ audit has listed "status changes are not announced for assistive
 technologies" among its critical failures since 2019; doing this cheaply is
 a real difference, and it matters for the audience this was built for.
 
+### A panel for when the margin runs out
+
+Every value so far sits in the margin, to the right of the line that
+produced it — which works until there is no margin left. Lecture slides on
+half the screen, a laptop-width window, a `repr()` longer than what is left
+of the line: VS Code gives an extension no way to even ask how many columns
+wide the editor is, so an inline value that runs past the edge cannot wrap,
+cannot pin itself to what is visible, and cannot take a line of its own.
+
+**Evalens: Show Values Panel** opens the same values in the bottom panel
+instead, one row per annotated line in file order, full width and wrapping.
+A list long enough to have run off the screen now wraps onto a second line;
+a `print()` spanning several lines keeps every one of them, not the inline
+chip's first-line-and-a-count. Click a row to jump to it; move the cursor
+and the panel's own row highlights, without anything being repainted.
+
+It is the same trace read twice, not a second feature — the panel reads
+what is already painted and asks the kernel nothing, so a row goes stale
+exactly the way the inline chip does, in the same grey surface, for the
+same reason. It is never opened for you: run the command once, or
+*View → Open View… → Evalens: Values*, and reach for it whenever a narrow
+editor or a long value is the actual problem, not the answer itself.
+
 ## This category is not empty, and pretending otherwise would be a lie
 
 Two shipped Microsoft features already cover part of this, both **on by
@@ -409,9 +436,9 @@ beyond them.
 
 1. Get `evalens-<version>.vsix` however it reaches you — a
    shared file, a USB stick, a link to a GitHub Release.
-2. In VS Code, open the Extensions view (`Cmd+Shift+X` / `Ctrl+Shift+X`),
-   open its `···` menu, and choose **Install from VSIX...**, then pick the
-   file. From a terminal instead:
+2. In VS Code, open the Extensions view — `Cmd+Shift+X`
+   (`Ctrl+Shift+X` on Windows/Linux) — open its `···` menu, and choose
+   **Install from VSIX...**, then pick the file. From a terminal instead:
    ```bash
    code --install-extension evalens-0.0.1.vsix
    ```
@@ -435,10 +462,10 @@ above.
 
 ## Commands
 
-**Every command is in the Command Palette** (`Cmd+Shift+P` / `Ctrl+Shift+P`),
-prefixed with `Evalens:`. That matters more here than it usually does — see
-the keybinding conflict below — because a stolen key then never leaves you
-without a way to run these.
+**Every command is in the Command Palette** — `Cmd+Shift+P`
+(`Ctrl+Shift+P` on Windows/Linux) — prefixed with `Evalens:`. That matters
+more here than it usually does — see the keybinding conflict below —
+because a stolen key then never leaves you without a way to run these.
 
 | Command | What it does |
 |---|---|
@@ -455,6 +482,7 @@ without a way to run these.
 | Evalens: Restart Kernel | Throws away the namespace and starts a fresh interpreter |
 | Evalens: Clear Input Answers | Forgets every replayed `input()` answer, keeping the namespace |
 | Evalens: Show Output | Opens the Evalens output channel without taking the cursor out of the editor |
+| Evalens: Show Values Panel | Opens the bottom-panel view listing the active file's annotations full width, wrapping, and synced to the cursor |
 | Evalens: Fix Keybinding Conflict | Hands you the user keybinding described below |
 
 **Evaluate File clears the namespace before it runs the whole file, by
