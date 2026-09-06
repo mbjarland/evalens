@@ -232,6 +232,14 @@
           "default": true,
           "scope": "application",
           "markdownDescription": "Whether the values panel scrolls the row that just changed into view, every time an evaluation lands. On (the default), the newest value is always what you see, which is the point of a panel that would otherwise keep showing whatever was on screen while new rows land out of sight below the fold. Off keeps your scroll position exactly where you left it — useful for reading back through a file's history without the view jumping away from it underneath you. **Evalens: Toggle Follow in Values Panel** flips this from the command palette or from the `$(unlock)` / `$(lock)` button in the values panel's own title bar, so you never have to leave the panel to turn it off mid-session."
+        },
+        "evalens.valuesPanel.outputLines": {
+          "type": "number",
+          "default": 20,
+          "minimum": 5,
+          "maximum": 500,
+          "scope": "application",
+          "markdownDescription": "How many lines of a printed stream or a long value the values panel shows before folding the rest behind `Show all`, the way a notebook folds a long cell output — a nested loop printing ten thousand lines used to turn one row into a ten-thousand-line wall the panel could not scroll past. Fewer lines fold sooner, keeping the panel readable whatever a statement printed. More lines show a longer stretch of a run before you have to click through, at the cost of a taller row and a heavier rebuild, since the panel repaints every row in full on every evaluation. `Show all` — or a click on the block's own label — still shows everything, inside its own scrolling area, and `Open in editor` opens the untouched text as a plain document beside the panel. There is no setting to turn folding off entirely: an unfolded ten-thousand-line row is the defect this setting exists to prevent."
         }
       }
     },
