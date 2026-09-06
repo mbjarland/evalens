@@ -131,7 +131,7 @@ Everything Evalens does starts from one of these.
 
 | Windows / Linux | macOS | What happens |
 | :--- | :--- | :--- |
-| `Ctrl+Enter` or `Alt+Enter` | `Cmd+Enter` | Run the statement under the cursor. Its value appears beside it. |
+| `Ctrl+Enter` or `Alt+Enter` | `Cmd+Enter` or `Alt+Enter` | Run the statement under the cursor. Its value appears beside it. |
 | `Ctrl+Shift+Enter` | `Cmd+Shift+Enter` | The same, then move to the next statement — hold it to walk the file. |
 | `Ctrl+Alt+Enter` | `Cmd+Alt+Enter` | Run the whole file from a clean namespace, top to bottom. |
 | `Escape` | `Escape` | Clear every annotation in the editor. |

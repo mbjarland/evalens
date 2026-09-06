@@ -67,13 +67,17 @@ test('no bare Cmd+ chord above Keybindings: every one names Ctrl too', () => {
 test('the four-key table teaches Windows/Linux keys first', () => {
   // The larger audience reads first, and a macOS reader is already used to
   // translating a chord; a Windows or Linux reader is not. This table is
-  // the one a screenshot of the README lands on, so the column order and
-  // the Windows/Linux-only Alt+Enter alternative must not regress silently.
+  // the one a screenshot of the README lands on, so its column order must
+  // not regress silently. Alt+Enter runs Evaluate at Cursor on every
+  // platform -- a manifest `key` with no `mac` override still applies on
+  // macOS, as the Keybindings section below says of Jupyter's own binding
+  // -- so both cells offer it (#117 correction), not just one.
   const fourKeys = section('Learn it in four keys');
   assert.ok(
     fourKeys.indexOf('Windows / Linux') < fourKeys.indexOf('macOS'),
     'the four-key table should list Windows / Linux before macOS');
   assert.match(fourKeys, /`Ctrl\+Enter` or `Alt\+Enter`/);
+  assert.match(fourKeys, /`Cmd\+Enter` or `Alt\+Enter`/);
 });
 
 test('the keybinding conflict is stated next to the table, not footnoted', () => {
