@@ -3,6 +3,7 @@ import {
   TableWire,
 } from '../kernel/protocol';
 import { Printed, hasOutput, hoverText, printedFrom } from './format';
+import { ErrorDetails, errorDetails } from './errorGuidance';
 
 /**
  * A failure to show: the kernel's, or the break that stopped it parsing.
@@ -11,12 +12,10 @@ import { Printed, hasOutput, hoverText, printedFrom } from './format';
  * annotation, and a syntax error painted on the line that caused it is not a
  * different kind of thing from one painted under the cursor.
  */
-export type ErrorPresentation = {
+export type ErrorPresentation = ErrorDetails & {
   readonly kind: 'error';
   readonly range: Range;
   readonly anchor?: number;
-  readonly type: string;
-  readonly message: string;
   /**
    * The module-level names the statement bound and read.
    *
@@ -130,8 +129,7 @@ export function partialCause(partial: PartialParse): ErrorPresentation {
   return {
     kind: 'error',
     range: partial.range,
-    type: partial.error.type,
-    message: partial.error.message,
+    ...errorDetails(partial.error),
     hover: partial.error.traceback || partial.error.message,
   };
 }
@@ -160,8 +158,7 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
       ...(response.anchor === undefined ? {} : { anchor: response.anchor }),
       ...(response.binds === undefined ? {} : { binds: response.binds }),
       ...(response.reads === undefined ? {} : { reads: response.reads }),
-      type: response.error.type,
-      message: response.error.message,
+      ...errorDetails(response.error),
       hover: response.error.traceback || response.error.message,
       ...caveat,
     };

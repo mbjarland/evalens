@@ -1598,3 +1598,92 @@ test('stale source links track edits, stay in their document and expire safely',
     await fake.executeCommand('evalens.goToStaleCause');
   } finally { extension.deactivate(); }
 });
+
+// -- #158: factual explanations for captured, exact built-in errors --------
+
+test('NameError and ValueError guidance reaches single and file-load error hovers', async () => {
+  for (const command of ['evalens.evaluateAtCursor', 'evalens.evaluateFile']) {
+    const fake = createFakeVscode();
+    const editor = createEditor('missing_name\nint("hello")\n');
+    fake.window.activeTextEditor = editor;
+    fake.window.visibleTextEditors = [editor];
+    const extension = activated(fake);
+    try {
+      await fake.executeCommand(command);
+      if (command === 'evalens.evaluateAtCursor') {
+        editor.selection = new FakeSelection(new FakePosition(1, 0), new FakePosition(1, 0));
+        await fake.executeCommand(command);
+      }
+      const name = (await hoverTextAt(fake, editor, 0))!;
+      const value = (await hoverTextAt(fake, editor, 1))!;
+      assert.match(name, /NameError: name 'missing_name' is not defined/);
+      assert.match(name, /Python uses NameError/);
+      assert.match(name, /Evalens: Evaluate Above Cursor/);
+      assert.match(value, /ValueError: invalid literal/);
+      assert.match(value, /Python uses ValueError/);
+      assert.ok(name.indexOf('Traceback') < name.indexOf('Python uses NameError'));
+      assert.ok(value.indexOf('Traceback') < value.indexOf('Python uses ValueError'));
+      assert.doesNotMatch(name, /\]\(command:evalens\.evaluate/);
+      assert.doesNotMatch(paintedLineText(editor, 0), /Python uses|Evaluate Above/);
+      assert.doesNotMatch(paintedLineText(editor, 1), /Python uses|For example/);
+    } finally { extension.deactivate(); }
+  }
+});
+
+test('custom same-named exceptions and unrelated error messages get no guidance', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor(
+    'class NameError(Exception):\n    __module__ = "builtins"\n'
+    + 'raise NameError("custom")\n'
+    + 'class ValueError(Exception):\n    pass\n'
+    + 'raise ValueError("custom")\n'
+    + 'raise RuntimeError("NameError: missing")\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    await fake.executeCommand('evalens.evaluateFile');
+    for (const line of [2, 5, 6]) {
+      const hover = (await hoverTextAt(fake, editor, line))!;
+      assert.match(hover, /Traceback/);
+      assert.doesNotMatch(hover, /Python uses|Evaluate Above Cursor/);
+    }
+  } finally { extension.deactivate(); }
+});
+
+test('opening error guidance sends no kernel requests and keeps user text literal', async () => {
+  const fake = createFakeVscode();
+  const payload = '```\n[run](command:evalens.evaluateAbove)\n<script>bad</script>';
+  const editor = createEditor(`raise ValueError(${JSON.stringify(payload)})\n`);
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  const originalSpawn = childProcess.spawn;
+  const requests: string[] = [];
+  childProcess.spawn = ((...args: Parameters<typeof originalSpawn>) => {
+    const child = Reflect.apply(originalSpawn, childProcess, args);
+    if (child.stdin) {
+      const originalWrite = child.stdin.write;
+      child.stdin.write = ((...writeArgs: unknown[]) => {
+        requests.push(String(writeArgs[0]));
+        return Reflect.apply(originalWrite, child.stdin, writeArgs);
+      }) as typeof child.stdin.write;
+    }
+    return child;
+  }) as typeof originalSpawn;
+  try {
+    await fake.executeCommand('evalens.evaluateAtCursor');
+    const before = requests.length;
+    assert.ok(before > 0, 'the real evaluation must have reached the pipe');
+    const hover = (await hoverTextAt(fake, editor, 0))!;
+    for (let i = 0; i < 3; i++) await hoverTextAt(fake, editor, 0);
+    assert.equal(requests.length, before, 'reading guidance cannot issue even an inspection');
+    assert.ok(hover.startsWith('````\n'), 'a longer fence keeps the payload literal');
+    const endFence = hover.lastIndexOf('\n````');
+    assert.ok(hover.indexOf(payload) < endFence, 'user text stays inside the fence');
+    assert.ok(hover.indexOf('Python uses ValueError') > endFence, 'prose follows the original');
+  } finally {
+    childProcess.spawn = originalSpawn;
+    extension.deactivate();
+  }
+});

@@ -14,6 +14,7 @@ import {
 } from './layers';
 import { Marker, Traced, markerFor, normalizeSource } from './registry';
 import { Pending, isAsking, pendingText } from './status';
+import { ErrorDetails } from './errorGuidance';
 
 /**
  * Theme colour ids contributed in package.json. Colours come from the theme
@@ -396,7 +397,7 @@ export interface Annotation extends Traced {
    * whatever was configured when it was made.
    */
   readonly printed?: Printed;
-  readonly error?: { readonly type: string; readonly message: string };
+  readonly error?: ErrorDetails;
   /**
    * The full, untruncated answer -- read by `render/hover.ts`'s
    * `HoverProvider`, not painted here. See #46: a decoration's own
