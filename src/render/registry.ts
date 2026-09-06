@@ -109,15 +109,30 @@ export function staleReasonText(
 }
 
 /**
- * Preserve the source that produced a trace. Indentation and whitespace
- * inside multiline strings are semantic in Python; trimming each line
- * silently treated changed programs as unchanged. Conservative staleness
- * is preferable to claiming equivalence without parsing.
+ * Preserve the source that produced a trace, minus the one kind of
+ * whitespace a re-run could never notice. Physical line endings fold to
+ * `\n`; trailing spaces and tabs at the end of each line are then dropped.
+ * Leading whitespace and blank lines are left exactly as written -- #124's
+ * point stands for both: indentation decides block membership, and a blank
+ * line can be inside or outside one, so folding either away hides a real
+ * change. Trailing whitespace is not that: nothing later on the same
+ * physical line reads how far it trails past the last non-blank character,
+ * so `files.trimTrailingWhitespace`, or a stray space typed before Enter, is
+ * an edit to the file rather than to the program -- and marking it stale was
+ * the false positive that made a marker easier to distrust than believe
+ * (#151).
+ *
+ * The gap #124 warned about is real for one shape this does not special-
+ * case: a trailing space *inside* a multi-line string literal is the
+ * string's own content on that line, not padding after a statement, and
+ * this function has no tokenizer to tell the two apart -- it folds that
+ * case away too, silently. Taken deliberately rather than missed: most
+ * editors already strip trailing whitespace on save without regard for what
+ * it sits inside, so the distinction this hides is usually already gone
+ * from the file before this function ever runs.
  */
 export function normalizeSource(text: string): string {
-  // Python normalizes physical line endings. Other whitespace can change
-  // block membership or literal contents, so keep it without a tokenizer.
-  return text.replace(/\r\n/g, '\n');
+  return text.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '');
 }
 
 /**
