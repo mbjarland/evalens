@@ -2,9 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  ESCAPE_HINT, LoadPrompts, SKIP_HINT, SKIP_LABEL, locatedTitle, offersSkip,
-  promptLabel, waitingLabel,
+  ESCAPE_HINT, LoadPrompts, SKIP_HINT, SKIP_LABEL, enclosingLoopHeader,
+  locatedTitle, offersSkip, promptLabel, waitingLabel,
 } from '../input';
+
+/** `lineText` for `enclosingLoopHeader`, over a fixed array of lines. */
+function linesOf(source: string): (line: number) => string {
+  const lines = source.split('\n');
+  return (line: number) => lines[line];
+}
 
 test('the prompt the code printed is what the box says', () => {
   assert.equal(promptLabel('Enter a value: '), 'Enter a value:');
@@ -52,6 +58,58 @@ test('a long line is trimmed the same way a prompt is', () => {
   assert.ok(title.length < 250, 'a title is not where to discover a bug');
   assert.ok(title.endsWith('…'));
 });
+
+test('a bare loop header is found immediately above its body', () => {
+  const lines = linesOf('total = 0\nfor x in data:\n    total += x\n');
+  assert.equal(enclosingLoopHeader(lines, 2), 1);
+});
+
+test('an expression on the loop\'s own header line finds itself', () => {
+  const lines = linesOf('for x in data:\n    pass\n');
+  assert.equal(enclosingLoopHeader(lines, 0), 0);
+});
+
+test('a nested loop finds the innermost header, not the outer one', () => {
+  const lines = linesOf(
+    'for i in range(3):\n'
+    + '    total = 0\n'
+    + '    for j in range(3):\n'
+    + '        total += i * j\n');
+  assert.equal(enclosingLoopHeader(lines, 3), 2,
+    'the line between the two loops is only inside the outer one');
+  assert.equal(enclosingLoopHeader(lines, 1), 0);
+});
+
+test('async for is found the same way for is', () => {
+  const lines = linesOf('async for chunk in stream:\n    process(chunk)\n');
+  assert.equal(enclosingLoopHeader(lines, 1), 0);
+});
+
+test('blank lines and comments between the header and the body are skipped',
+  () => {
+    const lines = linesOf(
+      'for x in data:\n'
+      + '\n'
+      + '    # comment\n'
+      + '    total += x\n');
+    assert.equal(enclosingLoopHeader(lines, 3), 0);
+  });
+
+test('no enclosing loop at all is said honestly, not guessed at', () => {
+  const lines = linesOf('total = 0\ntotal += 1\n');
+  assert.equal(enclosingLoopHeader(lines, 1), undefined);
+});
+
+test('a for inside a function is found without the def confusing the scan',
+  () => {
+    const lines = linesOf(
+      'def total_of(data):\n'
+      + '    total = 0\n'
+      + '    for x in data:\n'
+      + '        total += x\n'
+      + '    return total\n');
+    assert.equal(enclosingLoopHeader(lines, 3), 2);
+  });
 
 test('the first prompt of a load is not asked about the rest', () => {
   // A file with one prompt would be asked whether it wants to skip the

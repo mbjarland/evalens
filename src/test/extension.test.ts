@@ -263,6 +263,182 @@ test('evaluateFile paints one annotation per statement', async () => {
   }
 });
 
+// -- #104: Add Inline Watch prompts for a typed expression -------------------
+
+/**
+ * `paintedLineText`, with the non-breaking spaces `format.ts`'s
+ * `preserveSpacing` puts in painted text folded back to ordinary ones --
+ * `format.ts` itself does the same reversal for a screen reader's benefit
+ * (`hoverFor`'s "said" text). A regex written the way a reader would read
+ * the line should not have to know VS Code eats literal spaces in
+ * `contentText`.
+ */
+function depainted(editor: FakeEditor, line: number): string {
+  return paintedLineText(editor, line).replace(/ /g, ' ');
+}
+
+test('addInlineWatch traces a typed expression that is not in the source ' +
+  'at all', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor(
+    'total = 0\nfor x in [1, 2, 3, 4]:\n    total += x\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+
+  try {
+    // Bind `total` first -- `eval_watch` runs only the loop it resolves to,
+    // the same as a plain `eval` of it would, so a name the loop's body
+    // reads has to already be in the namespace.
+    const evaluateAtCursor = fake.commands.registered.get('evalens.evaluateAtCursor');
+    await (evaluateAtCursor as () => Promise<void>)();
+
+    // No selection: the cursor merely sits inside the loop's body.
+    editor.selection = new FakeSelection(
+      new FakePosition(2, 4), new FakePosition(2, 4));
+    fake.inputBox.answers.push('total * 2');
+    const addInlineWatch = fake.commands.registered.get('evalens.addInlineWatch');
+    await (addInlineWatch as () => Promise<void>)();
+
+    assert.equal(fake.inputBox.calls.length, 1, 'the box was shown');
+    assert.equal(fake.inputBox.calls[0].value, '',
+      'nothing was selected, so nothing is prefilled');
+    assert.match(fake.inputBox.calls[0].title ?? '', /for x in/,
+      'the box names the loop this nomination lands in');
+
+    // Painted on the loop's own header line -- 0-based line 1 -- exactly
+    // where the loop's own target trace already lands.
+    const text = depainted(editor, 1);
+    assert.match(text, /total \* 2/,
+      'the typed expression was never in the source and still traced');
+    assert.match(text, /2, 6, 12, 20/,
+      'total * 2, tracked at each iteration total itself became 1, 3, 6, 10');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('addInlineWatch still offers the selection as the box\'s default',
+  async () => {
+    const fake = createFakeVscode();
+    const editor = createEditor(
+      'total = 0\nfor x in [1, 2, 3, 4]:\n    total += x\n');
+    fake.window.activeTextEditor = editor;
+    fake.window.visibleTextEditors = [editor];
+    const extension = activated(fake);
+
+    try {
+      const evaluateAtCursor = fake.commands.registered.get('evalens.evaluateAtCursor');
+      await (evaluateAtCursor as () => Promise<void>)();
+
+      // "total" on its own body line -- the gesture the command supported
+      // before #104, still exactly one keypress once the box accepts it.
+      editor.selection = new FakeSelection(
+        new FakePosition(2, 4), new FakePosition(2, 9));
+      fake.inputBox.answers.push('total');
+      const addInlineWatch = fake.commands.registered.get('evalens.addInlineWatch');
+      await (addInlineWatch as () => Promise<void>)();
+
+      assert.equal(fake.inputBox.calls[0].value, 'total',
+        'the selection is offered as the prefilled default');
+      const text = depainted(editor, 1);
+      assert.match(text, /x ×4: 1, 2, 3, 4/);
+      assert.match(text, /total ×4: 1, 3, 6, 10/);
+    } finally {
+      extension.deactivate();
+    }
+  });
+
+test('cancelling the watch box leaves no request sent and nothing painted',
+  async () => {
+    const fake = createFakeVscode();
+    const editor = createEditor(
+      'total = 0\nfor x in [1, 2, 3, 4]:\n    total += x\n');
+    fake.window.activeTextEditor = editor;
+    fake.window.visibleTextEditors = [editor];
+    editor.selection = new FakeSelection(
+      new FakePosition(2, 4), new FakePosition(2, 9));
+    // No answer queued: `showInputBox` resolves to `undefined`, the same as
+    // Escape, the close button, or the palette opening over it.
+    const extension = activated(fake);
+
+    try {
+      const addInlineWatch = fake.commands.registered.get('evalens.addInlineWatch');
+      await (addInlineWatch as () => Promise<void>)();
+
+      assert.equal(fake.inputBox.calls.length, 1, 'the box was still shown');
+      assert.deepEqual(paintedLines(editor), [],
+        'nothing was ever sent to the kernel, so nothing can be painted');
+      assert.equal(fake.messages.error.length, 0);
+    } finally {
+      extension.deactivate();
+    }
+  });
+
+test('an expression that does not compile is shown as an error, never ' +
+  'appended to the output channel', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor(
+    'total = 0\nfor x in [1, 2, 3, 4]:\n    total += x\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  editor.selection = new FakeSelection(
+    new FakePosition(2, 4), new FakePosition(2, 4));
+  // Incomplete on purpose: `ast.parse(..., mode="eval")` cannot finish it.
+  fake.inputBox.answers.push('total *');
+  const extension = activated(fake);
+
+  try {
+    const addInlineWatch = fake.commands.registered.get('evalens.addInlineWatch');
+    await (addInlineWatch as () => Promise<void>)();
+
+    assert.equal(fake.messages.error.length, 1,
+      'a nomination that never compiled is said where the reader is looking');
+    assert.match(fake.messages.error[0].message, /SyntaxError/);
+    assert.deepEqual(paintedLines(editor), [],
+      'there is no statement to paint a compile failure beside');
+    // Kernel start-up chatter (which interpreter was probed and picked)
+    // belongs on this channel; the compile failure itself must not.
+    for (const channel of fake.outputChannels) {
+      for (const line of channel.lines) {
+        assert.doesNotMatch(line, /cannot watch|SyntaxError/,
+          'design rule 7: the answer goes on the line, never the output ' +
+          'channel, which is overflow and not a destination');
+      }
+    }
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('a typed watch that raises partway still paints the loop it completed',
+  async () => {
+    const fake = createFakeVscode();
+    const editor = createEditor('for p in [1, 0, 2, 0, 3]:\n    pass\n');
+    fake.window.activeTextEditor = editor;
+    fake.window.visibleTextEditors = [editor];
+    editor.selection = new FakeSelection(
+      new FakePosition(1, 4), new FakePosition(1, 4));
+    fake.inputBox.answers.push('1/p');
+    const extension = activated(fake);
+
+    try {
+      const addInlineWatch = fake.commands.registered.get('evalens.addInlineWatch');
+      await (addInlineWatch as () => Promise<void>)();
+
+      const text = depainted(editor, 0);
+      // The loop's own target completed all five iterations regardless.
+      assert.match(text, /p ×5: 1, 0, 2, 0, 3/);
+      assert.match(text, /1\/p/);
+      // The three iterations that did not divide by zero were still traced.
+      assert.match(text, /1\.0/);
+      assert.match(text, /0\.5/);
+      assert.match(text, /0\.3333333333333333/);
+    } finally {
+      extension.deactivate();
+    }
+  });
+
 // -- #99: a whole-file load resets the namespace by default -----------------
 
 test('evaluateFile resets the namespace before a whole-file load, by ' +

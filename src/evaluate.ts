@@ -5,7 +5,9 @@ import {
   advanceSkipsComments, displayLimits, nameDisplayCap, progressDelay,
   resetOnLoad,
 } from './config';
-import { LoadPrompts, locatedTitle, waitingLabel } from './input';
+import {
+  LoadPrompts, enclosingLoopHeader, locatedTitle, waitingLabel,
+} from './input';
 import { describeInterrupt, settlesWithin } from './interrupt';
 import { KernelClient } from './kernel/client';
 import {
@@ -458,6 +460,31 @@ export class Evaluator {
       return undefined;
     }
     const line = request.anchor ?? request.range.end.line;
+    return locatedTitle(line, document.lineAt(line).text.trim());
+  }
+
+  /**
+   * `addInlineWatch`'s box title: the enclosing loop's own header line, when
+   * `enclosingLoopHeader`'s plain scan of the buffer finds one above
+   * `fromLine`, and `fromLine` itself otherwise -- always something on
+   * screen, unlike `titleFor`, which can fall back to no title at all
+   * because it has nothing honest to point at from an old kernel. This
+   * always has the buffer in hand, so the fallback is the nomination's own
+   * line rather than silence.
+   *
+   * The scan runs before anything has been sent to the kernel -- there is no
+   * expression yet for `eval_watch` to resolve a loop against -- so this can
+   * only ever undersell which loop is meant, never assert the wrong one: see
+   * `enclosingLoopHeader`'s doc comment in `input.ts` for exactly what a text
+   * scan can and cannot see, and why getting it wrong here costs a plainer
+   * title and nothing else.
+   */
+  private watchBoxTitle(
+    document: vscode.TextDocument, fromLine: number
+  ): string {
+    const header = enclosingLoopHeader(
+      (line) => document.lineAt(line).text, fromLine);
+    const line = header ?? fromLine;
     return locatedTitle(line, document.lineAt(line).text.trim());
   }
 
@@ -1101,8 +1128,9 @@ export class Evaluator {
   }
 
   /**
-   * Nominate the current selection as an expression to trace across the
-   * loop that encloses it -- #48.
+   * Nominate an expression -- typed into a box, or the current selection --
+   * to trace across the loop that encloses it -- #48, and #104 for the
+   * typed half.
    *
    * **This is a trace, not a watch,** whatever the command is named for the
    * palette. Design rule 4 forbids re-reading a value later: an annotation
@@ -1116,27 +1144,77 @@ export class Evaluator {
    * none of it, because nothing on this side or the kernel's remembers it.
    * Nominate again to see it move.
    *
-   * **A selection is required.** Resolving "the expression under the
-   * cursor" with nothing selected needs the same kind of `ast` reach
-   * `resolver.py` already owns for a whole statement, and #48 is scoped to
-   * the kernel and this command rather than a second cursor-resolution path
-   * living here. Selecting the expression and pressing a key is the same
-   * first move #49 already asks for.
+   * **The box, not the selection alone, is where the expression comes
+   * from.** #104 is the maintainer hitting this on first use: a selection
+   * could only ever nominate characters already sitting in the file, so
+   * `total * 2` or `len(seen)` were unreachable unless they already happened
+   * to be written somewhere selectable -- exactly backwards, since the
+   * reason to nominate an expression is usually that it is *not* there yet.
+   * `vscode.window.showInputBox` asks for it directly, prefilled with the
+   * selection when there is one so the old select-and-press gesture still
+   * works unchanged, and empty otherwise. Typing the expression *is* the
+   * pointing design rule 3 asks for, exactly as selecting one already was;
+   * nothing here runs anything the reader did not name in that box, and
+   * cancelling it -- Escape, the close button, the palette opening over it,
+   * all `showInputBox` resolving to `undefined` -- is checked before
+   * anything is sent, so it leaves no request, no mark and no state behind.
+   *
+   * **The title names the loop, not just the line**, the way #97's box
+   * already puts `line 13 · x = input(...)` on itself -- see
+   * `watchBoxTitle`. It is a plain text scan of the buffer, not the
+   * kernel's own parse, so the worst it can do is undersell -- falling back
+   * to the nomination's own line when it cannot find one; `eval_watch`
+   * resolves the loop it actually attaches to from the real tree once the
+   * request is sent, independently of whatever the title guessed.
+   *
+   * **Not the identifier under the cursor, with no selection or typing at
+   * all.** That zero-effort default needs the same `resolver.py`-level
+   * `ast` reach #48 already declined for a cursor-only resolution, for the
+   * same reason: telling an identifier apart from an attribute access, a
+   * call, or a keyword at a bare cursor position is expression-level
+   * parsing, not a selection or a typed string. #104 declines it again
+   * rather than let the input box wait on it -- it is a legitimate
+   * follow-up, tracked as #106.
    *
    * The response is the same shape `evaluateAtCursor` already paints from --
    * `eval_watch` answers with an ordinary `Evaluated`/`Failed`, its nominated
    * expression's sequence riding in `bindings` alongside whatever the loop's
    * body already bound -- so `annotationFor` is reused rather than
    * duplicated, and a watch renders exactly the way a body binding does:
-   * "another `name: value` pair on the loop's header line."
+   * "another `name: value` pair on the loop's header line." A failing
+   * expression is reported once and does not stop the loop (`loops.py`'s own
+   * `try`/`except` around the injected call). An expression that does not
+   * even compile -- `total *`, an unmatched `[` -- comes back with no
+   * `range` at all, since there is no statement yet to point at;
+   * `annotationFor` returns nothing for that, and the branch below falls
+   * through to `showErrorMessage` -- where design rule 7 puts an answer that
+   * never became a value, never the output channel, which is overflow and
+   * not a destination.
    */
   async addInlineWatch(editor: vscode.TextEditor): Promise<void> {
     const document = editor.document;
     const selection = editor.selection;
-    const expr = document.getText(selection).trim();
+    const preselected = document.getText(selection).trim();
+
+    const typed = await vscode.window.showInputBox({
+      title: this.watchBoxTitle(document, selection.start.line),
+      prompt: 'Evalens: trace this expression across the loop, once, now',
+      value: preselected,
+      placeHolder: 'e.g. total * 2',
+      // Matches `askForInput`'s own box: without it, clicking back into the
+      // editor to re-read the loop before finishing typing dismisses the
+      // box as though Escape had been pressed, discarding what was typed.
+      ignoreFocusOut: true,
+    });
+    if (typed === undefined) {
+      // Escape, the close button, or the palette opening over it. Nothing
+      // has been sent yet, so there is nothing to undo.
+      return;
+    }
+    const expr = typed.trim();
     if (!expr) {
       vscode.window.setStatusBarMessage(
-        'Evalens: select an expression to watch', STATUS_ACK_MS);
+        'Evalens: no expression to watch', STATUS_ACK_MS);
       return;
     }
 
