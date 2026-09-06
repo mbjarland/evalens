@@ -54,9 +54,27 @@ function cell(text: string): string {
 }
 
 /** `{type}`, following Rider: braces around the word, not around anything
- * else on the row. */
+ * else on the row. Used only for `quickPickItems`' `description`, which
+ * VS Code renders as plain text -- `*int*` would show its asterisks
+ * literally there, where a markdown renderer is not in the loop to turn
+ * them into italics. */
 function braced(type: string): string {
   return `{${cell(type)}}`;
+}
+
+/**
+ * `*type*`, for the Type column of a markdown table -- #105's answer to
+ * "the braces read as noise beside `magnitude {property}`". `property` is
+ * not a Python type; it is this module's own word for "a descriptor found
+ * on the class, listed without being called" (design rule 3), and putting
+ * it in the same `{brace}` notation used for a real runtime type like
+ * `{int}` overstates what is known about it. Italics mark the whole column
+ * as descriptive rather than asserting a type the reader might expect to
+ * `isinstance()` against, and cost nothing extra in a row that already
+ * carries `*not evaluated*` in italics for the same reason.
+ */
+function italicType(type: string): string {
+  return `*${cell(type)}*`;
 }
 
 function valueCell(child: InspectChild): string {
@@ -76,17 +94,33 @@ function valueCell(child: InspectChild): string {
  * A GitHub-flavoured markdown table, which is what VS Code's hover renderer
  * already supports without `supportHtml`, so nothing here has to reach for
  * raw HTML to lay out three columns.
+ *
+ * The separator row asks for explicit left alignment on every column
+ * (`:---`, never bare `---`) -- #105. `--- ` alone tells a renderer "no
+ * preference", and `.monaco-hover` carries no stylesheet rule of its own
+ * for a table cell, so "no preference" fell through to the browser's UA
+ * default: a `th` centred, a `td` left, and the header stopped sitting
+ * over its column. `:---` is not merely a style hint here -- VS Code's
+ * markdown renderer (`marked`) turns a `:---`-aligned column into a
+ * literal `align="left"` attribute on every `th`/`td` in it, one of the
+ * few presentational attributes VS Code's own DOM sanitizer keeps intact
+ * (checked against the shipped `workbench.desktop.main.js`, 1.136.1); a
+ * `style="text-align:left"` attempt would have been stripped outright,
+ * since that sanitizer only lets a `style` attribute survive on a `span`.
+ * See `table.ts`'s `tableMarkdown`, which the same requirement applies to
+ * -- two tables in one hover must agree on alignment or the fix would
+ * trade one ragged table for two disagreeing ones.
  */
 export function inspectionTable(inspected: Inspected): string | undefined {
   if (inspected.children.length === 0) {
     return undefined;
   }
   const rows = inspected.children.map((child) => (
-    `| ${cell(child.name)} | ${braced(child.type)} | ${valueCell(child)} |`
+    `| ${cell(child.name)} | ${italicType(child.type)} | ${valueCell(child)} |`
   ));
   const table = [
     '| Field | Type | Value |',
-    '| --- | --- | --- |',
+    '| :--- | :--- | :--- |',
     ...rows,
   ].join('\n');
   if (!inspected.truncated) {
