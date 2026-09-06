@@ -99,6 +99,19 @@ export function followValuesPanel(): boolean {
     .get<boolean>('valuesPanel.follow', true);
 }
 
+/** Link cursor navigation independently of following evaluation results. */
+export function followValuesCursor(): boolean {
+  return vscode.workspace
+    .getConfiguration('evalens')
+    .get<boolean>('valuesPanel.followCursor', true);
+}
+
+/** Set the reading preference from the Values panel's own checkbox. */
+export async function setFollowValuesCursor(value: boolean): Promise<void> {
+  await vscode.workspace.getConfiguration('evalens').update(
+    'valuesPanel.followCursor', value, vscode.ConfigurationTarget.Global);
+}
+
 /**
  * Flip `evalens.valuesPanel.follow`, for **Evalens: Toggle Follow in Values
  * Panel** and the lock toggle it drives in the values panel's title bar

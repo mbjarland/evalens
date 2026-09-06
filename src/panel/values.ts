@@ -2,7 +2,8 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 import {
-  followValuesPanel, printedLabel as printedLabelSetting,
+  followValuesCursor, followValuesPanel, printedLabel as printedLabelSetting,
+  setFollowValuesCursor,
 } from '../config';
 import { AnnotationChangeEvent, Annotations } from '../render/annotations';
 import { PanelAnnotation, ValuesPanelData, rowsFor, valuesHtml } from './html';
@@ -48,6 +49,18 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly subscriptions: vscode.Disposable[] = [];
   private viewSubscriptions: vscode.Disposable[] = [];
 
+  private revision = 0;
+  private renderedData: ValuesPanelData = { fileName: undefined, rows: [] };
+  private markedEditor: vscode.TextEditor | undefined;
+  private readonly navigation = vscode.window.createTextEditorDecorationType({
+    isWholeLine: true,
+    borderWidth: '1px 0 1px 3px',
+    borderStyle: 'solid',
+    borderColor: new vscode.ThemeColor('focusBorder'),
+    backgroundColor: new vscode.ThemeColor('editor.rangeHighlightBackground'),
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
+  });
+
   constructor(private readonly annotations: Annotations) {
     this.subscriptions.push(
       // The one non-polling trigger design rule 6's spirit asks for: the
@@ -56,7 +69,12 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       // to say *which line* changed, so the rebuild below can also reveal
       // it -- see `revealLineFor`.
       annotations.onDidChange((event) => this.rebuild(this.revealLineFor(event))),
-      vscode.window.onDidChangeActiveTextEditor(() => this.rebuild()),
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration('evalens.valuesPanel.followCursor')) {
+          void this.view?.webview.postMessage({ followCursor: followValuesCursor() });
+        }
+      }),
+      vscode.window.onDidChangeActiveTextEditor(() => this.rebuild(this.cursorRevealLine())),
       // Cursor movement never rebuilds -- it only moves the highlighted row,
       // in the webview's own script, from the one number `onSelection` posts.
       vscode.window.onDidChangeTextEditorSelection(
@@ -76,15 +94,22 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     webviewView.webview.options = { enableScripts: true };
     this.viewSubscriptions = [
       webviewView.onDidDispose(() => {
+        this.clearMarker();
         this.view = undefined;
         this.viewSubscriptions = [];
       }),
+      webviewView.onDidChangeVisibility(() => {
+        if (webviewView.visible) this.rebuild(this.cursorRevealLine());
+        else this.clearMarker();
+      }),
       webviewView.webview.onDidReceiveMessage((message) => this.onMessage(message)),
     ];
-    this.rebuild();
+    this.rebuild(this.cursorRevealLine());
   }
 
   dispose(): void {
+    this.clearMarker();
+    this.navigation.dispose();
     for (const subscription of this.subscriptions) {
       subscription.dispose();
     }
@@ -97,42 +122,58 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
 
   // -- internals --------------------------------------------------------------
 
-  /** `{ cursor: line }`, so the webview's own script moves the highlight
-   * without a rebuild -- posting the HTML again on every keystroke of
-   * cursor movement would be the polling design rule 6 rules out, aimed at
-   * the wrong target. */
-  private onSelection(event: vscode.TextEditorSelectionChangeEvent): void {
-    if (!this.view) {
-      return;
-    }
-    if (event.textEditor !== vscode.window.activeTextEditor) {
-      return;
-    }
-    if (event.textEditor.document.languageId !== 'python') {
-      return;
-    }
-    const active = event.selections[0]?.active.line;
-    if (active === undefined) {
-      return;
-    }
-    void this.view.webview.postMessage({ cursor: active });
+  private cursorRevealLine(): number | undefined {
+    return followValuesCursor() ? vscode.window.activeTextEditor?.selection.active.line
+      : undefined;
   }
 
-  /** `{ goto: line }` from a clicked row: reveal that line and put the
-   * cursor there. The panel never evaluates anything, clicking included --
-   * this only moves the reader to the code the row is about. */
+  private clearMarker(): void {
+    this.markedEditor?.setDecorations(this.navigation, []);
+    this.markedEditor = undefined;
+  }
+
+  private mark(editor: vscode.TextEditor, line: number): void {
+    this.clearMarker();
+    const annotation = this.annotations.at(editor.document, line);
+    if (annotation) {
+      editor.setDecorations(this.navigation, [annotation.range]);
+      this.markedEditor = editor;
+    }
+  }
+
+  /** Navigation reads captured annotations only, and never focuses a pane. */
+  private onSelection(event: vscode.TextEditorSelectionChangeEvent): void {
+    if (!this.view?.visible || event.textEditor !== vscode.window.activeTextEditor
+      || event.textEditor.document.languageId !== 'python') return;
+    const active = event.selections[0]?.active.line;
+    if (active === undefined) return;
+    this.mark(event.textEditor, active);
+    void this.view.webview.postMessage({
+      cursor: active, reveal: followValuesCursor(),
+    });
+  }
+
   private onMessage(message: unknown): void {
-    const goto = (message as { readonly goto?: unknown } | undefined)?.goto;
-    if (typeof goto !== 'number') {
+    if (!message || typeof message !== 'object' || !this.view?.visible) return;
+    const data = message as {
+      goto?: unknown; revision?: unknown; followCursor?: unknown; explicit?: unknown;
+    };
+    if (data.revision !== this.revision) return;
+    if (typeof data.followCursor === 'boolean') {
+      void setFollowValuesCursor(data.followCursor);
       return;
     }
+    if (!followValuesCursor() && data.explicit !== true) return;
     const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      return;
-    }
-    const position = new vscode.Position(goto, 0);
+    if (!editor || editor.document.languageId !== 'python'
+      || typeof data.goto !== 'number' || !Number.isInteger(data.goto)) return;
+    // Ignore queued messages from previous HTML and nonexistent rows.
+    const row = this.renderedData.rows.find((row) => row.line === data.goto);
+    if (!row) return;
+    const position = new vscode.Position(row.line, 0);
     editor.selection = new vscode.Selection(position, position);
     editor.revealRange(new vscode.Range(position, position));
+    this.mark(editor, row.line);
   }
 
   /**
@@ -161,10 +202,16 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     if (!this.view) {
       return;
     }
+    this.clearMarker();
     const editor = vscode.window.activeTextEditor;
     const cursorLine = editor?.selection.active.line;
+    this.renderedData = this.dataFor(editor);
     this.view.webview.html =
-      valuesHtml(this.dataFor(editor), cursorLine, nonce(), revealLine);
+      valuesHtml(this.renderedData, cursorLine, nonce(), revealLine,
+        followValuesCursor(), ++this.revision);
+    if (editor && this.view.visible && cursorLine !== undefined) {
+      this.mark(editor, cursorLine);
+    }
   }
 
   /** What `valuesHtml` renders from, for whatever the active editor is right

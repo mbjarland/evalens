@@ -350,8 +350,19 @@ cannot pin itself to what is visible, and cannot take a line of its own.
 instead, one row per annotated line in file order, full width and wrapping.
 A list long enough to have run off the screen now wraps onto a second line;
 a `print()` spanning several lines keeps every one of them, not the inline
-chip's first-line-and-a-count. Click a row to jump to it; move the cursor
-and the panel's own row highlights, without anything being repainted.
+chip's first-line-and-a-count.
+
+Move the editor cursor to bring the corresponding row into view, marked with
+an arrow and a frame. Click a row, or use Up/Down and Home/End after focusing
+one, to reveal and frame its source. Keyboard focus stays in the pane you
+are using, so you can keep navigating there. A cursor inside a multiline
+statement selects that statement's captured result; an unrelated blank line
+selects none. Moving around never evaluates code or rebuilds the panel.
+
+Uncheck **Follow cursor between code and values** to browse independently.
+Clicking a row or pressing Enter/Space still reveals its source. This checkbox
+controls `evalens.valuesPanel.followCursor`; the title-bar lock separately
+controls following newly evaluated results (`evalens.valuesPanel.follow`).
 
 It is the same trace read twice, not a second feature — the panel reads
 what is already painted and asks the kernel nothing, so a row goes stale
@@ -972,7 +983,8 @@ description says what the option *costs* rather than what it is called.
 | `evalens.advanceSkipsComments` | `true` | Whether Evaluate and Advance steps over comment lines. Off, it stops once per comment block — one more press each, and that press evaluates nothing |
 | `evalens.announceResults` | `"auto"` | Whether a result is announced as well as painted, for a screen reader. `auto` follows `editor.accessibilitySupport`; `always` announces every one; `never` announces none. See above |
 | `evalens.resetOnLoad` | `true` | Whether Evaluate File clears the namespace before running the whole file. On, a deleted binding is actually gone and a second file cannot read back an earlier one's leftovers. Off keeps expensive setup from an earlier load, at the cost of the namespace remembering more than the file defines — Evalens then notes it in the status bar. A selection never resets regardless; Run File as Script always does |
-| `evalens.valuesPanel.follow` | `true` | Whether the values panel scrolls the row that just changed into view on every evaluation. On, the newest value is always what you see. Off keeps your scroll position exactly where you left it, for reading back through a file's history — flip it from the panel's own `$(unlock)` / `$(lock)` title-bar button as well as from here |
+| `evalens.valuesPanel.followCursor` | `true` | Reveal the matching value when moving the editor cursor, and reveal source when navigating Values rows. Keyboard focus stays in the pane you use. Turn off with **Follow cursor between code and values** in the panel to browse independently; clicking a row or pressing Enter/Space still reveals source. Use Up/Down or Home/End to browse rows. Navigation only reads captured results |
+| `evalens.valuesPanel.follow` | `true` | Whether the values panel scrolls the row that just changed into view on every evaluation. On, the newest value is always what you see. Off stops evaluations from scrolling the panel. Cursor navigation is controlled separately by `evalens.valuesPanel.followCursor`. Flip evaluation following from the panel's own `$(unlock)` / `$(lock)` title-bar button as well as from here |
 
 Two of them are off switches on purpose. Loop sequences and read-name
 annotations are the two things Evalens adds that a reader might not want, and
