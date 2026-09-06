@@ -14,7 +14,7 @@ set -euo pipefail
 
 marked=$(git diff --cached --name-only --diff-filter=ACM | while read -r f; do
   case "$f" in
-    *.md|*.ts|*.js|*.py|*.json|*.jsonc|*.yml|*.yaml|*.sh|*.txt)
+    (*.md|*.ts|*.js|*.py|*.json|*.jsonc|*.yml|*.yaml|*.sh|*.txt)
       if git show ":$f" 2>/dev/null | grep -qE '^(<{7}|>{7})( |$)'; then
         echo "$f"
       fi

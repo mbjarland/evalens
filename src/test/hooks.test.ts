@@ -3,8 +3,34 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 
 const root = path.resolve(__dirname, '..', '..');
+
+test('hooks parse and check the staged tree with the system Bash', () => {
+  const bash = process.platform === 'win32' ? 'bash' : '/bin/bash';
+  for (const name of ['pre-commit', 'commit-msg']) {
+    execFileSync(bash, ['-n', path.join(root, 'bin/hooks', name)]);
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evalens-hook-test-'));
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir });
+  const check = () => execFileSync(
+    bash, [path.join(root, 'bin/hooks/pre-commit')],
+    { cwd: dir, stdio: 'pipe' });
+  try {
+    git('init', '--quiet');
+    const file = path.join(dir, 'sample.md');
+    fs.writeFileSync(file, 'Clean staged text\n');
+    git('add', 'sample.md');
+    assert.doesNotThrow(check);
+    fs.writeFileSync(file, '<'.repeat(7) + ' ours\n');
+    assert.doesNotThrow(check, 'only staged content is checked');
+    git('add', 'sample.md');
+    assert.throws(check, /commit refused/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 function commonHooksDir(): string | undefined {
   try {
