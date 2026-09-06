@@ -17,6 +17,7 @@ import {
 } from './kernel/protocol';
 import { InOrder } from './load';
 import { askForInput } from './prompt';
+import { InterpreterUnavailableError } from './python';
 import { Announcer } from './render/announcer';
 import { Annotations } from './render/annotations';
 import { Annotation, sourceAt, toVsCodeRange } from './render/decorations';
@@ -343,6 +344,14 @@ export class Evaluator {
   private asking?: Asking;
   private execution: Promise<unknown> = Promise.resolve();
   private executionGeneration = 0;
+
+  private reportFailure(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    this.output.appendLine(message);
+    if (!(error instanceof InterpreterUnavailableError)) {
+      void vscode.window.showErrorMessage(`Evalens: ${message}`);
+    }
+  }
 
   /** One user action owns the namespace and its prompts until it finishes. */
   private execute<T>(asking: Asking, action: () => Promise<T>): Promise<T> {
@@ -681,66 +690,64 @@ export class Evaluator {
     try {
       response = await this.execute(
         { document, load: new LoadPrompts(), blocked }, async () => {
-      const client = await this.client();
-      if (shouldReset) {
-        // Awaited on its own, not raced with `eval_file`: the kernel reads
-        // its stdin one request at a time, so the response settling is what
-        // proves the namespace was empty before the load below started
-        // filling it back in. This also clears #86's input-replay store --
-        // `Kernel.reset` already does that as part of clearing the
-        // namespace -- so nothing further is needed to keep that state in
-        // step with this one.
-        await client.request({ op: 'reset' });
-      }
-      const running = client.request(
-        {
-          op: 'eval_file',
-          source,
-          filename: document.uri.fsPath,
-          // A load asks. It used to refuse, citing the flag Jupyter sets false
-          // for `nbconvert` -- but that runs unattended, and this is somebody
-          // pressing a key and waiting. Refusing painted a red `EOFError` on
-          // the prompt line and a cascade of `NameError` under it, on exactly
-          // the teaching files this command exists to set up. Twenty prompts
-          // is still too many, which is what "skip the rest" is for. A
-          // selection is the same command over less code and does not change
-          // that either.
-          allow_stdin: true,
-          // The whole buffer either way, with the selection sent as a line
-          // range rather than as the selected text: the kernel needs the file
-          // around the selection to snap outward to whole statements, and to
-          // keep every line number it reports pointing at the real file.
-          ...(lines ?? {}),
-          // Only present when true: absent is what every load before #78 sent,
-          // and the kernel reads it with `bool(request.get("as_script"))`, so
-          // there is nothing this needs to be false for.
-          ...(asScript ? { as_script: true } : {}),
-          // Read per request, so a setting changed between two keypresses
-          // applies to the second one without restarting the kernel -- which
-          // would take the namespace with it.
-          limits: displayLimits(),
-        },
-        // Each statement, the moment it finishes. It goes to the same painter
-        // the response's `results` reaches, through the gate that keeps the
-        // two paths from painting anything twice or out of turn.
-        (frame) => {
-          // Whatever was waiting has finished waiting: the kernel runs one
-          // statement at a time, so this outcome is the marked statement's.
-          blocked.release();
-          load.order.offer(frame.index, frame.outcome);
-        }
-      );
-      return (await this.watch(
-        running,
-        asScript
-          ? 'Evalens: running the file as a script'
-          : lines ? 'Evalens: running the selection' : 'Evalens: loading the file'
-      )) as FileResponse;
-      });
+          const client = await this.client();
+          if (shouldReset) {
+            // Awaited on its own, not raced with `eval_file`: the kernel reads
+            // its stdin one request at a time, so the response settling is what
+            // proves the namespace was empty before the load below started
+            // filling it back in. This also clears #86's input-replay store --
+            // `Kernel.reset` already does that as part of clearing the
+            // namespace -- so nothing further is needed to keep that state in
+            // step with this one.
+            await client.request({ op: 'reset' });
+          }
+          const running = client.request(
+            {
+              op: 'eval_file',
+              source,
+              filename: document.uri.fsPath,
+              // A load asks. It used to refuse, citing the flag Jupyter sets false
+              // for `nbconvert` -- but that runs unattended, and this is somebody
+              // pressing a key and waiting. Refusing painted a red `EOFError` on
+              // the prompt line and a cascade of `NameError` under it, on exactly
+              // the teaching files this command exists to set up. Twenty prompts
+              // is still too many, which is what "skip the rest" is for. A
+              // selection is the same command over less code and does not change
+              // that either.
+              allow_stdin: true,
+              // The whole buffer either way, with the selection sent as a line
+              // range rather than as the selected text: the kernel needs the file
+              // around the selection to snap outward to whole statements, and to
+              // keep every line number it reports pointing at the real file.
+              ...(lines ?? {}),
+              // Only present when true: absent is what every load before #78 sent,
+              // and the kernel reads it with `bool(request.get("as_script"))`, so
+              // there is nothing this needs to be false for.
+              ...(asScript ? { as_script: true } : {}),
+              // Read per request, so a setting changed between two keypresses
+              // applies to the second one without restarting the kernel -- which
+              // would take the namespace with it.
+              limits: displayLimits(),
+            },
+            // Each statement, the moment it finishes. It goes to the same painter
+            // the response's `results` reaches, through the gate that keeps the
+            // two paths from painting anything twice or out of turn.
+            (frame) => {
+              // Whatever was waiting has finished waiting: the kernel runs one
+              // statement at a time, so this outcome is the marked statement's.
+              blocked.release();
+              load.order.offer(frame.index, frame.outcome);
+            }
+          );
+          return (await this.watch(
+            running,
+            asScript
+              ? 'Evalens: running the file as a script'
+              : lines ? 'Evalens: running the selection' : 'Evalens: loading the file'
+          )) as FileResponse;
+        });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.output.appendLine(message);
-      void vscode.window.showErrorMessage(`Evalens: ${message}`);
+      this.reportFailure(error);
       // The statements that did report keep their values: they ran, and the
       // transport failing afterwards does not make them untrue.
       return;
@@ -894,32 +901,30 @@ export class Evaluator {
     try {
       response = await this.execute(
         { document, load: new LoadPrompts(), blocked }, async () => {
-      const client = await this.client();
-      const running = client.request(
-        {
-          op: 'eval_above',
-          source,
-          filename: document.uri.fsPath,
-          line,
-          // Same reasoning as Evaluate File: somebody pressed a key and is
-          // watching, so refusing to prompt only trades a visible question
-          // for a red `EOFError` and the cascade of `NameError` beneath it.
-          allow_stdin: true,
-          limits: displayLimits(),
-        },
-        (frame) => {
-          blocked.release();
-          load.order.offer(frame.index, frame.outcome);
-        }
-      );
-      return (await this.watch(
-        running, 'Evalens: running everything above the cursor'
-      )) as FileResponse;
-      });
+          const client = await this.client();
+          const running = client.request(
+            {
+              op: 'eval_above',
+              source,
+              filename: document.uri.fsPath,
+              line,
+              // Same reasoning as Evaluate File: somebody pressed a key and is
+              // watching, so refusing to prompt only trades a visible question
+              // for a red `EOFError` and the cascade of `NameError` beneath it.
+              allow_stdin: true,
+              limits: displayLimits(),
+            },
+            (frame) => {
+              blocked.release();
+              load.order.offer(frame.index, frame.outcome);
+            }
+          );
+          return (await this.watch(
+            running, 'Evalens: running everything above the cursor'
+          )) as FileResponse;
+        });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.output.appendLine(message);
-      void vscode.window.showErrorMessage(`Evalens: ${message}`);
+      this.reportFailure(error);
       return;
     } finally {
       blocked.release();
@@ -1033,9 +1038,7 @@ export class Evaluator {
       // it does not belong painted next to their line. The mark is already
       // gone: `whileRunning` withdraws it rather than leaving a line claiming
       // to be running something that blew up.
-      const message = error instanceof Error ? error.message : String(error);
-      this.output.appendLine(message);
-      void vscode.window.showErrorMessage(`Evalens: ${message}`);
+      this.reportFailure(error);
       return;
     }
 
@@ -1280,27 +1283,25 @@ export class Evaluator {
     let response: EvalResponse;
     try {
       response = await this.execute({ document }, async () => {
-      const client = await this.client();
-      return (await this.watch(
-        client.request({
-          op: 'eval_watch',
-          source,
-          line: selection.start.line,
-          character: selection.start.character,
-          filename: document.uri.fsPath,
-          // A key was just pressed for this specific nomination; the same
-          // reasoning `evaluateAtCursor` gives applies unchanged.
-          allow_stdin: true,
-          limits: displayLimits(),
-          watch: expr,
-        }),
-        'Evalens: watching'
-      )) as EvalResponse;
+        const client = await this.client();
+        return (await this.watch(
+          client.request({
+            op: 'eval_watch',
+            source,
+            line: selection.start.line,
+            character: selection.start.character,
+            filename: document.uri.fsPath,
+            // A key was just pressed for this specific nomination; the same
+            // reasoning `evaluateAtCursor` gives applies unchanged.
+            allow_stdin: true,
+            limits: displayLimits(),
+            watch: expr,
+          }),
+          'Evalens: watching'
+        )) as EvalResponse;
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.output.appendLine(message);
-      void vscode.window.showErrorMessage(`Evalens: ${message}`);
+      this.reportFailure(error);
       return;
     }
 
@@ -1354,7 +1355,13 @@ export class Evaluator {
     const document = editor.document;
     const isCurrent = this.annotations.validity(document);
     const cursor = editor.selection.active;
-    const statements = await this.statementsOf(document);
+    let statements: readonly StatementSpan[] | undefined;
+    try {
+      statements = await this.statementsOf(document);
+    } catch (error) {
+      this.reportFailure(error);
+      return;
+    }
     if (!isCurrent()
         || editor.selection.active.line !== cursor.line
         || editor.selection.active.character !== cursor.character) {
@@ -1438,7 +1445,12 @@ export class Evaluator {
         source,
         filename: document.uri.fsPath,
       })) as OutlineResponse;
-    } catch {
+    } catch (error) {
+      if (error instanceof InterpreterUnavailableError) {
+        // This keypress already offered the fix. Do not probe and notify
+        // again for the evaluation which would have followed this outline.
+        throw error;
+      }
       // Whatever went wrong reaching the kernel, the evaluation dispatched a
       // moment from now runs into it too and reports it properly. Saying it
       // twice in the output channel is how a log stops being read.

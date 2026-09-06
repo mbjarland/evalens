@@ -204,16 +204,73 @@ test('activation does not throw with no interpreter, and says so actionably', as
     () => evaluateAtCursor() as Promise<void>,
     'evaluating with no interpreter available must degrade, not throw');
 
-  assert.equal(fake.messages.error.length, 2,
-    'expected the interpreter failure and the transport-level summary');
-  const [detail, summary] = fake.messages.error;
+  assert.equal(fake.messages.error.length, 1,
+    'only the actionable interpreter failure should be shown');
+  const [detail] = fake.messages.error;
   assert.match(detail!.message, /could not start a Python kernel/);
   assert.deepEqual(detail!.items, ['Open Setting'],
     'no ms-python.python in this fake, so "Select Interpreter" must not be ' +
     'offered -- offering it would run a command from an extension that is ' +
     'not there');
-  assert.match(summary!.message, /^Evalens: /);
-  assert.match(summary!.message, /no usable Python interpreter/);
+});
+
+for (const command of ['evaluateAtCursor', 'evaluateAndAdvance', 'evaluateFile',
+  'evaluateAbove', 'runFileAsScript', 'addInlineWatch']) {
+  test(`${command} reports one actionable interpreter failure`, async () => {
+    const fake = createFakeVscode();
+    fake.config.set('evalens', 'pythonPath', '/no/such/interpreter-42');
+    const editor = createEditor('for i in range(2):\n    i\n');
+    editor.selection = new FakeSelection(1, 4, 1, 4);
+    fake.window.activeTextEditor = editor;
+    fake.window.visibleTextEditors = [editor];
+    fake.inputBox.answers.push('i');
+    const extension = activated(fake);
+    try {
+      await fake.executeCommand(`evalens.${command}`);
+      assert.equal(fake.messages.error.length, 1);
+      assert.match(fake.messages.error[0]!.message, /could not start a Python/);
+      assert.deepEqual(fake.messages.error[0]!.items, ['Open Setting']);
+    } finally {
+      extension.deactivate();
+    }
+  });
+}
+
+test('an explicit interpreter never waits for optional extension activation',
+{ timeout: 5000 }, async () => {
+  const fake = createFakeVscode();
+  fake.config.set('evalens', 'pythonPath', 'python3');
+  let activations = 0;
+  fake.extensions.set('ms-python.python', {
+    isActive: false,
+    activate: () => { activations++; return new Promise(() => {}); },
+  });
+  const editor = createEditor('40 + 2\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    await fake.executeCommand('evalens.evaluateAtCursor');
+    assert.equal(activations, 0);
+    assert.match(depainted(editor, 0), /42/);
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('a genuine kernel crash still produces an error notification', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor("__import__('os')._exit(3)\n");
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    await fake.executeCommand('evalens.evaluateAtCursor');
+    assert.equal(fake.messages.error.length, 1);
+    assert.match(fake.messages.error[0]!.message, /kernel.*exit/);
+  } finally {
+    extension.deactivate();
+  }
 });
 
 // -- evaluateAtCursor and evaluateFile paint real kernel output ---------------

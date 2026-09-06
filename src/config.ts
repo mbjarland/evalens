@@ -3,7 +3,8 @@ import * as vscode from 'vscode';
 
 import { DisplayLimits } from './kernel/protocol';
 import {
-  Candidate, NO_INTERPRETER, ProbeResult, chooseInterpreter, describeFailure,
+  Candidate, InterpreterUnavailableError, ProbeResult,
+  chooseInterpreter, describeFailure,
 } from './python';
 
 /**
@@ -215,11 +216,11 @@ async function candidates(): Promise<Candidate[]> {
 
   const list: Candidate[] = [];
   if (configured !== '') {
-    list.push({
+    return [{
       path: configured,
       source: 'the evalens.pythonPath setting',
       explicit: true,
-    });
+    }];
   }
   const fromExtension = await interpreterFromPythonExtension();
   if (fromExtension) {
@@ -255,13 +256,9 @@ export async function resolveInterpreter(
   const detail = describeFailure(choice.attempts);
   output.appendLine(detail);
   void offerToFix(detail);
-  // Short on purpose. The detail is already on screen with buttons under it;
-  // this rejection travels out through the spawn to the catch in Evaluator,
-  // which shows whatever it is given prefixed `Evalens: `. Throwing the
-  // detail here put the same paragraph up twice, the second time without the
-  // buttons and in no guaranteed order -- one failure reading as two, with
-  // the worse copy possibly on top.
-  throw new Error(NO_INTERPRETER);
+  // Callers may log this failure, but the actionable notification is owned
+  // here. A typed error preserves that distinction through kernel startup.
+  throw new InterpreterUnavailableError();
 }
 
 /**
