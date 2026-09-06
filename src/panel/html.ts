@@ -378,10 +378,18 @@ function groupHtml(group: readonly Segment[]): string {
  * line the statement printed, label and all, inside the one box, rather
  * than folding them to the single space the browser's ordinary text flow
  * would otherwise collapse them to.
+ *
+ * A stream of more than one line puts a line break right after the label
+ * (#148): with the label and the first line sharing a row, that first line
+ * starts one label-width to the right of every line after it, which is
+ * exactly the "how many lines were printed" count a block chip exists to
+ * make easy. A single-line stream keeps the label and its one line
+ * together, as before -- there is no second line to misalign against.
  */
 function streamChipHtml(stream: FullStream, tone: Tone, leading: boolean): string {
-  const said = /[A-Za-z0-9]$/.test(stream.label)
-    ? `${stream.label}: ` : `${stream.label} `;
+  const label = /[A-Za-z0-9]$/.test(stream.label)
+    ? `${stream.label}:` : stream.label;
+  const said = stream.text.includes('\n') ? `${label}\n` : `${label} `;
   const inner = `<span class="seg-streamLabel">${escapeHtml(said)}</span>`
     + `<span class="seg-value">${escapeHtml(stream.text)}</span>`;
   return chip(inner, tone, leading, 'block');
