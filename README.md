@@ -1,55 +1,241 @@
 # Evalens — Inline Python Values
 
-Put the cursor on a line, press a key, and see what that line produced,
-painted beside the code. No `print()`, no debugger, no notebook.
+**Put the cursor on a line. Press a key. See what that line produced,
+painted beside the code.**
+
+```python
+lst = [1, 2, 3]     ▌lst: [1, 2, 3]
+other = lst         ▌other: [1, 2, 3]
+other.append(4)     ▌other: [1, 2, 3, 4]
+lst                 ▌lst: [1, 2, 3, 4]
+```
+
+Read the block, not the mechanism. Four lines, four answers, all visible at
+once, in the order they appear in the file — and the fourth line is the
+lesson, because `lst` changed without `lst` ever being on the left of
+anything.
+
+A terminal shows you those four values one after another and then scrolls
+them away. A debugger stopped at the end shows you the last one, by which
+time both names read `[1, 2, 3, 4]` and the thing worth learning has already
+happened. Neither shows the *shape* of what happened, which is exactly what
+someone learning aliasing is trying to see.
+
+That is the whole product. Everything below is a consequence of it.
+
+> **The notebook feedback loop, on a file that never stops being source
+> code, with the state visible instead of hidden.**
+
+No `print()`. No debugger. No notebook. No cell markers. The file stays a
+plain `.py` that `python3 yourfile.py` runs unchanged, and the only thing
+you need installed is Python itself.
 
 ## Demo
 
 <p align="center">
   <img src="media/demo/tour-still.png" width="620" alt="Four lines of
-    Python from examples/tour.py, each annotated inline with the value it
-    produced, after four presses of Evaluate and Advance">
+    Python, each annotated inline with the value it produced, after four
+    presses of Evaluate and Advance">
 </p>
 
-*This is a rendered stand-in, not a screen recording — see below.* The
-picture is `examples/tour.py`'s aliasing example (the block `IDEA.md` opens
-with), painted after four presses of **Evaluate and Advance**. The text on
-it is genuine: it was produced by actually driving `kernel/evalens_kernel.py`
-through the same path the extension uses to paint a line
-(`render/present.ts`, `render/format.ts`), not by typing what the extension
-is supposed to say — `src/test/integration.test.ts` asserts the same four
-strings against the running kernel. What is not genuine yet is the
-*animation*. A GIF is the goal — `IDEA.md` argues, correctly, that one above
-the fold outsells the name — and recording it needs a human driving a real
-editor in front of a screen capture, which nothing writing this README can
-do on its own. [`docs/development/demo-shooting-script.md`](docs/development/demo-shooting-script.md)
-is the exact recipe waiting for that recording: the file, the four lines,
-the keystrokes, and the target length.
+*A rendered stand-in, not yet a screen recording.* The text on it is real —
+produced by driving `kernel/evalens_kernel.py` through the same renderer the
+extension paints with, and `src/test/integration.test.ts` asserts those four
+strings against the running kernel. What is missing is the animation, which
+needs a human, an editor and a screen capture.
+[`examples/demo.py`](examples/demo.py) is written for exactly that: ten
+beats, each one line, ordered so every press lands harder than the last.
+[`docs/development/demo-shooting-script.md`](docs/development/demo-shooting-script.md)
+is the recipe.
 
-> **The notebook feedback loop, on a file that never stops being source
-> code, with the state visible instead of hidden.**
+## What you get
 
-A VS Code extension: a TypeScript front end and a small Python kernel that
-holds a namespace between evaluations, so what you evaluate next sees what
-you evaluated last. **Evaluation is explicitly triggered and never
-continuous** — nothing in your buffer runs until you ask for it. That is a
-deliberate choice, not a missing feature: beginner code is full of `input()`
+### A loop tells you what it did, not just where it ended
+
+```python
+for n in range(5):      ▌n ×5: 0, 1, 2, 3, 4   squared ×5: 0, 1, 4, 9, 16   printed: n is 0 …(5 lines)
+    squared = n * n
+    print("n is", n)
+```
+
+Every value the target took, **everything the body bound**, and what it
+printed — on the header line, where you are looking. The `×5` is the
+iteration count, so a history never reads as a list that happens to have
+five things in it. A filtered loop shows the filtering directly: `v ×5`
+beside `kept ×2`.
+
+### A comprehension stops hiding its loop
+
+```python
+squares = [n * n for n in range(6)]   ▌squares: [0, 1, 4, 9, 16, 25]   n ×6: 0, 1, 2, 3, 4, 5
+```
+
+A comprehension is the harder thing for a beginner to read and normally gets
+*less* help than the loop it replaces. Here it gets the same trace, taken
+from inside its own scope — so the `n` you see is genuinely the
+comprehension's `n`, not a module-level variable that happens to share the
+name.
+
+### What a line printed, beside what it produced
+
+```python
+total = sum(squares)          ▌total: 55
+print("the total is", total)  ▌printed: the total is 55
+```
+
+`print()` evaluates to `None`, and saying `None` would be useless. A line
+that both binds and prints says both, because they answer different
+questions.
+
+### Look inside a value without running it
+
+Hover any annotated line. A list of records becomes a table — no pandas
+required, and it works on list-of-dicts, namedtuples and list-of-lists too:
+
+| name | born | field |
+| :--- | :--- | :--- |
+| 'Ada Lovelace' | 1815 | 'computing' |
+| 'Grace Hopper' | 1906 | 'compilers' |
+
+An object shows its fields, and `Explore ▸` opens a drill-down:
+
+| Field | Type | Value |
+| :--- | :--- | :--- |
+| x | *int* | 3 |
+| y | *int* | 4 |
+| magnitude | *property* | *not evaluated* |
+
+**Read that last row carefully.** `magnitude` is a `@property`. It is
+listed and it is **not called** — and that is a rule this project enforces
+rather than an omission. Annotating your code must never *run* your code, so
+no getter fires, no `__getitem__` is invoked, no generator is consumed,
+because you moved your mouse. A debugger's Variables pane will happily
+evaluate that property to show you a number. This will not.
+
+### Errors are answers
+
+```python
+int("not a number")   ▌=> ValueError: invalid literal for int() with base 10: 'not a number'
+```
+
+On the line that raised, in the error colour, with the whole traceback on
+the hover. A file load carries on to the next statement rather than stopping,
+so one bad line does not cost you the other forty.
+
+### `input()` that does not make you retype
+
+Beginner code is full of prompts. The first run asks; every run after
+replays what you typed, so iterating on the twenty lines below a prompt does
+not mean answering it twenty times. Or write the answer in the source:
+
+```python
+name = input("Your name: ")   # evalens: Ada
+age  = int(input("Age? "))    # evalens: 34
+```
+
+Inert to `python3 yourfile.py`, which still asks a human. The value arrives
+as a **string**, because `input()` returns a string — so `int(...)` is still
+doing real work, which is the lesson that line is teaching.
+
+### Run it the way Python would
+
+**Evaluate File** clears the namespace and runs top to bottom, painting each
+statement as it goes. **Evaluate Above Cursor** gets you to *here* and stops.
+**Run File as Script** sets `__name__` to `"__main__"` so an
+`if __name__ == "__main__":` block actually fires.
+
+Clearing the namespace by default is deliberate: a binding you deleted from
+the file surviving in memory is the notebook trap this project exists to
+argue against, and it is worse than it looks — the namespace belongs to the
+process, not the file, so a second file can quietly read back a name the
+first one defined.
+
+### Watch an expression across a loop
+
+Put the cursor in a loop, run **Add Inline Watch**, type anything:
+
+```python
+for x in [1, 2, 3, 4]:   ▌x ×4: 1, 2, 3, 4   total ×4: 1, 3, 6, 10
+    total += x
+```
+
+The accumulator question, answered. It is a **trace**, not a watch: the loop
+runs once and captures as it goes, and nothing is re-read afterwards.
+
+### It tells you when it is lying
+
+An annotation greys out when its statement changed, **or when a value it
+depends on changed** — edit `x = 1` and re-run it, and `y = x + 1` below is
+marked, even though its own text never moved. Comment a line out and its
+annotation disappears entirely, because there is no statement left to
+describe. A stale value is worse than no value.
+
+### It can be heard
+
+Every result can be announced, and the full value is reachable from the
+Accessible View on the first `showHover` press. Jupyter's own accessibility
+audit has listed "status changes are not announced for assistive
+technologies" among its critical failures since 2019; doing this cheaply is
+a real difference, and it matters for the audience this was built for.
+
+## This category is not empty, and pretending otherwise would be a lie
+
+Two shipped Microsoft features already cover part of this, both **on by
+default**, and any honest comparison starts there.
+
+**Smart Send** (`python.REPL.enableREPLSmartSend`) sends the statement under
+your cursor to a persistent REPL with one key, resolving it with the same
+stdlib `ast` this does. It is close, it is first-party, and it is already
+installed on every machine with the Python extension. What it withholds is
+the answer's *location*: output goes to a terminal, in execution order
+rather than file order, and it is gone as soon as the next thing scrolls
+past. Evaluate line 5, then line 20, and line 5's answer no longer exists
+anywhere.
+
+**`debug.inlineValues`** paints variable values inline, greyed, at the end
+of lines — genuinely inline, genuinely first-party, no extension needed. But
+`provideInlineValues` is documented as called *"whenever debugging stops"*,
+and it shows the current frame's **current** values. It is step-shaped by
+construction, which is why the aliasing example at the top of this file is
+invisible to it: by the time you are stopped after `other.append(4)`, both
+names read `[1, 2, 3, 4]`.
+
+**The Jupyter Interactive Window** gives you the notebook loop on a `.py`
+file — and the moment you add `# %%` markers you have made a notebook and
+are using code blocks. The file stops being ordinary source.
+
+So the claim is not "nothing does this". It is that nothing puts all three
+together: **explicit evaluation, values painted in file order beside the
+code, and a file that stays a plain `.py` anyone can run.**
+
+[`IDEA.md`](IDEA.md) argues all of this at the length it deserves, including
+what would kill the project and what is still undecided.
+
+## Why it works the way it does
+
+**Evaluation is explicitly triggered, never continuous.** Nothing in your
+buffer runs until you ask. This is the single most consequential decision
+here and it is not a missing feature: beginner code is full of `input()`
 prompts and infinite loops, and an evaluate-as-you-type mode relaunches a
-program blocked on stdin every time typing pauses. See
-[`IDEA.md`](IDEA.md) for the rest of the design and why each part of it is
-the way it is.
+program blocked on stdin every time typing pauses. That was discovered the
+hard way, on a real first-year environment, before a line of this was
+written.
 
-**This category is not empty, and this README says so rather than pretend
-otherwise.** `python.REPL.enableREPLSmartSend` (shipped in `ms-python.python`,
-on by default) sends the statement under your cursor to a persistent REPL —
-most of what this does, minus the answer staying in the file. VS Code's own
-`debug.inlineValues` (also on by default) paints variable values inline
-while a debug session is paused at a breakpoint — real inline values,
-first-party, no extension required. What neither does is show what *each
-line* produced, in file order, beside the code, without a terminal or a
-paused debugger. `IDEA.md` names exactly which parts of this are already
-covered by Microsoft and which are not, at the length the question
-deserves.
+**Annotating never executes your code.** Not a property, not a
+`__getitem__`, not a generator, not on hover, not on a mouse move. Reading a
+plain name is a dictionary lookup and cannot run anything; everything else
+is refused rather than risked.
+
+**An annotation never asserts more than we know.** It says what a statement
+produced *when it ran* — a trace, not a live watch. If we cannot honestly
+say something, the line stays empty rather than guessing.
+
+**Nothing is configured before a value appears.** Python 3.9 on `PATH` and
+nothing else. No interpreter picker, no `launch.json`, no `ipykernel`, no
+cell markers.
+
+Eleven such rules, each recording the defect that produced it, are in
+[`docs/development/design-rules.md`](docs/development/design-rules.md).
 
 ## Requirements
 
