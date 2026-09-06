@@ -910,6 +910,36 @@ class Prompts(KernelTest):
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["value"], "'Ada'")
 
+    def test_zero_length_reads_never_prompt_even_when_input_is_disabled(self):
+        self.k.evaluate("import sys", 0)
+        result = self.k.evaluate("(sys.stdin.read(0), sys.stdin.readline(0))", 0)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["value"], "('', '')")
+
+    def test_sized_reads_preserve_the_rest_of_one_answer(self):
+        self.k.evaluate("import sys", 0)
+        request = self.ask(
+            "(sys.stdin.read(1), sys.stdin.readline(2), sys.stdin.readline(), "
+            "sys.stdin.read(0))")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="abcdef")
+        result = self.k.read()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["value"], "('a', 'bc', 'def\\n', '')")
+        self.assertEqual(len(result["stdin"]), 1)
+
+    def test_sized_read_spans_lines_and_eof_is_not_requested_twice(self):
+        self.k.evaluate("import sys", 0)
+        request = self.ask(
+            "(sys.stdin.read(5), sys.stdin.read(), sys.stdin.readline())")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="ab")
+        request = self.k.read_control_until("input_request")
+        self.k.send_control(op="input_reply", seq=request["seq"], value="cd")
+        request = self.k.read_control_until("input_request")
+        self.k.send_control(op="input_reply", seq=request["seq"], value=None)
+        result = self.k.read()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["value"], "('ab\\ncd', '\\n', '')")
+
     def test_cancelling_a_prompt_raises_EOFError(self):
         # Preserved deliberately as the escape hatch. A student who cannot get
         # out of a prompt is worse off than one whose program errors.

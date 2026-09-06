@@ -436,6 +436,7 @@ import itertools
 import json
 import linecache
 import os
+import operator
 import queue
 import re
 import reprlib
@@ -883,6 +884,8 @@ class _AskingStdin(io.TextIOBase):
         #: What every read on this object answered, and where the answer came
         #: from -- `_run` reads this back to fill the outcome's `stdin` field.
         self.log: List[Dict[str, str]] = []
+        self._buffer = io.StringIO()
+        self._eof = False
 
     def readable(self) -> bool:
         return True
@@ -893,7 +896,23 @@ class _AskingStdin(io.TextIOBase):
         # object cannot provide.
         return False
 
-    def readline(self, size: int = -1) -> str:  # noqa: ARG002 - size ignored
+    def readline(self, size: int = -1) -> str:
+        """Consume up to one line or `size` characters, preserving the rest."""
+        self._checkClosed()
+        size = -1 if size is None else operator.index(size)
+        if size == 0:
+            return ""
+        line = self._buffer.readline(size)
+        if line or self._eof:
+            return line
+        answer = self._receive_line()
+        if not answer:
+            self._eof = True
+            return ""
+        self._buffer = io.StringIO(answer)
+        return self._buffer.readline(size)
+
+    def _receive_line(self) -> str:
         """Ask for one line, and block until it arrives.
 
         Blocking is correct and is what a REPL does. It is also why this
@@ -994,14 +1013,20 @@ class _AskingStdin(io.TextIOBase):
             self.log.append({"value": value, "source": source})
         return value if value.endswith("\n") else value + "\n"
 
-    def read(self, size: int = -1) -> str:  # noqa: ARG002 - size ignored
-        """Everything, which means asking until the answer is EOF."""
+    def read(self, size: int = -1) -> str:
+        """Read `size` characters, or ask until EOF for an unsized read."""
+        self._checkClosed()
+        size = -1 if size is None else operator.index(size)
         chunks = []
-        while True:
-            line = self.readline()
+        remaining = size
+        while remaining != 0:
+            line = self.readline(remaining)
             if not line:
-                return "".join(chunks)
+                break
             chunks.append(line)
+            if remaining > 0:
+                remaining -= len(line)
+        return "".join(chunks)
 
 
 def _no_input_message() -> str:
