@@ -11,7 +11,7 @@
 
 <p align="center">
   <b>Live, line-by-line Python inside an ordinary <code>.py</code> file —
-  the feedback loop of a notebook, for people who are not allowed one.</b>
+  a notebook's feedback loop, without the notebook.</b>
 </p>
 
 <p align="center">
@@ -82,8 +82,10 @@ Evalens gives that loop back **without giving back the notebook**:
 - The only thing you install is Python. No Jupyter, no `ipykernel`, no
   interpreter picker, no `launch.json`.
 
-It is also for anyone who has ever added `print(x)` on line 40 to find out
-what line 12 did — which is everyone.
+Not allowed a notebook, or just not interested in one — either way the loop
+is the point and the container never was. It is also for anyone who has ever
+added `print(x)` on line 40 to find out what line 12 did, which is
+everyone.
 
 ## Try it in sixty seconds
 
@@ -97,6 +99,37 @@ Open any `.py` file, put the cursor on a line, press **`Cmd+Enter`**
 (`Ctrl+Enter` elsewhere). Then hold **`Cmd+Shift+Enter`** and watch it walk
 down the file. Full install options, including building from source, are
 under [Install](#install) below.
+
+## Learn it in four keys
+
+Everything Evalens does starts from one of these. On Windows and Linux read
+`Ctrl` for `Cmd`.
+
+| Press | What happens |
+| :--- | :--- |
+| `Cmd+Enter` | Run the statement under the cursor. Its value appears beside it. |
+| `Cmd+Shift+Enter` | The same, then move to the next statement — hold it to walk the file. |
+| `Cmd+Alt+Enter` | Run the whole file from a clean namespace, top to bottom. |
+| `Escape` | Clear every annotation in the editor. |
+
+`Alt+Enter` also runs the statement under the cursor, as a spare in case
+`Cmd+Enter` is taken on your machine — if it is, the tool tells you and
+offers to fix it.
+
+**Everything else is in the Command Palette.** Press `Cmd+Shift+P`, type
+`Evalens`, and every command appears with its name in front: *Run File as
+Script*, *Evaluate Above Cursor*, *Add Inline Watch*, *Inspect Value*,
+*Interrupt Evaluation*, *Restart Kernel*. You never need to remember more
+than the word.
+
+**Your first two minutes.** Open any `.py` file. Put the cursor on the first
+line and press `Cmd+Enter` — the value lands beside it. Press
+`Cmd+Shift+Enter` and keep pressing: the cursor walks down the file and each
+line answers as you reach it. Hover any answer to see the whole value, and a
+table or a list of fields when there is one. When you change a line, its
+marker in the gutter changes so you know that answer is from before the
+edit; press the key again and it catches up. That is the whole tool. The
+rest of this page is detail.
 
 ## What you get
 
@@ -200,26 +233,36 @@ argue against, and it is worse than it looks — the namespace belongs to the
 process, not the file, so a second file can quietly read back a name the
 first one defined.
 
-### Watch an expression across a loop
+### Ask a loop a question it never states
 
-Put the cursor in a loop, run **Add Inline Watch**, type anything:
+A loop already shows you what its target took and what its body bound —
+`x` and `total` below come for free. A **watch** is for the question that
+is not in the code. Put the cursor in the loop, run **Add Inline Watch**,
+and type any expression:
 
 ```python
-for x in [1, 2, 3, 4]:   ▌x ×4: 1, 2, 3, 4   total ×4: 1, 3, 6, 10
+for x in [1, 2, 3, 4]:   ▌x ×4: 1, 2, 3, 4   total ×4: 1, 3, 6, 10   total > 5 ×4: False, False, True, True
     total += x
 ```
 
-The accumulator question, answered. It is a **trace**, not a watch: the loop
-runs once and captures as it goes, and nothing is re-read afterwards.
+*When does it cross five?* Third iteration. Nobody wrote `total > 5`
+anywhere in the file; you asked, and the loop answered at every step. It is
+a **trace**, not a live watch: the loop runs once, the expression is
+captured each time round, and nothing is re-read afterwards.
+### It tells you when an answer is from before an edit
 
-### It tells you when it is lying
+Change a line after it has run, and its **gutter marker changes** to the
+stale mark and the bar beside its value goes grey. The value itself keeps its
+colour, on purpose: it is still the true answer to the code that ran, and
+greying it would put a claim about the value in competition with the value
+in the one place you are reading. Re-run the line and it catches up.
 
-An annotation greys out when its statement changed, **or when a value it
-depends on changed** — edit `x = 1` and re-run it, and `y = x + 1` below is
-marked, even though its own text never moved. Comment a line out and its
-annotation disappears entirely, because there is no statement left to
-describe. A stale value is worse than no value.
-
+Re-running a line that binds a name marks the lines **below** it that read
+that name, too — re-run `x = 1` and `y = x + 1` below is flagged even though
+its own text never moved, because it now describes a world that has changed.
+Until you re-run, nothing below is touched: those answers are still exactly
+what that code produced. Comment a line out and its annotation disappears
+entirely, because there is no statement left to describe.
 ### It can be heard
 
 Every result can be announced, and the full value is reachable from the
