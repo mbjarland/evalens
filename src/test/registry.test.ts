@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   AnnotationRegistry, afterEdit, lineDelta, markDependents, markerFor, merge,
   normalizeSource, overlaps, reanchor, reanchorLate, sourceAtText,
+  Traced, reanchorCauses, staleReasonText,
 } from '../render/registry';
 
 test('annotations belong to a document, not to the window', () => {
@@ -788,4 +789,109 @@ test('sourceAtText folds CRLF the same way sourceAt does', () => {
     sourceAtText(source, { start: { line: 0 }, end: { line: 1 } }),
     'a = 1\nb = 2',
     'no stray \\r left behind at the slice boundary');
+});
+
+// First cause is a historical explanation, not a changing watch (#157).
+function causeFixture(): Traced[] {
+  return [...markDependents<Traced>([
+    on(4, 'y', ['y'], ['x', 'z', 'x', 'unrelated']),
+  ], on(1, 'x, z = 5, 6', ['x', 'z', 'unused'], []))];
+}
+
+test('dependency provenance names precisely the intersection once', () => {
+  const [marked] = causeFixture();
+  assert.deepEqual(marked!.staleCause!.names, ['x', 'z']);
+  assert.equal(marked!.staleCause!.source!.range.start.line, 1);
+  assert.match(staleReasonText(marked!.staleReason, marked!.staleCause),
+    /this line reads ‘x’, ‘z’; line 2 re-bound ‘x’, ‘z’ after this result was recorded/);
+});
+
+test('later rebindings and own edits preserve the first dependency cause', () => {
+  const before = causeFixture();
+  assert.equal(markDependents(before, on(0, 'x = 7', ['x'], [])), before);
+  assert.equal(afterEdit(before[0]!, 'y = x + 10'), before[0]);
+  const edited: Traced = { ...on(4, 'y', ['y'], ['x']),
+    stale: true, staleReason: 'edited' };
+  assert.equal(markDependents([edited], on(0, 'x', ['x'], []))[0], edited);
+  assert.equal(edited.staleCause, undefined);
+});
+
+test('reevaluation replaces provenance with the new trace', () => {
+  const fresh: Traced = on(4, 'y', ['y'], ['x']);
+  const replaced = merge<Traced>(causeFixture(), fresh);
+  assert.equal(replaced[0], fresh);
+  assert.equal(replaced[0]!.staleCause, undefined);
+});
+
+test('dependency sources follow disjoint and boundary line insertions', () => {
+  const before = causeFixture();
+  const shifted = reanchorCauses(before, [{
+    range: { start: { line: 0 }, end: { line: 0 } }, text: '# heading\n',
+  }]);
+  assert.equal(shifted[0]!.staleCause!.source!.range.start.line, 2);
+  const insertion = { range: { start: { line: 1, character: 0 },
+    end: { line: 1, character: 0 } }, text: '# inserted\n' };
+  assert.equal(reanchorCauses(before, [insertion])[0]!.staleCause!
+    .source!.range.start.line, 2);
+});
+
+test('source deletion and same-line replacement withdraw navigation permanently', () => {
+  for (const end of [1, 2]) {
+    const before = causeFixture();
+    const removed = reanchorCauses(before, [{ range: {
+      start: { line: 1 }, end: { line: end },
+    }, text: '' }]);
+    assert.equal(removed[0]!.staleCause!.source, undefined);
+    assert.deepEqual(removed[0]!.staleCause!.names, ['x', 'z']);
+    assert.equal(removed[0]!.staleCause!.id, before[0]!.staleCause!.id);
+    assert.match(staleReasonText('dependency', removed[0]!.staleCause),
+      /source can no longer be located reliably/);
+    assert.equal(reanchorCauses(removed, [{ range: {
+      start: { line: 1 }, end: { line: 1 },
+    }, text: 'x, z = 5, 6' }]), removed);
+  }
+});
+
+test('multiple edits use original coordinates and do not shift a cause twice', () => {
+  const edits = [
+    { range: { start: { line: 0 }, end: { line: 0 } }, text: '# top\n' },
+    { range: { start: { line: 3 }, end: { line: 3 } }, text: '# below\n' },
+  ];
+  const before = causeFixture();
+  assert.equal(reanchorCauses(before, edits)[0]!.staleCause!.source!
+    .range.start.line, 2);
+  assert.equal(reanchorCauses(before, [edits[1]!]), before);
+});
+
+test('a late already-edited binding can name its cause without asserting a location', () => {
+  const [marked] = markDependents<Traced>([on(4, 'y', ['y'], ['x'])],
+    { ...on(0, 'x', ['x'], []), stale: true, staleReason: 'edited' });
+  assert.deepEqual(marked!.staleCause!.names, ['x']);
+  assert.equal(marked!.staleCause!.source, undefined);
+});
+
+
+test('joining source to the preceding line is uncertain, not a disjoint deletion', () => {
+  const change = { range: { start: { line: 0, character: 3 },
+    end: { line: 1, character: 0 } }, text: '' };
+  assert.equal(reanchorCauses(causeFixture(), [change])[0]!.staleCause!.source,
+    undefined);
+});
+
+test('whole-line deletion and insertion preserve adjacent trace anchors', () => {
+  const trace = on(1, 'x = 1', ['x'], []);
+  const shift = (item: Dependent, lines: number): Dependent => ({ ...item,
+    range: { start: { line: item.range.start.line + lines },
+      end: { line: item.range.end.line + lines } },
+  });
+  const deletion = { range: { start: { line: 0, character: 0 },
+    end: { line: 1, character: 0 } }, text: '' };
+  assert.equal(reanchor([trace], [deletion], shift)[0]!.range.start.line, 0);
+  assert.equal(reanchorLate(trace, [[deletion]], shift, (item) => item)!
+    .range.start.line, 0);
+  const insertion = { range: { start: { line: 1, character: 0 },
+    end: { line: 1, character: 0 } }, text: '# heading\n' };
+  assert.equal(reanchor([trace], [insertion], shift)[0]!.range.start.line, 2);
+  assert.equal(reanchorLate(trace, [[insertion]], shift, (item) => item)!
+    .range.start.line, 2);
 });

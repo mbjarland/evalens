@@ -143,13 +143,13 @@ async function withSpawnedPids<T>(work: () => Promise<T>): Promise<{
 
 // -- commands: registered, contributed, and reachable ------------------------
 
-test('activation registers exactly the commands package.json contributes', () => {
+test('activation registers contributed commands and the internal source link', () => {
   const fake = createFakeVscode();
   activated(fake);
 
   const registered = [...fake.commands.registered.keys()].sort();
   assert.deepEqual(
-    registered, [...contributedCommands].sort(),
+    registered, [...contributedCommands, 'evalens.goToStaleCause'].sort(),
     'the set of registered commands does not match package.json exactly -- ' +
     'either a contributed command is never registered (dead in the palette) ' +
     'or a registered one is never contributed (unreachable except by id)');
@@ -378,17 +378,9 @@ test('two resetting loads cannot run between each other\'s reset and load', asyn
   }
 });
 
-// #150: since the edit here lands on line 0 -- the same line `x`'s own
-// statement starts on, in every one of these fixtures -- it always overlaps
-// `x`'s range by `render/registry.ts`'s line-granular `overlaps`, and a
-// one-line insertion is a line-count change, so `reanchorLate` answers this
-// exactly as `reanchor` already answers the same shape for a live edit
-// (`registry.test.ts`'s "an edit reaching into the next line takes its
-// annotation too"): dropped, not shifted. `x`'s own result stays
-// unplaceable after an edit for every command here, which is why every
-// `edit` case below still expects nothing painted except `evaluateFile`'s,
-// where `y` sits entirely below the inserted line, is a pure shift the edit
-// never touches, and is exactly the case #150 exists to stop discarding.
+// #150: split the statement inside its first line while input is pending.
+// Unlike inserting a whole line before it (#157), this destroys its anchor.
+// File evaluation can still place y, whose source is merely shifted down.
 for (const command of ['evaluateAtCursor', 'evaluateFile', 'evaluateAbove',
   'addInlineWatch']) {
   for (const invalidation of ['edit', 'clear', 'close']) {
@@ -400,7 +392,7 @@ for (const command of ['evaluateAtCursor', 'evaluateFile', 'evaluateAbove',
         ? "for i in [1]:\n    x = input('waiting')\n"
         : "x = input('waiting')\ny = 2\n");
       if (command === 'evaluateAbove') {
-        editor.selection = new FakeSelection(1, 0, 1, 0);
+        editor.selection = new FakeSelection(new FakePosition(1, 0), new FakePosition(1, 0));
       }
       fake.window.activeTextEditor = editor;
       fake.window.visibleTextEditors = [editor];
@@ -419,11 +411,12 @@ for (const command of ['evaluateAtCursor', 'evaluateFile', 'evaluateAbove',
         const running = fake.executeCommand(`evalens.${command}`);
         await opened;
         if (invalidation === 'edit') {
-          editor.document.setText('# moved\n' + editor.document.getText());
+          const original = editor.document.getText();
+          editor.document.setText(original.slice(0, 1) + '\n# split' + original.slice(1));
           fake.emitters.onDidChangeTextDocument.fire({
             document: editor.document,
             contentChanges: [{
-              range: new FakeRange(0, 0, 0, 0), text: '# moved\n',
+              range: new FakeRange(0, 1, 0, 1), text: '\n# split',
             }],
           });
         } else if (invalidation === 'clear') {
@@ -488,7 +481,7 @@ test('a late result after an insertion above its statement paints ' +
   // all, which is what makes this a pure shift rather than the unrecoverable
   // overlap every fixture up there hits.
   const editor = createEditor("pass\nx = input('waiting')\n");
-  editor.selection = new FakeSelection(1, 0, 1, 0);
+  editor.selection = new FakeSelection(new FakePosition(1, 0), new FakePosition(1, 0));
   fake.window.activeTextEditor = editor;
   fake.window.visibleTextEditors = [editor];
   let asked!: () => void;
@@ -646,13 +639,13 @@ test('restart cancels evaluations waiting behind a prompt', async () => {
   try {
     const active = fake.executeCommand('evalens.evaluateAtCursor');
     await opened;
-    editor.selection = new FakeSelection(1, 0, 1, 0);
+    editor.selection = new FakeSelection(new FakePosition(1, 0), new FakePosition(1, 0));
     const queued = fake.executeCommand('evalens.evaluateAtCursor');
     await fake.executeCommand('evalens.restartKernel');
     answer('ignored');
     await Promise.all([active, queued]);
     editor.document.setText("'queued' in globals()\n");
-    editor.selection = new FakeSelection(0, 0, 0, 0);
+    editor.selection = new FakeSelection(new FakePosition(0, 0), new FakePosition(0, 0));
     await fake.executeCommand('evalens.evaluateAtCursor');
     assert.match(depainted(editor, 0), /False/);
   } finally {
@@ -1311,7 +1304,7 @@ test('busy Python cannot withhold a cached hover', { timeout: 5000 }, async () =
   const extension = activated(fake);
   try {
     await fake.executeCommand('evalens.evaluateAtCursor');
-    editor.selection = new FakeSelection(1, 0, 1, 0);
+    editor.selection = new FakeSelection(new FakePosition(1, 0), new FakePosition(1, 0));
     const waiting = fake.executeCommand('evalens.evaluateAtCursor');
     await opened;
     const text = await hoverTextAt(fake, editor, 0);
@@ -1332,7 +1325,7 @@ test('live hover children are distinguished from the earlier trace', async () =>
   const extension = activated(fake);
   try {
     await fake.executeCommand('evalens.evaluateAtCursor');
-    editor.selection = new FakeSelection(1, 0, 1, 0);
+    editor.selection = new FakeSelection(new FakePosition(1, 0), new FakePosition(1, 0));
     await fake.executeCommand('evalens.evaluateAtCursor');
     const text = await hoverTextAt(fake, editor, 0);
     assert.match(text!, /old/);
@@ -1556,4 +1549,52 @@ test('no Python process outlives deactivate', async () => {
   assert.ok(!isAlive(pids[0]!),
     'the kernel process outlived deactivate -- this is the orphaned ' +
     'interpreter a user would only ever notice in Activity Monitor');
+});
+
+
+test('stale source links track edits, stay in their document and expire safely', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor('x = 1\ny = x + 1\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const shell = fake.module as { workspace: { textDocuments: unknown[] };
+    window: { showTextDocument: (doc: unknown) => Promise<FakeEditor> } };
+  shell.workspace.textDocuments = [editor.document];
+  const opened: unknown[] = [];
+  shell.window.showTextDocument = async (doc) => { opened.push(doc); return editor; };
+  const extension = activated(fake);
+  try {
+    const evaluate = () => fake.executeCommand('evalens.evaluateAtCursor');
+    await evaluate();
+    editor.selection = new FakeSelection(new FakePosition(1, 0), new FakePosition(1, 0));
+    await evaluate();
+    editor.selection = new FakeSelection(new FakePosition(0, 0), new FakePosition(0, 0));
+    await evaluate();
+    const text = (await hoverTextAt(fake, editor, 1))!;
+    assert.match(text, /reads ‘x’; line 1 re-bound ‘x’/);
+    const args = JSON.parse(decodeURIComponent(
+      /command:evalens.goToStaleCause\?([^)]*)/.exec(text)![1]!)) as unknown[];
+    // Even a cached hover clicked after a line insertion uses current anchors.
+    editor.document.setText('# heading\nx = 1\ny = x + 1\n');
+    fake.emitters.onDidChangeTextDocument.fire({ document: editor.document,
+      contentChanges: [{ range: new FakeRange(0, 0, 0, 0), text: '# heading\n' }] });
+    const moved = (await hoverTextAt(fake, editor, 2))!;
+    assert.match(moved, /line 2 re-bound ‘x’/);
+    fake.window.activeTextEditor = createEditor('unrelated = 0\n');
+    await fake.executeCommand('evalens.goToStaleCause', ...args);
+    assert.deepEqual(opened, [editor.document]);
+    assert.equal(editor.selection.active.line, 1);
+    assert.equal(editor.revealed.at(-1)!.start.line, 1);
+    editor.document.setText('# heading\ny = x + 1\n');
+    fake.emitters.onDidChangeTextDocument.fire({ document: editor.document,
+      contentChanges: [{ range: new FakeRange(1, 0, 2, 0), text: '' }] });
+    const removed = (await hoverTextAt(fake, editor, 1))!;
+    assert.match(removed, /reads ‘x’/);
+    assert.match(removed, /source can no longer be located reliably/);
+    assert.doesNotMatch(removed, /command:evalens.goToStaleCause/);
+    await fake.executeCommand('evalens.goToStaleCause', ...args);
+    assert.equal(opened.length, 1, 'an obsolete link cannot open unrelated code');
+    await fake.executeCommand('evalens.goToStaleCause', 'bad uri', 100);
+    await fake.executeCommand('evalens.goToStaleCause');
+  } finally { extension.deactivate(); }
 });

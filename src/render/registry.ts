@@ -62,7 +62,20 @@ export interface Traced extends Anchored {
    * everyone to look at.
    */
   readonly staleReason?: 'edited' | 'dependency';
+  readonly staleCause?: DependencyCause;
 }
+
+/** First observed re-binding, retained until the dependent is evaluated again.
+ * Coordinates belong to the same document as the dependent. A source edit
+ * withdraws the location, never the historical names. */
+export interface DependencyCause {
+  readonly id: number;
+  readonly names: readonly string[];
+  readonly source?: Anchored & { readonly text: string };
+}
+
+export const GO_TO_STALE_CAUSE = 'evalens.goToStaleCause';
+let nextCauseId = 0;
 
 /** How an annotation stands relative to the code it sits beside. */
 export type Marker = 'evaluated' | 'stale' | 'error';
@@ -96,10 +109,17 @@ export function markerFor(
  * reason rather than guessing which one applies.
  */
 export function staleReasonText(
-  reason: 'edited' | 'dependency' | undefined
+  reason: 'edited' | 'dependency' | undefined, cause?: DependencyCause
 ): string {
   switch (reason) {
     case 'dependency':
+      if (cause?.names.length) {
+        const names = cause.names.map((name) => `‘${name}’`).join(', ');
+        const where = cause.source
+          ? `line ${cause.source.range.start.line + 1}`
+          : 'a statement whose source can no longer be located reliably';
+        return `this line reads ${names}; ${where} re-bound ${names} after this result was recorded`;
+      }
       return 'a value this line reads was re-bound since this ran';
     case 'edited':
       return "this line's code changed since it ran";
@@ -268,11 +288,19 @@ export function markDependents<T extends Traced>(
     if (annotation.stale || annotation.range.start.line <= below) {
       return annotation;
     }
-    if (!annotation.reads?.some((name) => bound.has(name))) {
+    const names = [...new Set(annotation.reads?.filter((name) => bound.has(name)))];
+    if (names.length === 0) {
       return annotation;
     }
     changed = true;
-    return { ...annotation, stale: true, staleReason: 'dependency' };
+    return { ...annotation, stale: true, staleReason: 'dependency',
+      staleCause: { id: ++nextCauseId, names,
+        source: evaluated.source === undefined || evaluated.stale ? undefined : {
+          range: { start: { line: evaluated.range.start.line },
+            end: { line: evaluated.range.end.line } }, text: evaluated.source,
+        },
+      },
+    };
   });
   // Identity when nothing was marked, so the common case -- a statement whose
   // names nothing below it reads -- costs no repaint.
@@ -313,6 +341,51 @@ export function merge<T extends Anchored>(
 export interface TextChange extends Anchored {
   /** What the range was replaced with. */
   readonly text: string;
+}
+
+/** VS Code changes are half-open in columns; annotations cover full lines.
+ * An absent column retains the older conservative whole-line test shape. */
+function editBefore(annotation: Anchored, change: TextChange): boolean {
+  const end = change.range.end as { line: number; character?: number };
+  const start = change.range.start as { line: number; character?: number };
+  if (end.line < annotation.range.start.line) return true;
+  if (end.line !== annotation.range.start.line || end.character !== 0) return false;
+  return change.text.endsWith('\n')
+    || (start.line < end.line && start.character === 0 && change.text === '');
+}
+
+function editTouches(annotation: Anchored, change: TextChange): boolean {
+  return overlaps(annotation, change) && !editBefore(annotation, change);
+}
+
+/** Follow only disjoint edits. Intersecting edits may replace a statement
+ * with unrelated code, even without changing its line count: drop the link.
+ * Inserting complete lines at column zero before the source is unambiguous. */
+export function reanchorCauses<T extends Traced>(
+  annotations: readonly T[], changes: readonly TextChange[]
+): readonly T[] {
+  let changed = false;
+  const result = annotations.map((annotation) => {
+    const cause = annotation.staleCause;
+    if (!cause?.source) return annotation;
+    let source: DependencyCause['source'] = cause.source;
+    for (const change of [...changes].sort(lastFirst)) {
+      if (!source) break;
+      if (editTouches(source, change)) {
+        source = undefined;
+      } else if (editBefore(source, change)) {
+        const delta = lineDelta(change);
+        if (delta !== 0) source = { ...source, range: {
+          start: { line: source.range.start.line + delta },
+          end: { line: source.range.end.line + delta },
+        } };
+      }
+    }
+    if (source === cause.source) return annotation;
+    changed = true;
+    return { ...annotation, staleCause: { ...cause, source } };
+  });
+  return changed ? result : annotations;
 }
 
 /** Rebuild an annotation `lines` further down the file. */
@@ -389,7 +462,7 @@ function reanchorOne<T extends Anchored>(
   let touched = false;
 
   for (const annotation of annotations) {
-    if (overlaps(annotation, change)) {
+    if (editTouches(annotation, change)) {
       if (delta !== 0 || rewritten === undefined) {
         touched = true;
         continue;
@@ -402,7 +475,7 @@ function reanchorOne<T extends Anchored>(
     }
     // Not overlapping leaves only two places to be: entirely above the edit,
     // or entirely below it.
-    if (delta !== 0 && annotation.range.start.line > change.range.end.line) {
+    if (delta !== 0 && editBefore(annotation, change)) {
       const moved = shift(annotation, delta);
       if (rewritten?.delete(annotation)) {
         // A multi-cursor edit can rewrite one statement and add lines above
@@ -540,14 +613,14 @@ export function reanchorLate<T extends Anchored>(
     // applied back to front internally even though the events themselves
     // run oldest first.
     for (const change of [...changes].sort(lastFirst)) {
-      if (overlaps(current, change)) {
+      if (editTouches(current, change)) {
         if (lineDelta(change) !== 0) {
           return undefined;
         }
         touched = true;
         continue;
       }
-      if (current.range.start.line > change.range.end.line) {
+      if (editBefore(current, change)) {
         const delta = lineDelta(change);
         if (delta !== 0) {
           current = shift(current, delta);

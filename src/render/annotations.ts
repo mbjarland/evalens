@@ -6,7 +6,7 @@ import { Annotation, Decorator, sourceAt } from './decorations';
 import { Flash, SETTLED } from './flash';
 import {
   AnnotationRegistry, TextChange, afterEdit, markDependents, merge, reanchor,
-  reanchorLate,
+  reanchorLate, reanchorCauses, GO_TO_STALE_CAUSE,
 } from './registry';
 import { Waiting } from './status';
 
@@ -249,6 +249,8 @@ export class Annotations implements vscode.Disposable {
     this.flash = flash;
     this.announcer = announcer;
     this.subscriptions.push(
+      vscode.commands.registerCommand(GO_TO_STALE_CAUSE,
+        (uri: unknown, id: unknown) => this.revealDependency(uri, id)),
       vscode.workspace.onDidChangeTextDocument((event) => {
         // Buffered before anything else below returns early: a late result
         // needs this record whether or not the document currently carries
@@ -269,7 +271,7 @@ export class Annotations implements vscode.Disposable {
         const retained = event.contentChanges.length > 0
           ? before.filter((annotation) => !annotation.pending) : before;
         const after = reanchor(
-          retained, event.contentChanges, shifted,
+          reanchorCauses(retained, event.contentChanges), event.contentChanges, shifted,
           // The document has already been updated by the time this fires, so
           // this reads what the statement says *after* the edit -- which is
           // the only thing that can be compared with what it said when it
@@ -443,6 +445,28 @@ export class Annotations implements vscode.Disposable {
    */
   at(document: vscode.TextDocument, line: number): Annotation | undefined {
     return annotationAt(this.registry.get(document.uri.toString()), line);
+  }
+
+  /** Navigate a still-recorded cause in its original, open document.
+   * The command carries an ID, not coordinates from a potentially old hover. */
+  async revealDependency(uri: unknown, id: unknown): Promise<void> {
+    if (typeof uri !== 'string' || typeof id !== 'number') return;
+    const document = vscode.workspace.textDocuments.find((doc) =>
+      doc.uri.toString() === uri && !doc.isClosed);
+    const locate = () => this.registry.get(uri).find((annotation) =>
+      annotation.stale && annotation.staleCause?.id === id)?.staleCause?.source;
+    const source = locate();
+    if (!document || !source || source.range.end.line >= document.lineCount
+      || sourceAt(document, new vscode.Range(source.range.start.line, 0,
+        source.range.end.line, 0)) !== source.text) return;
+    const editor = await vscode.window.showTextDocument(document, { preserveFocus: true });
+    // Opening an editor is asynchronous; an intervening edit or reset may
+    // have withdrawn or moved the cause in the meantime.
+    const current = locate();
+    if (!current || document.isClosed) return;
+    const position = new vscode.Position(current.range.start.line, 0);
+    editor.selection = new vscode.Selection(position, position);
+    editor.revealRange(new vscode.Range(position, position));
   }
 
   /**

@@ -631,8 +631,12 @@ reports, per statement, the module-level names it bound and the ones it read —
 the same `ast` walk that resolves the form, asked a second question — and
 re-evaluating a statement that binds `x` marks every annotation *below it in
 the file* that reads `x`. File order, not execution order; same marker, same
-vocabulary, because the reader does not need to know which of the two reasons
-produced it. Re-evaluating clears the mark and nothing else does, undo
+vocabulary. The hover and Values panel explain the first observed reason: an
+own edit, or the names a later evaluation re-bound. Dependency explanations
+link to that statement within the original document while its location is
+reliable; disjoint edits shift the link, while edits touching its source
+withdraw navigation and retain the historical names. This is static name
+analysis, not a claim that a value changed or a complete dependency trace. Re-evaluating clears the mark and nothing else does, undo
 included: the buffer can be put back, the kernel cannot, and only an
 evaluation is entitled to say the two agree again. Design rule 4 carries the
 reasoning for why this is a trace at all.

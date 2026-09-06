@@ -883,6 +883,12 @@ y = x + 1    y: 2
 Edit the first line and re-run it, and the second is out of date without its
 own text having changed at all. So Evalens marks it: re-evaluating a statement
 marks every annotation *below it in the file* that reads a name it just bound.
+Hover or look in Values to see the names and the first statement that re-bound
+them. **Go to re-binding** navigates to that source without evaluating it.
+The link follows inserted or removed lines above the source; editing or
+removing the source withdraws the link while keeping the named explanation.
+Later changes do not replace this first cause. Re-evaluating the stale
+statement clears it.
 
 **Nothing is ever re-run to resolve any of this.** Evalens marks and stops —
 it is not a reactive notebook, and it does not decide when your code executes.
