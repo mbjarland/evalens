@@ -277,14 +277,13 @@ function markers(annotations: readonly Valued[]): boolean[] {
   return annotations.map((a) => a.stale === true);
 }
 
-test('normalising a statement ignores the whitespace around it', () => {
-  // JupyterLab's rule, from the review of the same feature: an edit that could
-  // not change what the statement produces must not turn the marker amber, or
-  // a formatter on save repaints the file and the marker stops being believed.
-  assert.equal(normalizeSource('x = 1  '), 'x = 1', 'a trailing space');
-  assert.equal(normalizeSource('    x = 1'), 'x = 1', 'reindentation');
-  assert.equal(normalizeSource('x = 1\r'), 'x = 1', 'a CRLF document');
-  assert.equal(normalizeSource('if x:\n\n    pass'), 'if x:\npass',
+test('normalising only folds physical CRLF line endings', () => {
+  // Whitespace equivalence needs Python token context. Only physical line
+  // endings have a safe context-independent normalization here.
+  assert.equal(normalizeSource('x = 1  '), 'x = 1  ', 'a trailing space');
+  assert.equal(normalizeSource('    x = 1'), '    x = 1', 'reindentation');
+  assert.equal(normalizeSource('x = 1\r\ny = 2'), 'x = 1\ny = 2');
+  assert.equal(normalizeSource('if x:\n\n    pass'), 'if x:\n\n    pass',
     'a blank line added inside a statement');
   assert.notEqual(normalizeSource('x = 1'), normalizeSource('x = 2'),
     'a real change has to survive normalisation');
@@ -360,16 +359,15 @@ test('undoing the edit does not clear stale', () => {
     'the text matches again; the value the kernel holds does not');
 });
 
-test('a whitespace-only edit marks nothing and costs no repaint', () => {
+test('a whitespace-only edit is conservatively marked stale', () => {
   const before = evaluatedLines(['x = 1', 'y = 2']);
   const after = reanchor(
     before, [edit(0, 0, ' ')], shift, against(['x = 1  ', 'y = 2']));
 
-  assert.equal(after, before,
-    'identity is the signal to skip setDecorations, and this must keep it');
+  assert.deepEqual(markers(after), [true, false]);
 });
 
-test('reindenting a block does not mark the statement inside it', () => {
+test('reindenting a block is conservatively marked stale', () => {
   const before: Valued[] = [{
     range: { start: { line: 0 }, end: { line: 1 } },
     id: 'def', value: '<function f>',
@@ -379,7 +377,24 @@ test('reindenting a block does not mark the statement inside it', () => {
     before, [edit(1, 1, '        ')], shift,
     against(['def f():', '        return 1']));
 
-  assert.equal(after, before);
+  assert.deepEqual(markers(after), [true]);
+});
+
+test('relative indentation and multiline literal whitespace change the trace', () => {
+  for (const [before, after] of [
+    ['if a:\n    if b:\n        x = 1\n    y = 2',
+      'if a:\n    if b:\n        x = 1\n        y = 2'],
+    ['s = """a\n  b\n"""', 's = """a\nb\n"""'],
+    ['s = """a\n\nb"""', 's = """a\nb"""'],
+    ['s = """a  \nb"""', 's = """a\nb"""'],
+  ]) {
+    const annotation: Valued = {
+      id: 'source', value: 'trace',
+      range: { start: { line: 0 }, end: { line: 3 } },
+      source: normalizeSource(before),
+    };
+    assert.equal(afterEdit(annotation, normalizeSource(after))?.stale, true);
+  }
 });
 
 test('an annotation with no recorded source is marked, not trusted', () => {
@@ -427,7 +442,7 @@ test('a mark is decided after every change, not while they are applied', () => {
     against(['x = 1', '', '', 'y = 2 ']));
 
   assert.deepEqual(placed(after), ['top@0-0', 'bottom@3-3']);
-  assert.deepEqual(markers(after), [false, false]);
+  assert.deepEqual(markers(after), [false, true]);
 });
 
 // -- orphaned annotations (#96) -----------------------------------------------
