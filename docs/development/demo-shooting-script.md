@@ -53,7 +53,7 @@ appear.
 | 7 | `other` | `other: [1, 2, 3, 4]` | Rebinding did not touch the other name |
 | 8 | `for n in range(5):` | `n ×5: 0, 1, 2, 3, 4   squared ×5: 0, 1, 4, 9, 16   printed: n is 0 …(5 lines)` | The line no terminal can produce |
 | 9 | `squares = [...]` | `squares: [0, 1, 4, 9, 16, 25]   n ×6: 0, 1, 2, 3, 4, 5` | A comprehension showing its hidden loop |
-| 10 | `total = sum(squares)` | `total: 55` | Ordinary, and fast — keeps the rhythm |
+| 10 | `total = sum(squares)` | `total: 55   squares: [0, 1, 4, 9, 16, 25]` | Ordinary, and the name it read comes along — keeps the rhythm |
 | 11 | `print("the total is", total)` | `printed: the total is 55` | Output, not the `None` it returned |
 
 **Then stop pressing and use the mouse**, which is the change of gear:
