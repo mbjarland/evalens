@@ -109,7 +109,7 @@ everyone.
 You need VS Code and **Python 3.9 or later on your `PATH`**. Nothing else.
 
 ```bash
-code --install-extension python-inline-values-0.0.1.vsix   # from a release or a friend
+code --install-extension evalens-0.0.1.vsix   # from a release or a friend
 ```
 
 Open any `.py` file, put the cursor on a line, press **`Cmd+Enter`**
@@ -370,13 +370,13 @@ nothing else set up, a first-year student's laptop being the motivating
 case. You need VS Code and Python (see Requirements above) and nothing
 beyond them.
 
-1. Get `python-inline-values-<version>.vsix` however it reaches you — a
+1. Get `evalens-<version>.vsix` however it reaches you — a
    shared file, a USB stick, a link to a GitHub Release.
 2. In VS Code, open the Extensions view (`Cmd+Shift+X` / `Ctrl+Shift+X`),
    open its `···` menu, and choose **Install from VSIX...**, then pick the
    file. From a terminal instead:
    ```bash
-   code --install-extension python-inline-values-0.0.1.vsix
+   code --install-extension evalens-0.0.1.vsix
    ```
 3. Reload the window when VS Code asks, open a Python file, and press
    `Alt+Enter` on a line. If nothing happens, read the keybinding section
@@ -389,10 +389,10 @@ wants the current branch rather than a shared file:
 ```bash
 npm ci
 npm run package
-code --install-extension python-inline-values-0.0.1.vsix
+code --install-extension evalens-0.0.1.vsix
 ```
 
-`npm run package` writes `python-inline-values-<version>.vsix` into the
+`npm run package` writes `evalens-<version>.vsix` into the
 repository root; the version comes from `package.json`. The rest is step 3
 above.
 

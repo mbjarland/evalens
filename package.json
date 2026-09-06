@@ -1,7 +1,7 @@
 {
-  "name": "python-inline-values",
-  "displayName": "Evalens \u2014 Inline Python Values",
-  "description": "See what a line of Python produced, painted beside the code \u2014 on demand, never as you type. No print(), no debugger, no notebook.",
+  "name": "evalens",
+  "displayName": "Evalens — Inline Python Values",
+  "description": "See what a line of Python produced, painted beside the code — on demand, never as you type. No print(), no debugger, no notebook.",
   "version": "0.0.1",
   "publisher": "mbjarland",
   "license": "MIT",
@@ -23,6 +23,7 @@
     "Programming Languages"
   ],
   "keywords": [
+    "evalens",
     "python",
     "repl",
     "inline",
@@ -112,7 +113,7 @@
           "minimum": 0,
           "maximum": 60000,
           "scope": "window",
-          "markdownDescription": "Milliseconds an evaluation must still be running before Evalens shows a cancellable progress notification. Almost every evaluation finishes in a few milliseconds, and a notification on each one would be intolerable \u2014 so the notification only appears once an evaluation has already failed to finish, which is the moment the extension otherwise looks like it ignored the keypress. Raising it buys a quieter window at the cost of a longer silence before anything confirms the keypress was heard, and before there is a Cancel button to press. `0` shows it immediately."
+          "markdownDescription": "Milliseconds an evaluation must still be running before Evalens shows a cancellable progress notification. Almost every evaluation finishes in a few milliseconds, and a notification on each one would be intolerable — so the notification only appears once an evaluation has already failed to finish, which is the moment the extension otherwise looks like it ignored the keypress. Raising it buys a quieter window at the cost of a longer silence before anything confirms the keypress was heard, and before there is a Cancel button to press. `0` shows it immediately."
         },
         "evalens.advanceSkipsComments": {
           "type": "boolean",
@@ -124,7 +125,7 @@
           "type": "string",
           "default": "printed",
           "scope": "application",
-          "markdownDescription": "What the annotation calls the output a statement printed. The default word keeps the `label: value` grammar the rest of the annotation uses and says in plain English what the code did \u2014 `<stdout>` is jargon a first-year student has not met. Set `\u00bb` for a terse marker instead; it is the one that exists in every font VS Code falls back to on macOS, where `\u25b8` and `\u25b6` do not and render at a width that misaligns the lines the marker is there to clarify. `stderr` keeps its own name whatever this says."
+          "markdownDescription": "What the annotation calls the output a statement printed. The default word keeps the `label: value` grammar the rest of the annotation uses and says in plain English what the code did — `<stdout>` is jargon a first-year student has not met. Set `»` for a terse marker instead; it is the one that exists in every font VS Code falls back to on macOS, where `▸` and `▶` do not and render at a width that misaligns the lines the marker is there to clarify. `stderr` keeps its own name whatever this says."
         },
         "evalens.announceResults": {
           "type": "string",
@@ -140,7 +141,7 @@
             "Announce every result from Evaluate at Cursor and Evaluate and Advance.",
             "Never announce; **Evalens: Announce Result at Cursor** still works when you ask for it."
           ],
-          "markdownDescription": "Whether an inline result is also announced, for a screen reader. An inline result is painted with a decoration, and the VS Code API gives a decoration no accessibility label of any kind \u2014 so without this, pressing the evaluate key produces silence that is indistinguishable from a dead keybinding. Announcing puts the same answer in a notification, which VS Code does read out, and keeps the last one in the status bar with an accessibility label on it. **The annotation is unchanged either way**; this adds a channel rather than moving the answer off the line.\n\n`auto` follows `editor.accessibilitySupport`, announcing when it is set to `on`. VS Code exposes no way for an extension to ask whether a screen reader is attached, and its own auto-detection leaves that setting reading `auto` whether it found one or not \u2014 so if your screen reader works without setting it, choose `always` here.\n\nA file load never announces whatever this says: two hundred annotations from one keypress would be worse than announcing nothing."
+          "markdownDescription": "Whether an inline result is also announced, for a screen reader. An inline result is painted with a decoration, and the VS Code API gives a decoration no accessibility label of any kind — so without this, pressing the evaluate key produces silence that is indistinguishable from a dead keybinding. Announcing puts the same answer in a notification, which VS Code does read out, and keeps the last one in the status bar with an accessibility label on it. **The annotation is unchanged either way**; this adds a channel rather than moving the answer off the line.\n\n`auto` follows `editor.accessibilitySupport`, announcing when it is set to `on`. VS Code exposes no way for an extension to ask whether a screen reader is attached, and its own auto-detection leaves that setting reading `auto` whether it found one or not — so if your screen reader works without setting it, choose `always` here.\n\nA file load never announces whatever this says: two hundred annotations from one keypress would be worse than announcing nothing."
         },
         "evalens.resultColumn": {
           "type": "number",
@@ -148,13 +149,13 @@
           "minimum": 0,
           "maximum": 200,
           "scope": "application",
-          "markdownDescription": "Column to line inline results up on. `0` (the default) puts each result just after the code that produced it, following Rider, so nothing is pushed further right than it has to be. A fixed column makes a file of plain assignments read as two tidy columns, at the cost of a wide empty gap after every short line \u2014 and it stops helping as soon as a line carries more than one value. A line already past the column keeps its usual gap rather than being dragged out further."
+          "markdownDescription": "Column to line inline results up on. `0` (the default) puts each result just after the code that produced it, following Rider, so nothing is pushed further right than it has to be. A fixed column makes a file of plain assignments read as two tidy columns, at the cost of a wide empty gap after every short line — and it stops helping as soon as a line carries more than one value. A line already past the column keeps its usual gap rather than being dragged out further."
         },
         "evalens.loopValues": {
           "type": "boolean",
           "default": true,
           "scope": "application",
-          "markdownDescription": "Report every value a `for` loop's target held, rather than only the last one. On, a loop reads `p: 1, 2, 3, 4`; off, it reads `p: 4` like any other statement. The sequence is most of the reason to evaluate a loop at all, and it is also the longest thing Evalens ever paints on one line \u2014 turn it off if the loops in your files are long enough that the summary is noise. Off also stops the loop being rewritten to record itself, so it costs nothing to run."
+          "markdownDescription": "Report every value a `for` loop's target held, rather than only the last one. On, a loop reads `p: 1, 2, 3, 4`; off, it reads `p: 4` like any other statement. The sequence is most of the reason to evaluate a loop at all, and it is also the longest thing Evalens ever paints on one line — turn it off if the loops in your files are long enough that the summary is noise. Off also stops the loop being rewritten to record itself, so it costs nothing to run."
         },
         "evalens.loopIterations": {
           "type": "number",
@@ -162,13 +163,13 @@
           "minimum": 1,
           "maximum": 50,
           "scope": "application",
-          "markdownDescription": "How many of a loop's iterations are listed before the rest are elided as `\u2026 (+9,994 more) \u2026`. The final value is always shown whatever this says, because for a loop stopped by `break` it is the answer you were looking for. More iterations show the shape of a run more clearly, at the cost of an annotation that pushes the code off the right of the window, and of one more `repr()` kept per loop. Ignored while **Loop Values** is off."
+          "markdownDescription": "How many of a loop's iterations are listed before the rest are elided as `… (+9,994 more) …`. The final value is always shown whatever this says, because for a loop stopped by `break` it is the answer you were looking for. More iterations show the shape of a run more clearly, at the cost of an annotation that pushes the code off the right of the window, and of one more `repr()` kept per loop. Ignored while **Loop Values** is off."
         },
         "evalens.readNames": {
           "type": "boolean",
           "default": true,
           "scope": "application",
-          "markdownDescription": "Report what the names on a line held, not only what the line produced. `print('y:', y)` produced `None`, and `y` is what the line was about \u2014 this is what puts `y: [1, 2, 3]` beside it. Turning it off leaves a bare result-only annotation, at the cost of having nothing to say on every line that is not a binding, which in a real file is most of them. Reading a name cannot run your code: it is a namespace lookup and nothing else."
+          "markdownDescription": "Report what the names on a line held, not only what the line produced. `print('y:', y)` produced `None`, and `y` is what the line was about — this is what puts `y: [1, 2, 3]` beside it. Turning it off leaves a bare result-only annotation, at the cost of having nothing to say on every line that is not a binding, which in a real file is most of them. Reading a name cannot run your code: it is a namespace lookup and nothing else."
         },
         "evalens.readNamesPerLine": {
           "type": "number",
@@ -199,7 +200,7 @@
       },
       {
         "id": "evalens.labelForeground",
-        "description": "Colour of a label an inline result introduces a value with: `x:`, the `=>` separator, the `\u2026+N more` footnote and the reduced-context caveat. Deliberately dimmer than the value it introduces \u2014 contrast against the editor background is 3.97:1 dark, 3.55:1 light, 10.85:1 high contrast, 6.64:1 high contrast light, against the value's 7.15 / 5.03 / 13.03 / 8.04.",
+        "description": "Colour of a label an inline result introduces a value with: `x:`, the `=>` separator, the `…+N more` footnote and the reduced-context caveat. Deliberately dimmer than the value it introduces — contrast against the editor background is 3.97:1 dark, 3.55:1 light, 10.85:1 high contrast, 6.64:1 high contrast light, against the value's 7.15 / 5.03 / 13.03 / 8.04.",
         "defaults": {
           "dark": "#8d7a5a",
           "light": "#96866a",
@@ -209,7 +210,7 @@
       },
       {
         "id": "evalens.outputLabelForeground",
-        "description": "Colour of the `printed:` and `stderr:` labels, and of nothing else. The same luminance as the name label \u2014 identical to two decimal places on dark \u2014 and a different hue, so the two labels separate on the blue-yellow axis, which is the one both protanopia and deuteranopia leave intact. Contrast against the editor background is 3.96:1 dark, 3.46:1 light, 11.54:1 high contrast, 7.80:1 high contrast light. Never the error colour: a library warning painted red teaches a student to fear a line that worked.",
+        "description": "Colour of the `printed:` and `stderr:` labels, and of nothing else. The same luminance as the name label — identical to two decimal places on dark — and a different hue, so the two labels separate on the blue-yellow axis, which is the one both protanopia and deuteranopia leave intact. Contrast against the editor background is 3.96:1 dark, 3.46:1 light, 11.54:1 high contrast, 7.80:1 high contrast light. Never the error colour: a library warning painted red teaches a student to fear a line that worked.",
         "defaults": {
           "dark": "#5c7fa6",
           "light": "#728da6",
