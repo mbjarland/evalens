@@ -268,18 +268,21 @@ a **trace**, not a live watch: the loop runs once, the expression is
 captured each time round, and nothing is re-read afterwards.
 ### It tells you when an answer is from before an edit
 
-Change a line after it has run, and its **gutter marker changes** to the
-stale mark and the bar beside its value goes grey. The value itself keeps its
-colour, on purpose: it is still the true answer to the code that ran, and
-greying it would put a claim about the value in competition with the value
-in the one place you are reading. Re-run the line and it catches up.
+Change a line after it has run and the answer beside it goes **stale**. The
+value does not grey out — it stays exactly as readable, because dimming it
+would be one more claim competing with the one thing on the line worth
+trusting. What changes is the chip around it: its tint fades to almost
+nothing and its edge turns grey, so the surface visibly recedes while the
+value keeps its own colour, and the marker in the gutter changes with it.
+Re-run the line and it catches up.
 
 Re-running a line that binds a name marks the lines **below** it that read
-that name, too — re-run `x = 1` and `y = x + 1` below is flagged even though
+that name, too — re-run `x = 1` and `y = x + 1` below goes stale even though
 its own text never moved, because it now describes a world that has changed.
-Until you re-run, nothing below is touched: those answers are still exactly
-what that code produced. Comment a line out and its annotation disappears
-entirely, because there is no statement left to describe.
+Hovering a stale line says which of the two happened. Until you re-run,
+nothing below is touched: those answers are still exactly what that code
+produced. Comment a line out and its annotation disappears entirely, because
+there is no statement left to describe.
 ### It can be heard
 
 Every result can be announced, and the full value is reachable from the
@@ -965,7 +968,9 @@ without the extension offering a setting of its own:
   "evalens.askingRegionBackground": "#e8963c66",
   "evalens.flashRegionBackground": "#4a9c8c66",
   "evalens.annotationBorder": "#e0a3ff",
-  "evalens.annotationTint": "#d1a35c1a"
+  "evalens.annotationTint": "#d1a35c1a",
+  "evalens.staleTint": "#8c8c8c0d",
+  "evalens.staleBorder": "#8c8c8c"
 }
 ```
 
