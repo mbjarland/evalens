@@ -31,11 +31,18 @@ is the recipe.</sub></p>
 Put the cursor on a line. Press `Cmd+Enter`. The value appears beside the
 code — and stays there while you press it on the next line, and the next.
 
-```
-lst = [1, 2, 3]      ▌lst: [1, 2, 3]
-other = lst          ▌other: [1, 2, 3]   lst: [1, 2, 3]
-other.append(4)      ▌other: [1, 2, 3, 4]
-lst                  ▌lst: [1, 2, 3, 4]
+<p align="center">
+  <img src="media/demo/aliasing.png" width="600" alt="Four lines pressed one
+    at a time: lst is [1, 2, 3], other is the same list, other.append(4)
+    changes it, and the fourth line — plain lst, never assigned to — now
+    reads [1, 2, 3, 4] too">
+</p>
+
+```python
+lst = [1, 2, 3]
+other = lst
+other.append(4)
+lst
 ```
 
 Four lines, four answers, all on screen at once, in the order they sit in
@@ -152,8 +159,14 @@ rest of this page is detail.
 
 ### A loop tells you what it did, not just where it ended
 
-```
-for n in range(5):      ▌n ×5: 0, 1, 2, 3, 4   squared ×5: 0, 1, 4, 9, 16   printed: n is 0 …(5 lines)
+<p align="center">
+  <img src="media/demo/loop.png" width="940" alt="A five-iteration for loop
+    evaluated once: the header line carries n's five values, squared's five
+    values, and the first of five printed lines">
+</p>
+
+```python
+for n in range(5):
     squared = n * n
     print("n is", n)
 ```
@@ -166,8 +179,14 @@ beside `kept ×2`.
 
 ### A comprehension stops hiding its loop
 
-```
-squares = [n * n for n in range(6)]   ▌squares: [0, 1, 4, 9, 16, 25]   n ×6: 0, 1, 2, 3, 4, 5
+<p align="center">
+  <img src="media/demo/comprehension.png" width="840" alt="A list
+    comprehension evaluated once: squares holds the six squared values, and
+    n beside it shows every value the comprehension's own loop took">
+</p>
+
+```python
+squares = [n * n for n in range(6)]
 ```
 
 A comprehension is the harder thing for a beginner to read and normally gets
@@ -178,9 +197,15 @@ name.
 
 ### What a line printed, beside what it produced
 
-```
-total = sum(squares)          ▌total: 55
-print("the total is", total)  ▌printed: the total is 55
+<p align="center">
+  <img src="media/demo/print.png" width="740" alt="Two lines pressed in
+    order: total is 55, and the line below shows what it printed instead of
+    the None print() actually returns">
+</p>
+
+```python
+total = sum(squares)
+print("the total is", total)
 ```
 
 `print()` evaluates to `None`, and saying `None` would be useless. A line
@@ -214,8 +239,14 @@ evaluate that property to show you a number. This will not.
 
 ### Errors are answers
 
-```
-int("not a number")   ▌=> ValueError: invalid literal for int() with base 10: 'not a number'
+<p align="center">
+  <img src="media/demo/error.png" width="800" alt="A single failing
+    statement, painted in the error colour with a matching gutter mark: the
+    ValueError int() raised, on the line that raised it">
+</p>
+
+```python
+int("not a number")
 ```
 
 On the line that raised, in the error colour, with the whole traceback on
@@ -257,8 +288,14 @@ A loop already shows you what its target took and what its body bound —
 is not in the code. Put the cursor in the loop, run **Add Inline Watch**,
 and type any expression:
 
-```
-for x in [1, 2, 3, 4]:   ▌x ×4: 1, 2, 3, 4   total ×4: 1, 3, 6, 10   total > 5 ×4: False, False, True, True
+<p align="center">
+  <img src="media/demo/watch.png" width="980" alt="The same four-iteration
+    loop, with a nominated total > 5 watch added to its header: False,
+    False, True, True — crossing five on the third iteration">
+</p>
+
+```python
+for x in [1, 2, 3, 4]:
     total += x
 ```
 

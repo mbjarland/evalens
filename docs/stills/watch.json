@@ -1,0 +1,15 @@
+{
+  "title": "demo.py",
+  "width": 940,
+  "mode": "watch",
+  "watch": "total > 5",
+  "setup": [
+    "total = 0"
+  ],
+  "lines": [
+    "for x in [1, 2, 3, 4]:",
+    "    total += x"
+  ],
+  "output": "media/demo/watch.png",
+  "hash": "7fdc8072d96c2b53df6b9cac6cfe8d3973a3cfba4c0f4bfafca7699cecbbb0cc"
+}

@@ -1,0 +1,16 @@
+{
+  "title": "grades.py",
+  "width": 760,
+  "mode": "load",
+  "lines": [
+    "scores = [72, 85, 91, 64]",
+    "total = 0",
+    "for s in scores:",
+    "    total = s",
+    "average = total / len(scores)",
+    "passed = [s for s in scores if s >= 70]",
+    "print(f\"{len(passed)} passed, average {average:.1f}\")"
+  ],
+  "output": "media/demo/spot-the-bug.png",
+  "hash": "10117d3b76ff18a832b4a7f5070c6425004ad1e2c513e76a07521b2a981562b6"
+}
