@@ -747,6 +747,48 @@ class Failures(KernelTest):
             self.k.evaluate_lines("v = 2\nv\n", 0, 1)["value"], "2")
 
 
+class ErrorIdentity(KernelTest):
+    def test_exact_builtin_errors_carry_identity_with_original_text(self):
+        for source, name in [("missing_name\n", "NameError"),
+                             ('int("hello")\n', "ValueError")]:
+            with self.subTest(name=name):
+                result = self.k.evaluate(source, 0, filename="/tmp/lesson.py")
+                self.assertFalse(result["ok"])
+                error = result["error"]
+                self.assertEqual(error["builtinType"], name)
+                self.assertEqual(error["type"], name)
+                self.assertIn(error["message"], error["traceback"])
+                self.assertIn(source.strip(), error["traceback"])
+
+    def test_custom_same_named_classes_are_not_builtin_errors(self):
+        for name in ("NameError", "ValueError"):
+            with self.subTest(name=name):
+                self.k.evaluate(
+                    f'class {name}(Exception):\n    __module__ = "builtins"\n', 0)
+                error = self.k.evaluate(f'raise {name}("custom")\n', 0)["error"]
+                self.assertEqual(error["type"], name)
+                self.assertNotIn("builtinType", error)
+        # Python still raises its real NameError even after a user binds the
+        # name to a custom class in their namespace.
+        error = self.k.evaluate("another_missing_name\n", 0)["error"]
+        self.assertEqual(error["builtinType"], "NameError")
+
+    def test_subclasses_and_unrelated_errors_have_no_guidance_identity(self):
+        for name in ("NameError", "ValueError"):
+            with self.subTest(name=name):
+                self.k.evaluate(f'class Custom({name}):\n    pass\n', 0)
+                error = self.k.evaluate('raise Custom("custom")\n', 0)["error"]
+                self.assertNotIn("builtinType", error)
+        for source in ('1 / 0\n', 'raise RuntimeError("NameError: missing")\n'):
+            self.assertNotIn("builtinType", self.k.evaluate(source, 0)["error"])
+
+    def test_file_outcomes_use_the_same_exact_identity_metadata(self):
+        result = self.k.send(op="eval_file", source='missing_name\nint("hello")\n')
+        self.assertTrue(result["ok"])
+        self.assertEqual([row["error"]["builtinType"] for row in result["results"]],
+                         ["NameError", "ValueError"])
+
+
 def spinner(marker):
     """A ``while`` loop that reports it has started, then runs forever.
 

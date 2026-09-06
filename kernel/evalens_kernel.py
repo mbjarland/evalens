@@ -179,6 +179,12 @@ which is every value today, since none of this changes what ``value`` or
 ``repr`` say. See ``tabular.describe`` for the detection rules and why they
 stop where they do.
 
+Errors keep their original ``type``, ``message`` and ``traceback``. An optional
+``builtinType`` identifies an exact original built-in ``NameError`` or
+``ValueError`` class for factual hover explanations. Class names and modules
+alone cannot establish this identity; subclasses and user-defined classes
+carry no such metadata. This never changes what gets evaluated.
+
 Coordinates are VS Code's: 0-based line, 0-based character.
 
 ``eval_file`` takes the whole buffer and, optionally, ``start_line`` and
@@ -2744,6 +2750,12 @@ def _without_kernel_frames(
     return types.TracebackType(rest, tb.tb_frame, tb.tb_lasti, tb.tb_lineno)
 
 
+# Capture the original classes before any user code can rebind their names.
+# Identity (not isinstance, class name, module name, or exception text) keeps
+# subclasses and unrelated user classes out of the beginner explanations.
+_EXPLAINED_ERRORS = ((NameError, "NameError"), (ValueError, "ValueError"))
+
+
 def _error(exc: BaseException, tb_skip: int = 0) -> Dict[str, Any]:
     """Format an exception for the wire, without the kernel's own frames.
 
@@ -2760,11 +2772,18 @@ def _error(exc: BaseException, tb_skip: int = 0) -> Dict[str, Any]:
             break
         tb = tb.tb_next
     tb = _without_kernel_frames(tb)
-    return {
-        "type": type(exc).__name__,
+    exception_type = type(exc)
+    result = {
+        "type": exception_type.__name__,
         "message": str(exc),
-        "traceback": "".join(traceback.format_exception(type(exc), exc, tb)),
+        "traceback": "".join(traceback.format_exception(exception_type, exc, tb)),
     }
+
+    for builtin, name in _EXPLAINED_ERRORS:
+        if exception_type is builtin:
+            result["builtinType"] = name
+            break
+    return result
 
 
 def _resolves_to_kernel_dir(entry: str) -> bool:

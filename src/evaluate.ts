@@ -22,6 +22,7 @@ import { Announcer } from './render/announcer';
 import { Annotations, Validity } from './render/annotations';
 import { Annotation, toVsCodeRange } from './render/decorations';
 import { Flash, SETTLED, SNAP } from './render/flash';
+import { errorDetails } from './render/errorGuidance';
 import { printedFrom } from './render/format';
 import {
   describeAbove, describeLoad, describeResidue, describeRun, hoverFor,
@@ -124,7 +125,7 @@ function annotationFor(
           source: sourceAtText(source, outcome.range),
           ...(outcome.binds === undefined ? {} : { binds: outcome.binds }),
           ...(outcome.reads === undefined ? {} : { reads: outcome.reads }),
-          error: { type: outcome.error.type, message: outcome.error.message },
+          error: errorDetails(outcome.error),
           hover: outcome.error.traceback || outcome.error.message,
         }
       : undefined;
@@ -367,7 +368,7 @@ function causeAnnotation(partial: PartialParse): Annotation {
   const cause = partialCause(partial);
   return {
     range: toVsCodeRange(cause.range),
-    error: { type: cause.type, message: cause.message },
+    error: errorDetails(cause),
     hover: cause.hover,
   };
 }
@@ -874,9 +875,7 @@ export class Evaluator {
           isCurrent, {
             range: toVsCodeRange(response.range),
             source: sourceAtText(source, response.range),
-            error: {
-              type: response.error.type, message: response.error.message,
-            },
+            error: errorDetails(response.error),
             hover: response.error.traceback || response.error.message,
           });
         if (placed !== undefined) {
@@ -1060,9 +1059,7 @@ export class Evaluator {
           isCurrent, {
             range: toVsCodeRange(response.range),
             source: sourceAtText(source, response.range),
-            error: {
-              type: response.error.type, message: response.error.message,
-            },
+            error: errorDetails(response.error),
             hover: response.error.traceback || response.error.message,
           });
         if (placed !== undefined) {
@@ -1241,7 +1238,7 @@ export class Evaluator {
             ...(presentation.reads === undefined
               ? {}
               : { reads: presentation.reads }),
-            error: { type: presentation.type, message: presentation.message },
+            error: errorDetails(presentation),
             hover: presentation.hover,
             ...(partial === undefined
               ? {}

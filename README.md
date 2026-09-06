@@ -262,6 +262,15 @@ On the line that raised, in the error colour, with the whole traceback on
 the hover. A file load carries on to the next statement rather than stopping,
 so one bad line does not cost you the other forty.
 
+The hover also explains Python's built-in `NameError` and `ValueError` in
+plain language after the original traceback. For `NameError`, it suggests
+checking spelling and whether a definition has run, and names **Evalens:
+Evaluate Above Cursor** with its cost: resetting state and running earlier
+statements. This is reading guidance; opening the hover runs nothing.
+`ValueError` includes a clearly marked example and points back to Python's
+original message. Other errors and user-defined exception classes keep their
+existing presentation.
+
 ### `input()` that does not make you retype
 
 Beginner code is full of prompts. The first run asks; every run after

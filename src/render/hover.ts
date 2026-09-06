@@ -12,6 +12,7 @@ import { staleReasonText, Traced, GO_TO_STALE_CAUSE } from './registry';
 import { tableMarkdown } from './table';
 import { LiveInspection } from './liveInspection';
 import { literalBlock } from './markdown';
+import { errorGuidance } from './errorGuidance';
 
 /**
  * Why a stale annotation no longer describes the code beside it (#109).
@@ -130,6 +131,8 @@ export class ValueHoverProvider implements vscode.HoverProvider {
       }
     }
     lines.push(literalBlock(annotation.hover));
+    const guidance = errorGuidance(annotation.error);
+    if (guidance !== undefined) lines.push('', guidance);
 
     if (annotation.table) {
       lines.push('', tableMarkdown(annotation.table));

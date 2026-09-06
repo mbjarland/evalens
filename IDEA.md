@@ -641,6 +641,15 @@ included: the buffer can be put back, the kernel cannot, and only an
 evaluation is entitled to say the two agree again. Design rule 4 carries the
 reasoning for why this is a trace at all.
 
+**Reading errors.** The original traceback stays intact. The error hover
+adds short, deterministic explanations for exact built-in `NameError` and
+`ValueError` classes, identified by the kernel at error capture. Unknown
+classes and user-defined classes with the same name get no explanation.
+The NameError guidance describes checking spelling and earlier definitions,
+and names Evaluate Above Cursor as a deliberate option that resets state and
+executes prior statements. These are instructions to read, never executing
+links; opening the hover does not run code or add a kernel request.
+
 **Value formatting.** Truncation limits, nesting depth, hover-for-full, and
 sensible handling of large or cyclic structures. Partly done, and the open
 tickets are the honest status: #12 truncation, #54 (`repr()` builds the whole

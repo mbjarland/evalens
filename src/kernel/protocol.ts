@@ -42,6 +42,9 @@ export interface KernelError {
   readonly type: string;
   readonly message: string;
   readonly traceback: string;
+  /** Exact original built-in class, confirmed by the kernel's identity check.
+   * Absent for custom classes, subclasses, other errors and older kernels. */
+  readonly builtinType?: 'NameError' | 'ValueError';
 }
 
 /**
