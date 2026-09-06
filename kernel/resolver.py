@@ -712,6 +712,21 @@ def _anchor_line(node: ast.stmt, end: int,
     return anchor
 
 
+def utf16_column(text: str, byte_column: int) -> int:
+    """Convert Python AST UTF-8 byte offsets to editor UTF-16 units."""
+    prefix = text.encode("utf-8")[:max(0, byte_column)].decode(
+        "utf-8", errors="ignore")
+    return len(prefix.encode("utf-16-le")) // 2
+
+
+def utf8_column(text: str, editor_column: int) -> int:
+    """Convert editor UTF-16 units to Python AST UTF-8 byte offsets."""
+    prefix = text.encode("utf-16-le")[:max(0, editor_column) * 2].decode(
+        "utf-16-le", errors="ignore")
+    units = len(text.encode("utf-16-le")) // 2
+    return len(prefix.encode("utf-8")) + max(0, editor_column - units)
+
+
 def form_of(node: ast.stmt, first_in_body: bool = False,
             source_lines: Optional[List[str]] = None) -> Form:
     """Describe a statement: what to run, what to show, and where it is.
@@ -720,11 +735,9 @@ def form_of(node: ast.stmt, first_in_body: bool = False,
     the only thing that separates a docstring from a string someone typed to
     see the value of.
 
-    `source_lines` is the buffer, split into text lines, for `_anchor_line`
-    alone -- everything else here already has what it needs from the tree.
-    Optional because a caller with only a tree, no buffer, still gets an
-    anchor; it is only wrong when the body opens with a comment, and only a
-    caller that supplies the text can be told so. See `_anchor_line`.
+    `source_lines` supplies comment-aware anchors and converts AST UTF-8
+    columns to editor UTF-16 columns. Tree-only callers retain AST columns;
+    all protocol callers supply the source.
     """
     start = _start_line(node) - 1
     end = (node.end_lineno or node.lineno) - 1
@@ -735,14 +748,19 @@ def form_of(node: ast.stmt, first_in_body: bool = False,
     # questions below rather than asked twice.
     target = None if display is None else _display_target(node)
     readable, captured = _value_source(node, target)
+    start_char = 0 if start < node.lineno - 1 else node.col_offset
+    end_char = node.end_col_offset or 0
+    if source_lines is not None:
+        start_char = utf16_column(source_lines[start], start_char)
+        end_char = utf16_column(source_lines[end], end_char)
     return Form(
         node=node,
         kind=type(node).__name__,
         display=display,
         start_line=start,
-        start_char=0 if start < node.lineno - 1 else node.col_offset,
+        start_char=start_char,
         end_line=end,
-        end_char=node.end_col_offset or 0,
+        end_char=end_char,
         anchor_line=_anchor_line(node, end, source_lines),
         names=annotated_names(node, first_in_body),
         binds=binds,
@@ -779,13 +797,15 @@ def form_at(tree: ast.Module, line: int, character: int = 0,
     which never had a reason to pass anything but the default, resolving
     exactly as it always did.
 
-    `source` is unused here beyond being threaded to `form_of` for its own
-    optional argument; see `_anchor_line`.
+    With `source`, incoming columns are UTF-16 and converted to AST bytes
+    before resolving semicolon-separated statements.
     """
     source_lines = None if source is None else source.split("\n")
     matches = [(index, node) for index, node in enumerate(tree.body)
                if _span(node)[0] <= line <= _span(node)[1]]
     if len(matches) > 1:
+        if source_lines is not None and 0 <= line < len(source_lines):
+            character = utf8_column(source_lines[line], character)
         for index, node in matches:
             if node.col_offset <= character <= (node.end_col_offset
                                                  if node.end_col_offset is not None

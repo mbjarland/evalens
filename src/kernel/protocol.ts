@@ -29,6 +29,7 @@
 
 export interface Position {
   readonly line: number;
+  /** UTF-16 code units, matching VS Code; never Python AST byte offsets. */
   readonly character: number;
 }
 

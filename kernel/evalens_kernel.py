@@ -451,7 +451,7 @@ from typing import (
 
 import loops
 import tabular
-from resolver import Form, Parsed, form_at, forms_in, parse_prefix
+from resolver import Form, Parsed, form_at, forms_in, parse_prefix, utf8_column
 
 #: Where this kernel's own modules live, resolved once. At startup it is also
 #: `sys.path[0]`, because that is what Python does for the script it was asked
@@ -3250,6 +3250,9 @@ def _syntax_position(exc: SyntaxError) -> Dict[str, Dict[str, int]]:
     """
     line = (exc.lineno or 1) - 1
     character = max((exc.offset or 1) - 1, 0)
+    # SyntaxError offsets count Unicode code points, unlike AST byte offsets.
+    if exc.text is not None:
+        character = len(exc.text[:character].encode("utf-16-le")) // 2
     return {
         "start": _position(line, character),
         "end": _position(line, character),
@@ -3587,7 +3590,7 @@ class Kernel:
         partial = {} if parsed.truncated_at is None else {
             "partial": _partial_of(parsed)}
 
-        form = form_at(parsed.tree, line, character)
+        form = form_at(parsed.tree, line, character, source=source)
         if form is None:
             return {"ok": True, "resolved": False, **partial}
 
@@ -3603,7 +3606,9 @@ class Kernel:
                           "traceback": ""},
             }
 
-        loop_node = loops.innermost_loop_at(form.node, line, character)
+        source_lines = source.split("\n")
+        byte_column = utf8_column(source_lines[line], character)
+        loop_node = loops.innermost_loop_at(form.node, line, byte_column)
         if loop_node is None:
             # Reachable only if the position `form_at` resolved the
             # statement from falls outside that very statement's own span --
@@ -3984,7 +3989,7 @@ class Kernel:
         partial = {} if parsed.truncated_at is None else {
             "partial": _partial_of(parsed)}
 
-        forms = forms_in(parsed.tree, None)
+        forms = forms_in(parsed.tree, None, source=source)
         above = forms[:_above_boundary(forms, line)]
 
         # A partial run's whole premise is a namespace matching a run from
