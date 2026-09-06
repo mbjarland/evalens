@@ -484,6 +484,22 @@ export interface FakeVscode {
       readonly labels: readonly string[];
     }>;
   };
+  /**
+   * What `showInputBox` should answer with, in order -- a queue of typed
+   * strings a test pushes onto before triggering the box, since a real
+   * person is not here to type one. `undefined` is Escape, the close
+   * button, or anything else that dismisses the box unanswered -- the same
+   * "nothing was typed" `showInputBox` itself returns.
+   */
+  readonly inputBox: {
+    readonly answers: Array<string | undefined>;
+    readonly calls: ReadonlyArray<{
+      readonly title: string | undefined;
+      readonly prompt: string | undefined;
+      readonly value: string | undefined;
+      readonly placeHolder: string | undefined;
+    }>;
+  };
   readonly setContextCalls: Array<{ readonly key: string; readonly value: unknown }>;
   window: {
     activeTextEditor: FakeEditor | undefined;
@@ -525,6 +541,13 @@ export function createFakeVscode(): FakeVscode {
     readonly title: string | undefined;
     readonly placeHolder: string | undefined;
     readonly labels: readonly string[];
+  }> = [];
+  const inputBoxAnswers: Array<string | undefined> = [];
+  const inputBoxCalls: Array<{
+    readonly title: string | undefined;
+    readonly prompt: string | undefined;
+    readonly value: string | undefined;
+    readonly placeHolder: string | undefined;
   }> = [];
 
   const windowState: FakeVscode['window'] = {
@@ -646,7 +669,15 @@ export function createFakeVscode(): FakeVscode {
         showMessage('warning', message, stringItems(rest)),
       showInformationMessage: (message: string, ...rest: unknown[]) =>
         showMessage('information', message, stringItems(rest)),
-      showInputBox: () => Promise.resolve(undefined),
+      showInputBox: (options?: {
+        title?: string; prompt?: string; value?: string; placeHolder?: string;
+      }) => {
+        inputBoxCalls.push({
+          title: options?.title, prompt: options?.prompt,
+          value: options?.value, placeHolder: options?.placeHolder,
+        });
+        return Promise.resolve(inputBoxAnswers.shift());
+      },
       // Resolves against whatever list `render/explorer.ts` actually passed
       // in, by label, rather than against a fixed index -- the item order
       // changes with `trail.length` (the "Back" row only appears below the
@@ -722,6 +753,7 @@ export function createFakeVscode(): FakeVscode {
     config,
     extensions,
     quickPick: { picks: quickPickPicks, calls: quickPickCalls },
+    inputBox: { answers: inputBoxAnswers, calls: inputBoxCalls },
     setContextCalls,
     window: windowState,
     emitters,

@@ -1,5 +1,7 @@
 /**
- * How a prompt from the running code is worded in the box that asks for it.
+ * How a prompt from the running code is worded in the box that asks for it,
+ * and -- since #104 -- how the box that asks the reader to nominate a watch
+ * expression is titled before anything has run at all.
  *
  * Separated from the editor so the wording can be checked without one, and
  * because the interesting case is the one with nothing to say: beginner code
@@ -74,6 +76,70 @@ export function locatedTitle(line: number, code: string): string {
     ? `${code.slice(0, LABEL_LIMIT)}…`
     : code;
   return `line ${line + 1} · ${trimmed}`;
+}
+
+/** Does this trimmed line open a `for` or `async for` statement? */
+function opensLoop(trimmed: string): boolean {
+  return /^(async\s+)?for\b/.test(trimmed);
+}
+
+/**
+ * The 0-based line of the `for`/`async for` that a plain indentation scan
+ * finds enclosing `fromLine`, or `undefined` when the scan finds none --
+ * #104's answer to putting the loop's header on the watch box's title
+ * *before* the reader has typed the expression that would let
+ * `eval_watch` resolve it for real.
+ *
+ * A text scan rather than a parse, deliberately: the one thing this feeds is
+ * a title, and getting it wrong there costs a title that undersells or omits
+ * the loop, never a wrong watch. `eval_watch` re-resolves the loop it
+ * actually attaches to from the real tree once the request carries an
+ * expression (`loops.innermost_loop_at`), and answers `NoLoop` on its own
+ * account when there is none -- this has no way to make that answer wrong,
+ * only the box that asked for the expression less informative than it could
+ * have been.
+ *
+ * The scan walks upward tracking the shallowest indentation seen so far (the
+ * "ceiling"): a line indented at or past it is nested inside something
+ * already passed and cannot be what encloses `fromLine`, so it is skipped;
+ * a shallower line is a candidate ancestor, checked for `for`/`async for`
+ * and, if it is not one, becomes the new ceiling. That is also this scan's
+ * one known blind spot: a `for` header broken across physical lines --
+ * a trailing backslash, or a parenthesized iterable on its own line -- has a
+ * continuation line at the *same* indentation as the header itself, which
+ * looks like a sibling statement and lowers the ceiling to it, ending the
+ * scan one line short of the header that opened it. `resolver.py`'s own
+ * parser does not have this problem and is exactly the reach #48 and #104
+ * both decline to duplicate here for a title. The blind spot only ever
+ * costs a plainer title (see `Evaluator`'s fallback to the nomination's own
+ * line); it cannot mis-name a loop, because a false positive would require
+ * this to call something a loop that a `for`/`async for` scan disagrees
+ * with, and it never overrides that check.
+ */
+export function enclosingLoopHeader(
+  lineText: (line: number) => string, fromLine: number
+): number | undefined {
+  let ceiling = Number.POSITIVE_INFINITY;
+  for (let line = fromLine; line >= 0; line -= 1) {
+    const trimmed = lineText(line).trim();
+    if (trimmed === '' || trimmed.startsWith('#')) {
+      continue;
+    }
+    const indent = lineText(line).length - lineText(line).trimStart().length;
+    if (indent >= ceiling) {
+      continue;
+    }
+    if (opensLoop(trimmed)) {
+      return line;
+    }
+    ceiling = indent;
+    if (ceiling === 0) {
+      // Nothing shallower than the left margin exists, so nothing above
+      // this line could still be its ancestor.
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 /**
