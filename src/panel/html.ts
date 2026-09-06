@@ -24,7 +24,7 @@ import {
   isStreamGroup, resultGroups,
 } from '../render/format';
 import {
-  Marker, markerFor, normalizeSource, staleReasonText,
+  Marker, markerFor, normalizeSource, staleReasonText, DependencyCause,
 } from '../render/registry';
 import { pendingText } from '../render/status';
 
@@ -59,6 +59,7 @@ export interface PanelAnnotation extends Announceable {
   };
   readonly anchor?: number;
   readonly staleReason?: 'edited' | 'dependency';
+  readonly staleCause?: DependencyCause;
 }
 
 /** Which of the panel's four row states one row is in -- `Marker`'s three,
@@ -101,6 +102,7 @@ export interface ValuesRow {
   readonly state: RowState;
   /** Present only when `state` is `'stale'`. */
   readonly staleReason?: 'edited' | 'dependency';
+  readonly staleCause?: DependencyCause;
   /** Chip groups exactly as `resultGroups` builds them, at full length --
    * absent for a pending or error row, which paint their own message
    * instead, and absent for a row with nothing to show at all. */
@@ -227,7 +229,7 @@ function rowFor(
   }
 
   const state = markerFor(annotation);
-  const staleReason = state === 'stale' ? { staleReason: annotation.staleReason } : {};
+  const staleReason = state === 'stale' ? { staleReason: annotation.staleReason, staleCause: annotation.staleCause } : {};
 
   if (annotation.error !== undefined) {
     const summary = collapseLines(annotation.error.message);
@@ -646,10 +648,12 @@ export function fullTextFor(row: ValuesRow, blockId: string): string | undefined
  * sentence rather than the hover's `Stale: …`, since the row's own grey
  * surface already says "stale" once.
  */
-function staleReasonHtml(reason: 'edited' | 'dependency'): string {
-  const clause = staleReasonText(reason);
+function staleReasonHtml(row: ValuesRow): string {
+  const clause = staleReasonText(row.staleReason, row.staleCause);
   const sentence = `${clause.charAt(0).toUpperCase()}${clause.slice(1)}.`;
-  return `<div class="stale-reason">${escapeHtml(sentence)}</div>`;
+  const link = row.staleCause?.source
+    ? ` <button type="button" data-stale-cause="${row.staleCause.id}">Go to re-binding</button>` : '';
+  return `<div class="stale-reason">${escapeHtml(sentence)}${link}</div>`;
 }
 
 /** The VALUE column's whole content for one row, folding any block --
@@ -673,7 +677,7 @@ function valueCellHtml(
     const errorChip = chip(
       `<span class="error-text">${escapeHtml(row.errorText)}</span>`, tone, true);
     return row.state === 'stale' && row.staleReason !== undefined
-      ? errorChip + staleReasonHtml(row.staleReason)
+      ? errorChip + staleReasonHtml(row)
       : errorChip;
   }
 
@@ -717,7 +721,7 @@ function valueCellHtml(
   // chip, the same as the inline annotation does.
   const value = inlineChips.join(' ') + blockChips.join('');
   return row.state === 'stale' && row.staleReason !== undefined
-    ? value + staleReasonHtml(row.staleReason)
+    ? value + staleReasonHtml(row)
     : value;
 }
 
@@ -921,6 +925,19 @@ tr.row:focus-visible {
   font-style: italic;
   color: var(--vscode-descriptionForeground, #9d9d9d);
 }
+.stale-reason button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--vscode-textLink-foreground);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.stale-reason button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
 /* Folding a long block (#155): the footer names how much was left out and
    carries the two actions, in the UI font like the stale reason above --
    it is Evalens' own remark about the block, not part of what the program
@@ -1026,6 +1043,14 @@ function script(
         vscode.postMessage({ expand: line });
       }
     });
+  });
+  document.querySelectorAll('[data-stale-cause]').forEach(function (button) {
+    button.addEventListener('click', function (event) {
+      event.stopPropagation();
+      vscode.postMessage({ cause: Number(button.getAttribute('data-stale-cause')),
+        revision: revision });
+    });
+    button.addEventListener('keydown', function (event) { event.stopPropagation(); });
   });
   function matching(line) {
     return rows.find(function (row) { return Number(row.dataset.goto) === line; })

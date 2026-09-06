@@ -1388,3 +1388,55 @@ test('compound, stale and error rows keep their real source range during navigat
     assert.match(view.webview.html, /1 stale/);
   } finally { extension.deactivate(); }
 });
+
+
+test('panel dependency explanation retains names when the source link is withdrawn', () => {
+  const cause = { id: 77, names: ['x'], source: {
+    range: range(0, 0), text: 'x = 5',
+  } };
+  const annotation: PanelAnnotation = { range: range(1, 1), value: '2',
+    stale: true, staleReason: 'dependency', staleCause: cause };
+  const htmlFor = (item: PanelAnnotation) => valuesHtml({ fileName: 'x.py',
+    rows: rowsFor(lineSource(['x = 5', 'y = x + 1']), [item], 'printed'),
+  }, undefined, 'n');
+  assert.match(htmlFor(annotation), /This line reads ‘x’; line 1 re-bound ‘x’/);
+  assert.match(htmlFor(annotation), /data-stale-cause="77"/);
+  const removed = htmlFor({ ...annotation, staleCause: { ...cause, source: undefined } });
+  assert.match(removed, /This line reads ‘x’/);
+  assert.match(removed, /source can no longer be located reliably/);
+  assert.doesNotMatch(removed, /data-stale-cause="77"/);
+});
+
+
+test('panel cause messages navigate current provenance and reject obsolete HTML', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor('x = 1\ny = x + 1\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const shell = fake.module as { workspace: { textDocuments: unknown[] };
+    window: { showTextDocument: (doc: unknown) => Promise<typeof editor> } };
+  shell.workspace.textDocuments = [editor.document];
+  let visits = 0;
+  shell.window.showTextDocument = async () => { visits++; return editor; };
+  const extension = activated(fake);
+  try {
+    await fake.executeCommand('evalens.evaluateFile');
+    await fake.executeCommand('evalens.evaluateAtCursor');
+    const view = new FakeWebviewView();
+    fake.webviewViewProviders.get('evalens.values')!.resolveWebviewView(view, {}, {});
+    const id = Number(/data-stale-cause="(\d+)"/.exec(view.webview.html)![1]);
+    const revision = panelRevision(view);
+    view.webview.fireMessage({ cause: id, revision: revision - 1 });
+    view.webview.fireMessage({ cause: id + 1000, revision });
+    assert.equal(visits, 0);
+    editor.selection = new FakeSelection(new FakePosition(1, 0), new FakePosition(1, 0));
+    view.webview.fireMessage({ cause: id, revision });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(visits, 1);
+    assert.equal(editor.selection.active.line, 0);
+    assert.equal(editor.revealed.at(-1)!.start.line, 0);
+    await fake.executeCommand('evalens.clearResults');
+    view.webview.fireMessage({ cause: id, revision });
+    assert.equal(visits, 1);
+  } finally { extension.deactivate(); }
+});

@@ -217,7 +217,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       return;
     }
     const data = message as {
-      goto?: unknown; revision?: unknown; followCursor?: unknown;
+      cause?: unknown; goto?: unknown; revision?: unknown; followCursor?: unknown;
       explicit?: unknown; expand?: unknown; open?: unknown; stream?: unknown;
     };
 
@@ -232,6 +232,13 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     }
 
     if (data.revision !== this.revision) {
+      return;
+    }
+    if (typeof data.cause === 'number') {
+      const editor = vscode.window.activeTextEditor;
+      if (editor && this.renderedData.rows.some((row) => row.staleCause?.id === data.cause)) {
+        void this.annotations.revealDependency(editor.document.uri.toString(), data.cause);
+      }
       return;
     }
     if (typeof data.followCursor === 'boolean') {

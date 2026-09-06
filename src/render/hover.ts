@@ -8,7 +8,7 @@ import { hasOutput } from './format';
 import {
   hasMoreToExplore, inspectionTable, isInspectableName,
 } from './inspector';
-import { staleReasonText } from './registry';
+import { staleReasonText, Traced, GO_TO_STALE_CAUSE } from './registry';
 import { tableMarkdown } from './table';
 import { LiveInspection } from './liveInspection';
 import { literalBlock } from './markdown';
@@ -26,8 +26,8 @@ import { literalBlock } from './markdown';
  * lives in `registry.staleReasonText`, shared with the values panel (#116),
  * so the two surfaces never say this in two different ways.
  */
-function staleExplanation(reason: 'edited' | 'dependency' | undefined): string {
-  return `Stale: ${staleReasonText(reason)}.`;
+function staleExplanation(annotation: Traced): string {
+  return `Stale: ${staleReasonText(annotation.staleReason, annotation.staleCause)}.`;
 }
 
 /**
@@ -121,7 +121,13 @@ export class ValueHoverProvider implements vscode.HoverProvider {
     // without saying which of the two reasons is true here.
     const lines: string[] = [];
     if (annotation.stale) {
-      lines.push(staleExplanation(annotation.staleReason), '');
+      lines.push(staleExplanation(annotation), '');
+      if (annotation.staleCause?.source) {
+        const args = encodeURIComponent(JSON.stringify([
+          document.uri.toString(), annotation.staleCause.id,
+        ]));
+        lines.push(`[Go to re-binding](command:${GO_TO_STALE_CAUSE}?${args})`, '');
+      }
     }
     lines.push(literalBlock(annotation.hover));
 
@@ -152,7 +158,7 @@ export class ValueHoverProvider implements vscode.HoverProvider {
     const message = new vscode.MarkdownString(lines.join('\n'));
     // Narrow rather than a blanket `true`: a hover that can run one or two
     // named commands is a link, and a hover that can run anything is a hole.
-    message.isTrusted = { enabledCommands: [SHOW_OUTPUT, INSPECT_VALUE] };
+    message.isTrusted = { enabledCommands: [SHOW_OUTPUT, INSPECT_VALUE, GO_TO_STALE_CAUSE] };
 
     if (token?.isCancellationRequested || document.isClosed
         || this.annotations.at(document, position.line) !== annotation) {
