@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 
+import { registerLearningWalkthrough } from './learning';
 import { Evaluator, STATUS_ACK_MS } from './evaluate';
 import { fixKeybindingConflict, reportKeybindingConflicts } from './conflicts';
 import { resolveInterpreter, toggleFollowValuesPanel } from './config';
@@ -24,6 +25,7 @@ let evaluator: Evaluator | undefined;
  * Python file to read it starts no process.
  */
 export function activate(context: vscode.ExtensionContext): void {
+  registerLearningWalkthrough(context);
   output = vscode.window.createOutputChannel('Evalens');
   context.subscriptions.push(output);
 
