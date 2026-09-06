@@ -443,6 +443,11 @@ annotation by differing, because there the difference is real.
 
 ### Rendering
 
+Inspection uses a separate passive formatter and native storage reads.
+It never calls a value's custom representation, getter, iterator, or
+metaclass hook. Unsupported objects receive a type description; their
+stored fields can still be inspected without extending their lifetime.
+
 `createTextEditorDecorationType({ after: { contentText } })` plus
 `setDecorations` — the same mechanism Calva, Error Lens and inlay hints use.
 `src/render/` carries it in seven modules: annotations, decorations, a flash,
