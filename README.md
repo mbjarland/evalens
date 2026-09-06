@@ -71,17 +71,20 @@ if you stop writing programs and start writing cells.
 
 <p align="center">
   <img src="media/demo/spot-the-bug.png" width="720" alt="The same program
-    with total = s instead of total += s: the loop's history reads total ×4:
-    72, 85, 91, 64, and average: 16.0 follows two lines later">
+    with total = s instead of total += s: the loop's history reads ×4, s:
+    72, 85, 91, 64, total: 72, 85, 91, 64 -- total mirrors s exactly -- and
+    average: 16.0 follows two lines later">
 </p>
 
 **Here is the same program with one character missing** — `total = s` where
-it should say `total += s`. Read line 3: `total ×4: 72, 85, 91, 64`. The
-accumulator never accumulates; it just takes each score in turn. Two lines
-down, `average: 16.0` is the consequence. A debugger stopped at the end
-would show you `total: 64` and nothing about how it got there. The trace
-shows you the bug on the line that has it, without a breakpoint, without a
-`print()`, without leaving the file.
+it should say `total += s`. Read line 3: `×4   s: 72, 85, 91, 64   total:
+72, 85, 91, 64`. Both ran four times, so the count is said once, and once
+it is said the two sequences sit close enough to compare by eye: `total`
+mirrors `s` exactly. The accumulator never accumulates; it just takes each
+score in turn. Two lines down, `average: 16.0` is the consequence. A
+debugger stopped at the end would show you `total: 64` and nothing about
+how it got there. The trace shows you the bug on the line that has it,
+without a breakpoint, without a `print()`, without leaving the file.
 
 ## Who this is for
 
@@ -176,10 +179,12 @@ for n in range(5):
 ```
 
 Every value the target took, **everything the body bound**, and what it
-printed — on the header line, where you are looking. The `×5` is the
-iteration count, so a history never reads as a list that happens to have
-five things in it. A filtered loop shows the filtering directly: `v ×5`
-beside `kept ×2`.
+printed — on the header line, where you are looking. `n` and `squared`
+both ran five times here, so the count leads the line once, as `×5`,
+rather than repeating on each name — a history never reads as a list that
+happens to have five things in it. Only when the counts genuinely differ
+does each name carry its own: a filtered loop shows the filtering
+directly, `v ×5` beside `kept ×2`.
 
 ### A comprehension stops hiding its loop
 

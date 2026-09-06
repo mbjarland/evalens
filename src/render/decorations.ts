@@ -557,11 +557,12 @@ export class Decorator implements vscode.Disposable {
           rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
           after: {
             // No background here, unlike `errorType` and `pendingType`: a
-            // segment slot in this shared pool paints a tinted chip on one
-            // annotation and the untinted gap between two chips on the next,
-            // so the #95 tint has to ride the per-range `renderOptions`
-            // `show` builds below rather than this one static config every
-            // slot would otherwise share.
+            // segment slot in this shared pool paints the evaluated tint on
+            // one annotation and the stale or pending one on the next (or,
+            // since #118, one of the divider's own two shapes), so the tint
+            // has to ride the per-range `renderOptions` `show` builds below
+            // rather than this one static config every slot would otherwise
+            // share regardless of which annotation lands in it.
             //
             // Italic is what makes an annotation legible as not-code at a
             // glance, before colour is even processed. Rider leans on this and
