@@ -897,7 +897,7 @@ tr.row:focus-visible {
 .result-surface {
   padding: 3px 8px;
   border-left: 3px solid ${cssVar('border')};
-  border-radius: 3px;
+  border-radius: 0;
   font-style: italic;
   background: ${cssVar('tint')};
 }
