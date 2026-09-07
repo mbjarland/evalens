@@ -122,6 +122,103 @@ test('large sibling groups all remain reachable through independent invocation f
   assert.match(html, /Visible detail limit/);
 });
 
+test('100-by-100 output outside retained iterations starts folded and pages independently', async () => {
+  const result = await captured('for x in range(100):\n'
+    + '    for y in range(100):\n        print(x, y)\n');
+  const expected = Array.from({ length: 100 }, (_, x) =>
+    Array.from({ length: 100 }, (_, y) => `${x} ${y}\n`).join('')).join('');
+  assert.equal(result.stdout, expected);
+  const model = prepared(result);
+  const root = model.roots[0]!;
+  const children = model.children.get(root.id)!;
+  const last = children.at(-1)!;
+  assert.equal(last.kind, 'iteration');
+  assert.equal((last as LoopIteration).value, '19');
+  assert.ok(loopSlice(model, last.end, root.end, 0).startsWith('20 0\n'));
+  const state = newLoopViewState();
+  let html = loopExplorerHtml(model, 0, state);
+  assert.match(html, /Output without retained iteration detail/);
+  assert.match(html, /not individually retained/);
+  assert.doesNotMatch(html, /class="loop-output"/,
+    'collapsed iterations must not leave a raw transcript tail visible');
+
+  state.expandedGaps.add(`${root.id}:${children.length}`);
+  html = loopExplorerHtml(model, 0, state);
+  assert.match(html, /20 0\n20 1\n/);
+  assert.match(html, /20 19<\/span>/);
+  assert.doesNotMatch(html, /20 20\n/);
+  assert.match(html, /More output/);
+  assert.ok(html.length < 20000, String(html.length));
+  state.textPages.set(`${root.id}:${children.length}:0`, 1);
+  html = loopExplorerHtml(model, 0, state);
+  assert.match(html, /20 20\n20 21\n/);
+  assert.doesNotMatch(html, /20 0\n/);
+  state.expandedGaps.clear();
+  assert.doesNotMatch(loopExplorerHtml(model, 0, state), /class="loop-output"/);
+  assert.equal(model.streams[0], expected, 'folds/pages do not change captured export');
+});
+
+test('one outer expansion reveals its only inner loop page but preserves long-output folds', async () => {
+  const model = prepared(await captured('for x in range(2):\n'
+    + '    for y in range(100):\n        print(x, y)\n'));
+  const outer = model.children.get(model.roots[0]!.id)![0]!;
+  const inner = model.children.get(outer.id)![0]!;
+  const state = newLoopViewState();
+  state.expanded.set(outer.id, true);
+  let html = loopExplorerHtml(model, 0, state);
+  assert.doesNotMatch(html, /data-loop-action="toggle-invocation"/);
+  assert.match(html, /y = 0/);
+  assert.match(html, /y = 19/);
+  assert.match(html, /Iterations 1–20 of 100 retained/);
+  state.pages.set(inner.id, 1);
+  html = loopExplorerHtml(model, 0, state);
+  assert.match(html, /y = 20/);
+  assert.match(html, /y = 39/);
+  assert.doesNotMatch(html, /y = 19</);
+  state.expanded.set(outer.id, false);
+  assert.doesNotMatch(loopExplorerHtml(model, 0, state), /class="loop-output"/);
+
+  const long = prepared(await captured('for x in range(2):\n'
+    + '    for y in range(30):\n        print("large page\\n" * 100)\n'));
+  const longState = newLoopViewState();
+  longState.expanded.set(2, true);
+  html = loopExplorerHtml(long, 0, longState);
+  assert.doesNotMatch(html, /data-loop-action="toggle-invocation"/);
+  assert.match(html, /printed 101 lines/);
+  assert.doesNotMatch(html, /class="loop-output"/,
+    'opening the only inner invocation must not open large iteration output');
+});
+
+test('unattributed Unicode and stderr remain separate from text that was never captured', async () => {
+  const model = prepared(await captured('for x in [0]:\n'
+    + '    for y in range(3000):\n        import sys\n'
+    + '        print("😀", y)\n        print("🦉", y, file=sys.stderr)\n'));
+  const state = newLoopViewState();
+  state.expanded.set(2, true);
+  const inner = model.children.get(2)![0]!;
+  const children = model.children.get(inner.id)!;
+  state.pages.set(inner.id, Math.floor((children.length - 1) / 20));
+  state.expandedGaps.add(`${inner.id}:${children.length}`);
+  const html = loopExplorerHtml(model, 0, state);
+  assert.match(html, /Output without retained iteration detail/);
+  assert.match(html, /😀 1997\n/);
+  assert.match(html, /🦉 1997\n/);
+  assert.match(html, /class="loop-stream-label">stderr:/);
+  assert.doesNotMatch(html, /\uFFFD/);
+
+  const clipped = prepared(await captured('for x in [0]:\n'
+    + '    for y in range(3000):\n        print("z" * 100)\n'));
+  const clippedState = newLoopViewState();
+  clippedState.expanded.set(2, true);
+  const clippedInner = clipped.children.get(2)![0]!;
+  const clippedChildren = clipped.children.get(clippedInner.id)!;
+  clippedState.pages.set(clippedInner.id, Math.floor((clippedChildren.length - 1) / 20));
+  const clippedHtml = loopExplorerHtml(clipped, 0, clippedState);
+  assert.match(clippedHtml, /Further output was not retained/);
+  assert.doesNotMatch(clippedHtml, /data-loop-action="gap:/,
+    'unretained text cannot be offered as an expandable capture');
+});
+
 test('huge per-iteration one-line output uses bounded chunks and truthful capture notices', async () => {
   const model = prepared(await captured('for x in range(2):\n'
     + '    for y in range(2):\n        print("😀" * 100000)\n'));
@@ -248,6 +345,58 @@ test('provider preserves folds across unrelated edits and reanchors only reliabl
     editor.selection = new FakeSelection(new FakePosition(1, 0), new FakePosition(1, 0));
     await evaluate();
     assert.match(view.webview.html, /data-loop-id="2"[^>]*aria-expanded="true"/);
+  } finally { extension.deactivate(); }
+});
+
+test('provider preserves gap folds/pages across edits and rejects old evaluation controls', async () => {
+  const sample = 'for x in range(100):\n    for y in range(100):\n        print(x, y)\n';
+  const fake = createFakeVscode();
+  const editor = createEditor(sample);
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = loadCompiledExtension(path.join(root, 'out'), fake);
+  extension.activate(createExtensionContext(root) as never);
+  try {
+    const evaluate = fake.commands.registered.get('evalens.evaluateAtCursor') as () => Promise<void>;
+    await evaluate();
+    const view = new FakeWebviewView();
+    fake.webviewViewProviders.get('evalens.values')!.resolveWebviewView(view, {}, {});
+    const revision = () => Number(/var revision = (\d+)/.exec(view.webview.html)![1]);
+    const send = (line: number, action: string, value = 0) => {
+      view.webview.fireMessage({ loop: line, node: 1, action, value, revision: revision() });
+    };
+    assert.doesNotMatch(view.webview.html, /class="loop-output"/);
+    const gapAction = /data-loop-action="(gap:\d+)"/.exec(view.webview.html)![1]!;
+    const gap = gapAction.slice(4);
+    send(0, gapAction);
+    assert.match(view.webview.html, /20 0\n/);
+    send(0, `text:${gap}:0`, 1);
+    assert.match(view.webview.html, /20 20\n/);
+    const openRevision = revision();
+    const initialIdentity = /data-loop-token="(\d+)"/.exec(view.webview.html)![1];
+    editor.document.setText('# prefix\n' + sample);
+    fake.emitters.onDidChangeTextDocument.fire({ document: editor.document,
+      contentChanges: [{ range: new FakeRange(0, 0, 0, 0), text: '# prefix\n' }] });
+    assert.match(view.webview.html, /20 20\n/);
+    assert.equal(/data-loop-token="(\d+)"/.exec(view.webview.html)![1], initialIdentity);
+    view.webview.fireMessage({ loop: 0, node: 1, action: gapAction,
+      value: 0, revision: openRevision });
+    assert.match(view.webview.html, /20 20\n/, 'a queued old-render fold cannot change current state');
+    send(1, gapAction);
+    assert.doesNotMatch(view.webview.html, /class="loop-output"/);
+    send(1, gapAction);
+    assert.match(view.webview.html, /20 20\n/, 'reopening a fold retains the chosen output page');
+    const priorEvaluationRevision = revision();
+    editor.selection = new FakeSelection(new FakePosition(1, 0), new FakePosition(1, 0));
+    await evaluate();
+    assert.doesNotMatch(view.webview.html, /class="loop-output"/);
+    assert.notEqual(/data-loop-token="(\d+)"/.exec(view.webview.html)![1], initialIdentity);
+    view.webview.fireMessage({ loop: 1, node: 1, action: gapAction,
+      value: 0, revision: priorEvaluationRevision });
+    assert.doesNotMatch(view.webview.html, /class="loop-output"/);
+    send(1, gapAction);
+    assert.match(view.webview.html, /20 0\n/, 'a new capture starts on the first output page');
+    assert.equal(editor.selection.active.line, 1, 'browsing captured output does not move source');
   } finally { extension.deactivate(); }
 });
 
