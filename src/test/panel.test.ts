@@ -1167,17 +1167,21 @@ test('Evalens: Toggle Follow in Values Panel flips the setting', async () => {
   }
 });
 
-test('the values panel title bar contributes the lock/unlock toggle', () => {
+/** Every `view/title` entry this manifest contributes for the values panel. */
+function valuesTitleBarEntries(): ReadonlyArray<{
+  readonly command: string; readonly when?: string; readonly icon?: string;
+}> {
   const entries: ReadonlyArray<{
     readonly command: string; readonly when?: string; readonly icon?: string;
   }> = manifest.contributes?.menus?.['view/title'] ?? [];
-  const forThisView =
-    entries.filter((entry) => entry.when?.includes('view == evalens.values'));
+  return entries.filter((entry) => entry.when?.includes('view == evalens.values'));
+}
+
+test('the values panel title bar contributes the lock/unlock toggle', () => {
+  const forThisView = valuesTitleBarEntries()
+    .filter((entry) => entry.command === 'evalens.toggleValuesPanelFollow');
   assert.equal(forThisView.length, 2,
-    'expected exactly two view/title entries for the values panel');
-  assert.ok(
-    forThisView.every((entry) => entry.command === 'evalens.toggleValuesPanelFollow'),
-    'both entries should point at the one toggle command');
+    'expected exactly two view/title entries for the follow toggle');
 
   const unlock = forThisView.find((entry) => entry.icon === '$(unlock)');
   const lock = forThisView.find((entry) => entry.icon === '$(lock)');
@@ -1187,6 +1191,22 @@ test('the values panel title bar contributes the lock/unlock toggle', () => {
   assert.doesNotMatch(unlock!.when!, /!config\.evalens\.valuesPanel\.follow/,
     'the $(unlock) entry should show while following, not while not');
   assert.match(lock!.when!, /!config\.evalens\.valuesPanel\.follow/);
+});
+
+// -- the eye / eye-closed toggle for evalens.inlineValues (#178) -------------
+
+test('the values panel title bar contributes the eye/eye-closed toggle', () => {
+  const forThisView = valuesTitleBarEntries()
+    .filter((entry) => entry.command === 'evalens.toggleInlineValues');
+  assert.equal(forThisView.length, 2,
+    'expected exactly two view/title entries for the inline-values toggle');
+
+  const eye = forThisView.find((entry) => entry.icon === '$(eye)');
+  const eyeClosed = forThisView.find((entry) => entry.icon === '$(eye-closed)');
+  assert.ok(eye, 'no $(eye) entry for the values panel');
+  assert.ok(eyeClosed, 'no $(eye-closed) entry for the values panel');
+  assert.match(eye!.when!, /config\.evalens\.inlineValues == 'always'/);
+  assert.match(eyeClosed!.when!, /config\.evalens\.inlineValues == 'whenPanelHidden'/);
 });
 
 // -- folding a long block, through the real provider (#155) -----------------
