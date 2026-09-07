@@ -515,6 +515,24 @@ export class Annotations implements vscode.Disposable {
     this.updateContext();
   }
 
+  /**
+   * Flip whether an inline result/error chip is painted at all, everywhere
+   * (#178) -- what `evalens.inlineValues`'s `whenPanelHidden` mode drives
+   * through `ValuesViewProvider`'s own `hide` computation.
+   *
+   * Repaints every visible editor immediately, the same guarantee
+   * `repaintAllVisible` already gives `onDidChangeVisibleTextEditors`: a
+   * setting a reader just changed, or a panel that just opened or closed,
+   * has to be seen the moment it takes effect, not on the next unrelated
+   * repaint. Nothing in the registry changes -- this is paint only, exactly
+   * like `Decorator.setInlineHidden` it delegates to.
+   */
+  setInlineHidden(hidden: boolean): void {
+    if (this.disposed) return;
+    this.decorator.setInlineHidden(hidden);
+    this.repaintAllVisible();
+  }
+
   clearAll(): void {
     this.generation += 1;
     const cleared = this.registry.clearAll();

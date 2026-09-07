@@ -133,6 +133,49 @@ export async function toggleFollowValuesPanel(): Promise<void> {
 }
 
 /**
+ * Whether an inline chip ever yields to the Values panel (#178).
+ *
+ * `'always'` (the default) paints inline whatever the panel is doing --
+ * every behaviour that existed before this setting. `'whenPanelHidden'`
+ * paints inline only while the Values view is not visible: open it, or
+ * switch to its tab, and the chips make way for the same values sitting in
+ * the panel; close it, or switch away, and they come straight back. Tying
+ * the hiding to the panel's own visibility, rather than a plain on/off
+ * switch, is deliberate -- see `ValuesViewProvider`'s own comment on `hide`
+ * for the failure mode a bare switch has that this does not: a value is
+ * always visible *somewhere*.
+ *
+ * Read fresh wherever it matters, like everything else here: the panel
+ * recomputes its own `hide` flag on resolve, on visibility change, and on
+ * this setting changing, so flipping it takes effect immediately rather
+ * than waiting for a reload.
+ */
+export function inlineValues(): 'always' | 'whenPanelHidden' {
+  const configured = vscode.workspace
+    .getConfiguration('evalens')
+    .get<string>('inlineValues', 'always');
+  return configured === 'whenPanelHidden' ? 'whenPanelHidden' : 'always';
+}
+
+/**
+ * Flip `evalens.inlineValues` between its two values, for **Evalens: Toggle
+ * Inline Values in the Editor** and the `$(eye)` / `$(eye-closed)` toggle it
+ * drives in the values panel's own title bar (#178).
+ *
+ * Always writes to the user's global settings, for the same reason
+ * `toggleFollowValuesPanel` does: this is a reading habit, not a per-project
+ * preference.
+ */
+export async function toggleInlineValues(): Promise<void> {
+  await vscode.workspace
+    .getConfiguration('evalens')
+    .update(
+      'inlineValues',
+      inlineValues() === 'always' ? 'whenPanelHidden' : 'always',
+      vscode.ConfigurationTarget.Global);
+}
+
+/**
  * How many lines of a printed stream or a long value the values panel shows
  * before folding the rest behind `Show all` (#155).
  *
