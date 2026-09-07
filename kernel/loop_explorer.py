@@ -9,6 +9,7 @@ ENTRY_LIMIT invocations/iterations share one budget across the statement.
 
 ENTRY_LIMIT = 2000
 HISTORY_HEAD_LIMIT = 50
+BODY_VALUE_LIMIT = 1000
 
 
 class LoopExplorer:
@@ -76,7 +77,34 @@ class LoopExplorer:
             ordinal=frame[3], value=text)
         if entry is None:
             self.omitted_iterations += 1
+        elif self.sites[site].get('body_names'):
+            # Only normal end-of-body capture replaces this status. In
+            # particular, continue/break must not inherit the previous pass.
+            entry['body'] = dict(status='not-reached', values=[])
         frame[2] = entry
+
+    def begin_body(self, site, available):
+        """Attach existing body repr strings only to this retained iteration.
+
+        No frame or namespace read happens here. LoopTrace.bind fills values
+        as its established capture runs; missing names stay visibly missing.
+        Once the entry budget is exhausted, no new body list is allocated.
+        """
+        entry = self.stack[-1][2]
+        body = entry.get('body') if entry is not None else None
+        if body is not None:
+            body['status'] = 'captured' if available else 'unavailable'
+        return body
+
+    def body_value(self, site, body, name, text):
+        if name not in self.sites[site]['body_names']:
+            return
+        # safe_repr's truncation/failure suffix can exceed its ITEM_LIMIT.
+        # Bound the additive wire string, never ask the object to describe
+        # itself again. The original bounded history remains unchanged.
+        if len(text) > BODY_VALUE_LIMIT:
+            text = text[:BODY_VALUE_LIMIT - 1] + '…'
+        body['values'].append(dict(name=name, value=text))
 
     def end_iteration(self, site):
         entry = self.stack[-1][2]

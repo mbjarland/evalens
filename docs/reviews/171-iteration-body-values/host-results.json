@@ -1,0 +1,30 @@
+{
+  "extension": [
+    {
+      "id": "mbjarland.evalens",
+      "path": "/Users/mbjarland/projects/evalens-worktrees/171-iteration-body-values",
+      "active": false
+    }
+  ],
+  "simple": [
+    "v = 1, u = 4\nvalue is 4",
+    "v = 2, u = 8\nvalue is 8",
+    "v = 3, u = 12\nvalue is 12"
+  ],
+  "r2PreservesValues": true,
+  "continue": [
+    "v = 1, u = 4\n4",
+    "v = 2, u: not recorded\nNo output",
+    "v = 3, u = 12\n12"
+  ],
+  "conditional": [
+    "v = 0, u: not recorded\n0",
+    "v = 1, u = 10\n1",
+    "v = 2, u = 10\n2"
+  ],
+  "nested": [
+    "▾ Iteration 1 · x = 0, w = 100 · printed 2 lines\nfor y in range(2) · 2 iterations · line 3\ny = 0, u = 0\n0 0 0\ny = 1, u = 1\n0 1 1",
+    "▾ Iteration 2 · x = 1, w = 101 · printed 2 lines\nfor y in range(2) · 2 iterations · line 3\ny = 0, u = 10\n1 0 10\ny = 1, u = 11\n1 1 11"
+  ],
+  "limits": "for v in range(3) · 3 iterations · 1 other body variable not recorded\nIteration values\nLoop variable at start · body values at end\nPrinted output\nv = 0, a = 1, b = 2, c = 3\n1 2 3 4\nv = 1, a = 2, b = 3, c = 4\n2 3 4 5\nv = 2, a = 3, b = 4, c = 5\n3 4 5 6\nValues after loop: v = 2, a = 3, b = 4, c = 5\nOpen captured stdout"
+}

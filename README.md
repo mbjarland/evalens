@@ -204,12 +204,21 @@ that was reached but drew nothing says **(no iterations)**; one inside an
 outer loop that never entered says **(not reached)**.
 
 Open **Evalens: Show Values Panel** after evaluating a `for` loop. The
-**Iteration values** column contains the loop target captured on that pass;
+**Iteration values** column contains the loop variable at the start of that
+pass and selected body values captured at the normal end of its body;
 **Printed output** contains the text it produced. For example,
 `for n in range(3): print(n * n)` shows three compact rows pairing `n = 0`,
 `n = 1`, and `n = 2` with `0`, `1`, and `4`. Short single-level iterations
 need no individual headings or arrows. Nested loops add outer headings such
 as **Iteration 1 · x = 0 · printed 4 lines** around those same rows.
+For `u = 4 * v` inside a loop over `[1, 2, 3]`, the values read
+`v = 1, u = 4`, `v = 2, u = 8`, and `v = 3, u = 12`, beside their separate
+printed output. Body values describe the end of the body, so repeated
+assignments show the last value there, and conditional values can carry over
+from an earlier pass. A `continue` or `break` that skips this capture point
+shows **u: not recorded**. Unbound names and names that cannot yet be
+distinguished from pre-loop state also say **not recorded**. Up to three body
+names are captured; the loop heading reports any additional omitted names.
 Silent passes say **No output**; an empty loop says **No iterations**, with
 any `else` output shown separately.
 `stderr` is labelled separately. **Values after loop** is the final snapshot,

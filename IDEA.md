@@ -391,8 +391,8 @@ target is usually the *input* being iterated and the body binding is usually
 the *computed result*, which is the half the reader came for. Last rather than
 first, because the result does not exist yet on the first pass. The
 consequence to design for rather than paper over: an iteration that hit
-`continue` or `break` computed no result, so the two sequences are **not** the
-same length, and anything rendering them as parallel columns gets caught by a
+`continue` or `break` did not reach the body capture, so the two sequences are
+**not** the same length, and treating their indexes as parallel gets caught by a
 filter loop. `repr()` is taken at capture time rather than the object being
 kept, or a loop over mutables reports its final state N times; a million-row
 loop leaves six strings behind, not a million.
@@ -576,9 +576,20 @@ sites keep the existing flat fallback. No display action evaluates code or
 adds user `repr()` calls.
 
 The Values panel separates **Iteration values** from **Printed output** for
-readable `for` statements at every depth. The former are target representations
-recorded on entry to each iteration; independent body-variable histories are
-never zipped into those rows. **Values after loop** reports bounded passive
+readable `for` statements at every depth. The former pair the target recorded
+on entry with up to three selected body names captured at normal body end.
+These body strings are reused immediately from the existing recorder and
+attached to the active iteration ID, never zipped from independent histories.
+The values column explains **Loop variable at start · body values at end**.
+Repeated assignments show the value at that capture point; conditional values
+can carry over from a previous pass. A skipped capture point (`continue`,
+`break`) or an unavailable/unproven name says **not recorded**, without filling
+in an earlier value. The existing pre-loop identity guard and frame reads are
+unchanged. Names beyond the three-name cap, or over 120 code points, are counted
+once in their loop heading. Additive body text is limited to 1,000 code points
+using only the already captured string; custom representation failure text
+cannot expand the wire without bound. Older captures remain valid without
+body metadata. **Values after loop** reports bounded passive
 snapshots after success, separately from iteration readings. Failed or
 unsupported captures retain flat output.
 
@@ -589,8 +600,7 @@ outer iteration groups around the same leaf layout, keeping its established
 one-line compact threshold. Silent iterations say **No output**; a reached
 empty loop says **No iterations** and keeps any `else` output outside iteration
 rows. Single-loop inline target/body histories and saved hover text retain
-their existing grammar; independent body histories remain inline even though
-they cannot be paired with individual explorer rows.
+their existing grammar; their independent body histories remain inline.
 
 Large traces share the panel's neutral background. The statement's status bar
 and navigation frame remain; only the selected iteration receives a fill.
@@ -622,8 +632,8 @@ ancestors still close when the budget fills. `try/finally` boundaries keep
 intervals; streams remain separate. Offsets count Python Unicode code points
 in original output, including text outside the existing 65,536-character
 retention cap. The renderer converts retained offsets once for JavaScript.
-Target text is reused from the existing trace; browsing never asks the kernel
-to execute or describe anything again.
+Target and body text are reused from the existing traces; browsing never asks
+the kernel to execute or describe anything again.
 
 The panel pages retained children in groups of 20 with a total visible budget
 of 120 entries. Inner and outer loops share an iteration-navigation strip

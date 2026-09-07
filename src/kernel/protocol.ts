@@ -58,6 +58,11 @@ export interface LoopSite {
   readonly line: number;
   readonly target: string;
   readonly source: string;
+  /** Selected lexical body names, at most 3, each at most 120 code points.
+   * Optional for older captures. These are end-of-body snapshots, not an
+   * assignment log; conditional values can carry over from earlier passes. */
+  readonly body_names?: readonly string[];
+  readonly omitted_body_names?: number;
 }
 export interface LoopInvocation {
   readonly kind: 'invocation';
@@ -80,6 +85,14 @@ export interface LoopIteration {
   readonly start: LoopOffsets;
   readonly end: LoopOffsets;
   readonly incomplete?: boolean;
+  /** Reuses the existing body recorder's text at its normal capture point.
+   * An early exit does not reach it; an unbound/unproven name is omitted from
+   * values even when status is captured. Text is at most 1,000 code points;
+   * missing text must not be inferred. */
+  readonly body?: {
+    readonly status: 'captured' | 'not-reached' | 'unavailable';
+    readonly values: readonly NamedValue[];
+  };
 }
 /** Exact per-source aggregate from the existing bounded recorder, independent
  * of the explorer entry budget. Values retain execution order across runs. */

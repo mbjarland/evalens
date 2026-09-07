@@ -57,6 +57,116 @@ test('single-level square-print loop uses three compact target/output rows', asy
   assert.doesNotMatch(html, /data-loop-action="toggle|loop-iteration-header/);
 });
 
+test('body values share their own iteration cell while printed output stays separate', async () => {
+  const model = prepared(await captured('for v in [1, 2, 3]:\n'
+    + '    u = 4 * v\n    print("value is " + str(u))\n'));
+  const html = loopExplorerHtml(model, 0);
+  assert.match(html, /Loop variable at start · body values at end/);
+  assert.match(html, /a value can carry over from an earlier iteration/);
+  for (const [v, u] of [[1, 4], [2, 8], [3, 12]]) {
+    assert.match(html, new RegExp(`>v = ${v}, u = ${u}</button></div><div>`
+      + `<div class="loop-stream"><span class="loop-output">value is ${u}</span>`));
+  }
+  assert.match(html, /Values after loop: v = 3, u = 12/);
+  assert.equal((html.match(/data-loop-action="select"/g) ?? []).length, 3);
+  assert.doesNotMatch(html, /data-loop-action="toggle|not recorded/);
+});
+
+test('early exits show missing body capture and conditional carry-over stays explicit', async () => {
+  const model = prepared(await captured('for v in range(6):\n'
+    + '    if v == 0: continue\n    if v in (1, 3): u = 4 * v\n'
+    + '    if v == 3: break\n'));
+  const html = loopExplorerHtml(model, 0);
+  assert.equal((html.match(/class="loop-body-missing loop-note"/g) ?? []).length, 2);
+  assert.match(html, /v = 0, <span[^>]*>u: not recorded/);
+  assert.match(html, /v = 3, <span[^>]*>u: not recorded/);
+  assert.match(html, /The end of this iteration’s body was not reached/);
+  assert.match(html, />v = 1, u = 4<\/button>/);
+  assert.match(html, />v = 2, u = 4<\/button>/);
+  assert.doesNotMatch(html, />v = 3, u = 12<\/button>/);
+});
+
+test('nested and reused loop names render only their own captured body snapshots', async () => {
+  const model = prepared(await captured('for v in [10, 20]:\n'
+    + '    outer = v\n    for v in [1, 2]:\n        u = 10 * v\n'));
+  const html = loopExplorerHtml(model, 0);
+  assert.match(html, />v = 10, outer = 10<\/button>/);
+  assert.match(html, />v = 20, outer = 20<\/button>/);
+  assert.equal((html.match(/>v = 1, u = 10<\/button>/g) ?? []).length, 2);
+  assert.equal((html.match(/>v = 2, u = 20<\/button>/g) ?? []).length, 2);
+  assert.doesNotMatch(html, />v = (?:10|20), u =/);
+});
+
+test('body-name limit is disclosed once in the loop heading', async () => {
+  const model = prepared(await captured('for v in [1, 2, 3]:\n'
+    + '    a = b = c = d = v\n'));
+  const html = loopExplorerHtml(model, 0);
+  assert.equal((html.match(/1 other body variable not recorded/g) ?? []).length, 1);
+  assert.match(html, />v = 1, a = 1, b = 1, c = 1<\/button>/);
+  assert.doesNotMatch(html, />v = 1[^<]*d =/);
+});
+
+test('legacy captures remain valid and never acquire invented body readings', async () => {
+  const result = await captured('for v in [1]:\n    u = 4 * v\n');
+  const legacy = { ...result.loop_explorer!,
+    sites: result.loop_explorer!.sites.map(({ body_names, omitted_body_names, ...site }) => site),
+    entries: result.loop_explorer!.entries.map((entry) => {
+      if (entry.kind === 'invocation') return entry;
+      const { body, ...legacyEntry } = entry;
+      return legacyEntry;
+    }),
+  };
+  const model = prepareLoopExplorer(legacy, result.stdout, result.stderr);
+  assert.ok(model);
+  const html = loopExplorerHtml(model, 0);
+  assert.match(html, />v = 1<\/button>/);
+  assert.doesNotMatch(html, /body values at end|not recorded/);
+});
+
+test('malformed or unbounded additive body metadata fails safely to flat output', async () => {
+  const result = await captured('for v in [1]:\n    u = 4 * v\n');
+  const wire = result.loop_explorer!;
+  const changeSite = (fields: object) => ({ ...wire, sites: [{ ...wire.sites[0], ...fields }] });
+  const changeBody = (body: unknown) => ({ ...wire,
+    entries: wire.entries.map((entry) => entry.kind === 'iteration' ? { ...entry, body } : entry),
+  });
+  const invalids = [
+    changeSite({ body_names: ['u', 'v', 'w', 'z'] }),
+    changeSite({ body_names: ['u', 'u'] }),
+    changeSite({ body_names: ['x'.repeat(121)] }),
+    changeSite({ body_names: [null] }),
+    changeSite({ omitted_body_names: -1 }),
+    changeBody({ status: 'guessed', values: [] }), changeBody(null),
+    changeBody({ status: 'not-reached', values: [{ name: 'u', value: '4' }] }),
+    changeBody({ status: 'captured', values: [{ name: 'other', value: '4' }] }),
+    changeBody({ status: 'captured', values: [{ name: 'u', value: '4' }, { name: 'u', value: '5' }] }),
+    changeBody({ status: 'captured', values: [{ name: 'u', value: '😀'.repeat(1001) }] }),
+    changeBody({ status: 'captured', values: [{ name: 'u', value: null }] }),
+  ];
+  for (const invalid of invalids) assert.equal(prepareLoopExplorer(
+    invalid as unknown as LoopExplorerWire, result.stdout, result.stderr), undefined);
+  const maximal = changeBody({ status: 'captured', values: [{ name: 'u', value: '😀'.repeat(1000) }] });
+  assert.ok(prepareLoopExplorer(maximal as LoopExplorerWire, result.stdout, result.stderr));
+});
+
+test('long built-in, custom and failed repr strings retain the explorer and render literally', async () => {
+  const sources = [
+    'for v in [1]:\n    u = "😀" * 2000\n',
+    'for v in [1]:\n    class Long:\n        def __repr__(self):\n'
+      + '            return "<script>😀&" * 2000\n    u = Long()\n',
+    'for v in [1]:\n    class Failed:\n        def __repr__(self):\n'
+      + '            raise ValueError("🦉" * 2000)\n    u = Failed()\n',
+  ];
+  for (const source of sources) {
+    const model = prepared(await captured(source));
+    const value = (model.wire.entries[1] as LoopIteration).body!.values[0]!.value;
+    assert.ok(Array.from(value).length <= 1000);
+    const html = loopExplorerHtml(model, 0);
+    assert.match(html, />v = 1, u = /);
+    assert.doesNotMatch(html, /<script>|\uFFFD|u: not recorded/);
+  }
+});
+
 test('single-level silent, skipped, break and else output keep their actual ownership', async () => {
   const skipped = prepared(await captured('for n in range(5):\n'
     + '    if n == 0: continue\n    if n == 3: break\n    print(n)\n'
@@ -163,8 +273,8 @@ test('single-loop loaded extension retains inline body histories, saved hover an
     const html = contents(view.webview.html);
     assert.match(html, /class="loop-explorer"/);
     assert.match(html, /Values after loop: n = 2, square = 4/);
-    assert.doesNotMatch(html, /square = 0|square = 1/,
-      'independent body histories must not be invented as iteration readings');
+  assert.match(html, />n = 0, square = 0<\/button>/);
+  assert.match(html, />n = 1, square = 1<\/button>/);
   } finally { extension.deactivate(); }
 });
 

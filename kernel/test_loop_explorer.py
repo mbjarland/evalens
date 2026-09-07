@@ -4,10 +4,11 @@ import asyncio
 import contextlib
 import json
 import unittest
+from unittest.mock import patch
 
 import loops
 from capture import OutputCapture, OUTPUT_LIMIT
-from loop_explorer import LoopExplorer, ENTRY_LIMIT
+from loop_explorer import LoopExplorer, ENTRY_LIMIT, BODY_VALUE_LIMIT
 from test_kernel import KernelProcess
 
 
@@ -48,8 +49,115 @@ class LoopExplorerKernelTest(unittest.TestCase):
         self.assertEqual([result['stdout'][e['start'][0]:e['end'][0]]
                           for e in iterations], ['0\n', '1\n', '4\n'])
         self.assertEqual(result['bindings'][0]['values'], ['0', '1', '4'])
+        self.assertEqual(wire['sites'][0]['body_names'], ['square'])
+        self.assertEqual([e['body'] for e in iterations], [
+            dict(status='captured', values=[dict(name='square', value=value)])
+            for value in ('0', '1', '4')])
         self.assertEqual(wire['final_values'], [{'name': 'n', 'value': '2'},
                                                {'name': 'square', 'value': '4'}])
+
+    def test_body_values_match_iteration_identity_across_continue_and_break(self):
+        _, wire = self.run_loop('for v in range(6):\n'
+                                '    if v == 0: continue\n'
+                                '    if v in (1, 3): u = 4 * v\n'
+                                '    if v == 3: break\n')
+        self.assertEqual([e['body'] for e in wire['entries'][1:]], [
+            dict(status='not-reached', values=[]),
+            dict(status='captured', values=[dict(name='u', value='4')]),
+            dict(status='captured', values=[dict(name='u', value='4')]),
+            dict(status='not-reached', values=[]),
+        ])
+
+    def test_unbound_deleted_and_unproven_names_never_inherit_snapshot_text(self):
+        self.assertTrue(self.kernel.evaluate('u = 99', 0)['ok'])
+        _, wire = self.run_loop('for v in range(5):\n'
+                                '    if v == 1: u = 99\n'
+                                '    if v == 2: u = 8\n'
+                                '    if v == 3: del u\n')
+        bodies = [e['body'] for e in wire['entries'][1:]]
+        self.assertTrue(all(body['status'] == 'captured' for body in bodies))
+        self.assertEqual([body['values'] for body in bodies],
+                         [[], [], [dict(name='u', value='8')], [], []])
+
+    def test_repeated_assignments_and_finally_capture_at_normal_body_end(self):
+        result, wire = self.run_loop('for v in [1, 2, 3]:\n'
+                                    '    try:\n'
+                                    '        u = v\n'
+                                    '        print(u)\n'
+                                    '        u = 4 * v\n'
+                                    '    finally:\n'
+                                    '        u += 1\n')
+        self.assertEqual(result['stdout'], '1\n2\n3\n')
+        self.assertEqual([e['body']['values'] for e in wire['entries'][1:]],
+                         [[dict(name='u', value=v)] for v in ('5', '9', '13')])
+
+    def test_body_values_follow_lexical_loop_and_reused_target_identity(self):
+        _, wire = self.run_loop('for v in [10, 20]:\n'
+                                '    outer = v\n'
+                                '    u = 0\n'
+                                '    for v in [1, 2]:\n'
+                                '        u = 10 * v\n')
+        self.assertEqual([site['body_names'] for site in wire['sites']],
+                         [['outer', 'u'], ['u']])
+        by_id = {entry['id']: entry for entry in wire['entries']}
+        for entry in wire['entries']:
+            if entry['kind'] != 'iteration':
+                continue
+            site = by_id[entry['invocation']]['site']
+            expected = ([dict(name='outer', value=entry['value']),
+                         dict(name='u', value='20')] if site == 0 else
+                        [dict(name='u', value=str(int(entry['value']) * 10))])
+            self.assertEqual(entry['body']['values'], expected)
+
+    def test_body_mutable_snapshot_is_the_existing_repr_from_that_iteration(self):
+        self.assertTrue(self.kernel.evaluate('items = []', 0)['ok'])
+        result, wire = self.run_loop('for v in range(3):\n'
+                                    '    u = items\n'
+                                    '    items.append(v)\n')
+        expected = ['[0]', '[0, 1]', '[0, 1, 2]']
+        self.assertEqual(result['bindings'][0]['values'], expected)
+        self.assertEqual([e['body']['values'][0]['value']
+                          for e in wire['entries'][1:]], expected)
+
+    def test_body_capture_has_name_value_and_statement_budgets(self):
+        _, wire = self.run_loop('for v in range(10000):\n'
+                                '    a = b = c = d = "😀" * 1000\n')
+        self.assertEqual(wire['sites'][0]['body_names'], ['a', 'b', 'c'])
+        self.assertEqual(wire['sites'][0]['omitted_body_names'], 1)
+        self.assertEqual(len(wire['entries']), ENTRY_LIMIT)
+        self.assertEqual(wire['omitted_iterations'], 10000 - ENTRY_LIMIT + 1)
+        for entry in wire['entries'][1:]:
+            self.assertEqual(len(entry['body']['values']), 3)
+            self.assertTrue(all(len(value['value']) <= BODY_VALUE_LIMIT
+                                for value in entry['body']['values']))
+        self.assertLess(len(json.dumps(wire, ensure_ascii=False)), 1800000)
+
+    def test_overlong_body_names_are_counted_without_expanding_explorer_wire(self):
+        name = 'long_' + 'a' * 5000
+        _, wire = self.run_loop('for v in range(2):\n'
+                                '    ' + name + ' = v\n')
+        self.assertEqual(wire['sites'][0]['body_names'], [])
+        self.assertEqual(wire['sites'][0]['omitted_body_names'], 1)
+        self.assertTrue(all('body' not in e for e in wire['entries']))
+        self.assertNotIn(name, json.dumps(wire['entries']))
+
+    def test_body_wire_bounds_reused_long_custom_and_failed_repr_text(self):
+        self.assertTrue(self.kernel.evaluate(
+            'class Long:\n    def __repr__(self):\n'
+            '        return "😀" * 2000\n', 0)['ok'])
+        self.assertTrue(self.kernel.evaluate(
+            'class Failed:\n    def __repr__(self):\n'
+            '        raise ValueError("🦉" * 2000)\n', 0)['ok'])
+        for expression in ('"😀" * 2000', 'Long()', 'Failed()'):
+            with self.subTest(expression=expression):
+                result, wire = self.run_loop('for v in [0]:\n'
+                                            '    u = ' + expression + '\n')
+                original = result['bindings'][0]['values'][0]
+                expected = (original if len(original) <= BODY_VALUE_LIMIT else
+                            original[:BODY_VALUE_LIMIT - 1] + '…')
+                self.assertEqual(wire['entries'][1]['body']['values'],
+                                 [dict(name='u', value=expected)])
+                self.assertLessEqual(len(expected), BODY_VALUE_LIMIT)
 
     def test_single_loop_continue_break_and_finally_preserve_exact_intervals(self):
         result, wire = self.run_loop('for n in range(5):\n'
@@ -271,6 +379,51 @@ class LoopExplorerKernelTest(unittest.TestCase):
 
 
 class LoopExplorerBoundariesTest(unittest.TestCase):
+    def test_body_capture_without_frames_is_explicitly_unavailable(self):
+        node, plan, watches, sites = loops.instrument_exploring(
+            ast.parse('for v in [1]:\n    u = 4 * v\n').body[0])
+        capture = LoopExplorer(sites, OutputCapture(), OutputCapture())
+        recorders = loops.watching_traces(plan, watches, repr)
+        recorders[0].explorer = capture
+        namespace = {}
+        with patch.object(loops, '_FRAME', None), loops.installed(namespace, recorders):
+            exec(compile(ast.Module(body=[node], type_ignores=[]),
+                         '<no frame fixture>', 'exec', dont_inherit=True), namespace)
+        self.assertEqual(namespace['u'], 4)
+        self.assertEqual(capture.entries[1]['body'],
+                         dict(status='unavailable', values=[]))
+
+    def test_body_capture_reuses_repr_and_does_not_run_user_code_again(self):
+        outcomes = []
+        for exploring in (False, True):
+            events = []
+            class Item:
+                def __repr__(self):
+                    events.append('repr')
+                    return 'item'
+            def assign():
+                events.append('assign')
+                return Item()
+            source = 'for v in range(3):\n    u = assign()\n'
+            node = ast.parse(source).body[0]
+            if exploring:
+                node, plan, watches, sites = loops.instrument_exploring(node)
+            else:
+                node, plan, watches = loops.instrument_watching(node, {})
+            recorders = loops.watching_traces(plan, watches, repr)
+            if exploring:
+                capture = LoopExplorer(sites, OutputCapture(), OutputCapture())
+                recorders[0].explorer = capture
+            namespace = dict(assign=assign)
+            with loops.installed(namespace, recorders):
+                exec(compile(ast.Module(body=[node], type_ignores=[]),
+                             '<repr fixture>', 'exec', dont_inherit=True), namespace)
+            outcomes.append((events, recorders[0].bindings_wire()))
+        self.assertEqual(outcomes[0], outcomes[1])
+        self.assertEqual(outcomes[1][0], ['assign', 'repr'] * 3)
+        self.assertEqual([e['body']['values'] for e in capture.entries[1:]],
+                         [[dict(name='u', value='item')]] * 3)
+
     def test_single_explorer_matches_prior_trace_execution_and_repr_counts(self):
         source = ('for n in values():\n'
                   '    events.append(("body", n))\n'

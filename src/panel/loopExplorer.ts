@@ -75,6 +75,11 @@ export function prepareLoopExplorer(
       || typeof site.target !== 'string' || site.target.length > 500
       || typeof site.source !== 'string' || site.source.length > 1000
       || (site.parent !== null && !sites.has(site.parent))) return;
+    if (site.body_names !== undefined && (!Array.isArray(site.body_names)
+      || site.body_names.length > 3 || new Set(site.body_names).size !== site.body_names.length
+      || site.body_names.some((name: unknown) => typeof name !== 'string' || !name
+        || name.length > 240 || Array.from(name).length > 120))) return;
+    if (site.omitted_body_names !== undefined && !natural(site.omitted_body_names)) return;
     sites.set(site.id, site);
   }
   const entries = new Map<number, Entry>();
@@ -105,6 +110,21 @@ export function prepareLoopExplorer(
       parentId = entry.invocation;
       const invocation = entries.get(parentId) as LoopInvocation;
       if (entry.ordinal > invocation.count) return;
+      if (entry.body !== undefined) {
+        const names = sites.get(invocation.site)!.body_names;
+        const body = entry.body;
+        if (!body || !names?.length
+          || !['captured', 'not-reached', 'unavailable'].includes(body.status)
+          || !Array.isArray(body.values) || body.values.length > names.length
+          || (body.status !== 'captured' && body.values.length !== 0)) return;
+        const seen = new Set<string>();
+        for (const value of body.values) {
+          if (!value || typeof value.name !== 'string' || !names.includes(value.name)
+            || seen.has(value.name) || typeof value.value !== 'string'
+            || value.value.length > 2000 || Array.from(value.value).length > 1000) return;
+          seen.add(value.name);
+        }
+      }
       retainedIterations++;
     } else return;
     if (parentId !== null) {
@@ -184,6 +204,11 @@ export function loopExplorerHtml(
   let remaining = LOOP_VISIBLE_LIMIT;
   let exhausted = false;
   let columnsShown = false;
+  const hasBodyValues = [...model.sites.values()].some((site) => site.body_names?.length);
+  const timing = 'Loop variable at start · body values at end';
+  const timingDetail = 'The loop variable is captured at the start of the iteration. '
+    + 'Body values are captured when the normal end of its body is reached; '
+    + 'a value can carry over from an earlier iteration.';
   const number = (n: number): string => n.toLocaleString('en-US');
   const sourceContext = (invocation: LoopInvocation): string => {
     const site = model.sites.get(invocation.site)!;
@@ -299,9 +324,13 @@ export function loopExplorerHtml(
         `aria-expanded="${expanded}"`) : e(site.source);
     const header = `<div class="loop-source${root ? ' loop-root-source' : ''}">${source}`
       + ` <span class="loop-note">· ${count(invocation.count, 'iteration')}`
-      + (root ? '' : ` · line ${line + site.line - model.wire.statement_line + 1}`) + '</span></div>';
+      + (root ? '' : ` · line ${line + site.line - model.wire.statement_line + 1}`)
+      + (site.omitted_body_names ? ` · ${count(site.omitted_body_names, 'other body variable')} not recorded` : '')
+      + '</span></div>';
     const columns = !columnsShown && root
-      ? '<div class="loop-columns"><span>Iteration values</span><span>Printed output</span></div>' : '';
+      ? '<div class="loop-columns"><span>Iteration values'
+        + (hasBodyValues ? `<span class="loop-value-timing loop-note" title="${e(timingDetail)}">${timing}</span>` : '')
+        + '</span><span>Printed output</span></div>' : '';
     if (root) columnsShown = true;
     if (!expanded) return `<section class="loop-invocation" data-loop-invocation="${invocation.id}">`
       + header + '</section>';
@@ -357,8 +386,25 @@ export function loopExplorerHtml(
     const foldable = canFold(model, entry);
     const expanded = loopExpanded(model, entry, state);
     const selected = state?.selected === entry.id ? ' loop-selected' : '';
-    const label = `${site.target} = ${entry.value}`;
-    const selection = button(e(label), 'select', entry.id, 0,
+    const missingReason = entry.body?.status === 'not-reached'
+      ? 'The end of this iteration’s body was not reached, so its body values were not recorded.'
+      : entry.body?.status === 'unavailable'
+        ? 'Body values could not be recorded because this interpreter does not provide a frame.'
+        : entry.body?.status === 'captured'
+          ? 'No value was recorded for this name at the end of the body. It was unbound or not proven to belong to this loop.'
+          : 'This capture does not contain body values for this iteration.';
+    const bodyValues = new Map(entry.body?.values.map((value) => [value.name, value.value]));
+    const labels = [`${site.target} = ${entry.value}`];
+    const valueParts = [e(labels[0]!)];
+    for (const name of site.body_names ?? []) {
+      const value = bodyValues.get(name);
+      const text = value === undefined ? `${name}: not recorded` : `${name} = ${value}`;
+      labels.push(text);
+      valueParts.push(value === undefined
+        ? `<span class="loop-body-missing loop-note" title="${e(missingReason)}">${e(text)}</span>` : e(text));
+    }
+    const label = labels.join(', ');
+    const selection = button(valueParts.join(', '), 'select', entry.id, 0,
       `aria-label="${e(`Iteration ${entry.ordinal}, ${label}; reveal loop header`)}"`);
     if (!foldable) return `<div class="loop-data loop-iteration${selected}" data-loop-entry="${entry.id}">`
       + `<div class="loop-target">${selection}</div><div>${output(entry.start, entry.end, entry.id, 0, true)}</div></div>`;
@@ -432,6 +478,7 @@ export const LOOP_EXPLORER_STYLE = `
 .loop-explorer button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
 .loop-columns, .loop-data { display: grid; grid-template-columns: minmax(9ch, 1fr) minmax(12ch, 1.3fr); column-gap: 1.2em; }
 .loop-columns { color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: .45em; margin: .15em 0 .6em; }
+.loop-value-timing { display: block; margin-top: .15em; }
 .loop-source { font-size: .88em; margin: .4em 0 .3em; overflow-wrap: anywhere; }
 .loop-root-source { font-size: 1em; margin: .15em 0 .6em; }
 .loop-group { margin: .6em 0 .8em; }
