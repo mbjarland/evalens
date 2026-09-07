@@ -6,6 +6,8 @@ import {
   setFollowValuesCursor, valuesPanelOutputLines,
 } from '../config';
 import { AnnotationChangeEvent, Annotations } from '../render/annotations';
+import { LoopExplorerWire, LoopInvocation } from '../kernel/protocol';
+import { LoopViewState, LOOP_PAGE_SIZE, invocationExpanded, loopExpanded, newLoopViewState } from './loopExplorer';
 import {
   PanelAnnotation, ValuesPanelData, ValuesRow, fullTextFor, rowsFor, valuesHtml,
 } from './html';
@@ -70,6 +72,10 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
    * opened.
    */
   private readonly expandedLines = new Map<string, Set<number>>();
+  /** Capture object identity survives unrelated annotation/source shifts;
+   * each new evaluation gets a new object and therefore fresh fold IDs. */
+  private readonly loopStates = new WeakMap<LoopExplorerWire, LoopViewState>();
+  private nextLoopIdentity = 0;
 
   /** Incremented on every rebuild (#154); a message from the webview that
    * does not echo the current value is a click queued against HTML that
@@ -219,6 +225,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     const data = message as {
       cause?: unknown; goto?: unknown; revision?: unknown; followCursor?: unknown;
       explicit?: unknown; expand?: unknown; open?: unknown; stream?: unknown;
+      loop?: unknown; action?: unknown; node?: unknown; value?: unknown;
     };
 
     if (typeof data.expand === 'number') {
@@ -232,6 +239,12 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     }
 
     if (data.revision !== this.revision) {
+      return;
+    }
+    if (typeof data.loop === 'number' && typeof data.node === 'number'
+      && typeof data.action === 'string' && typeof data.value === 'number'
+      && Number.isSafeInteger(data.value) && data.value >= 0) {
+      this.onLoopAction(data.loop, data.node, data.action, data.value);
       return;
     }
     if (typeof data.cause === 'number') {
@@ -288,6 +301,52 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     } else {
       this.expandedLines.set(key, lines);
     }
+    this.rebuild();
+  }
+
+  private onLoopAction(line: number, id: number, action: string, value: number): void {
+    const row = this.renderedData.rows.find((r) => r.line === line);
+    const model = row?.loopExplorer;
+    if (!row || !model) return;
+    const entry = model.entries.get(id);
+    if (action === 'open') {
+      if (value > 1 || (id !== 0 && !entry)) return;
+      const text = model.streams[value as 0 | 1];
+      void vscode.workspace.openTextDocument({ content: text, language: 'plaintext' })
+        .then((document) => vscode.window.showTextDocument(document));
+      return;
+    }
+    if (!entry && id !== 0) return;
+    const state = this.loopStates.get(model.wire) ?? newLoopViewState(++this.nextLoopIdentity);
+    this.loopStates.set(model.wire, state);
+    if (action === 'toggle' && entry?.kind === 'iteration') {
+      state.expanded.set(id, !loopExpanded(model, entry, state));
+    } else if (action === 'toggle-invocation' && entry?.kind === 'invocation') {
+      state.expanded.set(id, !invocationExpanded(model, entry, state));
+    } else if (action === 'page' && entry) {
+      const pages = Math.ceil((model.children.get(id)?.length ?? 0) / LOOP_PAGE_SIZE);
+      if (value >= pages) return;
+      state.pages.set(id, value);
+    } else if (/^text:\d+:[01]$/.test(action) && value <= 65536) {
+      const [, gap, stream] = action.split(':');
+      if (Number(gap) > (model.children.get(id)?.length ?? model.roots.length)) return;
+      state.textPages.set(`${id}:${gap}:${stream}`, value);
+    } else if (action === 'select' && entry?.kind === 'iteration') {
+      state.selected = id;
+      const editor = vscode.window.activeTextEditor;
+      const invocation = model.entries.get(entry.invocation) as LoopInvocation;
+      const site = model.sites.get(invocation.site)!;
+      const sourceLine = row.startLine + site.line - model.wire.statement_line;
+      // Metadata is a historical source position. Reanchor disjoint prefix
+      // edits, and withdraw navigation if this statement itself was edited.
+      if (editor && row.staleReason !== 'edited' && sourceLine >= row.startLine
+        && sourceLine <= row.endLine && sourceLine < editor.document.lineCount) {
+        const position = new vscode.Position(sourceLine, 0);
+        editor.selection = new vscode.Selection(position, position);
+        editor.revealRange(new vscode.Range(position, position),
+          vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+      }
+    } else return;
     this.rebuild();
   }
 
@@ -409,9 +468,18 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     const cursorLine = editor?.selection.active.line;
     this.renderedData = this.dataFor(editor);
     const expandedLines = this.pruneExpanded(editor, this.renderedData.rows);
+    const loopStates = new Map<LoopExplorerWire, LoopViewState>();
+    for (const row of this.renderedData.rows) {
+      if (row.loopExplorer) {
+        const state = this.loopStates.get(row.loopExplorer.wire)
+          ?? newLoopViewState(++this.nextLoopIdentity);
+        this.loopStates.set(row.loopExplorer.wire, state);
+        loopStates.set(row.loopExplorer.wire, state);
+      }
+    }
     this.view.webview.html = valuesHtml(
       this.renderedData, cursorLine, nonce(), revealLine,
-      { outputLines: valuesPanelOutputLines(), expandedLines },
+      { outputLines: valuesPanelOutputLines(), expandedLines, loopStates },
       followValuesCursor(), ++this.revision);
     if (editor && this.view.visible && cursorLine !== undefined) {
       this.mark(editor, cursorLine);

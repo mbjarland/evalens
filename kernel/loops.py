@@ -98,6 +98,7 @@ from __future__ import annotations
 import ast
 import copy
 import sys
+from itertools import islice
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 #: The name the rewritten code reaches the recorders through. Installed in the
@@ -184,12 +185,15 @@ class LoopTrace:
     """
 
     __slots__ = ("_repr", "_limit", "_before", "head", "last", "count",
-                 "varied", "bindings", "watches", "error", "failed")
+                 "varied", "bindings", "watches", "error", "failed",
+                 "explorer", "site")
 
     def __init__(self, repr_fn: Callable[[Any], str], limit: int = HEAD_LIMIT,
                  names: Tuple[str, ...] = (), watches: Tuple[str, ...] = ()):
         self._repr = repr_fn
         self._limit = limit
+        self.explorer = None
+        self.site = 0
         #: What the watched names held before this loop ran. See `bind`.
         self._before: Dict[str, Any] = {}
         self.head: List[str] = []
@@ -244,6 +248,20 @@ class LoopTrace:
             # Only the newest survives past the head, so memory is flat no
             # matter how long the loop runs.
             self.last = text
+        if self.explorer is not None:
+            self.explorer.iteration(self.site, text)
+
+    def begin(self):
+        if self.explorer is not None:
+            self.explorer.begin(self.site)
+
+    def end_iteration(self):
+        if self.explorer is not None:
+            self.explorer.end_iteration(self.site)
+
+    def finish(self):
+        if self.explorer is not None:
+            self.explorer.finish(self.site)
 
     def fail(self, exc: Exception) -> None:
         """Called once per iteration in place of `record`, when evaluating a
@@ -587,7 +605,8 @@ class _Instrumenter(ast.NodeTransformer):
     """
 
     def __init__(
-        self, watches: Optional[Dict[LoopKey, List[Tuple[str, ast.expr]]]] = None
+        self, watches: Optional[Dict[LoopKey, List[Tuple[str, ast.expr]]]] = None,
+        explore: bool = False
     ) -> None:
         #: One entry per instrumented loop, in allocation order, holding the
         #: body names that loop's recorder watches. Its length is the number
@@ -599,6 +618,10 @@ class _Instrumenter(ast.NodeTransformer):
         #: never passes `watches` at all -- see `instrument_watching`.
         self.watch_plan: List[Tuple[str, ...]] = []
         self._watches = watches or {}
+        self.explore = explore
+        self.sites = []
+        self.parents = []
+        self.unsupported = False
 
     # A nested `def`, `class` or `lambda` is a different execution scope and,
     # more to the point, a different *time*: its loops run when it is called,
@@ -631,6 +654,11 @@ class _Instrumenter(ast.NodeTransformer):
 
     def _instrument(self, node):
         readable = _load_copy(node.target)
+        if any(isinstance(n, (ast.Attribute, ast.Subscript))
+               for n in ast.walk(node.target)):
+            # Keep the established trace for these targets, but do not
+            # expand the explorer's scope to property/subscript semantics.
+            self.unsupported = True
         index = None
         attached: Tuple[Tuple[str, ast.expr], ...] = ()
         if readable is not None:
@@ -647,8 +675,21 @@ class _Instrumenter(ast.NodeTransformer):
             # predict where in allocation order it falls.
             attached = tuple(self._watches.get(loop_key(node), ()))
             self.watch_plan.append(tuple(expr for expr, _ in attached))
+            self.sites.append(dict(
+                id=index, parent=self.parents[-1] if self.parents else None,
+                line=node.lineno - 1, target=ast.unparse(node.target),
+                source=(('async ' if isinstance(node, ast.AsyncFor) else '')
+                        + 'for ' + ast.unparse(node.target) + ' in '
+                        + ast.unparse(node.iter)),
+                names=list(islice((n.id for n in ast.walk(node.target)
+                                   if isinstance(n, ast.Name)), 8))))
+            self.parents.append(index)
+        else:
+            self.unsupported = True
 
         self.generic_visit(node)
+        if index is not None:
+            self.parents.pop()
 
         if index is not None:
             node.body.insert(0, _recorder_call(index, "record", [readable],
@@ -669,6 +710,17 @@ class _Instrumenter(ast.NodeTransformer):
                 # changes nothing about the order it runs in but keeps this
                 # statement the last thing in the body it belongs to.
                 node.body.extend(trailing)
+            if self.explore:
+                # Close the body even on continue/break/raise; iterator and
+                # else output stay outside the iteration that preceded them.
+                body = ast.Try(body=node.body[1:], handlers=[], orelse=[],
+                               finalbody=[_recorder_call(
+                                   index, 'end_iteration', [], node)])
+                node.body = [node.body[0], ast.copy_location(body, node)]
+                wrapped = ast.Try(body=[_recorder_call(
+                    index, 'begin', [], node), node], handlers=[], orelse=[],
+                    finalbody=[_recorder_call(index, 'finish', [], node)])
+                return ast.copy_location(wrapped, node)
         return node
 
 
@@ -824,6 +876,30 @@ def instrument_watching(
     rewritten = instrumenter.visit(copy.deepcopy(node))
     return (ast.fix_missing_locations(rewritten), instrumenter.plan,
             instrumenter.watch_plan)
+
+
+def instrument_exploring(node, watches=None):
+    """The existing recorder plan plus its sites, from the SAME traversal.
+
+    Only genuinely nested readable for/async-for statements acquire boundary
+    calls. Unsupported targets keep the established flat trace. A second
+    rewrite on that uncommon fallback avoids unnecessary per-iteration calls.
+    """
+    instrumenter = _Instrumenter(watches, explore=True)
+    rewritten = instrumenter.visit(copy.deepcopy(node))
+    nested = any(site['parent'] is not None for site in instrumenter.sites)
+    if not nested or instrumenter.unsupported or len(instrumenter.sites) > 64:
+        instrumenter = _Instrumenter(watches)
+        rewritten = instrumenter.visit(copy.deepcopy(node))
+        sites = []
+    else:
+        sites = instrumenter.sites
+        for site in sites:
+            for key, cap in (('target', 120), ('source', 240)):
+                if len(site[key]) > cap:
+                    site[key] = site[key][:cap] + '…'
+    return (ast.fix_missing_locations(rewritten), instrumenter.plan,
+            instrumenter.watch_plan, sites)
 
 
 def innermost_loop_at(

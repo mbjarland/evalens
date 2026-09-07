@@ -47,6 +47,56 @@ export interface KernelError {
   readonly builtinType?: 'NameError' | 'ValueError';
 }
 
+/** Recorded nesting, bounded across one statement. Offsets count Unicode
+ * code points (Python str), NOT JavaScript UTF-16 units. Retained lengths
+ * exclude the capture's synthetic omission notice. Never infer parent IDs
+ * from positions: silent iterations can all occupy the same empty span. */
+export type LoopOffsets = readonly [number, number];
+export interface LoopSite {
+  readonly id: number;
+  readonly parent: number | null;
+  readonly line: number;
+  readonly target: string;
+  readonly source: string;
+}
+export interface LoopInvocation {
+  readonly kind: 'invocation';
+  readonly id: number;
+  readonly site: number;
+  readonly parent: number | null;
+  readonly count: number;
+  /** Enclosing invocation even in its else suite, outside an iteration. */
+  readonly parent_invocation: number | null;
+  readonly start: LoopOffsets;
+  readonly end: LoopOffsets;
+  readonly incomplete?: boolean;
+}
+export interface LoopIteration {
+  readonly kind: 'iteration';
+  readonly id: number;
+  readonly invocation: number;
+  readonly ordinal: number;
+  readonly value: string;
+  readonly start: LoopOffsets;
+  readonly end: LoopOffsets;
+  readonly incomplete?: boolean;
+}
+export interface LoopExplorerWire {
+  readonly version: 1;
+  readonly statement_line: number;
+  readonly sites: readonly LoopSite[];
+  /** At most 2,000 invocations and iterations combined. */
+  readonly entries: readonly (LoopInvocation | LoopIteration)[];
+  readonly iterations: number;
+  readonly invocations: number;
+  readonly omitted_iterations: number;
+  readonly omitted_invocations: number;
+  readonly retained: LoopOffsets;
+  readonly totals: LoopOffsets;
+  /** Passive snapshots after successful completion; not iteration readings. */
+  readonly final_values: readonly NamedValue[];
+}
+
 /**
  * How much of an answer the reader wants, sent with every request.
  *
@@ -640,6 +690,7 @@ export interface Evaluated {
   readonly stderr: string;
   /** Present only for a `for` / `async for`. */
   readonly loop?: LoopTrace;
+  readonly loop_explorer?: LoopExplorerWire;
   /**
    * What the loop's body bound, or what a comprehension's `for` clauses drew
    * from their iterables; present only when there is one or the other. See
@@ -745,6 +796,7 @@ export type StatementOutcome =
       readonly stdout: string;
       readonly stderr: string;
       readonly loop?: LoopTrace;
+      readonly loop_explorer?: LoopExplorerWire;
       readonly bindings?: readonly BindingTrace[];
       readonly names?: readonly NamedValue[];
       readonly more_names?: number;

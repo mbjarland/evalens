@@ -126,6 +126,8 @@ function annotationFor(
           ...(outcome.binds === undefined ? {} : { binds: outcome.binds }),
           ...(outcome.reads === undefined ? {} : { reads: outcome.reads }),
           error: errorDetails(outcome.error),
+          ...(outcome.stdout || outcome.stderr
+            ? { printed: printedFrom(outcome.stdout, outcome.stderr) } : {}),
           hover: outcome.error.traceback || outcome.error.message,
         }
       : undefined;
@@ -138,6 +140,8 @@ function annotationFor(
     ...(outcome.value === null ? {} : { value: outcome.value }),
     display: outcome.display,
     ...(outcome.loop === undefined ? {} : { loop: outcome.loop }),
+    ...(outcome.loop_explorer === undefined
+      ? {} : { loopExplorer: outcome.loop_explorer }),
     ...(outcome.bindings === undefined ? {} : { bindings: outcome.bindings }),
     ...(outcome.names === undefined ? {} : { names: outcome.names }),
     ...(printed === undefined ? {} : { printed }),
@@ -1239,6 +1243,7 @@ export class Evaluator {
               ? {}
               : { reads: presentation.reads }),
             error: errorDetails(presentation),
+            ...(presentation.printed ? { printed: presentation.printed } : {}),
             hover: presentation.hover,
             ...(partial === undefined
               ? {}
@@ -1262,6 +1267,8 @@ export class Evaluator {
             ...(presentation.loop === undefined
               ? {}
               : { loop: presentation.loop }),
+            ...(presentation.loopExplorer === undefined
+              ? {} : { loopExplorer: presentation.loopExplorer }),
             ...(presentation.bindings === undefined
               ? {}
               : { bindings: presentation.bindings }),

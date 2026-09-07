@@ -44,3 +44,13 @@ class OutputCapture:
     def tail(self):
         with self._lock:
             return self._tail
+
+    def offset(self):
+        """Original-stream character position, even after capture is full."""
+        with self._lock:
+            return self._total
+
+    def retained(self):
+        """Characters retained before getvalue's synthetic omission note."""
+        with self._lock:
+            return self._kept

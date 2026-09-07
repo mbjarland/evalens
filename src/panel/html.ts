@@ -19,6 +19,11 @@
  */
 
 import { Announceable } from '../render/announce';
+import { LoopExplorerWire } from '../kernel/protocol';
+import {
+  LoopExplorer, LoopViewState, LOOP_EXPLORER_STYLE, loopExplorerHtml,
+  prepareLoopExplorer,
+} from './loopExplorer';
 import {
   Printed, STDERR_LABEL, Segment, SegmentRole, collapseLines, grouped,
   isStreamGroup, resultGroups,
@@ -53,6 +58,7 @@ export interface LineSource {
  * belongs, and why a stale one is stale.
  */
 export interface PanelAnnotation extends Announceable {
+  readonly loopExplorer?: LoopExplorerWire;
   readonly range: {
     readonly start: { readonly line: number };
     readonly end: { readonly line: number };
@@ -77,6 +83,7 @@ export interface FullStream {
  * line of source -- everything `valuesHtml` needs and nothing it has to ask
  * `vscode` for. */
 export interface ValuesRow {
+  readonly loopExplorer?: LoopExplorer;
   /** 0-based line the value is painted on -- `anchor` when set, matching
    * where `decorations.ts` paints the inline chip. */
   readonly line: number;
@@ -239,6 +246,8 @@ function rowFor(
       ...staleReason,
       errorText: summary
         ? `${annotation.error.type}: ${summary}` : annotation.error.type,
+      ...(annotation.printed
+        ? { streams: streamsFor(annotation.printed, printedLabel) } : {}),
     };
   }
 
@@ -271,6 +280,8 @@ function rowFor(
   const groups = allGroups.filter(
     (group) => group.length > 0 && !isStreamGroup(group));
   const streams = streamsFor(annotation.printed, printedLabel);
+  const loopExplorer = prepareLoopExplorer(annotation.loopExplorer,
+    annotation.printed?.stdout, annotation.printed?.stderr);
 
   return {
     ...base,
@@ -278,6 +289,7 @@ function rowFor(
     ...staleReason,
     ...(groups.length > 0 ? { groups } : {}),
     ...(streams.length > 0 ? { streams } : {}),
+    ...(loopExplorer ? { loopExplorer } : {}),
   };
 }
 
@@ -319,6 +331,7 @@ export interface ValuesPanelData {
  * change.
  */
 export interface FoldState {
+  readonly loopStates?: ReadonlyMap<LoopExplorerWire, LoopViewState>;
   /** `evalens.valuesPanel.outputLines`'s current value -- the setting's
    * own manifest default, `20`, when the caller has none. */
   readonly outputLines?: number;
@@ -457,12 +470,9 @@ function groupHtml(group: readonly Segment[]): string {
 // still cost on every rebuild, so a folded block's HTML contains exactly the
 // lines it shows and nothing past them.
 //
-// Line count, never visual width. Whether a line wraps in the panel's own
-// column depends on a font and a container width this module has no way to
-// ask about without a browser, and asserting a count it cannot know is
-// exactly what design rule 1 rules out -- so the fold, and the exact count in
-// its footer, are always decided by splitting on `\n`, the one measure this
-// module can state truthfully with no DOM at all.
+// Logical lines and character counts, never estimated visual rows: one
+// enormous line must not bypass the DOM bound. Expanded previews still cap
+// their text and height; the original captured text opens in an editor.
 
 /** `… 9,980 more lines · Show all · Open in editor`, or `Show less` alone
  * once the row is already expanded -- literally that word and nothing
@@ -479,7 +489,8 @@ function groupHtml(group: readonly Segment[]): string {
  * nothing is evaluated and nothing is re-read from the kernel.
  */
 function foldFooterHtml(
-  line: number, blockId: string, remaining: number | undefined
+  line: number, blockId: string, remaining: number | undefined,
+  fullyExpandable = true
 ): string {
   const action = (label: string, kind: 'expand' | 'open'): string =>
     `<span class="fold-action" data-fold-action="${kind}" `
@@ -489,7 +500,7 @@ function foldFooterHtml(
   }
   const more = `… ${grouped(remaining)} more line${remaining === 1 ? '' : 's'}`;
   return `<div class="fold-footer">${escapeHtml(more)} · `
-    + `${action('Show all', 'expand')} · ${action('Open in editor', 'open')}</div>`;
+    + `${action(fullyExpandable ? 'Show all' : 'Show more', 'expand')} · ${action('Open in editor', 'open')}</div>`;
 }
 
 /**
@@ -504,20 +515,44 @@ function foldedValueHtml(
   text: string, line: number, blockId: string, outputLines: number,
   expanded: boolean
 ): { readonly foldable: boolean; readonly html: string } {
-  const lines = text.split('\n');
-  if (lines.length <= outputLines) {
-    return {
-      foldable: false,
-      html: `<span class="seg-value">${escapeHtml(text)}</span>`,
-    };
+  let initialLines = 1;
+  for (let i = 0; i < Math.min(text.length, 2001); i++) {
+    if (text[i] === '\n') initialLines++;
   }
-  if (!expanded) {
-    const shown = lines.slice(0, outputLines).join('\n');
-    const remaining = lines.length - outputLines;
+  if (text.length <= 2000 && initialLines <= outputLines) {
+    return { foldable: false,
+      html: `<span class="seg-value">${escapeHtml(text)}</span>` };
+  }
+  const previewChars = expanded ? 16000 : 2000;
+  const lineLimit = expanded ? Number.MAX_SAFE_INTEGER : outputLines;
+  let end = 0;
+  let lineCount = 1;
+  while (end < text.length && end < previewChars) {
+    if (text[end] === '\n' && lineCount++ >= lineLimit) break;
+    end++;
+  }
+  // Do not split a surrogate pair in a long one-line value or output.
+  if (end < text.length && end > 0 && /[\uD800-\uDBFF]/.test(text[end - 1]!)) end--;
+  if (end < text.length) {
+    const shown = text.slice(0, end);
+    const charBound = end >= previewChars - 1;
+    if (charBound || expanded) {
+      const action = (label: string, kind: 'expand' | 'open') =>
+        `<span class="fold-action" data-fold-action="${kind}" data-fold-line="${line}" `
+        + `data-fold-id="${escapeHtml(blockId)}">${label}</span>`;
+      const footer = `<div class="fold-footer">… ${grouped(text.length - end)} more characters · `
+        + action(expanded ? 'Show less' : (text.length > 16000 ? 'Show more' : 'Show all'), 'expand')
+        + ` · ${action('Open in editor', 'open')}</div>`;
+      const preview = `<span class="seg-value">${escapeHtml(shown)}</span>`;
+      return { foldable: true,
+        html: (expanded ? `<div class="fold-scroll">${preview}</div>` : preview) + footer };
+    }
+    let remaining = 0;
+    for (let i = end; i < text.length; i++) if (text[i] === '\n') remaining++;
     return {
       foldable: true,
       html: `<span class="seg-value">${escapeHtml(shown)}</span>`
-        + foldFooterHtml(line, blockId, remaining),
+        + foldFooterHtml(line, blockId, remaining, text.length <= 16000),
     };
   }
   return {
@@ -654,7 +689,8 @@ function staleReasonHtml(row: ValuesRow): string {
  * stream or value group -- past `outputLines` lines (#155), open exactly
  * where `expandedLines` names this row's own line. */
 function valueCellHtml(
-  row: ValuesRow, outputLines: number, expandedLines: ReadonlySet<number>
+  row: ValuesRow, outputLines: number, expandedLines: ReadonlySet<number>,
+  loopStates?: ReadonlyMap<LoopExplorerWire, LoopViewState>
 ): string {
   if (row.state === 'pending') {
     return resultSurface(
@@ -668,8 +704,11 @@ function valueCellHtml(
     // reporting the current code's failure, so the surface recedes to grey
     // while the message -- still in the error colour -- says what it was.
     const tone: Tone = row.state === 'stale' ? 'stale' : 'error';
+    const streams = (row.streams ?? []).map((stream) => streamGroupHtml(
+      stream, row.line, outputLines, expandedLines.has(row.line))).join('');
     const errorSurface = resultSurface(
-      `<span class="error-text">${escapeHtml(row.errorText)}</span>`, tone);
+      `<div class="result-values"><span class="error-text">${escapeHtml(row.errorText)}</span></div>`
+      + (streams ? `<div class="result-streams">${streams}</div>` : ''), tone);
     return row.state === 'stale' && row.staleReason !== undefined
       ? errorSurface + staleReasonHtml(row)
       : errorSurface;
@@ -681,6 +720,12 @@ function valueCellHtml(
   // The fold flag remains per row (#155): opening any block opens the
   // row's foldable blocks, without evaluating or capturing anything new.
   const tone: Tone = row.state === 'stale' ? 'stale' : 'evaluated';
+  if (row.loopExplorer) {
+    const explorer = resultSurface(loopExplorerHtml(row.loopExplorer,
+      row.line, loopStates?.get(row.loopExplorer.wire), outputLines), tone);
+    return row.state === 'stale' && row.staleReason !== undefined
+      ? explorer + staleReasonHtml(row) : explorer;
+  }
   const expanded = expandedLines.has(row.line);
   const values = (row.groups ?? []).map((group, index) => {
     const folded = foldableGroupHtml(
@@ -719,6 +764,7 @@ function codeCellHtml(row: ValuesRow): string {
  * to `valueCellHtml` -- one fold configuration for the whole render, not one
  * argument each threaded through `tableHtml` and `rowHtml` in between. */
 interface FoldRenderOptions {
+  readonly loopStates?: ReadonlyMap<LoopExplorerWire, LoopViewState>;
   readonly outputLines: number;
   readonly expandedLines: ReadonlySet<number>;
 }
@@ -736,7 +782,7 @@ function rowHtml(
     + `<span class="line-num">${row.line + 1}</span></td>`
     + `<td class="code-cell">${codeCellHtml(row)}</td>`
     + `<td class="value-cell">`
-    + `${valueCellHtml(row, fold.outputLines, fold.expandedLines)}</td>`
+    + `${valueCellHtml(row, fold.outputLines, fold.expandedLines, fold.loopStates)}</td>`
     + `</tr>`;
 }
 
@@ -999,6 +1045,27 @@ function script(
   var vscode = acquireVsCodeApi();
   var followCursor = ${followCursor};
   var revision = ${revision};
+  var saved = vscode.getState() || {};
+  document.querySelectorAll('[data-loop-action]').forEach(function (button) {
+    function rememberFocus() {
+      var key = ['loopLine', 'loopAction', 'loopId', 'loopControl', 'loopToken'].map(function (name) {
+        return button.dataset[name];
+      }).join('/');
+      vscode.setState({ loopFocus: key, scrollY: window.scrollY });
+    }
+    button.addEventListener('focus', rememberFocus);
+    button.addEventListener('click', function (event) {
+      event.stopPropagation();
+      rememberFocus();
+      vscode.postMessage({ loop: Number(button.dataset.loopLine),
+        action: button.dataset.loopAction, node: Number(button.dataset.loopId),
+        value: Number(button.dataset.loopValue), revision: revision });
+    });
+    button.addEventListener('keydown', function (event) { event.stopPropagation(); });
+  });
+  window.addEventListener('blur', function () {
+    setTimeout(function () { if (!document.hasFocus()) vscode.setState({}); }, 0);
+  });
   var rows = Array.prototype.slice.call(document.querySelectorAll('tr.row'));
   var control = document.getElementById('follow-cursor');
   control.addEventListener('change', function () {
@@ -1104,6 +1171,17 @@ function script(
   });
   var revealLine = ${literal};
   if (revealLine !== null) reveal(matching(revealLine));
+  if (saved.loopFocus) {
+    var parts = saved.loopFocus.split('/');
+    var target = Array.prototype.find.call(document.querySelectorAll('[data-loop-action]'), function (button) {
+      return button.dataset.loopAction === parts[1] && button.dataset.loopId === parts[2]
+        && button.dataset.loopToken === parts[4] && button.dataset.loopControl === parts[3];
+    });
+    if (target) {
+      target.focus({ preventScroll: true });
+      if (revealLine === null) window.scrollTo(0, saved.scrollY || 0);
+    } else vscode.setState({});
+  }
 }());
 `;
 }
@@ -1138,6 +1216,7 @@ export function valuesHtml(
   revealLine?: number, fold?: FoldState, followCursor = true, revision = 0
 ): string {
   const foldOptions: FoldRenderOptions = {
+    loopStates: fold?.loopStates,
     outputLines: fold?.outputLines ?? DEFAULT_OUTPUT_LINES,
     expandedLines: fold?.expandedLines ?? NO_EXPANDED_LINES,
   };
@@ -1154,7 +1233,7 @@ export function valuesHtml(
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; `
     + `style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
 <title>Evalens Values</title>
-<style nonce="${nonce}">${STYLE}</style>
+<style nonce="${nonce}">${STYLE}${LOOP_EXPLORER_STYLE}</style>
 </head>
 <body>
 <label id="navigation-control" class="navigation-control">

@@ -247,7 +247,7 @@
           "minimum": 5,
           "maximum": 500,
           "scope": "application",
-          "markdownDescription": "How many lines of a printed stream or a long value the values panel shows before folding the rest behind `Show all`, the way a notebook folds a long cell output — a nested loop printing ten thousand lines used to turn one row into a ten-thousand-line wall the panel could not scroll past. Fewer lines fold sooner, keeping the panel readable whatever a statement printed. More lines show a longer stretch of a run before you have to click through, at the cost of a taller row and a heavier rebuild, since the panel repaints every row in full on every evaluation. `Show all` — or a click on the block's own label — still shows everything, inside its own scrolling area, and `Open in editor` opens the untouched text as a plain document beside the panel. There is no setting to turn folding off entirely: an unfolded ten-thousand-line row is the defect this setting exists to prevent."
+          "markdownDescription": "How many logical lines of a printed stream or long value the Values panel shows before folding. Fewer lines fold sooner; more lines show a longer stretch at the cost of a taller row. Long single lines also fold. `Show more` expands a large flat preview to at most 16,000 characters in a scrolling area; `Show all` is offered when that includes everything. `Open in editor` opens the complete captured text. Nested-loop output uses bounded parts with at most 20 lines each. Folding cannot be disabled."
         },
         "evalens.valuesPanel.followCursor": {
           "type": "boolean",

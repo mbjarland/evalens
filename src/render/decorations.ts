@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 import { printedLabel as printedLabelSetting, resultColumn } from '../config';
 import {
-  BindingTrace, LoopTrace, NamedValue, Range as KernelRange, TableWire,
+  BindingTrace, LoopExplorerWire, LoopTrace, NamedValue, Range as KernelRange, TableWire,
 } from '../kernel/protocol';
 import {
   GAP, Printed, Segment, SegmentRole, alignmentGap, columnWidth, errorText,
@@ -361,6 +361,7 @@ export interface Annotation extends Traced {
   readonly display?: string | null;
   /** Every value a loop's target held; displaces `value` when present. */
   readonly loop?: LoopTrace;
+  readonly loopExplorer?: LoopExplorerWire;
   /** Every value the loop's body bound, per name; painted after the target. */
   readonly bindings?: readonly BindingTrace[];
   /** What the names on the line held; painted beside `value`, not instead. */

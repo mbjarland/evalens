@@ -1,5 +1,5 @@
 import {
-  BindingTrace, EvalResponse, LoopTrace, NamedValue, PartialParse, Range,
+  BindingTrace, EvalResponse, LoopExplorerWire, LoopTrace, NamedValue, PartialParse, Range,
   TableWire,
 } from '../kernel/protocol';
 import { Printed, hasOutput, hoverText, printedFrom } from './format';
@@ -13,6 +13,7 @@ import { ErrorDetails, errorDetails } from './errorGuidance';
  * different kind of thing from one painted under the cursor.
  */
 export type ErrorPresentation = ErrorDetails & {
+  readonly printed?: Printed;
   readonly kind: 'error';
   readonly range: Range;
   readonly anchor?: number;
@@ -56,6 +57,7 @@ export type Presentation =
       readonly display: string | null;
       /** Every value a loop's target held, when the statement was a loop. */
       readonly loop?: LoopTrace;
+      readonly loopExplorer?: LoopExplorerWire;
       /**
        * Every value the loop's body bound, per name.
        *
@@ -159,6 +161,8 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
       ...(response.binds === undefined ? {} : { binds: response.binds }),
       ...(response.reads === undefined ? {} : { reads: response.reads }),
       ...errorDetails(response.error),
+      ...(hasOutput(printedFrom(response.stdout, response.stderr))
+        ? { printed: printedFrom(response.stdout, response.stderr) } : {}),
       hover: response.error.traceback || response.error.message,
       ...caveat,
     };
@@ -191,6 +195,8 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
     value: response.value,
     display: response.display,
     ...(response.loop === undefined ? {} : { loop: response.loop }),
+    ...(response.loop_explorer === undefined
+      ? {} : { loopExplorer: response.loop_explorer }),
     ...(response.bindings === undefined
       ? {}
       : { bindings: response.bindings }),
@@ -389,4 +395,3 @@ export function describeAbove(
       + 'failure';
   return `Evalens: ${counted}${caveat}`;
 }
-

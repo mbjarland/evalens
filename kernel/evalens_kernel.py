@@ -457,6 +457,7 @@ from typing import (
 )
 
 import loops
+from loop_explorer import LoopExplorer
 import passive
 import tabular
 from capture import OutputCapture
@@ -2422,7 +2423,7 @@ def _unwatched(names: Iterable[str], recorders: list) -> list:
 def _instrumented(
     node: ast.stmt, head_limit: int = loops.HEAD_LIMIT,
     watches: Optional[Dict[loops.LoopKey, List[Tuple[str, ast.expr]]]] = None,
-) -> tuple[ast.stmt, list, list]:
+) -> tuple[ast.stmt, list, list, list]:
     """`node` rewritten to announce its iterations, plus its recorders.
 
     Two different rewrites, and a statement gets at most one of them.
@@ -2464,21 +2465,17 @@ def _instrumented(
     the only caller `head_limit <= 0` was ever guarding before this existed.
     """
     if head_limit <= 0:
-        return node, [], []
+        return node, [], [], []
     repr_fn = lambda value: safe_repr(value, loops.ITEM_LIMIT)  # noqa: E731
     if isinstance(node, (ast.For, ast.AsyncFor)):
-        if watches:
-            rewritten, plan, watch_plan = loops.instrument_watching(
-                node, watches)
-            return (rewritten,
-                     loops.watching_traces(plan, watch_plan, repr_fn,
-                                           head_limit),
-                     [])
-        rewritten, plan = loops.instrument(node)
-        return rewritten, loops.traces(plan, repr_fn, head_limit), []
+        rewritten, plan, watch_plan, sites = loops.instrument_exploring(
+            node, watches)
+        return (rewritten,
+                loops.watching_traces(plan, watch_plan, repr_fn, head_limit),
+                [], sites)
     rewritten, labels = loops.instrument_comprehensions(node)
     return rewritten, [], loops.comprehension_traces(
-        labels, repr_fn, head_limit)
+        labels, repr_fn, head_limit), []
 
 
 def _report_watch_failures(loop_trace: "loops.LoopTrace",
@@ -4088,7 +4085,7 @@ class Kernel:
              compiler_flags: int = 0
              ) -> Dict[str, Any]:
         limits = _DEFAULT_LIMITS if limits is None else limits
-        node, recorders, comp_recorders = _instrumented(
+        node, recorders, comp_recorders, loop_sites = _instrumented(
             form.node, limits["loop_values"], watches)
         if form.captured:
             # An assignment to an attribute or a subscript. The value has to
@@ -4103,6 +4100,8 @@ class Kernel:
         bindings: list = []
         names: list = []
         more_names = 0
+        explorer = None
+        final_values = []
         # `_instrumented` never returns both: a statement is either the loop
         # the user pointed at, or something searched for comprehensions, never
         # both. So whichever list came back non-empty is what `installed`
@@ -4111,6 +4110,11 @@ class Kernel:
 
         with _user_io(allow_stdin, _located(form), form=form,
                      filename=filename) as (out, err, stdin_stub):
+            if loop_sites:
+                explorer = LoopExplorer(loop_sites, out, err,
+                                        statement_line=form.start_line)
+                for index, trace in enumerate(recorders):
+                    trace.explorer, trace.site = explorer, index
             try:
                 # One dict for globals AND locals. Passing two makes
                 # comprehensions and nested scopes fail to see module-level
@@ -4306,6 +4310,24 @@ class Kernel:
                 names, more_names = _named_values(
                     self.namespace, _unwatched(form.names, recorders),
                     limits["names"], kind=form.kind)
+                if explorer is not None:
+                    # Final snapshots are distinct from per-iteration target
+                    # readings and independent body histories. Never zip them.
+                    final_names = {}
+                    candidates = itertools.chain(
+                        (name for site in loop_sites for name in site['names']),
+                        (name for trace in recorders for name in trace.bindings))
+                    for name in candidates:
+                        if len(final_names) >= min(limits['names'], 8):
+                            break
+                        final_names[name] = None
+                    for name in final_names:
+                        if len(final_values) >= limits['names']:
+                            break
+                        if name in self.namespace:
+                            final_values.append(dict(name=name, value=
+                                passive.text(self.namespace[name],
+                                             loops.ITEM_LIMIT)))
             except BaseException as exc:  # noqa: BLE001
                 # BaseException, not Exception, and this catch carries more
                 # weight than it looks like it does.
@@ -4382,6 +4404,8 @@ class Kernel:
             # Present only for a loop, so a reader of the wire can tell "this
             # ran once" from "this ran and the sequence is elsewhere".
             outcome["loop"] = loop
+        if explorer is not None:
+            outcome['loop_explorer'] = explorer.wire(final_values)
         if bindings:
             # Absent for a loop whose body bound nothing worth watching, and
             # never parallel to `loop`: an iteration that left early computed
