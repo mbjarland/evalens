@@ -1,0 +1,136 @@
+[
+  {
+    "case": "actual Shift-Cmd-Enter marks42 after advance",
+    "rows": [
+      {
+        "line": 0,
+        "latest": true,
+        "cursor": false,
+        "aria": "false",
+        "text": "› 1value = 6 * 7Latest resultvalue: 42",
+        "label": "Latest result",
+        "bar": "rgb(230, 173, 69)"
+      }
+    ]
+  },
+  {
+    "case": "second actual Shift-Cmd-Enter moves latest cue",
+    "rows": [
+      {
+        "line": 0,
+        "latest": false,
+        "cursor": false,
+        "aria": "false",
+        "text": "› 1value = 6 * 7value: 42",
+        "bar": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "line": 1,
+        "latest": true,
+        "cursor": false,
+        "aria": "false",
+        "text": "› 2next_value = value + 1Latest resultnext_value: 43 value: 42",
+        "label": "Latest result",
+        "bar": "rgb(230, 173, 69)"
+      }
+    ]
+  },
+  {
+    "case": "actual Cmd-Enter stays and combines current/latest",
+    "rows": [
+      {
+        "line": 0,
+        "latest": false,
+        "cursor": false,
+        "aria": "false",
+        "text": "› 1value = 6 * 7value: 42",
+        "bar": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "line": 1,
+        "latest": false,
+        "cursor": false,
+        "aria": "false",
+        "text": "› 2next_value = value + 1next_value: 43 value: 42",
+        "bar": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "line": 2,
+        "latest": true,
+        "cursor": true,
+        "aria": "true",
+        "text": "› 3last_value = next_value + 1Latest resultlast_value: 44 next_value: 43",
+        "label": "Latest result",
+        "bar": "rgb(230, 173, 69)"
+      }
+    ]
+  },
+  {
+    "case": "previously evaluated next line keeps current separate",
+    "rows": [
+      {
+        "line": 0,
+        "latest": true,
+        "cursor": false,
+        "aria": "false",
+        "text": "› 1value = 6 * 7Latest resultvalue: 42",
+        "label": "Latest result",
+        "bar": "rgb(230, 173, 69)"
+      },
+      {
+        "line": 1,
+        "latest": false,
+        "cursor": true,
+        "aria": "true",
+        "text": "› 2next_value = value + 1next_value: 43 value: 42This line reads ‘value’; line 1 re-bound ‘value’ after this result was recorded. Go to re-binding",
+        "bar": "rgb(0, 120, 212)"
+      },
+      {
+        "line": 2,
+        "latest": false,
+        "cursor": false,
+        "aria": "false",
+        "text": "› 3last_value = next_value + 1last_value: 44 next_value: 43",
+        "bar": "rgba(0, 0, 0, 0)"
+      }
+    ]
+  },
+  {
+    "case": "unmatched cursor retains latest cue"
+  },
+  {
+    "case": "latest cue independent of follow settings"
+  },
+  {
+    "case": "per-file latest restored on editor switch"
+  },
+  {
+    "case": "view hide/reopen preserves cue"
+  },
+  {
+    "case": "Dark Modern",
+    "bar": "rgb(230, 173, 69)"
+  },
+  {
+    "case": "Light Modern",
+    "bar": "rgb(143, 88, 10)"
+  },
+  {
+    "case": "Default High Contrast",
+    "bar": "rgb(255, 209, 102)"
+  },
+  {
+    "case": "Default High Contrast Light",
+    "bar": "rgb(89, 52, 0)"
+  },
+  {
+    "case": "loop fold rebuild preserves latest and transparent square surface",
+    "style": {
+      "bg": "rgba(0, 0, 0, 0)",
+      "radius": "0px"
+    }
+  },
+  {
+    "case": "clear removes latest cue"
+  }
+]
