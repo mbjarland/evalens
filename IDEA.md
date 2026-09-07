@@ -547,6 +547,10 @@ never zipped into those rows. **Values after loop** reports bounded passive
 snapshots after success, separately from iteration readings. Failed or
 unsupported captures retain flat output.
 
+Large traces share the panel's neutral background. The statement's status bar
+and navigation frame remain; only the selected iteration receives a fill.
+Ordinary short Values results retain their shared tinted surface.
+
 `kernel/loop_explorer.py` records explicit site, invocation, parent invocation
 and parent iteration IDs. Parent invocation remains meaningful in a loop's
 `else`, where no iteration is active. A statement-wide budget retains at most

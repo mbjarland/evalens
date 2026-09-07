@@ -813,13 +813,27 @@ export const DEFAULT_MAX_VALUE_LENGTH = 120;
  */
 export function truncateValue(text: string, limit: number): string {
   const body = text.replace(WIRE_TRUNCATION, '');
-  const graphemes = [...new Intl.Segmenter().segment(body)]
-    .map((each) => each.segment);
-  if (graphemes.length <= limit) {
-    return text;
+  // Segment records include the original input. Retaining every record for
+  // a million-character value exhausts Node 20's heap before the tiny inline
+  // preview can be cut. Keep only the prefix boundary and an exact count.
+  let count = 0;
+  let end = 0;
+  if (!/[^\x00-\x7f]/.test(body)) {
+    // ASCII has one grapheme per code unit except CRLF. Besides avoiding
+    // needless segmentation, this keeps long text linear on Node 20, whose
+    // Segmenter recreates the input string for every yielded record.
+    for (let i = 0; i < body.length;) {
+      i += body[i] === '\r' && body[i + 1] === '\n' ? 2 : 1;
+      if (count++ < limit) end = i;
+    }
+  } else {
+    for (const each of new Intl.Segmenter().segment(body)) {
+      if (count++ < limit) end = each.index + each.segment.length;
+    }
   }
-  const shown = graphemes.slice(0, limit).join('');
-  const removed = graphemes.length - limit;
+  if (count <= limit) return text;
+  const shown = body.slice(0, end);
+  const removed = count - limit;
   return `${shown}… (+${grouped(removed)} more character${removed === 1 ? '' : 's'})`;
 }
 

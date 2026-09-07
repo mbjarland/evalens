@@ -1,0 +1,34 @@
+[
+  {
+    "theme": "Dark Modern",
+    "bodyClasses": "vscode-dark",
+    "text": "rgb(204, 204, 204)",
+    "bar": "rgb(230, 173, 69)",
+    "header": "rgb(209, 163, 92)",
+    "disclosure": "rgb(92, 127, 166)"
+  },
+  {
+    "theme": "Light Modern",
+    "bodyClasses": "vscode-light",
+    "text": "rgb(59, 59, 59)",
+    "bar": "rgb(143, 88, 10)",
+    "header": "rgb(138, 106, 43)",
+    "disclosure": "rgb(114, 141, 166)"
+  },
+  {
+    "theme": "Default High Contrast",
+    "bodyClasses": "vscode-high-contrast",
+    "text": "rgb(255, 255, 255)",
+    "bar": "rgb(255, 209, 102)",
+    "header": "rgb(240, 198, 116)",
+    "disclosure": "rgb(159, 196, 232)"
+  },
+  {
+    "theme": "Default High Contrast Light",
+    "bodyClasses": "vscode-high-contrast-light vscode-high-contrast",
+    "text": "rgb(41, 41, 41)",
+    "bar": "rgb(89, 52, 0)",
+    "header": "rgb(107, 74, 16)",
+    "disclosure": "rgb(47, 85, 120)"
+  }
+]

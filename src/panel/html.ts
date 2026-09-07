@@ -775,7 +775,8 @@ function rowHtml(
   row: ValuesRow, isCursor: boolean, fold: FoldRenderOptions
 ): string {
   const cursorClass = isCursor ? ' cursor' : '';
-  return `<tr class="row${cursorClass}" data-goto="${row.line}" `
+  const loopClass = row.loopExplorer ? ' loop-row' : '';
+  return `<tr class="row${cursorClass}${loopClass}" data-goto="${row.line}" `
     + `data-start="${row.startLine}" data-end="${row.endLine}" `
     + `tabindex="${isCursor ? 0 : -1}" aria-current="${isCursor}">`
     + `<td class="line-cell"><span class="navigation-arrow" aria-hidden="true">› </span>`
@@ -906,6 +907,9 @@ tr.row:focus-visible {
 }
 .result-surface.tone-error { border-left-color: ${cssVar('error')}; }
 .result-surface.tone-pending { border-left-color: ${cssVar('pending')}; }
+/* Long traces share the panel background. Keep the statement frame and its
+   status bar, reserving filled emphasis for the selected iteration. */
+tr.loop-row.cursor, .loop-row .result-surface { background: transparent; }
 .result-group { white-space: pre-wrap; }
 .result-group.block {
   display: block;

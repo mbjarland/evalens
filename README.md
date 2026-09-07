@@ -202,6 +202,9 @@ The **Iteration values** column contains the loop target captured on that pass;
 `stderr` is labelled separately. **Values after loop** is the final snapshot,
 not a claim about any selected iteration or a live watch.
 
+The explorer uses the panel's neutral background with an orange leading bar.
+Filled emphasis stays on the selected iteration, keeping large traces quiet.
+
 Short runs show neighboring outer iterations together. Use the disclosure
 arrows for nested or long content, **More iterations** or **More nested loops**
 for another batch, and **More output** for the next output part. Selecting an
