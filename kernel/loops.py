@@ -45,11 +45,16 @@ iteration computed something to have anything true to say about it.
 
 **The two sequences are not parallel, and nothing may assume they are.** An
 iteration that left the body early -- `continue`, `break`, `return`, an
-exception -- computed no result, so its binding has one entry fewer than the
-target does. That is not a gap to be filled. Inventing a value for an
-iteration that did not produce one is the same lie as reporting a mutable
+exception -- did not reach the body capture, so its binding has one entry
+fewer than the target does. That is not a gap to be filled. Inventing a value
+for an iteration that did not record one is the same lie as reporting a mutable
 object's final state N times, and the loop that makes it visible is an
 ordinary filter rather than a corner case.
+
+The explorer can associate body readings because it attaches each string
+while that iteration is active. It does not pair the independent histories.
+These readings describe normal body end, including conditional values carried
+over from earlier passes, rather than claiming a fresh assignment happened.
 
 The rewrite is additive: it inserts statements and changes nothing else, so
 the namespace a loop leaves behind is identical instrumented or not.
@@ -159,6 +164,11 @@ ITEM_LIMIT = 200
 #: switch would be one nobody finds and everybody has to reason about
 #: alongside the first.
 BINDING_LIMIT = 3
+
+#: Explorer metadata repeats selected names beside retained iterations. Keep
+#: exceptionally long identifiers out of that additive wire data, with an
+#: explicit omission count, without changing the existing recorder plan.
+BODY_NAME_LIMIT = 120
 
 #: `sys._getframe`, looked up once. See `LoopTrace.bind` for why the body
 #: recorder reads the frame rather than being handed its values, and None here
@@ -365,6 +375,8 @@ class LoopTrace:
         code, which can raise, cost real time, or -- for an array -- answer
         with something that is not a boolean at all.
         """
+        body = (self.explorer.begin_body(self.site, _FRAME is not None)
+                if self.explorer is not None else None)
         if not self.bindings or _FRAME is None:
             return
         scope = _FRAME(1).f_locals
@@ -380,6 +392,11 @@ class LoopTrace:
                 # replaced alive for the rest of the run.
                 self._before.pop(name, None)
             trace.record(value)
+            if body is not None:
+                # This is the exact repr just captured above, attached while
+                # its iteration is still active. Independent histories must
+                # never be zipped later: early exits skip this capture point.
+                self.explorer.body_value(self.site, body, name, trace.latest)
 
     @property
     def latest(self) -> Optional[str]:
@@ -577,7 +594,7 @@ class _BoundNames(ast.NodeVisitor):
     visit_GeneratorExp = _skip
 
 
-def _body_names(node) -> Tuple[str, ...]:
+def _body_names(node, limit=BINDING_LIMIT) -> Tuple[str, ...]:
     """The names this loop's body binds and is worth watching, capped.
 
     The loop's own targets are dropped: they are the sequence already being
@@ -591,7 +608,7 @@ def _body_names(node) -> Tuple[str, ...]:
                if isinstance(name, ast.Name)}
     names = [name for name in collector.names
              if name not in targets and name != RECORDERS]
-    return tuple(names[:BINDING_LIMIT])
+    return tuple(names[:limit])
 
 
 class _Instrumenter(ast.NodeTransformer):
@@ -667,7 +684,10 @@ class _Instrumenter(ast.NodeTransformer):
             # are read from the body as the user wrote it, before the rewrite
             # puts anything of its own in there.
             index = len(self.plan)
-            self.plan.append(_body_names(node))
+            body_names = _body_names(node, limit=None)
+            self.plan.append(body_names[:BINDING_LIMIT])
+            displayed_names = [name for name in self.plan[-1]
+                               if len(name) <= BODY_NAME_LIMIT]
             # Read by this loop's own position rather than anything the
             # caller allocated ahead of time: a watch is filed under the
             # *loop's* key, not this walk's index, precisely so a nested
@@ -681,6 +701,8 @@ class _Instrumenter(ast.NodeTransformer):
                 source=(('async ' if isinstance(node, ast.AsyncFor) else '')
                         + 'for ' + ast.unparse(node.target) + ' in '
                         + ast.unparse(node.iter)),
+                body_names=displayed_names,
+                omitted_body_names=len(body_names) - len(displayed_names),
                 names=list(islice((n.id for n in ast.walk(node.target)
                                    if isinstance(n, ast.Name)), 8))))
             self.parents.append(index)
