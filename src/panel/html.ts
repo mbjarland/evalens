@@ -103,7 +103,7 @@ export interface ValuesRow {
   /** Present only when `state` is `'stale'`. */
   readonly staleReason?: 'edited' | 'dependency';
   readonly staleCause?: DependencyCause;
-  /** Chip groups exactly as `resultGroups` builds them, at full length --
+  /** Value groups exactly as `resultGroups` builds them, at full length --
    * absent for a pending or error row, which paint their own message
    * instead, and absent for a row with nothing to show at all. */
   readonly groups?: readonly (readonly Segment[])[];
@@ -416,24 +416,18 @@ function summaryLine(fileName: string, rows: readonly ValuesRow[]): string {
 
 type Tone = 'evaluated' | 'stale' | 'error' | 'pending';
 
-/**
- * One chip -- `inline` beside the others on the row, or `block`, under them
- * on a line of its own, for printed output (#116 review).
- *
- * `leading` puts a `.bar` element immediately before the chip rather than a
- * border on the chip itself: a border is part of the box
- * `box-decoration-break: clone` clones onto every fragment a wrapped inline
- * element paints, so the old single-element chip repeated its bar on every
- * wrapped line. A `.bar` is its own small element with nothing to wrap, so
- * it can only ever appear once, beside the chip's own first line, exactly
- * where "the accent bar on the first chip of the row" belongs.
- */
-function chip(
-  innerHtml: string, tone: Tone, leading: boolean, variant: 'inline' | 'block' = 'inline'
-): string {
-  const bar = leading ? `<span class="bar tone-${tone}"></span>` : '';
-  const classes = ['chip', `tone-${tone}`, ...(variant === 'block' ? ['block'] : [])];
-  return `${bar}<span class="${classes.join(' ')}">${innerHtml}</span>`;
+/** One statement owns its surface and continuous accent, including wrapped
+ * values and output (#163). Empty results must not leave an orphan bar. */
+function resultSurface(innerHtml: string, tone: Tone): string {
+  return innerHtml === '' ? ''
+    : `<div class="result-surface tone-${tone}">${innerHtml}</div>`;
+}
+
+/** Inline groups keep labels directly beside their values. A folded value
+ * or a stream needs its own block, but never another tint or accent bar. */
+function resultGroup(innerHtml: string, block = false): string {
+  return block ? `<div class="result-group block">${innerHtml}</div>`
+    : `<span class="result-group">${innerHtml}</span>`;
 }
 
 /**
@@ -543,8 +537,8 @@ function foldLabelAttrs(line: number, blockId: string): string {
 
 /**
  * `printed: ` (or `»` for a glyph label, per `evalens.printedLabel`) and the
- * full text after it, as one `block` chip under the line's value chips
- * (#116 review) -- `white-space: pre-wrap` on the chip itself keeps every
+ * full text after it, as one block under the line's values.
+ * `white-space: pre-wrap` on the group itself keeps every
  * line the statement printed, label and all, inside the one box, rather
  * than folding them to the single space the browser's ordinary text flow
  * would otherwise collapse them to.
@@ -561,8 +555,8 @@ function foldLabelAttrs(line: number, blockId: string): string {
  * a click target for the same toggle `Show all`/`Show less` already are --
  * JupyterLab's own gesture for a folded cell output.
  */
-function streamChipHtml(
-  stream: FullStream, tone: Tone, leading: boolean, line: number,
+function streamGroupHtml(
+  stream: FullStream, line: number,
   outputLines: number, expanded: boolean
 ): string {
   const label = /[A-Za-z0-9]$/.test(stream.label)
@@ -576,11 +570,11 @@ function streamChipHtml(
     fold.foldable
       ? { className: 'fold-label', attrs: foldLabelAttrs(line, blockId) }
       : undefined);
-  return chip(labelHtml + fold.html, tone, leading, 'block');
+  return resultGroup(labelHtml + fold.html, true);
 }
 
 /**
- * One `resultGroups` group, as a `block` chip if its own value segment runs
+ * One `resultGroups` group, as a block if its own value segment runs
  * past `outputLines` -- "same rule for long values as for streams" (#155)
  * -- or `undefined` when it does not, telling the caller to keep rendering
  * it inline exactly as before.
@@ -597,7 +591,7 @@ function streamChipHtml(
  * `printed:` is.
  */
 function foldableGroupHtml(
-  group: readonly Segment[], tone: Tone, leading: boolean, line: number,
+  group: readonly Segment[], line: number,
   blockId: string, outputLines: number, expanded: boolean
 ): string | undefined {
   const valueIndex = group.findIndex((segment) => segment.role === 'value');
@@ -614,7 +608,7 @@ function foldableGroupHtml(
     index === valueIndex - 1
       ? { className: 'fold-label', attrs: foldLabelAttrs(line, blockId) }
       : undefined)).join('');
-  return chip(before + fold.html, tone, leading, 'block');
+  return resultGroup(before + fold.html, true);
 }
 
 /**
@@ -663,9 +657,9 @@ function valueCellHtml(
   row: ValuesRow, outputLines: number, expandedLines: ReadonlySet<number>
 ): string {
   if (row.state === 'pending') {
-    return chip(
+    return resultSurface(
       `<span class="pending-text">${escapeHtml(row.pendingText ?? '')}</span>`,
-      'pending', true);
+      'pending');
   }
 
   if (row.errorText !== undefined) {
@@ -674,52 +668,32 @@ function valueCellHtml(
     // reporting the current code's failure, so the surface recedes to grey
     // while the message -- still in the error colour -- says what it was.
     const tone: Tone = row.state === 'stale' ? 'stale' : 'error';
-    const errorChip = chip(
-      `<span class="error-text">${escapeHtml(row.errorText)}</span>`, tone, true);
+    const errorSurface = resultSurface(
+      `<span class="error-text">${escapeHtml(row.errorText)}</span>`, tone);
     return row.state === 'stale' && row.staleReason !== undefined
-      ? errorChip + staleReasonHtml(row)
-      : errorChip;
+      ? errorSurface + staleReasonHtml(row)
+      : errorSurface;
   }
 
-  // Inline value chips share one line, space-separated; a stream is its own
-  // block underneath, so the two are built into separate lists rather than
-  // one -- joining them the same way would put a stream chip on the value
-  // chips' own line. A value group long enough to fold joins the streams in
-  // the block list instead (#155): once it needs a footer of its own it can
-  // no longer share a line with anything else. `leading` still tracks across
-  // all three: whichever chip is built first overall -- ordinarily a value
-  // chip, but a bare `print()` with no name to report has only a stream chip
-  // -- carries the bar, and the fold state is one flag per row (`expanded`)
-  // rather than one per block: `Show all` on any block in a row opens every
-  // foldable block in it, matching the one `{ expand: line }` message the
-  // webview ever posts.
+  // Values and streams are separate sections within one shared surface.
+  // Only their boundary gets the quiet internal divider. Long values stay
+  // with values even when they need a block and footer of their own.
+  // The fold flag remains per row (#155): opening any block opens the
+  // row's foldable blocks, without evaluating or capturing anything new.
   const tone: Tone = row.state === 'stale' ? 'stale' : 'evaluated';
   const expanded = expandedLines.has(row.line);
-  let leadingTaken = false;
-  const takeLeading = (): boolean => {
-    const first = !leadingTaken;
-    leadingTaken = true;
-    return first;
-  };
-  const inlineChips: string[] = [];
-  const blockChips: string[] = [];
-  (row.groups ?? []).forEach((group, index) => {
-    const leading = takeLeading();
+  const values = (row.groups ?? []).map((group, index) => {
     const folded = foldableGroupHtml(
-      group, tone, leading, row.line, `value-${index}`, outputLines, expanded);
-    if (folded === undefined) {
-      inlineChips.push(chip(groupHtml(group), tone, leading));
-    } else {
-      blockChips.push(folded);
-    }
-  });
-  for (const stream of row.streams ?? []) {
-    blockChips.push(streamChipHtml(
-      stream, tone, takeLeading(), row.line, outputLines, expanded));
-  }
+      group, row.line, `value-${index}`, outputLines, expanded);
+    return folded ?? resultGroup(groupHtml(group));
+  }).join(' ');
+  const streams = (row.streams ?? []).map((stream) => streamGroupHtml(
+    stream, row.line, outputLines, expanded)).join('');
   // A statement with nothing to show at all -- an `if`, a `del` -- paints no
   // chip, the same as the inline annotation does.
-  const value = inlineChips.join(' ') + blockChips.join('');
+  const value = resultSurface(
+    (values ? `<div class="result-values">${values}</div>` : '')
+      + (streams ? `<div class="result-streams">${streams}</div>` : ''), tone);
   return row.state === 'stale' && row.staleReason !== undefined
     ? value + staleReasonHtml(row)
     : value;
@@ -822,13 +796,14 @@ col.col-line { width: 44px; }
 col.col-code { width: 300px; }
 td {
   vertical-align: top;
-  padding: 2px 6px;
-  border-bottom: 1px solid var(--vscode-panel-border, transparent);
+  padding: 6px;
+  border-bottom: 1px solid var(--vscode-panel-border, currentColor);
 }
 tr.row { cursor: pointer; }
 tr.row:hover { background: var(--vscode-list-hoverBackground, transparent); }
 .line-cell {
   text-align: right;
+  white-space: nowrap;
   color: var(--vscode-descriptionForeground, #9d9d9d);
   border-left: 3px solid transparent;
   padding-left: 3px;
@@ -872,43 +847,42 @@ tr.row:focus-visible {
   padding: 4px 0 8px;
   background: var(--vscode-panel-background, #1e1e1e);
 }
-.chip {
-  display: inline;
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
-  padding: 0 6px;
+.result-surface {
+  padding: 3px 8px;
+  border-left: 3px solid ${cssVar('border')};
   border-radius: 3px;
   font-style: italic;
   background: ${cssVar('tint')};
 }
-.chip.tone-stale { background: ${cssVar('staleTint')}; }
-/* Printed output (#116 review): a block of its own under the line's value
-   chips, not one more inline chip beside them -- so it never shares a line
-   with them and never needs box-decoration-break to keep its own shape. */
-.chip.block {
+.result-surface.tone-stale {
+  background: ${cssVar('staleTint')};
+  border-left-color: ${cssVar('staleBorder')};
+}
+.result-surface.tone-error { border-left-color: ${cssVar('error')}; }
+.result-surface.tone-pending { border-left-color: ${cssVar('pending')}; }
+.result-group { white-space: pre-wrap; }
+.result-group.block {
   display: block;
   white-space: pre-wrap;
-  width: fit-content;
   max-width: 100%;
-  margin-top: 4px;
 }
-/* The accent bar (#116 review): its own element immediately before the
-   leading chip, not a border on the chip itself -- a border is part of the
-   box that box-decoration-break: clone clones onto every wrapped line, and
-   the bar belongs on the first line only. Sized to one line of text and
-   placed inline, so it appears once, beside the chip's own first line, and
-   never reappears when that chip wraps. */
-.bar {
-  display: inline-block;
-  width: 3px;
-  height: 1.3em;
-  vertical-align: middle;
-  border-radius: 1px;
-  background: ${cssVar('border')};
+.result-group.block + .result-group,
+.result-group + .result-group.block { margin-top: 4px; }
+/* The internal rule shares the theme's statement-boundary colour, but is
+   quieter and only spans the result's usable width. Source-row boundaries
+   run across all three cells at full contrast; spacing reinforces that
+   hierarchy without adding another frame around each result. */
+.result-values + .result-streams::before {
+  content: '';
+  display: block;
+  border-top: 1px solid var(--vscode-panel-border, currentColor);
+  opacity: .6;
+  margin: 5px 0;
 }
-.bar.tone-stale { background: ${cssVar('staleBorder')}; }
-.bar.tone-error { background: ${cssVar('error')}; }
-.bar.tone-pending { background: ${cssVar('pending')}; }
+.vscode-high-contrast td,
+.vscode-high-contrast-light td {
+  border-bottom-width: 2px;
+}
 .seg-value { color: ${cssVar('value')}; }
 .seg-nameLabel { color: ${cssVar('nameLabel')}; }
 .seg-streamLabel { color: ${cssVar('streamLabel')}; }

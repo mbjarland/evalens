@@ -1,0 +1,54 @@
+{
+  "dark": {
+    "outputInset": 3,
+    "labelAlignment": 0,
+    "valueGap": 0,
+    "inlineValueOffset": 54.1875,
+    "dividerWidth": 823.5,
+    "usableWidth": 823.5,
+    "resultBorder": "3px",
+    "dividerOpacity": "0.6",
+    "rowSeparator": "1px",
+    "emptyResult": false,
+    "duplicateBars": 0
+  },
+  "light": {
+    "outputInset": 3,
+    "labelAlignment": 0,
+    "valueGap": 0,
+    "inlineValueOffset": 54.1875,
+    "dividerWidth": 823.5,
+    "usableWidth": 823.5,
+    "resultBorder": "3px",
+    "dividerOpacity": "0.6",
+    "rowSeparator": "1px",
+    "emptyResult": false,
+    "duplicateBars": 0
+  },
+  "highContrast": {
+    "outputInset": 3,
+    "labelAlignment": 0,
+    "valueGap": 0,
+    "inlineValueOffset": 54.1875,
+    "dividerWidth": 823.5,
+    "usableWidth": 823.5,
+    "resultBorder": "3px",
+    "dividerOpacity": "0.6",
+    "rowSeparator": "2px",
+    "emptyResult": false,
+    "duplicateBars": 0
+  },
+  "highContrastLight": {
+    "outputInset": 3,
+    "labelAlignment": 0,
+    "valueGap": 0,
+    "inlineValueOffset": 54.1875,
+    "dividerWidth": 823.5,
+    "usableWidth": 823.5,
+    "resultBorder": "3px",
+    "dividerOpacity": "0.6",
+    "rowSeparator": "2px",
+    "emptyResult": false,
+    "duplicateBars": 0
+  }
+}

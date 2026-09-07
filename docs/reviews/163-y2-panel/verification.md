@@ -1,0 +1,49 @@
+# Y2 shared result layout — #163
+
+The compiled renderer was inspected in Chrome with values from Evalens'
+real Python kernel. `verify.cjs` executes only its literal fixture, converts
+those responses through `present` and `rowsFor`, and renders `valuesHtml`.
+The multiline grid value and the stale flag are presentation fixtures.
+
+Run from a compiled checkout with:
+
+```sh
+node docs/reviews/163-y2-panel/verify.cjs
+```
+
+The script requires Chrome at the macOS path written inside it. The four
+screenshots use the extension's contributed dark, light, high-contrast and
+high-contrast-light colours, plus explicit sample VS Code chrome colours.
+They are standalone compiled-panel evidence, not Extension Host screenshots.
+
+Observed and measured:
+
+- Variable and printed labels begin at the same horizontal position. Each
+  single-line value follows its own label immediately; values do not align
+  into a second column.
+- One continuous three-pixel border spans each statement's result surface.
+  The output-only label starts three pixels from the top, which is the
+  surface padding: there is no empty line above it and no orphan bar.
+- The internal solid rule spans the usable result width at 60% opacity.
+  Statement separators span code and results at full opacity, with thicker
+  separators in the two high-contrast themes.
+- Values-only, output-only, stdout plus stderr, stale and error rows retain
+  their distinct labels and colours. A statement without a result has no
+  result surface. Two-digit line numbers stay on one line.
+- Long multiline values and output fold at the configured line count.
+  Show all and Show less send only their fold action; Open in editor sends
+  the captured stream identifier. No source-navigation message is emitted
+  by those clicks. Full captured text remains available through fullTextFor.
+  Expanded text scrolls inside the existing bounded container.
+
+`geometry.json` records the four-theme measurements. `dark.png`, `light.png`,
+`highContrast.png`, `highContrastLight.png` and `expanded.png` were inspected.
+
+Validation: 841 extension tests (baseline 839), 678 kernel tests (unchanged).
+The extension suite includes source navigation, stale links and error
+presentation checks. The real VS Code Host inspection and installed build
+verification remain with the integrating session.
+
+Folding still counts captured newlines, as #155 specifies. This layout
+change does not add character-based folding for a huge single-line repr or
+new loop capture limits.

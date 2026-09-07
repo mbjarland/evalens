@@ -368,6 +368,13 @@ A list long enough to have run off the screen now wraps onto a second line;
 a `print()` spanning several lines keeps every one of them, not the inline
 chip's first-line-and-a-count.
 
+Each statement's values and output share one background and a continuous
+leading bar. A quiet divider separates values from output within that block;
+the stronger separators across code and results mark different statements.
+Labels stay beside their values, with the same variable and output colours
+as the editor. Long output and multiline values retain **Show all**,
+**Show less**, and **Open in editor**.
+
 Move the editor cursor to bring the corresponding row into view, marked with
 an arrow and a frame. Click a row, or use Up/Down and Home/End after focusing
 one, to reveal and frame its source. Keyboard focus stays in the pane you
