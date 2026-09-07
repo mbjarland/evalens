@@ -1,0 +1,13 @@
+{
+  "runtime": "v20.20.2",
+  "inputCharacters": 1000000,
+  "durationMilliseconds": 21,
+  "result": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx… (+999,880 more characters)",
+  "memory": {
+    "rss": 40386560,
+    "heapTotal": 5013504,
+    "heapUsed": 4215640,
+    "external": 1193051,
+    "arrayBuffers": 10511
+  }
+}

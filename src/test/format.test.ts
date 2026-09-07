@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 
 import { BindingTrace, LoopTrace, NamedValue } from '../kernel/protocol';
 import {
@@ -1161,4 +1162,26 @@ test('a line with nothing on it has no segments at all', () => {
   // colour.
   assert.deepEqual(resultSegments({ value: null, display: null }), []);
   assert.equal(resultText({ value: null, display: null }), '');
+});
+
+
+test('huge inline previews keep bounded heap and exact ASCII/Unicode grapheme counts', () => {
+  // Run under the current test runtime, including CI's Node 20, with a small
+  // heap. Eagerly collecting Segmenter records previously exhausted 4 GB
+  // before the million-character Values fixture could render its preview.
+  const checked = spawnSync(process.execPath, ['--max-old-space-size=96', '-e', `
+    const assert = require('node:assert/strict');
+    const { truncateValue } = require(process.argv[1]);
+    assert.equal(truncateValue('x'.repeat(1000000), 120),
+      'x'.repeat(120) + '… (+999,880 more characters)');
+    assert.equal(truncateValue('line\\r\\n'.repeat(200000), 6),
+      'line\\r\\nl… (+999,994 more characters)');
+    const cluster = '🇸🇪e\\u0301👩‍👩‍👧‍👦';
+    assert.equal(truncateValue(cluster.repeat(10000), 4),
+      cluster + '🇸🇪… (+29,996 more characters)');
+    process.stdout.write('ok');
+  `, require.resolve('../render/format')], { encoding: 'utf8', timeout: 15000 });
+  assert.equal(checked.error, undefined, String(checked.error));
+  assert.equal(checked.status, 0, checked.stderr);
+  assert.equal(checked.stdout, 'ok');
 });
