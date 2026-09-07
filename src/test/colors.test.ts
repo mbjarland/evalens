@@ -80,7 +80,13 @@ test('every gutter marker icon exists, in both theme variants', () => {
     for (const theme of ['dark', 'light']) {
       const icon = path.join(root, 'media', 'gutter', `${name}-${theme}.svg`);
       assert.ok(fs.existsSync(icon), `${icon} is missing`);
+      const current = path.join(root, 'media', 'gutter', `current-${name}-${theme}.svg`);
+      assert.ok(fs.existsSync(current), `${current} is missing`);
     }
+  }
+  for (const theme of ['dark', 'light']) {
+    const icon = path.join(root, 'media', 'gutter', `current-plain-${theme}.svg`);
+    assert.ok(fs.existsSync(icon), `${icon} is missing`);
   }
 });
 

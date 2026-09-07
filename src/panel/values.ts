@@ -25,6 +25,7 @@ const NO_EXPANDED_LINES: ReadonlySet<number> = new Set();
  * duplicated as a constant here.
  */
 export const VALUES_VIEW_ID = 'evalens.values';
+export const COLOR_CURRENT_LINE = 'evalens.currentLineBackground';
 
 const NONCE_CHARS =
   'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -88,15 +89,12 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
    * click landing. */
   private renderedData: ValuesPanelData = { fileName: undefined, rows: [] };
   private markedEditor: vscode.TextEditor | undefined;
-  /** The source-side half of linked navigation (#154): a frame around the
-   * statement the panel's current row belongs to, independent of the
-   * inline annotation's own decorations. */
+  /** Linked navigation marks the actual source line, not every line of its
+   * owning statement. The gutter tick is composed with the annotation's
+   * state icon by the decorator, so neither icon can hide the other. */
   private readonly navigation = vscode.window.createTextEditorDecorationType({
     isWholeLine: true,
-    borderWidth: '1px 0 1px 3px',
-    borderStyle: 'solid',
-    borderColor: new vscode.ThemeColor('focusBorder'),
-    backgroundColor: new vscode.ThemeColor('editor.rangeHighlightBackground'),
+    backgroundColor: new vscode.ThemeColor(COLOR_CURRENT_LINE),
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
   });
 
@@ -173,7 +171,10 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   private clearMarker(): void {
-    this.markedEditor?.setDecorations(this.navigation, []);
+    if (this.markedEditor) {
+      this.markedEditor.setDecorations(this.navigation, []);
+      this.annotations.markCurrentLine(this.markedEditor, undefined);
+    }
     this.markedEditor = undefined;
   }
 
@@ -181,7 +182,8 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     this.clearMarker();
     const annotation = this.annotations.at(editor.document, line);
     if (annotation) {
-      editor.setDecorations(this.navigation, [annotation.range]);
+      editor.setDecorations(this.navigation, [new vscode.Range(line, 0, line, 0)]);
+      this.annotations.markCurrentLine(editor, line);
       this.markedEditor = editor;
     }
   }

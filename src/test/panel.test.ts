@@ -1313,7 +1313,8 @@ async function navigationFixture() {
   const provider = fake.webviewViewProviders.get('evalens.values')!;
   provider.resolveWebviewView(view, {}, {});
   const decoration = fake.decorationTypes.find((type) =>
-    (type.options as { borderWidth?: string }).borderWidth === '1px 0 1px 3px')!;
+    (type.options as { backgroundColor?: { id: string } })
+      .backgroundColor?.id === 'evalens.currentLineBackground')!;
   assert.ok(decoration, 'a dedicated source-navigation marker must exist');
   return { fake, editor, extension, view, provider, decoration };
 }
@@ -1415,7 +1416,7 @@ test('rapid navigation reads the captured trace without evaluating user code', a
   } finally { extension.deactivate(); }
 });
 
-test('compound, stale and error rows keep their real source range during navigation', async () => {
+test('compound, stale and error navigation marks only the actual source line', async () => {
   const fake = createFakeVscode();
   const editor = createEditor('if True:\n    x = 1\n\n1 / 0\n');
   fake.window.activeTextEditor = editor;
@@ -1427,13 +1428,19 @@ test('compound, stale and error rows keep their real source range during navigat
     const view = new FakeWebviewView();
     provider.resolveWebviewView(view, {}, {});
     const decoration = fake.decorationTypes.find((type) =>
-      (type.options as { borderWidth?: string }).borderWidth === '1px 0 1px 3px')!;
+      (type.options as { backgroundColor?: { id: string } })
+        .backgroundColor?.id === 'evalens.currentLineBackground')!;
+    const style = decoration.options as Record<string, unknown>;
+    assert.equal(style.isWholeLine, true);
+    for (const property of ['color', 'border', 'borderColor', 'borderWidth', 'borderStyle']) {
+      assert.equal(style[property], undefined, `${property} must not recolor or frame source`);
+    }
     const markedRange = () => editor.painted.get(decoration)?.[0] as unknown as FakeRange;
     editor.selection = new FakeSelection(new FakePosition(1, 0), new FakePosition(1, 0));
     fake.emitters.onDidChangeTextEditorSelection.fire({
       textEditor: editor, selections: [editor.selection],
     });
-    assert.equal(markedRange().start.line, 0);
+    assert.equal(markedRange().start.line, 1);
     assert.equal(markedRange().end.line, 1);
     view.webview.fireMessage({ goto: 3, revision: panelRevision(view), explicit: true });
     assert.equal(markedRange().start.line, 3);
@@ -1445,8 +1452,94 @@ test('compound, stale and error rows keep their real source range during navigat
     });
     view.webview.fireMessage({ goto: 0, revision: panelRevision(view), explicit: true });
     assert.equal(markedRange().start.line, 0);
-    assert.equal(markedRange().end.line, 1);
+    assert.equal(markedRange().end.line, 0);
     assert.match(view.webview.html, /1 stale/);
+  } finally { extension.deactivate(); }
+});
+
+test('current-line tick preserves evaluated, stale and error gutter states', async () => {
+  const { fake, editor, extension, view } = await navigationFixture();
+  const visibleIcons = () => fake.decorationTypes.flatMap((type) => {
+    const icon = (type.options as { dark?: { gutterIconPath?: { fsPath: string } } })
+      .dark?.gutterIconPath?.fsPath;
+    return icon ? (editor.painted.get(type) ?? []).map((option) => ({
+      name: path.basename(icon), line: option.range!.start.line,
+    })) : [];
+  });
+  try {
+    assert.deepEqual(visibleIcons().sort((a, b) => a.line - b.line), [
+      { name: 'current-evaluated-dark.svg', line: 0 },
+      { name: 'evaluated-dark.svg', line: 1 },
+    ]);
+    editor.document.setText('x = 9\ny = 2\n\n');
+    fake.emitters.onDidChangeTextDocument.fire({ document: editor.document,
+      contentChanges: [{ range: new FakeRange(0, 4, 0, 5), text: '9' }] });
+    assert.ok(visibleIcons().some((icon) => icon.name === 'current-stale-dark.svg'));
+    view.setVisible(false);
+    assert.ok(visibleIcons().some((icon) => icon.name === 'stale-dark.svg'));
+    assert.ok(visibleIcons().every((icon) => !icon.name.startsWith('current-')));
+    view.setVisible(true);
+    editor.document.setText('1 / 0\ny = 2\n\n');
+    fake.emitters.onDidChangeTextDocument.fire({ document: editor.document,
+      contentChanges: [{ range: new FakeRange(0, 0, 0, 5), text: '1 / 0' }] });
+    await fake.executeCommand('evalens.evaluateAtCursor');
+    assert.ok(visibleIcons().some((icon) => icon.name === 'current-error-dark.svg'));
+    assert.equal(visibleIcons().filter((icon) => icon.line === 0).length, 1,
+      'one combined image prevents competing glyphs from hiding each other');
+  } finally { extension.deactivate(); }
+});
+
+test('nested source navigation and prefix edits keep the exact current-line target', async () => {
+  const fake = createFakeVscode();
+  const source = 'for x in range(2):\n    for y in range(2):\n        print(x, y)\n\n';
+  const editor = createEditor(source);
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    await fake.executeCommand('evalens.evaluateFile');
+    const view = new FakeWebviewView();
+    fake.webviewViewProviders.get('evalens.values')!.resolveWebviewView(view, {}, {});
+    const wash = fake.decorationTypes.find((type) =>
+      (type.options as { backgroundColor?: { id: string } })
+        .backgroundColor?.id === 'evalens.currentLineBackground')!;
+    const tick = fake.decorationTypes.find((type) =>
+      (type.options as { dark?: { gutterIconPath?: { fsPath: string } } })
+        .dark?.gutterIconPath?.fsPath.endsWith('current-plain-dark.svg'))!;
+    for (const line of [1, 2]) {
+      editor.selection = new FakeSelection(new FakePosition(line, 0), new FakePosition(line, 0));
+      fake.emitters.onDidChangeTextEditorSelection.fire({ textEditor: editor,
+        selections: [editor.selection] });
+      const range = editor.painted.get(wash)![0] as unknown as FakeRange;
+      assert.equal(range.start.line, line);
+      assert.equal(range.end.line, line);
+      assert.equal(editor.painted.get(tick)![0]!.range!.start.line, line);
+    }
+    editor.document.setText('# heading\n' + source);
+    editor.selection = new FakeSelection(new FakePosition(3, 0), new FakePosition(3, 0));
+    fake.emitters.onDidChangeTextDocument.fire({ document: editor.document,
+      contentChanges: [{ range: new FakeRange(0, 0, 0, 0), text: '# heading\n' }] });
+    const shifted = editor.painted.get(wash)![0] as unknown as FakeRange;
+    assert.equal(shifted.start.line, 3);
+    assert.equal(shifted.end.line, 3);
+    assert.equal(editor.painted.get(tick)![0]!.range!.start.line, 3);
+  } finally { extension.deactivate(); }
+});
+
+test('finished source keeps its background while evaluation state remains findable', async () => {
+  const { fake, editor, extension } = await navigationFixture();
+  try {
+    const regions = fake.decorationTypes.filter((type) =>
+      (type.options as { overviewRulerColor?: { id: string } })
+        .overviewRulerColor?.id === 'evalens.evaluatedRegionBackground');
+    const settled = regions.find((type) => editor.painted.get(type)?.length === 2)!;
+    assert.ok(settled, 'finished evaluations retain their scrollbar locations');
+    assert.equal((settled.options as { backgroundColor?: unknown }).backgroundColor, undefined);
+    for (const color of ['evalens.pendingRegionBackground', 'evalens.askingRegionBackground']) {
+      assert.ok(fake.decorationTypes.some((type) =>
+        (type.options as { backgroundColor?: { id: string } }).backgroundColor?.id === color),
+      `${color} still distinguishes execution needing attention`);
+    }
   } finally { extension.deactivate(); }
 });
 

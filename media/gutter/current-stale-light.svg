@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- Stale: the same bar, broken. Out of sync with what the kernel has.
+       The gap carries the meaning as well as the colour does, so the two
+       states are still one glance apart for a red-green colour-blind reader. -->
+  <rect x="6" y="2.5" width="4" height="4.25" rx="2" fill="#9a6a12"/>
+  <rect x="6" y="9.25" width="4" height="4.25" rx="2" fill="#9a6a12"/>
+  <!-- Current source line: square tick, separate from the state symbol. -->
+  <rect x="1" y="3" width="2.5" height="10" fill="#8f580a"/>
+</svg>

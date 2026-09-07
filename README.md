@@ -1141,6 +1141,7 @@ without the extension offering a setting of its own:
   "evalens.errorForeground": "#f14c4c",
   "evalens.errorBackground": "#00000000",
   "evalens.evaluatedRegionBackground": "#4a9c8c22",
+  "evalens.currentLineBackground": "#ffffff0d",
   "evalens.pendingForeground": "#8c8c8c",
   "evalens.pendingRegionBackground": "#8c8c8c26",
   "evalens.askingForeground": "#e8963c",
@@ -1161,6 +1162,14 @@ painted anywhere: #95 moved every state's background onto the shared
 `annotationTint` below, so setting either of the first two no longer changes
 anything. They stay contributed rather than removed, so a customization
 already made against them does not silently start failing.
+
+`currentLineBackground` adds a neutral wash to the exact source line linked
+to the visible Values panel. A short square amber gutter tick marks the same
+line, beside any evaluated, stale or error symbol. It leaves syntax colors
+intact. The gutter images have light and dark variants, like the existing
+state icons. Finished statements keep the editor background;
+`evaluatedRegionBackground` remains the scrollbar mark and temporary
+selection-snap highlight. Pending, input and brief success feedback remain.
 
 `askingForeground` and `askingRegionBackground` are the one line on screen
 that is blocked on `input()` rather than merely slow — orange rather than
