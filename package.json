@@ -136,34 +136,6 @@
         }
       ]
     },
-    "menus": {
-      "view/title": [
-        {
-          "command": "evalens.toggleValuesPanelFollow",
-          "when": "view == evalens.values && config.evalens.valuesPanel.follow",
-          "group": "navigation",
-          "icon": "$(unlock)"
-        },
-        {
-          "command": "evalens.toggleValuesPanelFollow",
-          "when": "view == evalens.values && !config.evalens.valuesPanel.follow",
-          "group": "navigation",
-          "icon": "$(lock)"
-        },
-        {
-          "command": "evalens.toggleInlineValues",
-          "when": "view == evalens.values && config.evalens.inlineValues == 'always'",
-          "group": "navigation",
-          "icon": "$(eye)"
-        },
-        {
-          "command": "evalens.toggleInlineValues",
-          "when": "view == evalens.values && config.evalens.inlineValues == 'whenPanelHidden'",
-          "group": "navigation",
-          "icon": "$(eye-closed)"
-        }
-      ]
-    },
     "configuration": {
       "title": "Evalens",
       "properties": {
@@ -255,7 +227,7 @@
           "type": "boolean",
           "default": true,
           "scope": "application",
-          "markdownDescription": "Whether the values panel scrolls the row that just changed into view, every time an evaluation lands. On (the default), the newest value is always what you see, which is the point of a panel that would otherwise keep showing whatever was on screen while new rows land out of sight below the fold. Off keeps your scroll position exactly where you left it — useful for reading back through a file's history without the view jumping away from it underneath you. **Evalens: Toggle Follow in Values Panel** flips this from the command palette or from the `$(unlock)` / `$(lock)` button in the values panel's own title bar, so you never have to leave the panel to turn it off mid-session."
+          "markdownDescription": "Whether the values panel scrolls the row that just changed into view, every time an evaluation lands. On (the default), the newest value is always what you see, which is the point of a panel that would otherwise keep showing whatever was on screen while new rows land out of sight below the fold. Off keeps your scroll position exactly where you left it — useful for reading back through a file's history without the view jumping away from it underneath you. **Evalens: Toggle Follow in Values Panel** flips this from the command palette, or check/uncheck **Follow newest value**, the checkbox in the panel, so you never have to leave the panel to turn it off mid-session."
         },
         "evalens.valuesPanel.outputLines": {
           "type": "number",
@@ -283,7 +255,7 @@
             "Paint inline chips in the editor regardless of whether the Values panel is open.",
             "Hide inline chips while the Values panel is visible, and show them again the moment it is not."
           ],
-          "markdownDescription": "Whether an evaluated line's inline value and error chips paint in the editor while the Values panel is also visible. `always` (the default) paints both at once, exactly like every version of Evalens before this setting existed. `whenPanelHidden` hides the inline chips while the panel is open and its Values tab is the one showing, and brings them straight back the moment you close the panel or switch to another tab — never both empty and closed at once, because the failure a plain on/off switch would have is a student who turned inline off, later closed the panel, and saw nothing at all. Gutter markers, the evaluated-region tint, the pending/asking marks, and the hover are unaffected either way — this only ever hides the value itself, which the panel already shows. **Evalens: Toggle Inline Values in the Editor** flips this from the command palette or from the `$(eye)` / `$(eye-closed)` button in the values panel's own title bar."
+          "markdownDescription": "Whether an evaluated line's inline value and error chips paint in the editor while the Values panel is also visible. `always` (the default) paints both at once, exactly like every version of Evalens before this setting existed. `whenPanelHidden` hides the inline chips while the panel is open and its Values tab is the one showing, and brings them straight back the moment you close the panel or switch to another tab — never both empty and closed at once, because the failure a plain on/off switch would have is a student who turned inline off, later closed the panel, and saw nothing at all. Gutter markers, the evaluated-region tint, the pending/asking marks, and the hover are unaffected either way — this only ever hides the value itself, which the panel already shows. **Evalens: Toggle Inline Values in the Editor** flips this from the command palette, or check/uncheck **Hide inline values while this panel is visible**, the checkbox in the panel."
         }
       }
     },

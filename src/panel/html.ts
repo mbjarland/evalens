@@ -457,14 +457,12 @@ function pluralize(count: number, word: string): string {
 
 /** `basics.py · 8 values · 1 stale · 1 error` -- the counts that are zero
  * say nothing, the way `format.ts`'s own `…+N more` only appears at all
- * when there is one. `inlineHidden` (#178) appends `· inline values hidden`
- * while `evalens.inlineValues` is `whenPanelHidden` and this very panel is
- * what is hiding them -- the one place a reader looking at the panel is
- * told the editor's chips are gone, rather than left to notice their
- * absence and wonder whether Evalens is broken. */
-function summaryLine(
-  fileName: string, rows: readonly ValuesRow[], inlineHidden: boolean
-): string {
+ * when there is one. Before #181 this also appended `· inline values
+ * hidden` while `evalens.inlineValues` was `whenPanelHidden` and this very
+ * panel was what was hiding them; the "Hide inline values while this panel
+ * is visible" checkbox right above the table now says the same thing with
+ * its own checked state, so the note was dropped rather than said twice. */
+function summaryLine(fileName: string, rows: readonly ValuesRow[]): string {
   const stale = rows.filter((row) => row.state === 'stale').length;
   const error = rows.filter((row) => row.state === 'error').length;
   const parts = [pluralize(rows.length, 'value')];
@@ -474,8 +472,7 @@ function summaryLine(
   if (error > 0) {
     parts.push(`${error} error`);
   }
-  const summary = `${fileName} · ${parts.join(' · ')}`;
-  return inlineHidden ? `${summary} · inline values hidden` : summary;
+  return `${fileName} · ${parts.join(' · ')}`;
 }
 
 type Tone = 'evaluated' | 'stale' | 'error' | 'pending';
@@ -928,10 +925,10 @@ function emptyStateHtml(message: string): string {
 
 function tableHtml(
   fileName: string, rows: readonly ValuesRow[], cursorLine: number | undefined,
-  fold: FoldRenderOptions, latestResultLine?: number, inlineHidden = false
+  fold: FoldRenderOptions, latestResultLine?: number
 ): string {
   const summary = `<div class="summary">`
-    + `${escapeHtml(summaryLine(fileName, rows, inlineHidden))}</div>`;
+    + `${escapeHtml(summaryLine(fileName, rows))}</div>`;
   const current = rows.find((row) => row.line === cursorLine)
     ?? rows.filter((row) => cursorLine !== undefined
       && cursorLine >= row.startLine && cursorLine <= row.endLine)
@@ -1032,12 +1029,21 @@ tr.row:focus-visible {
   outline-offset: -2px;
 }
 .navigation-control {
-  display: block;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 16px;
+  row-gap: 2px;
   position: sticky;
   top: 0;
   z-index: 1;
   padding: 4px 0 8px;
   background: var(--vscode-panel-background, #1e1e1e);
+}
+.navigation-control label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
 }
 .result-surface {
   padding: 3px 8px;
@@ -1216,9 +1222,18 @@ tr.loop-row.cursor, .loop-row .result-surface { background: transparent; }
  * scrolling the list themselves, not a navigation to it, and #169 says
  * explicitly to leave it alone. A click never calls either: the row
  * clicked is already under the pointer.
- * The checkbox itself posts `{ followCursor, revision }` when toggled, and
- * a `{ followCursor }` message from the extension (a setting changed
- * elsewhere) updates it back without a rebuild.
+ * The `#navigation-control` row holds three checkboxes (#181), each
+ * round-tripping the same way: a change posts `{ <name>, revision }`, and a
+ * `{ <name> }` message from the extension (a setting changed from the
+ * palette, the Settings UI, or `settings.json`) updates the checkbox back
+ * without a rebuild. `follow-cursor` posts `followCursor`
+ * (`evalens.valuesPanel.followCursor`); `follow-panel` posts `followPanel`
+ * (`evalens.valuesPanel.follow`, #149's follow-newest-value lock, formerly a
+ * title-bar icon); `hide-inline-values` posts `hideInlineValues`
+ * (`evalens.inlineValues`, #178's eye, also formerly a title-bar icon) --
+ * VS Code gives an extension-contributed title-bar item no toggled
+ * appearance, so both moved into the panel as checkboxes, which already
+ * carry their own state legibly.
  *
  * `{ expand: line }` (#155) is *Show all*, *Show less* and a click on a
  * foldable block's own label -- all three are the same toggle, so all three
@@ -1247,13 +1262,16 @@ tr.loop-row.cursor, .loop-row .result-surface { background: transparent; }
  * second flag threaded through.
  */
 function script(
-  revealLine: number | undefined, followCursor: boolean, revision: number
+  revealLine: number | undefined, followCursor: boolean, revision: number,
+  followPanel: boolean, hideInlineValues: boolean
 ): string {
   const literal = revealLine === undefined ? 'null' : String(revealLine);
   return `
 (function () {
   var vscode = acquireVsCodeApi();
   var followCursor = ${followCursor};
+  var followPanel = ${followPanel};
+  var hideInlineValues = ${hideInlineValues};
   var revision = ${revision};
   var saved = vscode.getState() || {};
   var resultControls = Array.prototype.slice.call(document.querySelectorAll('.whole-result'));
@@ -1342,6 +1360,16 @@ function script(
   control.addEventListener('change', function () {
     followCursor = control.checked;
     vscode.postMessage({ followCursor: followCursor, revision: revision });
+  });
+  var followPanelControl = document.getElementById('follow-panel');
+  followPanelControl.addEventListener('change', function () {
+    followPanel = followPanelControl.checked;
+    vscode.postMessage({ followPanel: followPanel, revision: revision });
+  });
+  var hideInlineValuesControl = document.getElementById('hide-inline-values');
+  hideInlineValuesControl.addEventListener('change', function () {
+    hideInlineValues = hideInlineValuesControl.checked;
+    vscode.postMessage({ hideInlineValues: hideInlineValues, revision: revision });
   });
   var foldControls = Array.prototype.slice.call(
     document.querySelectorAll('[data-fold-action]'));
@@ -1458,6 +1486,14 @@ function script(
       followCursor = message.followCursor;
       control.checked = followCursor;
     }
+    if (typeof message.followPanel === 'boolean') {
+      followPanel = message.followPanel;
+      followPanelControl.checked = followPanel;
+    }
+    if (typeof message.hideInlineValues === 'boolean') {
+      hideInlineValues = message.hideInlineValues;
+      hideInlineValuesControl.checked = hideInlineValues;
+    }
     if (typeof message.cursor !== 'number') return;
     var target = matching(message.cursor);
     mark(target);
@@ -1521,15 +1557,23 @@ function script(
  * entirely, a caller gets the setting's own default and nothing expanded
  * -- see `FoldState`.
  *
- * `inlineHidden` (#178) is `panel/values.ts`'s own `hide` -- true only while
- * `evalens.inlineValues` is `whenPanelHidden` and this panel is what is
- * currently hiding the editor's chips -- and does nothing beyond appending
- * `summaryLine`'s own note; the panel's rows are unaffected either way.
+ * `followPanel` (#149) and `hideInlineValues` (#178) drive the row's other
+ * two checkboxes -- "Follow newest value" (`evalens.valuesPanel.follow`)
+ * and "Hide inline values while this panel is visible"
+ * (`evalens.inlineValues === 'whenPanelHidden'`). Both toggles used to be
+ * title-bar icons that swapped one codicon for a near-identical one with no
+ * VS-Code-native pressed appearance to say which state they were in (#181);
+ * a checkbox carries its own state instead, so both moved into this row
+ * beside the pre-existing cursor-following checkbox and the title-bar icons
+ * are gone. Neither parameter touches what the table itself renders --
+ * `hideInlineValues` no longer feeds `summaryLine`'s dropped note either --
+ * so a caller passing neither gets the settings' own defaults (both on)
+ * with no change to any row.
  */
 export function valuesHtml(
   data: ValuesPanelData, cursorLine: number | undefined, nonce: string,
   revealLine?: number, fold?: FoldState, followCursor = true, revision = 0,
-  inlineHidden = false
+  followPanel = true, hideInlineValues = false
 ): string {
   const foldOptions: FoldRenderOptions = {
     resultFolds: fold?.resultFolds,
@@ -1542,7 +1586,7 @@ export function valuesHtml(
     : data.rows.length === 0
       ? emptyStateHtml(NO_ANNOTATIONS_MESSAGE)
       : tableHtml(data.fileName, data.rows, cursorLine, foldOptions,
-        data.latestResultLine, inlineHidden);
+        data.latestResultLine);
 
   return `<!doctype html>
 <html>
@@ -1554,10 +1598,13 @@ export function valuesHtml(
 <style nonce="${nonce}">${STYLE}${LOOP_EXPLORER_STYLE}</style>
 </head>
 <body>
-<label id="navigation-control" class="navigation-control">
-<input id="follow-cursor" type="checkbox" ${followCursor ? 'checked' : ''}> Follow cursor between code and values</label>
+<div id="navigation-control" class="navigation-control">
+<label><input id="follow-cursor" type="checkbox" ${followCursor ? 'checked' : ''}> Follow cursor between code and values</label>
+<label><input id="follow-panel" type="checkbox" ${followPanel ? 'checked' : ''}> Follow newest value</label>
+<label><input id="hide-inline-values" type="checkbox" ${hideInlineValues ? 'checked' : ''}> Hide inline values while this panel is visible</label>
+</div>
 ${body}
-<script nonce="${nonce}">${script(revealLine, followCursor, revision)}</script>
+<script nonce="${nonce}">${script(revealLine, followCursor, revision, followPanel, hideInlineValues)}</script>
 </body>
 </html>`;
 }

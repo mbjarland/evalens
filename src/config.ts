@@ -114,15 +114,14 @@ export async function setFollowValuesCursor(value: boolean): Promise<void> {
 
 /**
  * Flip `evalens.valuesPanel.follow`, for **Evalens: Toggle Follow in Values
- * Panel** and the lock toggle it drives in the values panel's title bar
- * (#149).
+ * Panel** (#149). Before #181 this also drove a title-bar lock icon; VS Code
+ * gives an extension-contributed title-bar item no toggled appearance, so
+ * that icon is gone and the panel's own "Follow newest value" checkbox
+ * (`setFollowValuesPanel`, below) is the one place this state is shown.
  *
  * Always writes to the user's global settings, matching "flips the setting
  * globally" -- a reading habit belongs to the person at the keyboard, not to
- * whichever workspace happens to be open. `contributes.menus` shows one icon
- * or the other from the setting alone, since VS Code re-evaluates a `when`
- * clause reading `config.*` the moment the value changes -- so nothing here
- * has to repaint anything beyond writing the new value.
+ * whichever workspace happens to be open.
  */
 export async function toggleFollowValuesPanel(): Promise<void> {
   await vscode.workspace
@@ -130,6 +129,13 @@ export async function toggleFollowValuesPanel(): Promise<void> {
     .update(
       'valuesPanel.follow', !followValuesPanel(),
       vscode.ConfigurationTarget.Global);
+}
+
+/** Set `evalens.valuesPanel.follow` from the Values panel's own "Follow
+ * newest value" checkbox (#181), mirroring `setFollowValuesCursor` above. */
+export async function setFollowValuesPanel(value: boolean): Promise<void> {
+  await vscode.workspace.getConfiguration('evalens').update(
+    'valuesPanel.follow', value, vscode.ConfigurationTarget.Global);
 }
 
 /**
@@ -159,8 +165,11 @@ export function inlineValues(): 'always' | 'whenPanelHidden' {
 
 /**
  * Flip `evalens.inlineValues` between its two values, for **Evalens: Toggle
- * Inline Values in the Editor** and the `$(eye)` / `$(eye-closed)` toggle it
- * drives in the values panel's own title bar (#178).
+ * Inline Values in the Editor** (#178). Before #181 this also drove a
+ * title-bar eye/eye-closed icon; VS Code gives an extension-contributed
+ * title-bar item no toggled appearance, so that icon is gone and the panel's
+ * own "Hide inline values while this panel is visible" checkbox
+ * (`setInlineValues`, below) is the one place this state is shown.
  *
  * Always writes to the user's global settings, for the same reason
  * `toggleFollowValuesPanel` does: this is a reading habit, not a per-project
@@ -173,6 +182,16 @@ export async function toggleInlineValues(): Promise<void> {
       'inlineValues',
       inlineValues() === 'always' ? 'whenPanelHidden' : 'always',
       vscode.ConfigurationTarget.Global);
+}
+
+/** Set `evalens.inlineValues` from the Values panel's own "Hide inline
+ * values while this panel is visible" checkbox (#181): checked writes
+ * `whenPanelHidden`, unchecked writes `always`. */
+export async function setInlineValues(
+  value: 'always' | 'whenPanelHidden'
+): Promise<void> {
+  await vscode.workspace.getConfiguration('evalens').update(
+    'inlineValues', value, vscode.ConfigurationTarget.Global);
 }
 
 /**

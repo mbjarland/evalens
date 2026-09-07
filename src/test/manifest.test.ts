@@ -173,3 +173,30 @@ test('activation is scoped, not eager', () => {
     'activating on * makes every VS Code window pay for this extension');
   assert.ok(events.includes('onLanguage:python'), 'expected onLanguage:python');
 });
+
+// -- #181: the follow-lock and inline-values-eye title-bar toggles moved
+// into the Values panel as checkboxes. VS Code gives an extension-
+// contributed view/title menu item no toggled or checked appearance, so a
+// reader looking at the two icons live could not tell which state either
+// was in -- see the explanatory comment on issue #181 for the full
+// rationale. The two commands stay contributed for the palette and for
+// keybindings; only the title-bar menu entries that drove them are gone.
+
+test('no view/title menu entries remain for the values panel toggles', () => {
+  const entries: ReadonlyArray<{ readonly command: string }> =
+    manifest.contributes?.menus?.['view/title'] ?? [];
+  assert.equal(entries.length, 0,
+    'expected no view/title menu entries: VS Code gives none of them a ' +
+    'toggled appearance, which is why #181 moved both toggles into the ' +
+    'panel as checkboxes instead');
+});
+
+test('the two toggle commands remain contributed, for the palette and '
+  + 'keybindings', () => {
+  const declared: string[] =
+    (manifest.contributes?.commands ?? []).map((c: { command: string }) => c.command);
+  assert.ok(declared.includes('evalens.toggleValuesPanelFollow'),
+    'evalens.toggleValuesPanelFollow should remain contributed as a command');
+  assert.ok(declared.includes('evalens.toggleInlineValues'),
+    'evalens.toggleInlineValues should remain contributed as a command');
+});

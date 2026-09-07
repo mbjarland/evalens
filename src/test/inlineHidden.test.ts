@@ -204,8 +204,10 @@ test('the panel: visible + whenPanelHidden hides; not visible shows; ' +
     assert.equal(
       paintedTexts(editor).some((entry) => entry.text.includes('42')), false,
       'visible + whenPanelHidden should hide the chip');
-    assert.match(view.webview.html, /inline values hidden/,
-      'the summary line should say so while the panel is visible and hiding');
+    assert.match(view.webview.html,
+      /id="hide-inline-values" type="checkbox" checked/,
+      'the panel\'s own checkbox (#181) should read checked while ' +
+      'evalens.inlineValues is whenPanelHidden');
 
     view.setVisible(false);
     assert.ok(paintedTexts(editor).some((entry) => entry.text.includes('42')),
@@ -221,7 +223,9 @@ test('the panel: visible + whenPanelHidden hides; not visible shows; ' +
     assert.ok(paintedTexts(editor).some((entry) => entry.text.includes('42')),
       'flipping the setting while the panel is visible should follow ' +
       'immediately, without waiting for a visibility change');
-    assert.doesNotMatch(view.webview.html, /inline values hidden/);
+    assert.doesNotMatch(view.webview.html,
+      /id="hide-inline-values" type="checkbox" checked/,
+      'unchecked once the setting is back to always');
 
     // Back to whenPanelHidden and visible, so disposing the view has
     // something to revert.

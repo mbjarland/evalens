@@ -118,9 +118,19 @@ function webview(rows: readonly RowLayout[], options: {
   const fakeRows = rows.map((row) => new FakeRow(row));
   let messageListener: ((event: { data: unknown }) => void) | undefined;
   let changed: (() => void) | undefined;
+  let followPanelChanged: (() => void) | undefined;
+  let hideInlineChanged: (() => void) | undefined;
   const control = {
     checked: followCursor,
     addEventListener: (_name: string, listener: () => void) => { changed = listener; },
+  };
+  const followPanelControl = {
+    checked: true,
+    addEventListener: (_name: string, listener: () => void) => { followPanelChanged = listener; },
+  };
+  const hideInlineControl = {
+    checked: false,
+    addEventListener: (_name: string, listener: () => void) => { hideInlineChanged = listener; },
   };
   const data: ValuesRow[] = rows.map((row) => ({
     line: row.line, startLine: row.start ?? row.line, endLine: row.end ?? row.line,
@@ -138,6 +148,8 @@ function webview(rows: readonly RowLayout[], options: {
     document: {
       querySelectorAll: (selector: string) => selector === 'tr.row' ? fakeRows : [],
       getElementById: (id: string) => id === 'follow-cursor' ? control
+        : id === 'follow-panel' ? followPanelControl
+        : id === 'hide-inline-values' ? hideInlineControl
         : { getBoundingClientRect: () => ({ bottom: CONTROL_BOTTOM }) },
       documentElement: { get scrollHeight() { return scrollHeight; } },
     },
@@ -158,10 +170,13 @@ function webview(rows: readonly RowLayout[], options: {
     },
   });
   return {
-    rows: fakeRows, posted, control, scrollCalls, focused: () => focused,
+    rows: fakeRows, posted, control, followPanelControl, hideInlineControl,
+    scrollCalls, focused: () => focused,
     scrollY: () => scrollY,
     message: (data: unknown) => messageListener!({ data }),
     change: () => changed!(),
+    changeFollowPanel: () => followPanelChanged!(),
+    changeHideInline: () => hideInlineChanged!(),
   };
 }
 
@@ -317,4 +332,35 @@ test('setting changes apply without rebuilding; evaluation reveal is '
   assert.deepEqual(view.posted[1], { followCursor: false, revision: 7 });
   view.rows[1]!.fire('keydown', 'ArrowDown');
   assert.equal(view.posted.length, 2);
+});
+
+// -- the other two checkboxes in #navigation-control (#181) ------------------
+//
+// "Follow newest value" (`follow-panel`) and "Hide inline values while this
+// panel is visible" (`hide-inline-values`) round-trip exactly like
+// `follow-cursor` above: a change posts `{ <name>, revision }`, and a
+// `{ <name> }` message from the extension updates the checkbox back without
+// a rebuild -- the title-bar lock and eye icons these replaced gave no
+// toggled appearance at all, which is the whole reason they moved here.
+
+test('the "Follow newest value" checkbox posts followPanel on change and '
+  + 'follows a followPanel message back, without a rebuild', () => {
+  const rows = [shortRow(0, 0), shortRow(1, 40)];
+  const view = webview(rows, { scrollHeight: 2000 });
+  view.followPanelControl.checked = false;
+  view.changeFollowPanel();
+  assert.deepEqual(view.posted, [{ followPanel: false, revision: 7 }]);
+  view.message({ followPanel: true });
+  assert.equal(view.followPanelControl.checked, true);
+});
+
+test('the "Hide inline values" checkbox posts hideInlineValues on change and '
+  + 'follows a hideInlineValues message back, without a rebuild', () => {
+  const rows = [shortRow(0, 0), shortRow(1, 40)];
+  const view = webview(rows, { scrollHeight: 2000 });
+  view.hideInlineControl.checked = true;
+  view.changeHideInline();
+  assert.deepEqual(view.posted, [{ hideInlineValues: true, revision: 7 }]);
+  view.message({ hideInlineValues: false });
+  assert.equal(view.hideInlineControl.checked, false);
 });
