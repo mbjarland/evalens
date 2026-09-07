@@ -3,7 +3,9 @@ import * as vscode from 'vscode';
 import { registerLearningWalkthrough } from './learning';
 import { Evaluator, STATUS_ACK_MS } from './evaluate';
 import { fixKeybindingConflict, reportKeybindingConflicts } from './conflicts';
-import { resolveInterpreter, toggleFollowValuesPanel } from './config';
+import {
+  resolveInterpreter, toggleFollowValuesPanel, toggleInlineValues,
+} from './config';
 import { KernelClient } from './kernel/client';
 import { VALUES_VIEW_ID, ValuesViewProvider } from './panel/values';
 import { Announcer } from './render/announcer';
@@ -83,6 +85,15 @@ export function activate(context: vscode.ExtensionContext): void {
     // same setting -- see `toggleFollowValuesPanel`'s own comment.
     vscode.commands.registerCommand(
       'evalens.toggleValuesPanelFollow', () => toggleFollowValuesPanel())
+  );
+
+  context.subscriptions.push(
+    // #178: the `$(eye)` / `$(eye-closed)` toggle beside the lock, and the
+    // command palette entry -- flips `evalens.inlineValues` between
+    // `always` and `whenPanelHidden`. `ValuesViewProvider` is what actually
+    // reacts to the setting changing; this command only ever writes it.
+    vscode.commands.registerCommand(
+      'evalens.toggleInlineValues', () => toggleInlineValues())
   );
 
   context.subscriptions.push(

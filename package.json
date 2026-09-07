@@ -106,6 +106,10 @@
         "title": "Evalens: Toggle Follow in Values Panel"
       },
       {
+        "command": "evalens.toggleInlineValues",
+        "title": "Evalens: Toggle Inline Values in the Editor"
+      },
+      {
         "command": "evalens.openLearningWalkthrough",
         "title": "Evalens: Open Learning Walkthrough"
       },
@@ -145,6 +149,18 @@
           "when": "view == evalens.values && !config.evalens.valuesPanel.follow",
           "group": "navigation",
           "icon": "$(lock)"
+        },
+        {
+          "command": "evalens.toggleInlineValues",
+          "when": "view == evalens.values && config.evalens.inlineValues == 'always'",
+          "group": "navigation",
+          "icon": "$(eye)"
+        },
+        {
+          "command": "evalens.toggleInlineValues",
+          "when": "view == evalens.values && config.evalens.inlineValues == 'whenPanelHidden'",
+          "group": "navigation",
+          "icon": "$(eye-closed)"
         }
       ]
     },
@@ -254,6 +270,20 @@
           "default": true,
           "scope": "application",
           "markdownDescription": "Reveal corresponding values and source while navigating either pane, keeping keyboard focus where you are working. On (the default), learners can follow code and its captured results together. Off lets you browse independently; clicking a row or pressing Enter/Space still reveals its source. The Values panel checkbox changes this setting. Following newly evaluated results is controlled separately by `evalens.valuesPanel.follow`."
+        },
+        "evalens.inlineValues": {
+          "type": "string",
+          "enum": [
+            "always",
+            "whenPanelHidden"
+          ],
+          "default": "always",
+          "scope": "application",
+          "enumDescriptions": [
+            "Paint inline chips in the editor regardless of whether the Values panel is open.",
+            "Hide inline chips while the Values panel is visible, and show them again the moment it is not."
+          ],
+          "markdownDescription": "Whether an evaluated line's inline value and error chips paint in the editor while the Values panel is also visible. `always` (the default) paints both at once, exactly like every version of Evalens before this setting existed. `whenPanelHidden` hides the inline chips while the panel is open and its Values tab is the one showing, and brings them straight back the moment you close the panel or switch to another tab — never both empty and closed at once, because the failure a plain on/off switch would have is a student who turned inline off, later closed the panel, and saw nothing at all. Gutter markers, the evaluated-region tint, the pending/asking marks, and the hover are unaffected either way — this only ever hides the value itself, which the panel already shows. **Evalens: Toggle Inline Values in the Editor** flips this from the command palette or from the `$(eye)` / `$(eye-closed)` button in the values panel's own title bar."
         }
       }
     },
