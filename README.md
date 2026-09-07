@@ -212,6 +212,11 @@ iteration value reveals its loop header. These controls only browse the
 existing capture; they never run the code again. Folding survives unrelated
 edits and starts fresh after another evaluation.
 
+Opening an outer iteration also shows its only inner loop; sibling loops keep
+separate arrows. Output whose iteration detail was not retained starts folded
+under **Output without retained iteration detail**, with the same bounded
+output parts when opened.
+
 A statement retains at most 2,000 loop invocations and iterations combined,
 plus the existing 65,536-character limit for each output stream. The panel
 states when iteration detail or output was not retained: expanding cannot

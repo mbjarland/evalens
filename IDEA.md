@@ -566,7 +566,12 @@ to execute or describe anything again.
 The panel pages retained children in groups of 20 with a total visible budget
 of 120 entries. It displays output parts of roughly 2,000 UTF-16 units and at most 20
 logical lines, preserving surrogate pairs. Small runs can show adjacent outer
-iterations together. Each capture owns its fold and page state, so unrelated
+iterations together. Opening an iteration reveals its only inner invocation
+directly; sibling invocations retain independent folds so each remains
+reachable within the display budget. Captured output without retained
+iteration detail has a separate, initially collapsed disclosure at its actual
+parent interval. It is never assigned to the last visible iteration.
+Each capture owns its fold and page state, so unrelated
 refreshes preserve it and a new evaluation starts fresh. Source links shift
 with edits before the statement and are withdrawn after an intersecting edit.
 Original captured streams remain available as untitled plain text. Ordinary

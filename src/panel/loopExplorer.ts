@@ -15,10 +15,12 @@ export interface LoopViewState {
   readonly expanded: Map<number, boolean>;
   readonly pages: Map<number, number>;
   readonly textPages: Map<string, number>;
+  readonly expandedGaps: Set<string>;
   selected?: number;
 }
 export function newLoopViewState(identity = 0): LoopViewState {
-  return { identity, expanded: new Map(), pages: new Map(), textPages: new Map() };
+  return { identity, expanded: new Map(), pages: new Map(), textPages: new Map(),
+    expandedGaps: new Set() };
 }
 
 /** Bounded maps plus a single conversion of each retained stream. Python
@@ -183,7 +185,7 @@ export function loopExplorerHtml(
     + `data-loop-control="${label.startsWith('Previous') ? 'previous' : 'next'}" `
     + `data-loop-id="${id}" data-loop-value="${value}" ${extra}>${label}</button>`;
   const output = (start: LoopOffsets, end: LoopOffsets, key: number,
-    gap: number, empty = false, incomplete = false): string => {
+    gap: number, empty = false): string => {
     const pieces: string[] = [];
     for (const stream of [0, 1] as const) {
       const text = loopSlice(model, start, end, stream);
@@ -208,7 +210,7 @@ export function loopExplorerHtml(
         + (clipped ? '<div class="loop-note">Further output was not retained.</div>' : '') + '</div>');
     }
     if (!pieces.length) return empty ? '<span class="loop-note">No output</span>' : '';
-    return (incomplete ? '<div class="loop-note">Output without retained iteration detail</div>' : '') + pieces.join('');
+    return pieces.join('');
   };
   const outputCount = (entry: LoopIteration): string => {
     const parts: string[] = [];
@@ -226,10 +228,25 @@ export function loopExplorerHtml(
   };
   const gapHtml = (start: LoopOffsets, end: LoopOffsets, id: number,
     gap: number, incomplete = false): string => {
-    const content = output(start, end, id, gap, false, incomplete);
+    // A gap after capture metadata fills has no trustworthy iteration owner.
+    // Give its retained text its own fold instead of leaking it below folded
+    // iterations or assigning it to the last retained iteration. Text that
+    // was never captured stays an omission notice, not an expandable promise.
+    if (incomplete && start.some((n, stream) =>
+      Math.min(end[stream]!, model.wire.retained[stream]!) > n)) {
+      const expanded = state?.expandedGaps.has(`${id}:${gap}`) ?? false;
+      const toggle = button(`<span class="loop-disclosure" aria-hidden="true">${expanded ? '▾' : '▸'}</span> `
+        + 'Output without retained iteration detail', `gap:${gap}`, id, 0,
+        `aria-expanded="${expanded}"`);
+      return '<div class="loop-data loop-direct loop-unattributed"><span></span><div>'
+        + `<div class="loop-note">${toggle}</div>`
+        + (expanded ? output(start, end, id, gap) : '') + '</div></div>';
+    }
+    const content = output(start, end, id, gap);
     return content ? `<div class="loop-data loop-direct"><span></span><div>${content}</div></div>` : '';
   };
-  const invocationHtml = (invocation: LoopInvocation, depth: number, root = false): string => {
+  const invocationHtml = (invocation: LoopInvocation, depth: number,
+    root = false, singleChild = false): string => {
     if (remaining-- <= 0) { exhausted = true; return ''; }
     const site = model.sites.get(invocation.site)!;
     const children = model.children.get(invocation.id) ?? [];
@@ -238,7 +255,11 @@ export function loopExplorerHtml(
       Math.floor(Math.max(0, children.length - 1) / LOOP_PAGE_SIZE)));
     const from = page * LOOP_PAGE_SIZE;
     const selected = children.slice(from, from + LOOP_PAGE_SIZE);
-    const foldable = !root && invocation.count > 0 && model.wire.iterations > SMALL_RUN;
+    // The parent iteration is already a fold for its only inner loop. Keep
+    // independent invocation folds when there are real sibling choices, so
+    // later invocations remain reachable under the shared display budget.
+    const foldable = !root && !singleChild && invocation.count > 0
+      && model.wire.iterations > SMALL_RUN;
     const expanded = !foldable || invocationExpanded(model, invocation, state);
     const source = foldable
       ? button(`<span class="loop-disclosure" aria-hidden="true">${expanded ? '▾' : '▸'}</span> `
@@ -300,7 +321,7 @@ export function loopExplorerHtml(
       children.slice(from, end).forEach((child, index) => {
         if (remaining <= 0) { exhausted = true; return; }
         body += gapHtml(cursor, child.start, entry.id, from + index);
-        body += invocationHtml(child as LoopInvocation, depth + 1);
+        body += invocationHtml(child as LoopInvocation, depth + 1, false, children.length === 1);
         cursor = child.end;
       });
       if (!exhausted && end === children.length) body += gapHtml(cursor, entry.end, entry.id,

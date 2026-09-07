@@ -327,6 +327,13 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       const pages = Math.ceil((model.children.get(id)?.length ?? 0) / LOOP_PAGE_SIZE);
       if (value >= pages) return;
       state.pages.set(id, value);
+    } else if (/^gap:\d+$/.test(action)) {
+      const gap = Number(action.slice(4));
+      if (gap !== (model.children.get(id)?.length ?? (id === 0 ? model.roots.length : 0))
+        || !(entry?.incomplete ?? (id === 0 && model.wire.omitted_invocations > 0))) return;
+      const key = `${id}:${gap}`;
+      if (state.expandedGaps.has(key)) state.expandedGaps.delete(key);
+      else state.expandedGaps.add(key);
     } else if (/^text:\d+:[01]$/.test(action) && value <= 65536) {
       const [, gap, stream] = action.split(':');
       if (Number(gap) > (model.children.get(id)?.length ?? model.roots.length)) return;
