@@ -52,6 +52,9 @@ export interface AnnotationChangeEvent {
   readonly document?: vscode.TextDocument;
   /** Present only when a completed result lands, never for pending or edits. */
   readonly resultIdentity?: object;
+  /** A pending placeholder was removed. Its completed replacement may land
+   * synchronously next; this is distinct from an explicit clear or edit. */
+  readonly pendingWithdrawn?: boolean;
 }
 
 /**
@@ -330,12 +333,13 @@ export class Annotations implements vscode.Disposable {
    */
   show(
     document: vscode.TextDocument, annotations: readonly Annotation[],
-    changedLine?: number, resultIdentity?: object
+    changedLine?: number, resultIdentity?: object, pendingWithdrawn = false
   ): void {
     this.registry.set(document.uri.toString(), annotations);
     this.repaint(document);
     this.updateContext();
-    this.changeEmitter.fire({ document, line: changedLine, resultIdentity });
+    this.changeEmitter.fire({ document, line: changedLine, resultIdentity,
+      ...(pendingWithdrawn ? { pendingWithdrawn: true } : {}) });
   }
 
   /**
@@ -423,7 +427,7 @@ export class Annotations implements vscode.Disposable {
         const before = this.registry.get(document.uri.toString());
         const after = before.filter((each) => each !== current);
         if (after.length !== before.length) {
-          this.show(document, after);
+          this.show(document, after, undefined, undefined, true);
         }
       },
     };

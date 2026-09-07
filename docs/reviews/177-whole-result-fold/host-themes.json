@@ -1,0 +1,46 @@
+[
+  {
+    "name": "dark",
+    "closed": true,
+    "height": 129.5,
+    "source": 129.5,
+    "buttonRight": 403.6953125,
+    "textLeft": 414.5,
+    "bg": "rgba(0, 0, 0, 0)",
+    "radius": "0px",
+    "border": "rgb(230, 173, 69)"
+  },
+  {
+    "name": "light",
+    "closed": true,
+    "height": 129.5,
+    "source": 129.5,
+    "buttonRight": 403.6953125,
+    "textLeft": 414.5,
+    "bg": "rgba(0, 0, 0, 0)",
+    "radius": "0px",
+    "border": "rgb(143, 88, 10)"
+  },
+  {
+    "name": "hc",
+    "closed": true,
+    "height": 129.5,
+    "source": 129.5,
+    "buttonRight": 403.6953125,
+    "textLeft": 414.5,
+    "bg": "rgba(0, 0, 0, 0)",
+    "radius": "0px",
+    "border": "rgb(255, 209, 102)"
+  },
+  {
+    "name": "hc-light",
+    "closed": true,
+    "height": 129.5,
+    "source": 129.5,
+    "buttonRight": 403.6953125,
+    "textLeft": 414.5,
+    "bg": "rgba(0, 0, 0, 0)",
+    "radius": "0px",
+    "border": "rgb(89, 52, 0)"
+  }
+]

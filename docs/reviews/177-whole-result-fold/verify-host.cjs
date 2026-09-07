@@ -1,0 +1,66 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const {api,sleep,connect,until}=require('./client.cjs');
+const base='/private/tmp/evalens-learning-live/workspace/';
+const row='tr.row[data-goto="0"]';
+const result=row+' .whole-result';
+const button=result+' .result-disclosure';
+(async()=>{
+ fs.writeFileSync(base+'r2-root.py','for x in range(25):\n    for y in range(25):\n        print(x, y)\n\n42\n');
+ fs.writeFileSync(base+'r2-print.py','print("reading\\n" * 80)\n\n43\n');
+ await until(async()=>{try{return !!await api({op:'state'});}catch{return false;}},'Host ready');
+ const {browser,page,frame}=await connect();const report={extension:(await api({op:'state'})).extensions};
+ await api({op:'command',command:'workbench.action.closeSidebar'});
+ await api({op:'command',command:'workbench.action.closeAuxiliaryBar'});
+ await api({op:'open',path:base+'r2-root.py'});
+ await api({op:'command',command:'evalens.clearResults'});
+ await api({op:'cursor',line:0});
+ await api({op:'command',command:'evalens.evaluateAtCursor'});
+ await api({op:'cursor',line:4});
+ await api({op:'command',command:'evalens.evaluateAtCursor'});
+ await api({op:'command',command:'evalens.showValuesPanel'});
+ let f=await frame(button);
+ await until(async()=>await f.$eval(button,e=>!e.hidden),'fold control');
+ // Inner paging and selection establish detail that must survive a whole fold.
+ await f.click('[data-loop-action="toggle"][data-loop-id="2"]');await sleep(300);f=await frame(button);
+ const inner='[data-loop-navigation="3"]';
+ await f.click(inner+' [data-loop-control="next"]');await sleep(300);f=await frame(button);
+ await f.click('[data-loop-invocation="3"] [data-loop-action="select"]');await sleep(300);f=await frame(button);
+ const before=await f.$eval(result,e=>({detail:e.querySelector('.result-detail').innerHTML,height:e.getBoundingClientRect().height,next:e.closest('tr').nextElementSibling.getBoundingClientRect().top}));
+ const cursorBefore=(await api({op:'state'})).active.line;
+ await f.click(button);await sleep(200);
+ const closed=await f.$eval(result,e=>({closed:e.classList.contains('result-collapsed'),height:e.getBoundingClientRect().height,source:e.closest('tr').querySelector('.source-content').getBoundingClientRect().height,summary:e.querySelector('.result-summary').innerText,sourceText:e.closest('tr').querySelector('.source-content').innerText,next:e.closest('tr').nextElementSibling.getBoundingClientRect().top,focus:document.activeElement===e.querySelector('.result-disclosure')}));
+ assert(closed.closed);assert(closed.height<=closed.source+1);assert(closed.height<before.height);assert(closed.next<before.next);assert.match(closed.sourceText,/for y in range/);assert(closed.focus);assert.equal((await api({op:'state'})).active.line,cursorBefore);
+ // Native keyboard activation: Enter opens, Space closes without source navigation.
+ await page.keyboard.press('Enter');await sleep(150);
+ assert.equal(await f.$eval(button,e=>e.getAttribute('aria-expanded')),'true');
+ assert.equal(await f.$eval(result,e=>e.querySelector('.result-detail').innerHTML),before.detail);
+ await page.keyboard.press('Space');await sleep(150);
+ assert.equal(await f.$eval(button,e=>e.getAttribute('aria-expanded')),'false');
+ assert.equal((await api({op:'state'})).active.line,cursorBefore);
+ report.fold={closed,keyboardEnterSpace:true,innerDomPreserved:true};
+ // Following source and normal view rebuilds must never reopen a chosen fold.
+ await api({op:'cursor',line:4});await api({op:'cursor',line:0});await sleep(200);f=await frame(button);
+ assert.equal(await f.$eval(button,e=>e.getAttribute('aria-expanded')),'false');
+ await api({op:'command',command:'workbench.action.closePanel'});
+ await api({op:'command',command:'evalens.showValuesPanel'});await sleep(250);f=await frame(button);
+ assert.equal(await f.$eval(button,e=>e.getAttribute('aria-expanded')),'false');
+ report.followAndViewPreserve=true;
+ await f.$eval(button,e=>e.scrollIntoView({block:'center'}));
+ await page.screenshot({path:'/private/tmp/evalens-177-root-collapsed.png'});
+ await f.click(button);await sleep(200);f=await frame(button);
+ assert.equal(await f.$eval(result,e=>e.querySelector('.result-detail').innerHTML),before.detail);
+ await page.screenshot({path:'/private/tmp/evalens-177-root-expanded.png'});
+ // A normal one-line print can fold to its actual source height too.
+ await api({op:'open',path:base+'r2-print.py'});await api({op:'cursor',line:0});
+ await api({op:'command',command:'evalens.evaluateAtCursor'});await api({op:'cursor',line:2});
+ await api({op:'command',command:'evalens.evaluateAtCursor'});await sleep(250);f=await frame(button);
+ await until(async()=>await f.$eval(button,e=>!e.hidden),'one-line print fold');
+ await f.click(button);await sleep(100);
+ const print=await f.$eval(result,e=>({height:e.getBoundingClientRect().height,source:e.closest('tr').querySelector('.source-content').getBoundingClientRect().height,summary:e.querySelector('.result-summary').innerText}));
+ assert(print.height<=print.source+1);assert.match(print.summary,/81 printed lines/);
+ assert(await f.$eval('tr.row[data-goto="2"] .result-disclosure',e=>e.hidden));
+ report.singleLinePrint=print;report.trivialHasNoControl=true;
+ fs.writeFileSync('/private/tmp/evalens-177-root-results.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
+ await browser.disconnect();
+})().catch(e=>{console.error(e);process.exit(1)});

@@ -427,6 +427,16 @@ Labels stay beside their values, with the same variable and output colours
 as the editor. Long output and multiline values retain **Show all**,
 **Show less**, and **Open in editor**.
 
+A result taller than its source has a small disclosure arrow beside its
+value heading, just after the leading bar. Click it, or focus it and press
+Enter/Space, to fold the whole value area to the source's height. The code
+stays visible, with a concise result summary and any stale, error or capture
+limit warning. Reopening restores the inner folds, pages and selected
+iteration; following the editor cursor never opens a folded result.
+The choice survives file/view switches and source moving down the file.
+Re-evaluating the unchanged statement keeps it folded but starts fresh inner
+pages; changed source or cleared results starts a new choice.
+
 Move the editor cursor to bring the corresponding row into view, marked with
 an arrow and a frame. Click a row, or use Up/Down and Home/End after focusing
 one, to reveal its source. A short amber gutter tick and a soft neutral wash

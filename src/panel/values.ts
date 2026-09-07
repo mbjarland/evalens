@@ -9,8 +9,9 @@ import { AnnotationChangeEvent, Annotations } from '../render/annotations';
 import { LoopExplorerWire, LoopInvocation } from '../kernel/protocol';
 import { LoopViewState, LOOP_PAGE_SIZE, invocationExpanded, loopExpanded, newLoopViewState } from './loopExplorer';
 import {
-  ValuesPanelData, ValuesRow, fullTextFor, rowsFor, valuesHtml,
+  ValuesPanelData, fullTextFor, rowsFor, valuesHtml,
 } from './html';
+import { ResultFolds, ResultFoldState } from './resultFold';
 
 /** No document has anything expanded -- the common case, and the one that
  * must not allocate a `Set` just to be handed to `valuesHtml`. */
@@ -58,24 +59,11 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly subscriptions: vscode.Disposable[] = [];
   private viewSubscriptions: vscode.Disposable[] = [];
 
-  /**
-   * Which rows the reader has expanded with *Show all* or a block's own
-   * label (#155), by document URI and then by `ValuesRow.line` -- the same
-   * key `revealLine` and the cursor highlight already use. Kept here rather
-   * than in `html.ts`, which never remembers anything between one render
-   * and the next: a rebuild is a pure function of whatever this provider
-   * hands it, and this map is the one place that decides what to hand it
-   * this time.
-   *
-   * A document with nothing expanded has no entry at all, so the common
-   * case -- nobody has clicked *Show all* in this file -- costs one map
-   * lookup rather than an ever-growing empty `Set` per document ever
-   * opened.
-   */
-  private readonly expandedLines = new Map<string, Set<number>>();
   /** Capture object identity survives unrelated annotation/source shifts;
    * each new evaluation gets a new object and therefore fresh fold IDs. */
   private readonly loopStates = new WeakMap<LoopExplorerWire, LoopViewState>();
+  private readonly resultFolds = new ResultFolds();
+  private renderedResultFolds: ReadonlyMap<number, ResultFoldState> = new Map();
   private nextLoopIdentity = 0;
   /** One opaque result identity per live document. A row number cannot carry
    * this fact across edits, and cursor movement is independent of completion. */
@@ -107,17 +95,28 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       // registry's own mutation points say when they changed, rather than
       // this provider guessing by re-reading on a timer. #149 extends this
       // to say *which line* changed, so the rebuild below can also reveal
-      // it -- see `revealLineFor`. #155 uses the same line to drop that
-      // row's own fold state before the rebuild: a fresh value replacing
-      // the old one is not the text the reader chose to see in full, so
-      // `Show all` does not carry over to it.
+      // it -- see `revealLineFor`. Capture identity also keeps generic
+      // Show all state scoped to its original result: a fresh capture is
+      // not the text the reader chose to see in full.
       annotations.onDidChange((event) => {
         this.trackLatestResult(event);
-        this.dropExpandedFor(event);
-        this.rebuild(this.revealLineFor(event));
+        // Also prune inactive documents and pending/displaced rows. A hidden
+        // view is not a reason to retain preferences for cleared captures.
+        if (event.document && event.pendingWithdrawn) {
+          // evaluateAtCursor withdraws its cursor-line placeholder before
+          // synchronously settling the enclosing statement. Give only that
+          // transition until the end of this turn to match its replacement.
+          // Failed/empty runs are then pruned; clear/edit events never defer.
+          const document = event.document;
+          queueMicrotask(() => this.syncResultFolds(document));
+        } else if (event.document) this.syncResultFolds(event.document);
+        else this.resultFolds.clear();
+        this.rebuild(this.revealLineFor(event), event.pendingWithdrawn
+          && event.document === vscode.window.activeTextEditor?.document);
       }),
       vscode.workspace.onDidCloseTextDocument((document) => {
         this.latestResults.delete(document);
+        this.resultFolds.close(document);
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration('evalens.valuesPanel.followCursor')) {
@@ -158,6 +157,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   dispose(): void {
+    this.resultFolds.clear();
     this.clearMarker();
     this.navigation.dispose();
     for (const subscription of this.subscriptions) {
@@ -235,9 +235,8 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
    * against HTML that has since been replaced, dropped rather than acted
    * on against rows that may no longer mean what they did. The fold
    * messages carry no revision of their own -- toggling or opening a block
-   * that has since been re-evaluated is harmless, since `pruneExpanded`
-   * (see `rebuild`, below) already drops whatever line no longer has a row
-   * to belong to.
+   * that has since been re-evaluated cannot resurrect the old capture:
+   * its state is dropped when result identity changes.
    *
    * A hidden panel acts on none of these: there is no reader looking at it
    * to have produced the message.
@@ -250,6 +249,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       cause?: unknown; goto?: unknown; revision?: unknown; followCursor?: unknown;
       explicit?: unknown; expand?: unknown; open?: unknown; stream?: unknown;
       loop?: unknown; action?: unknown; node?: unknown; value?: unknown;
+      resultFold?: unknown; collapsed?: unknown; token?: unknown;
     };
 
     if (typeof data.expand === 'number') {
@@ -263,6 +263,16 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     }
 
     if (data.revision !== this.revision) {
+      return;
+    }
+    if (typeof data.resultFold === 'number' && typeof data.collapsed === 'boolean') {
+      const state = this.renderedResultFolds.get(data.resultFold);
+      if (state && state.identity === data.token
+        && this.renderedData.rows.some((row) => row.line === data.resultFold)) {
+        // The webview already toggled its existing DOM. Persist without a
+        // rebuild, so nested folds, text pages and focus remain untouched.
+        state.collapsed = data.collapsed;
+      }
       return;
     }
     if (typeof data.loop === 'number' && typeof data.node === 'number'
@@ -312,22 +322,9 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
    * they were not looking.
    */
   private toggleExpanded(line: number): void {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      return;
-    }
-    const key = editor.document.uri.toString();
-    const lines = this.expandedLines.get(key) ?? new Set<number>();
-    if (lines.has(line)) {
-      lines.delete(line);
-    } else {
-      lines.add(line);
-    }
-    if (lines.size === 0) {
-      this.expandedLines.delete(key);
-    } else {
-      this.expandedLines.set(key, lines);
-    }
+    const state = this.renderedResultFolds.get(line);
+    if (!state) return;
+    state.expanded = !state.expanded;
     this.rebuild();
   }
 
@@ -434,67 +431,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     return event.line ?? vscode.window.activeTextEditor?.selection.active.line;
   }
 
-  /**
-   * Drop `event.line`'s own fold state, for the half of #155's "dropped
-   * when the row's annotation is replaced or cleared" that `onDidChange`'s
-   * payload can name directly: `add` and the still-running `pending` mark
-   * both fire with the exact line whatever just landed there occupies (see
-   * `AnnotationChangeEvent`'s own doc comment), and a fresh value replacing
-   * the old one is not the text the reader chose to see in full. The other
-   * half -- a whole document cleared, or a row whose line moved to where no
-   * row exists any more -- has no single line to name and is instead
-   * pruned in `rebuild`, below, once the fresh rows are known.
-   *
-   * An edit that only marks a row stale (`reanchor`, `markDependents`) also
-   * carries no line, and deliberately: it is the "unrelated annotation
-   * change" #155 asks the state to survive, since the row's own displayed
-   * text has not actually changed underneath the reader.
-   */
-  private dropExpandedFor(event: AnnotationChangeEvent): void {
-    if (event.line === undefined) {
-      return;
-    }
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      return;
-    }
-    this.expandedLines.get(editor.document.uri.toString())?.delete(event.line);
-  }
-
-  /**
-   * This document's expanded rows, pruned to the ones `rows` still has
-   * (#155) -- the other half of "dropped when the row's annotation is
-   * replaced or cleared": a whole-document clear leaves no row at all, and
-   * an edit that shifts a statement to a different line leaves no row at
-   * the old one, either way with nothing left here to keep open. A
-   * document with nothing expanded costs one map lookup and allocates
-   * nothing.
-   */
-  private pruneExpanded(
-    editor: vscode.TextEditor | undefined, rows: readonly ValuesRow[]
-  ): ReadonlySet<number> {
-    if (!editor) {
-      return NO_EXPANDED_LINES;
-    }
-    const key = editor.document.uri.toString();
-    const lines = this.expandedLines.get(key);
-    if (!lines || lines.size === 0) {
-      return NO_EXPANDED_LINES;
-    }
-    const valid = new Set(rows.map((row) => row.line));
-    for (const line of [...lines]) {
-      if (!valid.has(line)) {
-        lines.delete(line);
-      }
-    }
-    if (lines.size === 0) {
-      this.expandedLines.delete(key);
-      return NO_EXPANDED_LINES;
-    }
-    return lines;
-  }
-
-  private rebuild(revealLine?: number): void {
+  private rebuild(revealLine?: number, pendingWithdrawn = false): void {
     if (!this.view) {
       return;
     }
@@ -502,7 +439,11 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     const editor = vscode.window.activeTextEditor;
     const cursorLine = editor?.selection.active.line;
     this.renderedData = this.dataFor(editor);
-    const expandedLines = this.pruneExpanded(editor, this.renderedData.rows);
+    if (!editor) this.renderedResultFolds = new Map();
+    else if (!pendingWithdrawn) this.renderedResultFolds = this.syncResultFolds(editor.document);
+    const expanded = [...this.renderedResultFolds].filter(([, state]) => state.expanded);
+    const expandedLines = expanded.length
+      ? new Set(expanded.map(([line]) => line)) : NO_EXPANDED_LINES;
     const loopStates = new Map<LoopExplorerWire, LoopViewState>();
     for (const row of this.renderedData.rows) {
       if (row.loopExplorer) {
@@ -514,11 +455,21 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     }
     this.view.webview.html = valuesHtml(
       this.renderedData, cursorLine, nonce(), revealLine,
-      { outputLines: valuesPanelOutputLines(), expandedLines, loopStates },
+      { outputLines: valuesPanelOutputLines(), expandedLines, loopStates,
+        resultFolds: this.renderedResultFolds },
       followValuesCursor(), ++this.revision);
     if (editor && this.view.visible && cursorLine !== undefined) {
       this.mark(editor, cursorLine);
     }
+  }
+
+  private syncResultFolds(document: vscode.TextDocument): ReadonlyMap<number, ResultFoldState> {
+    return this.resultFolds.sync(document, this.annotations.all(document).map((annotation) => ({
+      resultIdentity: annotation.resultIdentity, capturedSource: annotation.source,
+      line: annotation.anchor ?? annotation.range.end.line,
+      startLine: annotation.range.start.line, endLine: annotation.range.end.line,
+      state: annotation.pending ? 'pending' : 'complete', staleReason: annotation.staleReason,
+    })));
   }
 
   /** What `valuesHtml` renders from, for whatever the active editor is right

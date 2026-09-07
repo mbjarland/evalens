@@ -596,6 +596,23 @@ Large traces share the panel's neutral background. The statement's status bar
 and navigation frame remain; only the selected iteration receives a fill.
 Ordinary short Values results retain their shared tinted surface.
 
+Tall results also have a whole-value disclosure beside their root heading.
+Closing it keeps the source excerpt visible and limits the result to that
+excerpt's measured height, including its Latest result label. A compact
+summary preserves output/iteration counts and stale, error or incomplete
+capture cues. The existing bounded detail stays mounted while hidden, so
+reopening keeps its inner controls and selection. A ResizeObserver handles
+wrapping and font changes; there is no polling or second capture of output.
+Cursor following reveals a closed row without opening it.
+
+The provider remembers whole-value and generic text-fold choices by captured
+result identity. Safe prefix edits retain that identity. An unchanged complete
+statement at the same reanchored extent can inherit only the deliberate
+whole-value collapsed choice on reevaluation; new inner IDs start fresh.
+Preference metadata keeps a source digest, never an extra full source copy.
+Pending-placeholder withdrawal gets one synchronous turn to settle its
+replacement; explicit clear, displacement and document close release state.
+
 `kernel/loop_explorer.py` records explicit site, invocation, parent invocation
 and parent iteration IDs. Parent invocation remains meaningful in a loop's
 `else`, where no iteration is active. A statement-wide budget retains at most

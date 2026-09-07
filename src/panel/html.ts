@@ -32,6 +32,7 @@ import {
   Marker, markerFor, normalizeSource, staleReasonText, DependencyCause,
 } from '../render/registry';
 import { pendingText } from '../render/status';
+import { ResultFoldState } from './resultFold';
 
 // -- building rows from annotations ------------------------------------------
 
@@ -120,6 +121,7 @@ export interface FullStream {
  * line of source -- everything `valuesHtml` needs and nothing it has to ask
  * `vscode` for. */
 export interface ValuesRow {
+  readonly partialFrom?: number;
   readonly loopExplorer?: LoopExplorer;
   /** 0-based line the value is painted on -- `anchor` when set, matching
    * where `decorations.ts` paints the inline chip. */
@@ -265,6 +267,7 @@ function rowFor(
     sourceLines(document, startLine, endLine);
   const base = {
     line, startLine, endLine, codeLines,
+    ...(annotation.partialFrom === undefined ? {} : { partialFrom: annotation.partialFrom }),
     ...(codeMoreCount === undefined ? {} : { codeMoreCount }),
   };
 
@@ -371,6 +374,7 @@ export interface ValuesPanelData {
  * change.
  */
 export interface FoldState {
+  readonly resultFolds?: ReadonlyMap<number, ResultFoldState>;
   readonly loopStates?: ReadonlyMap<LoopExplorerWire, LoopViewState>;
   /** `evalens.valuesPanel.outputLines`'s current value -- the setting's
    * own manifest default, `20`, when the caller has none. */
@@ -728,7 +732,7 @@ function staleReasonHtml(row: ValuesRow): string {
 /** The VALUE column's whole content for one row, folding any block --
  * stream or value group -- past `outputLines` lines (#155), open exactly
  * where `expandedLines` names this row's own line. */
-function valueCellHtml(
+function valueDetailHtml(
   row: ValuesRow, outputLines: number, expandedLines: ReadonlySet<number>,
   loopStates?: ReadonlyMap<LoopExplorerWire, LoopViewState>
 ): string {
@@ -784,6 +788,85 @@ function valueCellHtml(
     : value;
 }
 
+/** Concise facts for the closed disclosure. Metadata omissions and missing
+ * output are different facts: the former cannot turn a captured-output line
+ * count into a claim that all iteration readings were retained. */
+export function resultFoldSummary(row: ValuesRow): { text: string; status: string } {
+  const parts: string[] = [];
+  const status: string[] = [];
+  const number = (n: number) => n.toLocaleString('en-US');
+  const count = (n: number, noun: string) => `${number(n)} ${noun}${n === 1 ? '' : 's'}`;
+  const lineCount = (text: string) => text === '' ? 0
+    : (text.match(/\n/g)?.length ?? 0) + (text.endsWith('\n') ? 0 : 1);
+  if (row.state === 'stale') status.push('Stale');
+  if (row.errorText) status.push('Error');
+  if (row.partialFrom !== undefined) status.push('Partial run');
+  if (row.loopExplorer) {
+    const model = row.loopExplorer;
+    const firstRoot = model.roots[0];
+    if (firstRoot) parts.push(model.sites.get(firstRoot.site)!.source);
+    parts.push(count(model.roots.reduce((n, root) => n + root.count, 0), 'iteration'));
+    if (model.wire.omitted_iterations || model.wire.omitted_invocations) status.push('Limited detail');
+    const clipped = model.wire.totals.some((n, i) => n > model.wire.retained[i]!);
+    if (clipped) status.push('Output truncated');
+    for (const stream of [0, 1] as const) {
+      if (!model.wire.totals[stream]) continue;
+      const label = stream === 0 ? 'printed' : 'stderr';
+      parts.push(model.wire.totals[stream] > model.wire.retained[stream]
+        ? `captured ${label} output`
+        : count(lineCount(model.streams[stream]), `${label} line`));
+    }
+    if (!model.wire.totals.some((n) => n > 0)) parts.push('No output');
+  } else {
+    if (row.errorText) parts.push(row.errorText);
+    else if (row.groups?.length) parts.push(count(row.groups.length, 'value'));
+    for (const stream of row.streams ?? []) {
+      const clipped = /\n… <[\d,]+ characters omitted from trace>$/.test(stream.text);
+      if (clipped && !status.includes('Output truncated')) status.push('Output truncated');
+      const label = stream.label === STDERR_LABEL ? 'stderr' : 'printed';
+      parts.push(clipped ? `captured ${label} output`
+        // FullStream already removed print's final newline. A remaining
+        // trailing newline is an intentional blank line, not another
+        // terminator to strip (unlike the raw explorer streams above).
+        : count((stream.text.match(/\n/g)?.length ?? 0) + 1, `${label} line`));
+    }
+    if (row.groups?.some((group) => group.some((segment) =>
+      /… <truncated from \d+ chars>$/.test(segment.text)))) status.push('Value truncated');
+  }
+  return { text: parts.join(' · ') || 'Values', status: status.join(' · ') };
+}
+
+/** The same mounted control serves both states, positioned beside the first
+ * value heading. Only the body is hidden: no duplicate heading or focusable
+ * hidden copy of the disclosure. Ordinary short results have no visible
+ * control; the webview measures actual overflow after fonts and wrapping. */
+function valueCellHtml(
+  row: ValuesRow, fold: FoldRenderOptions
+): string {
+  const detail = valueDetailHtml(row, fold.outputLines, fold.expandedLines, fold.loopStates);
+  if (!detail || row.state === 'pending') return detail;
+  const state = fold.resultFolds?.get(row.line);
+  const collapsed = state?.collapsed ?? false;
+  const summary = resultFoldSummary(row);
+  const description = [summary.status, summary.text].filter(Boolean).join(' · ');
+  const title = `${description}${row.state === 'stale' ? '. '
+    + staleReasonText(row.staleReason, row.staleCause) : ''}`;
+  const tone: Tone = row.state === 'stale' ? 'stale' : row.errorText ? 'error' : 'evaluated';
+  return `<div class="whole-result${collapsed ? ' result-collapsed' : ''}" `
+    + `data-result-line="${row.line}" data-result-token="${state?.identity ?? row.line}">`
+    + `<button type="button" class="result-disclosure" hidden `
+    + `aria-expanded="${!collapsed}" aria-controls="result-detail-${row.line}" `
+    + `aria-label="${collapsed ? 'Show' : 'Collapse'} values for line ${row.line + 1}; ${escapeHtml(description)}" `
+    + `data-result-description="${escapeHtml(description)}" `
+    + `title="${collapsed ? 'Show' : 'Collapse'} values">`
+    + `<span aria-hidden="true">${collapsed ? '▸' : '▾'}</span></button>`
+    + `<div class="result-summary result-surface tone-${tone}"${collapsed ? '' : ' hidden'} `
+    + `title="${escapeHtml(title)}"><div class="result-summary-line">`
+    + (summary.status ? `<span class="result-summary-status${row.errorText ? ' error-text' : ''}">${escapeHtml(summary.status)}</span>` : '')
+    + `<span class="result-summary-text">${escapeHtml(summary.text)}</span></div></div>`
+    + `<div class="result-detail" id="result-detail-${row.line}"${collapsed ? ' hidden' : ''}>${detail}</div></div>`;
+}
+
 /** The CODE column's whole content for one row: every line `rowFor` kept,
  * indentation preserved -- `white-space: pre` in the stylesheet is what
  * keeps it once there -- each in its own block so `text-overflow: ellipsis`
@@ -804,6 +887,7 @@ function codeCellHtml(row: ValuesRow): string {
  * to `valueCellHtml` -- one fold configuration for the whole render, not one
  * argument each threaded through `tableHtml` and `rowHtml` in between. */
 interface FoldRenderOptions {
+  readonly resultFolds?: ReadonlyMap<number, ResultFoldState>;
   readonly loopStates?: ReadonlyMap<LoopExplorerWire, LoopViewState>;
   readonly outputLines: number;
   readonly expandedLines: ReadonlySet<number>;
@@ -825,9 +909,9 @@ function rowHtml(
     + `tabindex="${isCursor ? 0 : -1}" aria-current="${isCursor}">`
     + `<td class="line-cell"><span class="navigation-arrow" aria-hidden="true">› </span>`
     + `<span class="line-num">${row.line + 1}</span></td>`
-    + `<td class="code-cell">${codeCellHtml(row)}${latestLabel}</td>`
+    + `<td class="code-cell"><div class="source-content">${codeCellHtml(row)}${latestLabel}</div></td>`
     + `<td class="value-cell">`
-    + `${valueCellHtml(row, fold.outputLines, fold.expandedLines, fold.loopStates)}</td>`
+    + `${valueCellHtml(row, fold)}</td>`
     + `</tr>`;
 }
 
@@ -964,6 +1048,51 @@ tr.row:focus-visible {
 /* Long traces share the panel background. Keep the statement frame and its
    status bar, reserving filled emphasis for the selected iteration. */
 tr.loop-row.cursor, .loop-row .result-surface { background: transparent; }
+.whole-result { position: relative; }
+.result-disclosure {
+  position: absolute;
+  top: 3px;
+  left: calc(3px + .4em);
+  z-index: 1;
+  border: 0;
+  padding: 0;
+  width: 1em;
+  background: transparent;
+  color: var(--vscode-textLink-foreground, currentColor);
+  font: inherit;
+  font-style: normal;
+  line-height: inherit;
+  cursor: pointer;
+}
+.loop-row .result-disclosure { top: calc(3px + .15em); }
+.result-disclosure:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, currentColor);
+  outline-offset: 1px;
+}
+.result-foldable .result-detail > .result-surface { padding-left: calc(8px + 1.5em); }
+.result-summary {
+  height: var(--source-height);
+  max-height: var(--source-height);
+  padding: 0 8px 0 calc(8px + 1.5em);
+  overflow: hidden;
+  font-style: normal;
+}
+.result-summary-line { display: flex; gap: .6em; white-space: nowrap; }
+.result-summary-status { flex: 0 0 auto; font-weight: 600; }
+.result-summary-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.result-collapsed .result-disclosure { top: 0; }
+.result-disclosure[hidden], .result-summary[hidden],
+.result-detail[hidden] { display: none; }
+/* Measure the existing bounded detail at its real available width, without
+   letting it enlarge a closed row or creating an extra copy of the output. */
+.result-measuring .result-detail {
+  display: block;
+  position: absolute;
+  width: 100%;
+  top: 0;
+  visibility: hidden;
+}
+.result-measuring .result-detail > .result-surface { padding-left: 8px; }
 .result-group { white-space: pre-wrap; }
 .result-group.block {
   display: block;
@@ -1120,6 +1249,67 @@ function script(
   var followCursor = ${followCursor};
   var revision = ${revision};
   var saved = vscode.getState() || {};
+  var resultControls = Array.prototype.slice.call(document.querySelectorAll('.whole-result'));
+  function paintResultFold(result, collapsed) {
+    var button = result.querySelector('.result-disclosure');
+    result.classList.toggle('result-collapsed', collapsed);
+    result.querySelector('.result-detail').hidden = collapsed;
+    result.querySelector('.result-summary').hidden = !collapsed;
+    button.setAttribute('aria-expanded', String(!collapsed));
+    button.firstElementChild.textContent = collapsed ? '▸' : '▾';
+    var action = collapsed ? 'Show values' : 'Collapse values';
+    button.title = action;
+    button.setAttribute('aria-label', action + ' for line '
+      + (Number(result.dataset.resultLine) + 1) + '; ' + button.dataset.resultDescription);
+  }
+  function measureResultFold(result) {
+    var source = result.closest('tr.row').querySelector('.source-content');
+    var sourceHeight = source.getBoundingClientRect().height;
+    var lineHeight = source.querySelector('.code-line').getBoundingClientRect().height;
+    result.style.setProperty('--source-height', sourceHeight + 'px');
+    result.classList.add('result-measuring');
+    var detailHeight = result.querySelector('.result-detail').getBoundingClientRect().height;
+    result.classList.remove('result-measuring');
+    // Padding alone must not turn a trivial one-line value into a fold.
+    var foldable = detailHeight > sourceHeight + Math.max(8, lineHeight / 2);
+    result.classList.toggle('result-foldable', foldable);
+    result.querySelector('.result-disclosure').hidden = !foldable;
+    paintResultFold(result, foldable && result.dataset.resultClosed === 'true');
+  }
+  resultControls.forEach(function (result) {
+    result.dataset.resultClosed = String(result.classList.contains('result-collapsed'));
+    var button = result.querySelector('.result-disclosure');
+    function rememberResultFocus() {
+      vscode.setState({ resultFocus: result.dataset.resultToken, scrollY: window.scrollY });
+    }
+    button.addEventListener('focus', rememberResultFocus);
+    button.addEventListener('keydown', function (event) { event.stopPropagation(); });
+    button.addEventListener('click', function (event) {
+      event.stopPropagation();
+      var collapsed = result.dataset.resultClosed !== 'true';
+      result.dataset.resultClosed = String(collapsed);
+      paintResultFold(result, collapsed);
+      rememberResultFocus();
+      vscode.postMessage({ resultFold: Number(result.dataset.resultLine),
+        collapsed: collapsed, token: Number(result.dataset.resultToken), revision: revision });
+    });
+    measureResultFold(result);
+  });
+  if (resultControls.length) {
+    var measureQueued = false;
+    var resultObserver = new ResizeObserver(function () {
+      if (measureQueued) return;
+      measureQueued = true;
+      requestAnimationFrame(function () {
+        measureQueued = false;
+        resultControls.forEach(measureResultFold);
+      });
+    });
+    resultControls.forEach(function (result) {
+      resultObserver.observe(result);
+      resultObserver.observe(result.closest('tr.row').querySelector('.source-content'));
+    });
+  }
   document.querySelectorAll('[data-loop-action]').forEach(function (button) {
     function rememberFocus() {
       var key = ['loopLine', 'loopAction', 'loopId', 'loopControl', 'loopToken'].map(function (name) {
@@ -1280,8 +1470,18 @@ function script(
           && button.dataset.loopId === parts[2] && button.dataset.loopToken === parts[4];
       });
     }
-    if (target) {
+    if (target && !target.closest('.result-collapsed')) {
       target.focus({ preventScroll: true });
+      if (revealLine === null) window.scrollTo(0, saved.scrollY || 0);
+    } else vscode.setState({});
+  }
+  if (saved.resultFocus) {
+    var result = resultControls.find(function (item) {
+      return item.dataset.resultToken === saved.resultFocus;
+    });
+    var disclosure = result && result.querySelector('.result-disclosure');
+    if (disclosure && !disclosure.hidden) {
+      disclosure.focus({ preventScroll: true });
       if (revealLine === null) window.scrollTo(0, saved.scrollY || 0);
     } else vscode.setState({});
   }
@@ -1319,6 +1519,7 @@ export function valuesHtml(
   revealLine?: number, fold?: FoldState, followCursor = true, revision = 0
 ): string {
   const foldOptions: FoldRenderOptions = {
+    resultFolds: fold?.resultFolds,
     loopStates: fold?.loopStates,
     outputLines: fold?.outputLines ?? DEFAULT_OUTPUT_LINES,
     expandedLines: fold?.expandedLines ?? NO_EXPANDED_LINES,
