@@ -454,19 +454,28 @@ are using, so you can keep navigating there. A cursor inside a multiline
 statement selects that statement's captured result; an unrelated blank line
 selects none. Moving around never evaluates code or rebuilds the panel.
 
-Uncheck **Follow cursor between code and values** to browse independently.
-Clicking a row or pressing Enter/Space still reveals its source. This checkbox
-controls `evalens.valuesPanel.followCursor`; the title-bar lock separately
-controls following newly evaluated results (`evalens.valuesPanel.follow`).
+The panel's sticky control row holds three checkboxes, each carrying its own
+state rather than swapping an icon for a near-identical one — a toggle whose
+state cannot be read has to be tested by clicking and then remembered, and a
+checkbox does not have that problem:
 
-With `evalens.inlineValues` set to `whenPanelHidden`, the `$(eye)` /
-`$(eye-closed)` button beside the lock hides the editor's own inline value
-and error chips for as long as this panel stays open on its Values tab, and
-brings them straight back the moment it is not — never leaving you looking
-at a silent editor with the panel closed. Gutter markers, the evaluated
-region, and the running/asking marks keep painting regardless, and hovering
-a hidden line still shows its value: only the chip disappears, never the
-value itself.
+- **Follow cursor between code and values** — uncheck it to browse
+  independently. Clicking a row or pressing Enter/Space still reveals its
+  source. Controls `evalens.valuesPanel.followCursor`.
+- **Follow newest value** — controls `evalens.valuesPanel.follow`, following
+  newly evaluated results into view separately from cursor navigation.
+- **Hide inline values while this panel is visible** — check it, with
+  `evalens.inlineValues` set to `whenPanelHidden`, to hide the editor's own
+  inline value and error chips for as long as this panel stays open on its
+  Values tab; they come straight back the moment it is not — never leaving
+  you looking at a silent editor with the panel closed. Gutter markers, the
+  evaluated region, and the running/asking marks keep painting regardless,
+  and hovering a hidden line still shows its value: only the chip
+  disappears, never the value itself.
+
+All three round-trip: checking or unchecking one writes the matching
+setting, and changing the setting elsewhere — the command palette, the
+Settings UI, or `settings.json` — updates the checkbox back.
 
 The most recently recorded result in this file has an amber edge and a
 **Latest result** label. It stays visible after Evaluate and Advance moves
@@ -610,8 +619,8 @@ because a stolen key then never leaves you without a way to run these.
 | Evalens: Clear Input Answers | Forgets every replayed `input()` answer, keeping the namespace |
 | Evalens: Show Output | Opens the Evalens output channel without taking the cursor out of the editor |
 | Evalens: Show Values Panel | Opens the bottom-panel view listing the active file's annotations full width, wrapping, and synced to the cursor |
-| Evalens: Toggle Follow in Values Panel | Flips `evalens.valuesPanel.follow`; also the `$(unlock)` / `$(lock)` button in the values panel's own title bar |
-| Evalens: Toggle Inline Values in the Editor | Flips `evalens.inlineValues`; also the `$(eye)` / `$(eye-closed)` button in the values panel's own title bar |
+| Evalens: Toggle Follow in Values Panel | Flips `evalens.valuesPanel.follow`; also the **Follow newest value** checkbox in the panel |
+| Evalens: Toggle Inline Values in the Editor | Flips `evalens.inlineValues`; also the **Hide inline values while this panel is visible** checkbox in the panel |
 | Evalens: Fix Keybinding Conflict | Hands you the user keybinding described below |
 
 **Evaluate File clears the namespace before it runs the whole file, by
@@ -1111,7 +1120,7 @@ description says what the option *costs* rather than what it is called.
 | `evalens.advanceSkipsComments` | `true` | Whether Evaluate and Advance steps over comment lines. Off, it stops once per comment block — one more press each, and that press evaluates nothing |
 | `evalens.announceResults` | `"auto"` | Whether a result is announced as well as painted, for a screen reader. `auto` follows `editor.accessibilitySupport`; `always` announces every one; `never` announces none. See above |
 | `evalens.resetOnLoad` | `true` | Whether Evaluate File clears the namespace before running the whole file. On, a deleted binding is actually gone and a second file cannot read back an earlier one's leftovers. Off keeps expensive setup from an earlier load, at the cost of the namespace remembering more than the file defines — Evalens then notes it in the status bar. A selection never resets regardless; Run File as Script always does |
-| `evalens.valuesPanel.follow` | `true` | Whether the values panel scrolls the row that just changed into view on every evaluation. On, the newest value is always what you see. Off stops evaluations from scrolling the panel. Cursor navigation is controlled separately by `evalens.valuesPanel.followCursor`. Flip evaluation following from the panel's own `$(unlock)` / `$(lock)` title-bar button as well as from here |
+| `evalens.valuesPanel.follow` | `true` | Whether the values panel scrolls the row that just changed into view on every evaluation. On, the newest value is always what you see. Off stops evaluations from scrolling the panel. Cursor navigation is controlled separately by `evalens.valuesPanel.followCursor`. Flip evaluation following from the panel's own **Follow newest value** checkbox as well as from here |
 | `evalens.valuesPanel.outputLines` | `20` | Lines of a printed stream or a long value the panel shows before folding. Fewer lines fold sooner; more lines show a longer stretch at the cost of a taller row. Long single lines also fold. `Show more` keeps large expanded previews bounded; `Open in editor` opens the complete captured text. Nested-loop output uses bounded parts and shows at most 20 lines per part |
 | `evalens.valuesPanel.followCursor` | `true` | Reveal the matching value when moving the editor cursor, and reveal source when navigating Values rows. Keyboard focus stays in the pane you use. Turn off with **Follow cursor between code and values** in the panel to browse independently; clicking a row or pressing Enter/Space still reveals source. Use Up/Down or Home/End to browse rows. Navigation only reads captured results |
 | `evalens.inlineValues` | `"always"` | Whether inline value and error chips paint in the editor while the Values panel is also visible. `always` paints both; `whenPanelHidden` hides the inline chips while the panel is open on its Values tab and brings them back the moment it is not. Gutter markers, the evaluated region, and the running/asking marks are unaffected either way, and the hover keeps showing a hidden value |
