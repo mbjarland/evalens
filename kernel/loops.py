@@ -881,14 +881,14 @@ def instrument_watching(
 def instrument_exploring(node, watches=None):
     """The existing recorder plan plus its sites, from the SAME traversal.
 
-    Only genuinely nested readable for/async-for statements acquire boundary
-    calls. Unsupported targets keep the established flat trace. A second
+    Readable for/async-for statements acquire boundary calls at every depth.
+    Unsupported targets keep the established flat trace. A second
     rewrite on that uncommon fallback avoids unnecessary per-iteration calls.
     """
     instrumenter = _Instrumenter(watches, explore=True)
     rewritten = instrumenter.visit(copy.deepcopy(node))
-    nested = any(site['parent'] is not None for site in instrumenter.sites)
-    if not nested or instrumenter.unsupported or len(instrumenter.sites) > 64:
+    if (not instrumenter.sites or instrumenter.unsupported
+            or len(instrumenter.sites) > 64):
         instrumenter = _Instrumenter(watches)
         rewritten = instrumenter.visit(copy.deepcopy(node))
         sites = []

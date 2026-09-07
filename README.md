@@ -193,7 +193,7 @@ happens to have five things in it. Only when the counts genuinely differ
 does each name carry its own: a filtered loop shows the filtering
 directly, `v ×5` beside `kept ×2`.
 
-### Nested loops keep values beside the output they produced
+### Loops keep values beside the output they produced
 
 In the editor, each loop's history appears beside its own `for` header. For
 nested `range(100)` loops, the outer line shows `x ×100: 0, 1, …, 99` and the
@@ -203,18 +203,24 @@ runs contributed. Small sequences retain repeats in execution order. A loop
 that was reached but drew nothing says **(no iterations)**; one inside an
 outer loop that never entered says **(not reached)**.
 
-Open **Evalens: Show Values Panel** after evaluating nested `for` loops. Each
-outer iteration has a heading such as **Iteration 1 · x = 0 · printed 4 lines**.
-The **Iteration values** column contains the loop target captured on that pass;
-**Printed output** contains the text it produced. Silent passes say **No output**.
+Open **Evalens: Show Values Panel** after evaluating a `for` loop. The
+**Iteration values** column contains the loop target captured on that pass;
+**Printed output** contains the text it produced. For example,
+`for n in range(3): print(n * n)` shows three compact rows pairing `n = 0`,
+`n = 1`, and `n = 2` with `0`, `1`, and `4`. Short single-level iterations
+need no individual headings or arrows. Nested loops add outer headings such
+as **Iteration 1 · x = 0 · printed 4 lines** around those same rows.
+Silent passes say **No output**; an empty loop says **No iterations**, with
+any `else` output shown separately.
 `stderr` is labelled separately. **Values after loop** is the final snapshot,
 not a claim about any selected iteration or a live watch.
 
 The explorer uses the panel's neutral background with an orange leading bar.
 Filled emphasis stays on the selected iteration, keeping large traces quiet.
 
-Short runs show neighboring outer iterations together. Use the disclosure
-arrows for nested or long content, **More iterations** or **More nested loops**
+Short nested runs show neighboring outer iterations together. Long output
+starts folded even in a single-level loop. Use the disclosure arrows for
+nested or long content, **More iterations** or **More nested loops**
 for another batch, and **More output** for the next output part. Selecting an
 iteration value reveals its loop header. These controls only browse the
 existing capture; they never run the code again. Folding survives unrelated

@@ -11,7 +11,7 @@ import {
 } from '../panel/loopExplorer';
 import {
   FakePosition, FakeRange, FakeSelection, FakeWebviewView, createEditor,
-  createExtensionContext, createFakeVscode, loadCompiledExtension,
+  createExtensionContext, createFakeVscode, loadCompiledExtension, paintedLineText,
 } from './harness/fakeVscode';
 
 const root = path.resolve(__dirname, '..', '..');
@@ -36,6 +36,170 @@ function contents(html: string) {
   return html.replace(/<style[^>]*>[\s\S]*?<\/style>/g, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/g, '');
 }
+
+test('single-level square-print loop uses three compact target/output rows', async () => {
+  const result = await captured('for n in range(3):\n    print(n * n)\n');
+  const model = prepared(result);
+  assert.equal(model.sites.size, 1);
+  const html = loopExplorerHtml(model, 0);
+  assert.equal((html.match(/class="loop-data loop-iteration"/g) ?? []).length, 3);
+  assert.deepEqual([...html.matchAll(/class="loop-output">([^<]*)/g)].map((m) => m[1]),
+    ['0', '1', '4']);
+  assert.match(html, /for n in range\(3\)/);
+  assert.match(html, /3 iterations/);
+  assert.equal((html.match(/Iteration values/g) ?? []).length, 1);
+  assert.equal((html.match(/Printed output/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /data-loop-action="toggle|loop-iteration-header/);
+});
+
+test('single-level silent, skipped, break and else output keep their actual ownership', async () => {
+  const skipped = prepared(await captured('for n in range(5):\n'
+    + '    if n == 0: continue\n    if n == 3: break\n    print(n)\n'
+    + 'else:\n    print("unreachable")\n'));
+  let html = loopExplorerHtml(skipped, 0);
+  assert.match(html, /4 iterations/);
+  assert.equal((html.match(/>No output<\/span>/g) ?? []).length, 2);
+  assert.deepEqual([...html.matchAll(/class="loop-output">([^<]*)/g)].map((m) => m[1]),
+    ['1', '2']);
+  assert.doesNotMatch(html, /unreachable/);
+
+  const empty = prepared(await captured('for n in []:\n    print("never")\n'
+    + 'else:\n    print("😀 empty")\n'));
+  html = loopExplorerHtml(empty, 0);
+  assert.match(html, /No iterations/);
+  assert.match(html, /loop-data loop-direct/);
+  assert.equal((html.match(/😀 empty/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /data-loop-entry=/);
+
+  const silent = prepared(await captured('for n in [0, 0]:\n    pass\n'));
+  html = loopExplorerHtml(silent, 0);
+  assert.equal((html.match(/>No output<\/span>/g) ?? []).length, 2);
+  assert.doesNotMatch(html, /data-loop-action="toggle/);
+});
+
+test('short single-level multiline output stays compact with a combined stream bound', async () => {
+  const small = prepared(await captured('for n in [0]:\n    import sys\n'
+    + '    print("😀 first\\nsecond")\n    print("🦉 warning", file=sys.stderr)\n'));
+  let html = loopExplorerHtml(small, 0);
+  assert.doesNotMatch(html, /data-loop-action="toggle/);
+  assert.match(html, /😀 first\nsecond/);
+  assert.match(html, /class="loop-stream-label">stderr:/);
+  assert.match(html, /🦉 warning/);
+  const four = prepared(await captured('for n in [0]:\n    import sys\n'
+    + '    print("one\\ntwo")\n    print("three\\nfour", file=sys.stderr)\n'));
+  html = loopExplorerHtml(four, 0);
+  assert.match(html, /aria-expanded="false"/);
+  assert.doesNotMatch(html, /class="loop-output"/);
+});
+
+test('single-level long iteration output folds, pages Unicode safely and exports the capture', async () => {
+  const model = prepared(await captured('for n in range(2):\n'
+    + '    print("😀 page line\\n" * 5000)\n'));
+  const state = newLoopViewState();
+  let html = loopExplorerHtml(model, 0, state);
+  assert.doesNotMatch(html, /class="loop-output"/);
+  assert.match(html, /printed 5,001 lines/);
+  state.expanded.set(2, true);
+  html = loopExplorerHtml(model, 0, state);
+  assert.match(html, /More output/);
+  assert.ok(html.length < 6000, String(html.length));
+  assert.ok(!html.includes('😀 page line\n'.repeat(21)));
+  assert.doesNotMatch(html, /\uFFFD/);
+  assert.match(html, /unretained text cannot be expanded/);
+  assert.ok(model.streams[0].startsWith('😀 page line\n'.repeat(5000)));
+  assert.ok(model.streams[0].includes('characters omitted'));
+  assert.match(html, /Open captured stdout/);
+  const clipped = prepared(await captured('for n in range(2):\n'
+    + '    if n == 0: print("x" * 70000)\n'));
+  assert.match(loopExplorerHtml(clipped, 0), /n = 1[\s\S]*?>No output<\/span>/);
+});
+
+test('single-level million-pass trace pages bounded rows and keeps final count honest', async () => {
+  const model = prepared(await captured('for n in range(1000000):\n    pass\n'));
+  const state = newLoopViewState();
+  assert.equal(model.wire.entries.length, 2000);
+  assert.equal(model.wire.iterations, 1000000);
+  assert.ok(JSON.stringify(model.wire).length < 400000);
+  let html = loopExplorerHtml(model, 0, state);
+  assert.ok(html.length < 20000, String(html.length));
+  assert.match(html, /1,000,000 iterations/);
+  assert.match(html, /Iterations 1–20 of 1999 retained/);
+  assert.match(html, /998,001 iterations not individually retained/);
+  assert.equal((html.match(/data-loop-entry=/g) ?? []).length, 20);
+  state.pages.set(1, 99);
+  html = loopExplorerHtml(model, 0, state);
+  assert.match(html, /n = 1998/);
+  assert.match(html, /Iterations 1981–1999 of 1999 retained/);
+  assert.doesNotMatch(html, /n = 1979</);
+});
+
+test('single-loop loaded extension retains inline body histories, saved hover and file repeats', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor('for n in range(3):\n    square = n * n\n'
+    + '    print(square)\nprint(square)\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = loadCompiledExtension(path.join(root, 'out'), fake);
+  extension.activate(createExtensionContext(root) as never);
+  try {
+    await fake.executeCommand('evalens.evaluateFile');
+    const inline = paintedLineText(editor, 0).replace(/\u00a0/g, ' ');
+    assert.match(inline, /×3/);
+    assert.match(inline, /n: 0, 1, 2/);
+    assert.match(inline, /square: 0, 1, 4/);
+    assert.match(paintedLineText(editor, 3).replace(/\u00a0/g, ' '), /square: 4/);
+    const hover = fake.hoverProviders[0]!.provider as { provideHover(
+      document: unknown, position: FakePosition): Promise<{ contents: { value: string } } | undefined> };
+    const text = (await hover.provideHover(editor.document, new FakePosition(0, 0)))!.contents.value;
+    assert.match(text, /square/);
+    assert.match(text, /0, 1, 4/);
+    const view = new FakeWebviewView();
+    fake.webviewViewProviders.get('evalens.values')!.resolveWebviewView(view, {}, {});
+    const html = contents(view.webview.html);
+    assert.match(html, /class="loop-explorer"/);
+    assert.match(html, /Values after loop: n = 2, square = 4/);
+    assert.doesNotMatch(html, /square = 0|square = 1/,
+      'independent body histories must not be invented as iteration readings');
+  } finally { extension.deactivate(); }
+});
+
+test('single-loop provider keeps manual folds/pages across reanchor and resets on reevaluation', async () => {
+  const sample = 'for n in range(25):\n    print("line\\n" * 100)\n';
+  const fake = createFakeVscode();
+  const editor = createEditor(sample);
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = loadCompiledExtension(path.join(root, 'out'), fake);
+  extension.activate(createExtensionContext(root) as never);
+  try {
+    const evaluate = fake.commands.registered.get('evalens.evaluateAtCursor') as () => Promise<void>;
+    await evaluate();
+    const view = new FakeWebviewView();
+    fake.webviewViewProviders.get('evalens.values')!.resolveWebviewView(view, {}, {});
+    const revision = () => Number(/var revision = (\d+)/.exec(view.webview.html)![1]);
+    const send = (line: number, node: number, action: string, value = 0) =>
+      view.webview.fireMessage({ loop: line, node, action, value, revision: revision() });
+    send(0, 1, 'page', 1);
+    send(0, 22, 'toggle');
+    send(0, 22, 'text:0:0', 1);
+    assert.match(view.webview.html, /Iterations 21–25 of 25 retained/);
+    assert.match(view.webview.html, /Output part 2 of 6/);
+    const previousRevision = revision();
+    editor.document.setText('# prefix\n' + sample);
+    fake.emitters.onDidChangeTextDocument.fire({ document: editor.document,
+      contentChanges: [{ range: new FakeRange(0, 0, 0, 0), text: '# prefix\n' }] });
+    assert.match(view.webview.html, /Output part 2 of 6/);
+    send(1, 22, 'select');
+    assert.equal(editor.selection.active.line, 1);
+    assert.match(view.webview.html, /loop-selected/);
+    await evaluate();
+    assert.match(view.webview.html, /Iterations 1–20 of 25 retained/);
+    assert.doesNotMatch(contents(view.webview.html), /class="loop-output"/);
+    view.webview.fireMessage({ loop: 1, node: 1, action: 'page', value: 1,
+      revision: previousRevision });
+    assert.match(view.webview.html, /Iterations 1–20 of 25 retained/);
+  } finally { extension.deactivate(); }
+});
 
 test('real nested output becomes X5 with Unicode slices and separate final snapshots', async () => {
   const result = await captured(source);

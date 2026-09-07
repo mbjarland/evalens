@@ -1157,12 +1157,12 @@ test('the values panel title bar contributes the lock/unlock toggle', () => {
 
 // -- folding a long block, through the real provider (#155) -----------------
 
-test('Show all reveals a long printed stream in full; the state survives ' +
+test('Show more reveals a bounded flat printed stream in full; the state survives ' +
   'an unrelated evaluation but is dropped when the same row runs again',
   async () => {
     const fake = createFakeVscode();
     const editor = createEditor(
-      "for i in range(25):\n    print('row', i)\nx = 1\n");
+      "print('\\n'.join('row ' + str(i) for i in range(25)))\n\nx = 1\n");
     fake.window.activeTextEditor = editor;
     fake.window.visibleTextEditors = [editor];
     const extension = activated(fake);
@@ -1176,7 +1176,7 @@ test('Show all reveals a long printed stream in full; the state survives ' +
       provider.resolveWebviewView(view, {}, {});
       assert.ok(view.webview.html.includes('row 19'), 'setup: folds to 20');
       assert.ok(!view.webview.html.includes('row 20'),
-        'setup: a 25-line loop should fold by default, nothing past it shown');
+        'setup: a 25-line printed value folds by default, nothing past it shown');
 
       view.webview.fireMessage({ expand: 0 });
       assert.ok(view.webview.html.includes('row 24'),

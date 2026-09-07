@@ -62,7 +62,7 @@ export function prepareLoopExplorer(
   wire: LoopExplorerWire | undefined, stdout = '', stderr = ''
 ): LoopExplorer | undefined {
   if (!wire || wire.version !== 1 || !natural(wire.statement_line) || !Array.isArray(wire.sites)
-    || wire.sites.length < 2 || wire.sites.length > 64
+    || wire.sites.length < 1 || wire.sites.length > 64
     || !Array.isArray(wire.entries) || wire.entries.length > LOOP_ENTRY_LIMIT
     || !pair(wire.retained) || !pair(wire.totals)
     || wire.retained.some((n, i) => n > RETAINED_LIMIT || n > wire.totals[i]!)
@@ -153,10 +153,16 @@ function lines(text: string): number {
   return n + (text.endsWith('\n') ? 0 : 1);
 }
 function canFold(model: LoopExplorer, entry: LoopIteration): boolean {
-  return (model.children.get(entry.id)?.length ?? 0) > 0
-    || entry.end.some((n, i) => n - entry.start[i]! > 160)
-    || lines(loopSlice(model, entry.start, entry.end, 0)) > 1
-    || lines(loopSlice(model, entry.start, entry.end, 1)) > 1;
+  // A few short printed lines still form one readable table row in a simple
+  // loop. Nested groups keep their established, denser disclosure threshold.
+  const singleLevel = model.sites.size === 1;
+  const spans = entry.end.map((n, i) => n - entry.start[i]!);
+  if ((model.children.get(entry.id)?.length ?? 0) > 0
+    || (singleLevel ? spans[0]! + spans[1]! > 160 : spans.some((n) => n > 160))) return true;
+  const outputLines = [0, 1].map((stream) =>
+    lines(loopSlice(model, entry.start, entry.end, stream as 0 | 1)));
+  return singleLevel ? outputLines[0]! + outputLines[1]! > 3
+    : outputLines.some((n) => n > 1);
 }
 export function loopExpanded(
   model: LoopExplorer, entry: LoopIteration, state?: LoopViewState
