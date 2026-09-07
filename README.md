@@ -424,7 +424,8 @@ as the editor. Long output and multiline values retain **Show all**,
 
 Move the editor cursor to bring the corresponding row into view, marked with
 an arrow and a frame. Click a row, or use Up/Down and Home/End after focusing
-one, to reveal and frame its source. Keyboard focus stays in the pane you
+one, to reveal its source. A short amber gutter tick and a soft neutral wash
+identify the editor's current line. Keyboard focus stays in the pane you
 are using, so you can keep navigating there. A cursor inside a multiline
 statement selects that statement's captured result; an unrelated blank line
 selects none. Moving around never evaluates code or rebuilds the panel.
@@ -433,6 +434,13 @@ Uncheck **Follow cursor between code and values** to browse independently.
 Clicking a row or pressing Enter/Space still reveals its source. This checkbox
 controls `evalens.valuesPanel.followCursor`; the title-bar lock separately
 controls following newly evaluated results (`evalens.valuesPanel.follow`).
+
+The most recently recorded result in this file has an amber edge and a
+**Latest result** label. It stays visible after Evaluate and Advance moves
+the cursor to the next statement, and remains separate from the cursor's
+matching row. The label moves when another result arrives, including an
+error; a running statement never receives it. These cues do not change
+either follow setting or take keyboard focus.
 
 It is the same trace read twice, not a second feature — the panel reads
 what is already painted and asks the kernel nothing, so a row goes stale

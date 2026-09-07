@@ -345,6 +345,9 @@ const MARKERS: readonly Marker[] = ['evaluated', 'stale', 'error'];
 
 export interface Annotation extends Traced {
   readonly range: vscode.Range;
+  /** Registry-assigned identity of a completed result. Source/staleness
+   * copies retain it; a new evaluation gets a new identity. Never serialized. */
+  readonly resultIdentity?: object;
   /**
    * The line to write the value on, when that is not the end of `range`.
    *

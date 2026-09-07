@@ -235,9 +235,14 @@ test('navigation clamps to the end of a short document rather than '
 test('a cursor message matches a compound row by containing line', () => {
   const rows = [shortRow(0, 0), { line: 3, start: 1, end: 3, top: 500, bottom: 520 }];
   const view = webview(rows);
+  view.rows[0].classes.add('latest-result');
   view.message({ cursor: 2, reveal: true });
   assert.ok(view.rows[1]!.classes.has('cursor'));
   assert.equal(view.rows[1]!.attributes.get('aria-current'), 'true');
+  view.message({ cursor: 4, reveal: true });
+  assert.ok(view.rows.every((row) => !row.classes.has('cursor')));
+  assert.ok(view.rows[0].classes.has('latest-result'),
+    'a cursor message cannot erase the independently marked completed result');
 });
 
 test('a cursor message with no reveal flag marks the row but never scrolls', () => {

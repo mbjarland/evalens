@@ -43,10 +43,15 @@ export const HAS_ANNOTATIONS = 'evalens.hasAnnotations';
  * `Annotations.onDidChange`'s payload (#149): which line to scroll the
  * values panel to, when the mutation that fired the event can name one. See
  * `changeEmitter`'s own doc comment, on the class below, for exactly when
- * `line` is present and what a consumer does when it is not.
+ * `line` is present and what a consumer does when it is not. The document
+ * scopes result identity even when a late result lands in an inactive file.
  */
 export interface AnnotationChangeEvent {
   readonly line?: number;
+  /** Absent only for a change applying to every document, such as clear-all. */
+  readonly document?: vscode.TextDocument;
+  /** Present only when a completed result lands, never for pending or edits. */
+  readonly resultIdentity?: object;
 }
 
 /**
@@ -325,12 +330,12 @@ export class Annotations implements vscode.Disposable {
    */
   show(
     document: vscode.TextDocument, annotations: readonly Annotation[],
-    changedLine?: number
+    changedLine?: number, resultIdentity?: object
   ): void {
     this.registry.set(document.uri.toString(), annotations);
     this.repaint(document);
     this.updateContext();
-    this.changeEmitter.fire({ line: changedLine });
+    this.changeEmitter.fire({ document, line: changedLine, resultIdentity });
   }
 
   /**
@@ -351,6 +356,10 @@ export class Annotations implements vscode.Disposable {
    */
   add(document: vscode.TextDocument, annotation: Annotation): void {
     const uri = document.uri.toString();
+    // Pending handles rely on object identity, so only completed results are
+    // copied. Their opaque identity survives every spread used for source
+    // reanchoring and stale marking without retaining the original payload.
+    if (!annotation.pending) annotation = { ...annotation, resultIdentity: {} };
     this.show(
       document,
       markDependents(merge(this.registry.get(uri), annotation), annotation),
@@ -358,7 +367,8 @@ export class Annotations implements vscode.Disposable {
       // matching exactly where `panel/html.ts`'s own `rowFor` displays it
       // (#149), so the values panel reveals the row a reader would
       // recognise as the one that just changed.
-      annotation.anchor ?? annotation.range.end.line);
+      annotation.anchor ?? annotation.range.end.line,
+      annotation.pending ? undefined : annotation.resultIdentity);
   }
 
   /**
@@ -496,7 +506,7 @@ export class Annotations implements vscode.Disposable {
       this.repaint(document);
       // No line: everything in the document just disappeared, and there is
       // nothing left to reveal (#149).
-      this.changeEmitter.fire({});
+      this.changeEmitter.fire({ document });
     }
     this.updateContext();
   }
