@@ -193,6 +193,31 @@ happens to have five things in it. Only when the counts genuinely differ
 does each name carry its own: a filtered loop shows the filtering
 directly, `v ×5` beside `kept ×2`.
 
+### Nested loops keep values beside the output they produced
+
+Open **Evalens: Show Values Panel** after evaluating nested `for` loops. Each
+outer iteration has a heading such as **Iteration 1 · x = 0 · printed 4 lines**.
+The **Iteration values** column contains the loop target captured on that pass;
+**Printed output** contains the text it produced. Silent passes say **No output**.
+`stderr` is labelled separately. **Values after loop** is the final snapshot,
+not a claim about any selected iteration or a live watch.
+
+Short runs show neighboring outer iterations together. Use the disclosure
+arrows for nested or long content, **More iterations** or **More nested loops**
+for another batch, and **More output** for the next output part. Selecting an
+iteration value reveals its loop header. These controls only browse the
+existing capture; they never run the code again. Folding survives unrelated
+edits and starts fresh after another evaluation.
+
+A statement retains at most 2,000 loop invocations and iterations combined,
+plus the existing 65,536-character limit for each output stream. The panel
+states when iteration detail or output was not retained: expanding cannot
+recover it. **Open captured stdout** and **Open captured stderr** open the
+original captured stream, including any capture-limit notice. Unsupported
+loop targets, failed evaluations, and disabled loop tracing keep the ordinary
+flat output rather than guess a history. Body-variable histories are not
+paired with iteration rows.
+
 ### A comprehension stops hiding its loop
 
 <p align="center">
@@ -1023,7 +1048,7 @@ description says what the option *costs* rather than what it is called.
 | `evalens.announceResults` | `"auto"` | Whether a result is announced as well as painted, for a screen reader. `auto` follows `editor.accessibilitySupport`; `always` announces every one; `never` announces none. See above |
 | `evalens.resetOnLoad` | `true` | Whether Evaluate File clears the namespace before running the whole file. On, a deleted binding is actually gone and a second file cannot read back an earlier one's leftovers. Off keeps expensive setup from an earlier load, at the cost of the namespace remembering more than the file defines — Evalens then notes it in the status bar. A selection never resets regardless; Run File as Script always does |
 | `evalens.valuesPanel.follow` | `true` | Whether the values panel scrolls the row that just changed into view on every evaluation. On, the newest value is always what you see. Off stops evaluations from scrolling the panel. Cursor navigation is controlled separately by `evalens.valuesPanel.followCursor`. Flip evaluation following from the panel's own `$(unlock)` / `$(lock)` title-bar button as well as from here |
-| `evalens.valuesPanel.outputLines` | `20` | Lines of a printed stream or a long value the panel shows before folding the rest behind `Show all`, like a notebook folds a long cell output. Fewer lines fold sooner and keep the panel scrollable; more lines show a longer stretch of a run at the cost of a taller row and a heavier rebuild |
+| `evalens.valuesPanel.outputLines` | `20` | Lines of a printed stream or a long value the panel shows before folding. Fewer lines fold sooner; more lines show a longer stretch at the cost of a taller row. Long single lines also fold. `Show more` keeps large expanded previews bounded; `Open in editor` opens the complete captured text. Nested-loop output uses bounded parts and shows at most 20 lines per part |
 | `evalens.valuesPanel.followCursor` | `true` | Reveal the matching value when moving the editor cursor, and reveal source when navigating Values rows. Keyboard focus stays in the pane you use. Turn off with **Follow cursor between code and values** in the panel to browse independently; clicking a row or pressing Enter/Space still reveals source. Use Up/Down or Home/End to browse rows. Navigation only reads captured results |
 
 Two of them are off switches on purpose. Loop sequences and read-name
@@ -1059,10 +1084,12 @@ computed with the whole file, and a value that asserts more than we know is
 the defect this project exists to stop.
 
 There is no setting to turn the **values panel's fold** off. A statement that
-prints ten thousand lines still gets `evalens.valuesPanel.outputLines`
-elided into `Show all` and `Open in editor` whatever this says — an
-unfolded row that size is the defect the setting exists to prevent, not a
-display style someone might reasonably want back.
+prints ten thousand lines still gets a bounded preview. Ordinary text starts
+at 2,000 characters or `evalens.valuesPanel.outputLines`, whichever comes first.
+`Show more` raises the preview to at most 16,000 characters in a scrolling area;
+`Show all` is offered when that includes everything. `Open in editor` opens the
+complete captured text. Nested loops page retained entries and output parts
+instead of expanding an arbitrarily large tree.
 
 **Evaluate and Advance** stops at the last statement rather than wrapping to
 the top, and centres its destination only when that destination is off screen.

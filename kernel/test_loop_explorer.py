@@ -145,6 +145,22 @@ class LoopExplorerKernelTest(unittest.TestCase):
         self.assertEqual(wire['entries'][0]['count'], 100)
         self.assertLess(len(json.dumps(wire)), 400000)
 
+    def test_site_names_do_not_expand_the_wire_or_final_snapshot_budget(self):
+        names = ', '.join('item_%05d' % i for i in range(5000))
+        _, wire = self.run_loop('for x in [0]:\n'
+                                '    for (' + names + ') in [range(5000)]:\n'
+                                '        pass\n')
+        self.assertTrue(all('names' not in site for site in wire['sites']))
+        self.assertLessEqual(len(wire['final_values']), 8)
+        self.assertLess(len(json.dumps(wire)), 4000)
+
+    def test_else_child_records_parent_invocation_without_parent_iteration(self):
+        _, wire = self.run_loop('for x in [0]:\n    pass\nelse:\n'
+                                '    for y in [1, 2]:\n        print(y)\n')
+        invocations = [e for e in wire['entries'] if e['kind'] == 'invocation']
+        self.assertIsNone(invocations[1]['parent'])
+        self.assertEqual(invocations[1]['parent_invocation'], invocations[0]['id'])
+
     def test_huge_output_has_bounded_retention_and_original_offsets(self):
         result, wire = self.run_loop(
             'for x in range(2):\n'

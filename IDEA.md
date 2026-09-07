@@ -538,6 +538,39 @@ off. The panel's checkbox controls this preference separately from
 `evalens.valuesPanel.follow`, which follows newly evaluated results. Neither
 navigation mode evaluates code or opens a hidden panel.
 
+### Exploring nested loops without inventing a history
+
+The Values panel separates **Iteration values** from **Printed output** for
+nested readable `for` statements. The former are target representations
+recorded on entry to each iteration; independent body-variable histories are
+never zipped into those rows. **Values after loop** reports bounded passive
+snapshots after success, separately from iteration readings. Failed or
+unsupported captures retain flat output.
+
+`kernel/loop_explorer.py` records explicit site, invocation, parent invocation
+and parent iteration IDs. Parent invocation remains meaningful in a loop's
+`else`, where no iteration is active. A statement-wide budget retains at most
+2,000 invocations and iterations combined and reports omitted counts. Retained
+ancestors still close when the budget fills. `try/finally` boundaries keep
+`continue`, `break`, user `finally`, and iterator/`else` output in their proper
+intervals; streams remain separate. Offsets count Python Unicode code points
+in original output, including text outside the existing 65,536-character
+retention cap. The renderer converts retained offsets once for JavaScript.
+Target text is reused from the existing trace; browsing never asks the kernel
+to execute or describe anything again.
+
+The panel pages retained children in groups of 20 with a total visible budget
+of 120 entries. It displays output parts of roughly 2,000 UTF-16 units and at most 20
+logical lines, preserving surrogate pairs. Small runs can show adjacent outer
+iterations together. Each capture owns its fold and page state, so unrelated
+refreshes preserve it and a new evaluation starts fresh. Source links shift
+with edits before the statement and are withdrawn after an intersecting edit.
+Original captured streams remain available as untitled plain text. Ordinary
+flat output also folds by characters as well as lines: expanding stops at
+16,000 characters inside a scrolling container. Unretained data and hidden
+captured text have different notices; a disclosure cannot recover data that
+was never kept.
+
 ## The hard parts, and where each stands
 
 **Ordering and state.** Evaluating line 40 requires lines 1–39 to have run.

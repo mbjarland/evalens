@@ -98,6 +98,7 @@ from __future__ import annotations
 import ast
 import copy
 import sys
+from itertools import islice
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 #: The name the rewritten code reaches the recorders through. Installed in the
@@ -680,8 +681,8 @@ class _Instrumenter(ast.NodeTransformer):
                 source=(('async ' if isinstance(node, ast.AsyncFor) else '')
                         + 'for ' + ast.unparse(node.target) + ' in '
                         + ast.unparse(node.iter)),
-                names=[n.id for n in ast.walk(node.target)
-                       if isinstance(n, ast.Name)]))
+                names=list(islice((n.id for n in ast.walk(node.target)
+                                   if isinstance(n, ast.Name)), 8))))
             self.parents.append(index)
         else:
             self.unsupported = True

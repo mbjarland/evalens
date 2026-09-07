@@ -65,8 +65,11 @@ export interface LoopInvocation {
   readonly site: number;
   readonly parent: number | null;
   readonly count: number;
+  /** Enclosing invocation even in its else suite, outside an iteration. */
+  readonly parent_invocation: number | null;
   readonly start: LoopOffsets;
   readonly end: LoopOffsets;
+  readonly incomplete?: boolean;
 }
 export interface LoopIteration {
   readonly kind: 'iteration';
@@ -76,9 +79,11 @@ export interface LoopIteration {
   readonly value: string;
   readonly start: LoopOffsets;
   readonly end: LoopOffsets;
+  readonly incomplete?: boolean;
 }
 export interface LoopExplorerWire {
   readonly version: 1;
+  readonly statement_line: number;
   readonly sites: readonly LoopSite[];
   /** At most 2,000 invocations and iterations combined. */
   readonly entries: readonly (LoopInvocation | LoopIteration)[];

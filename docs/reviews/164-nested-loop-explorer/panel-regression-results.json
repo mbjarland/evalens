@@ -1,0 +1,48 @@
+[
+  {
+    "case": "x5-long-line",
+    "status": "pass",
+    "scroll": {
+      "height": 235.1953125,
+      "maxHeight": "235.2px",
+      "chars": 16000,
+      "overflow": "auto"
+    },
+    "openedCharacters": 60000
+  },
+  {
+    "case": "x5-long-multiline",
+    "status": "pass",
+    "scroll": {
+      "height": 235.1953125,
+      "maxHeight": "235.2px",
+      "chars": 16000,
+      "overflow": "auto"
+    },
+    "openedCharacters": 50000
+  },
+  {
+    "case": "Y2 output-only row has no blank first line and retains amber bar",
+    "status": "pass",
+    "outputOnly": {
+      "height": 20,
+      "firstTextOffset": 3,
+      "bar": "rgb(230, 173, 69)",
+      "text": "printed: hello from output-only"
+    }
+  },
+  {
+    "case": "Editor cursor scrolls offscreen Values rows into view both directions",
+    "status": "pass",
+    "top": {
+      "top": 31,
+      "bottom": 63.5,
+      "viewport": 563
+    },
+    "bottom": {
+      "top": 530,
+      "bottom": 563,
+      "viewport": 563
+    }
+  }
+]

@@ -13,6 +13,7 @@ import { ErrorDetails, errorDetails } from './errorGuidance';
  * different kind of thing from one painted under the cursor.
  */
 export type ErrorPresentation = ErrorDetails & {
+  readonly printed?: Printed;
   readonly kind: 'error';
   readonly range: Range;
   readonly anchor?: number;
@@ -160,6 +161,8 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
       ...(response.binds === undefined ? {} : { binds: response.binds }),
       ...(response.reads === undefined ? {} : { reads: response.reads }),
       ...errorDetails(response.error),
+      ...(hasOutput(printedFrom(response.stdout, response.stderr))
+        ? { printed: printedFrom(response.stdout, response.stderr) } : {}),
       hover: response.error.traceback || response.error.message,
       ...caveat,
     };

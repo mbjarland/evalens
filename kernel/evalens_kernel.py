@@ -4111,7 +4111,8 @@ class Kernel:
         with _user_io(allow_stdin, _located(form), form=form,
                      filename=filename) as (out, err, stdin_stub):
             if loop_sites:
-                explorer = LoopExplorer(loop_sites, out, err)
+                explorer = LoopExplorer(loop_sites, out, err,
+                                        statement_line=form.start_line)
                 for index, trace in enumerate(recorders):
                     trace.explorer, trace.site = explorer, index
             try:
@@ -4312,10 +4313,14 @@ class Kernel:
                 if explorer is not None:
                     # Final snapshots are distinct from per-iteration target
                     # readings and independent body histories. Never zip them.
-                    final_names = dict.fromkeys(
-                        name for site in loop_sites for name in site['names'])
-                    for trace in recorders:
-                        final_names.update(dict.fromkeys(trace.bindings))
+                    final_names = {}
+                    candidates = itertools.chain(
+                        (name for site in loop_sites for name in site['names']),
+                        (name for trace in recorders for name in trace.bindings))
+                    for name in candidates:
+                        if len(final_names) >= min(limits['names'], 8):
+                            break
+                        final_names[name] = None
                     for name in final_names:
                         if len(final_values) >= limits['names']:
                             break

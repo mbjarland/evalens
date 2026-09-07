@@ -63,10 +63,11 @@ function webview(followCursor = true, revealLine?: number) {
     revealLine, undefined, followCursor, 7);
   const script = /<script nonce="n">([\s\S]*?)<\/script>/.exec(html)![1];
   runInNewContext(script, {
-    acquireVsCodeApi: () => ({ postMessage: (value: Record<string, unknown>) => {
+    acquireVsCodeApi: () => ({ getState: () => undefined, setState: () => undefined,
+      postMessage: (value: Record<string, unknown>) => {
       posted.push(JSON.parse(JSON.stringify(value)));
     } }),
-    document: { querySelectorAll: () => rows,
+    document: { querySelectorAll: (selector: string) => selector === 'tr.row' ? rows : [],
       getElementById: (id: string) => id === 'follow-cursor' ? control
         : { getBoundingClientRect: () => ({ bottom: 30 }) } },
     window: { innerHeight: 300, scrollBy: ({ top }: { top: number }) => {
