@@ -24,6 +24,7 @@ import { Annotation, toVsCodeRange } from './render/decorations';
 import { Flash, SETTLED, SNAP } from './render/flash';
 import { errorDetails } from './render/errorGuidance';
 import { printedFrom } from './render/format';
+import { inlineLoopOwner } from './render/loopHistories';
 import {
   describeAbove, describeLoad, describeResidue, describeRun, hoverFor,
   partialCause,
@@ -133,7 +134,7 @@ function annotationFor(
       : undefined;
   }
   const printed = printedFrom(outcome.stdout, outcome.stderr);
-  return {
+  return inlineLoopOwner({
     range: toVsCodeRange(outcome.range),
     ...(outcome.anchor === undefined ? {} : { anchor: outcome.anchor }),
     source: sourceAtText(source, outcome.range),
@@ -152,7 +153,7 @@ function annotationFor(
       outcome.display, outcome.value, outcome.repr, outcome.loop,
       outcome.names, outcome.bindings, printed
     ),
-  };
+  });
 }
 
 /**

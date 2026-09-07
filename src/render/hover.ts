@@ -10,6 +10,7 @@ import {
 } from './inspector';
 import { staleReasonText, Traced, GO_TO_STALE_CAUSE } from './registry';
 import { tableMarkdown } from './table';
+import { inlineLoopHover } from './loopHistories';
 import { LiveInspection } from './liveInspection';
 import { literalBlock } from './markdown';
 import { errorGuidance } from './errorGuidance';
@@ -130,7 +131,9 @@ export class ValueHoverProvider implements vscode.HoverProvider {
         lines.push(`[Go to re-binding](command:${GO_TO_STALE_CAUSE}?${args})`, '');
       }
     }
-    lines.push(literalBlock(annotation.hover));
+    const historyHover = inlineLoopHover(
+      { ...annotation, value: annotation.value ?? null }, position.line);
+    lines.push(literalBlock(historyHover ?? annotation.hover));
     const guidance = errorGuidance(annotation.error);
     if (guidance !== undefined) lines.push('', guidance);
 
@@ -139,7 +142,8 @@ export class ValueHoverProvider implements vscode.HoverProvider {
     }
 
     const client = this.getClient();
-    const inspected = client && isInspectableName(annotation.display)
+    const inspected = historyHover === undefined && client
+      && isInspectableName(annotation.display)
       ? await this.inspection.ask(client, annotation.display, token)
       : undefined;
     if (inspected) {

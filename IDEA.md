@@ -540,6 +540,27 @@ navigation mode evaluates code or opens a hidden panel.
 
 ### Exploring nested loops without inventing a history
 
+Each supported nested loop's editor chip sits beside its own source header.
+It uses that source site's existing recorder, with an exact aggregate count,
+at most 50 requested leading representations and the final representation.
+Invocation counts stay separate from the bounded explorer entries: exhausting
+the detail budget cannot turn a 10,000-iteration inner loop into the first
+retained sample or its final value. Repeated invocations add **total** to the
+inline count and name the number of contributing loop runs in the hover.
+Zero invocations means **not reached**, distinct from a reached empty loop.
+Names reused at different source sites never merge histories.
+
+Child chips are views of the enclosing saved annotation, not independent
+results. Pending and dismissal remove them together; disjoint edits shift
+all their source offsets with the owner. An edit to the statement withdraws
+child positions that can no longer be verified while retaining the stale
+capture in Values. Final namespace snapshots leave the outer inline chip and
+appear under **Values after loop** in the panel and hover. Reading a nested
+history hover uses saved strings and does not inspect current namespace state.
+Unsupported targets, disabled loop tracing and sources exceeding 64 loop
+sites keep the existing flat fallback. No display action evaluates code or
+adds user `repr()` calls.
+
 The Values panel separates **Iteration values** from **Printed output** for
 nested readable `for` statements. The former are target representations
 recorded on entry to each iteration; independent body-variable histories are

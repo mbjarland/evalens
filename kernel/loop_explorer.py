@@ -8,6 +8,7 @@ ENTRY_LIMIT invocations/iterations share one budget across the statement.
 """
 
 ENTRY_LIMIT = 2000
+HISTORY_HEAD_LIMIT = 50
 
 
 class LoopExplorer:
@@ -21,6 +22,9 @@ class LoopExplorer:
         self.next_id = 0
         self.iterations = 0
         self.invocations = 0
+        # Per-site counters survive the detail budget. No iteration entries or
+        # extra repr calls are needed to describe all executions of a header.
+        self.site_invocations = [0] * len(sites)
         self.omitted_iterations = 0
         self.omitted_invocations = 0
 
@@ -46,6 +50,7 @@ class LoopExplorer:
 
     def begin(self, site):
         self.invocations += 1
+        self.site_invocations[site] += 1
         parent = self.stack[-1][2] if self.stack else None
         parent_invocation = self.stack[-1][1] if self.stack else None
         entry = self._entry('invocation', site=site,
@@ -84,13 +89,24 @@ class LoopExplorer:
         if entry is not None:
             entry['end'] = self._offset()
 
-    def wire(self, final_values):
+    def wire(self, final_values, recorders=None):
         sites = [{key: value for key, value in site.items() if key != 'names'}
                  for site in self.sites]
-        return dict(version=1, sites=sites, entries=self.entries,
+        result = dict(version=1, sites=sites, entries=self.entries,
                     statement_line=self.statement_line,
                     iterations=self.iterations, invocations=self.invocations,
                     omitted_iterations=self.omitted_iterations,
                     omitted_invocations=self.omitted_invocations,
                     retained=[self.out.retained(), self.err.retained()],
                     totals=self._offset(), final_values=final_values)
+        if recorders is not None:
+            # All sites (at most 64) travel, including unvisited/empty ones.
+            # The requested head length is normally <= 50; defend the wire
+            # even when a hand-written request asks the recorder for more.
+            result['histories'] = [dict(
+                site=site['id'], invocations=self.site_invocations[site['id']],
+                values=trace.head[:HISTORY_HEAD_LIMIT], count=trace.count,
+                last=(trace.latest if trace.count > min(
+                    len(trace.head), HISTORY_HEAD_LIMIT) else None))
+                for site, trace in zip(self.sites, recorders)]
+        return result

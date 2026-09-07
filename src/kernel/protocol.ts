@@ -81,10 +81,18 @@ export interface LoopIteration {
   readonly end: LoopOffsets;
   readonly incomplete?: boolean;
 }
+/** Exact per-source aggregate from the existing bounded recorder, independent
+ * of the explorer entry budget. Values retain execution order across runs. */
+export interface LoopHistory extends LoopTrace {
+  readonly site: number;
+  readonly invocations: number;
+}
 export interface LoopExplorerWire {
   readonly version: 1;
   readonly statement_line: number;
   readonly sites: readonly LoopSite[];
+  /** All supported sites, at most 64; each keeps at most 50 leading values. */
+  readonly histories?: readonly LoopHistory[];
   /** At most 2,000 invocations and iterations combined. */
   readonly entries: readonly (LoopInvocation | LoopIteration)[];
   readonly iterations: number;
@@ -508,6 +516,8 @@ export interface Unresolved {
  * times, which is worse than one value because it reads as N observations.
  */
 export interface LoopTrace {
+  /** Present for a source-associated aggregate across loop invocations. */
+  readonly invocations?: number;
   readonly values: readonly string[];
   readonly last: string | null;
   readonly count: number;

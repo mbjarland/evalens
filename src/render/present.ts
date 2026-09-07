@@ -3,6 +3,7 @@ import {
   TableWire,
 } from '../kernel/protocol';
 import { Printed, hasOutput, hoverText, printedFrom } from './format';
+import { inlineLoopOwner } from './loopHistories';
 import { ErrorDetails, errorDetails } from './errorGuidance';
 
 /**
@@ -188,8 +189,8 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
     || (response.names?.length ?? 0) > 0
     || hasOutput(printed);
 
-  return {
-    kind: 'value',
+  return inlineLoopOwner({
+    kind: 'value' as const,
     range: response.range,
     ...(response.anchor === undefined ? {} : { anchor: response.anchor }),
     value: response.value,
@@ -222,7 +223,7 @@ export function present(response: EvalResponse, cursorLine: number): Presentatio
         }
       : {}),
     ...caveat,
-  };
+  });
 }
 
 /**

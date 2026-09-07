@@ -1,0 +1,140 @@
+[
+  {
+    "case": "x5-100x100",
+    "status": "pass",
+    "rows": [
+      {
+        "code": "for x in range(100):",
+        "annotation": "x ×100: 0, 1, 2, 3, 4, … (+94 more) … 99printed: 0 0 …(10000 lines)"
+      },
+      {
+        "code": "    for y in range(100):",
+        "annotation": "y ×10,000 total: 0, 1, 2, 3, 4, … (+9,994 more) … 99"
+      }
+    ]
+  },
+  {
+    "case": "inline-uniform",
+    "status": "pass",
+    "rows": [
+      {
+        "code": "for x in range(3):",
+        "annotation": "x ×3: 0, 1, 2printed: 0 0 …(12 lines)"
+      },
+      {
+        "code": "    for y in range(4):",
+        "annotation": "y ×12 total: 0, 1, 2, 3, 0, … (+6 more) … 3"
+      }
+    ]
+  },
+  {
+    "case": "inline-varying",
+    "status": "pass",
+    "rows": [
+      {
+        "code": "for x in range(4):",
+        "annotation": "x ×4: 0, 1, 2, 3"
+      },
+      {
+        "code": "    for y in range(x):",
+        "annotation": "y ×6 total: 0, 0, 1, 0, 1, 2"
+      }
+    ]
+  },
+  {
+    "case": "inline-empty",
+    "status": "pass",
+    "rows": [
+      {
+        "code": "for x in range(3):",
+        "annotation": "x ×3: 0, 1, 2"
+      },
+      {
+        "code": "    for y in []:",
+        "annotation": "y: (no iterations)"
+      }
+    ]
+  },
+  {
+    "case": "inline-unreached",
+    "status": "pass",
+    "rows": [
+      {
+        "code": "for x in []:",
+        "annotation": "x: (no iterations)"
+      },
+      {
+        "code": "    for y in range(4):",
+        "annotation": "y: (not reached)"
+      }
+    ]
+  },
+  {
+    "case": "inline-break",
+    "status": "pass",
+    "rows": [
+      {
+        "code": "for x in range(3):",
+        "annotation": "x ×3: 0, 1, 2"
+      },
+      {
+        "code": "    for y in range(100):",
+        "annotation": "y ×6 total: 0, 0, 1, 0, 1, 2"
+      }
+    ]
+  },
+  {
+    "case": "inline-same-name",
+    "status": "pass",
+    "rows": [
+      {
+        "code": "for x in range(2):",
+        "annotation": "x ×2: 0, 1"
+      },
+      {
+        "code": "    for x in range(3):",
+        "annotation": "x ×6 total: 0, 1, 2, 0, 1, 2"
+      }
+    ]
+  },
+  {
+    "case": "inline-three",
+    "status": "pass",
+    "rows": [
+      {
+        "code": "for x in range(2):",
+        "annotation": "x ×2: 0, 1"
+      },
+      {
+        "code": "    for y in range(3):",
+        "annotation": "y ×6 total: 0, 1, 2, 0, 1, 2"
+      },
+      {
+        "code": "        for z in range(4):",
+        "annotation": "z ×24 total: 0, 1, 2, 3, 0, … (+18 more) … 3"
+      }
+    ]
+  },
+  {
+    "case": "source edits, stale undo, clear and fresh evaluation",
+    "status": "pass"
+  },
+  {
+    "case": "EvaluateFile preserves later print(y) value label",
+    "status": "pass",
+    "rows": [
+      {
+        "code": "for x in range(2):",
+        "annotation": "x ×2: 0, 1"
+      },
+      {
+        "code": "    for y in range(3):",
+        "annotation": "y ×6 total: 0, 1, 2, 0, 1, 2"
+      },
+      {
+        "code": "print(y)",
+        "annotation": "y: 2printed: 2"
+      }
+    ]
+  }
+]
