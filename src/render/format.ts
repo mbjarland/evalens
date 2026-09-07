@@ -477,6 +477,7 @@ export const LOOP_GLYPH = '×';
  * sequence was empty" and "the sequence ended at 4" look identical otherwise.
  */
 export function sequenceText(loop: LoopTrace): string {
+  if (loop.invocations === 0) return '(not reached)';
   if (loop.count === 0) {
     return '(no iterations)';
   }
@@ -546,6 +547,8 @@ export interface Slot {
    * observed once and carries nothing to count (#36).
    */
   readonly iterations?: number;
+  /** This sequence spans more than one invocation of its source loop. */
+  readonly total?: boolean;
 }
 
 /**
@@ -658,7 +661,8 @@ export function paintedSlots(
     return [...bound, ...pairs];
   }
   const slot: Slot = { name: target, value: produced, own: true,
-    ...(loop && loop.count > 0 ? { iterations: loop.count } : {}) };
+    ...(loop && loop.count > 0 ? { iterations: loop.count } : {}),
+    ...((loop?.invocations ?? 0) > 1 ? { total: true } : {}) };
   return leads ? [slot, ...bound, ...pairs] : [...bound, ...pairs, slot];
 }
 
@@ -686,7 +690,7 @@ export function paintedSlots(
  */
 function slotSegments(slot: Slot, glyph: string): readonly Segment[] {
   const count = slot.iterations === undefined
-    ? '' : iterationLabel(slot.iterations, glyph);
+    ? '' : iterationLabel(slot.iterations, glyph) + (slot.total ? ' total' : '');
   if (slot.name === null) {
     return [asLabel(`${SEPARATOR}${count} `), asValue(slot.value)];
   }
@@ -1096,7 +1100,10 @@ export function hoverText(rendered: Rendered): string {
   if (loop) {
     const sequence = sequenceText(loop);
     lines.push(display ? `${display} = ${sequence}` : sequence);
-    lines.push(iterations(loop.count));
+    lines.push(loop.invocations === 0
+      ? 'Loop not reached during this evaluation'
+      : iterations(loop.count) + ((loop.invocations ?? 0) > 1
+        ? ` total across ${grouped(loop.invocations!)} loop runs` : ''));
   } else if (value !== null) {
     lines.push(display ? `${display} = ${value}` : value);
   }

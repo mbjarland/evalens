@@ -12,6 +12,7 @@ import {
 import {
   ChipEdge, SEGMENT_SLOTS, chipSlots, coalesce, paintOrder,
 } from './layers';
+import { inlineLoopHistories } from './loopHistories';
 import { Marker, Traced, markerFor, normalizeSource } from './registry';
 import { Pending, isAsking, pendingText } from './status';
 import { ErrorDetails } from './errorGuidance';
@@ -626,16 +627,36 @@ export class Decorator implements vscode.Disposable {
       ? editor.options.tabSize
       : 4;
 
-    for (const annotation of annotations) {
+    // Child chips are views of one capture, not independent annotations.
+    // Only their owner paints a region/gutter mark or participates in state.
+    const rows = annotations.flatMap((annotation) => {
+      const histories = inlineLoopHistories(annotation);
+      return [
+        { annotation: histories
+          ? { ...annotation, loop: histories[0]!.trace, names: [], more: 0 }
+          : annotation, child: false },
+        ...(histories && annotation.staleReason !== 'edited'
+          ? histories.slice(1).map((history) => ({ child: true,
+            annotation: {
+              range: annotation.range, anchor: history.line,
+              display: history.site.target, value: '', loop: history.trace,
+              isBinding: true, stale: annotation.stale,
+              partialFrom: annotation.partialFrom,
+            } as Annotation })) : []),
+      ];
+    });
+    for (const { annotation, child } of rows) {
       // Greyed, loud, or evaluated -- three lists rather than one, so a
       // statement is painted as exactly one of them and never two at once.
       // Which of the first two it is is `isAsking`'s question: a statement
       // merely taking a while is greyed, one blocked on the reader is not.
-      if (annotation.pending) {
-        (isAsking(annotation.pending) ? askingRegions : pendingRegions)
-          .push({ range: annotation.range });
-      } else {
-        regions.push({ range: annotation.range });
+      if (!child) {
+        if (annotation.pending) {
+          (isAsking(annotation.pending) ? askingRegions : pendingRegions)
+            .push({ range: annotation.range });
+        } else {
+          regions.push({ range: annotation.range });
+        }
       }
 
       // End of the LINE, not end of the statement. Anchoring mid-line would
@@ -653,7 +674,7 @@ export class Decorator implements vscode.Disposable {
       // claims about how a value stands against the code beside it, and a
       // statement that has not produced one yet is in none of them -- a green
       // `evaluated` there would say the kernel had answered when it has not.
-      if (!annotation.pending) {
+      if (!child && !annotation.pending) {
         markers.get(markerFor(annotation))?.push({
           range: new vscode.Range(host.range.start, host.range.start),
         });

@@ -195,6 +195,14 @@ directly, `v ×5` beside `kept ×2`.
 
 ### Nested loops keep values beside the output they produced
 
+In the editor, each loop's history appears beside its own `for` header. For
+nested `range(100)` loops, the outer line shows `x ×100: 0, 1, …, 99` and the
+inner line shows `y ×10,000 total: 0, 1, …, 99`. **Total** counts every pass
+through that inner loop across all its runs; hover its header to see how many
+runs contributed. Small sequences retain repeats in execution order. A loop
+that was reached but drew nothing says **(no iterations)**; one inside an
+outer loop that never entered says **(not reached)**.
+
 Open **Evalens: Show Values Panel** after evaluating nested `for` loops. Each
 outer iteration has a heading such as **Iteration 1 · x = 0 · printed 4 lines**.
 The **Iteration values** column contains the loop target captured on that pass;

@@ -4405,7 +4405,7 @@ class Kernel:
             # ran once" from "this ran and the sequence is elsewhere".
             outcome["loop"] = loop
         if explorer is not None:
-            outcome['loop_explorer'] = explorer.wire(final_values)
+            outcome['loop_explorer'] = explorer.wire(final_values, recorders)
         if bindings:
             # Absent for a loop whose body bound nothing worth watching, and
             # never parallel to `loop`: an iteration that left early computed
