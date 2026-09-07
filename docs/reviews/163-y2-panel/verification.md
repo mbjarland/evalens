@@ -41,8 +41,19 @@ Observed and measured:
 
 Validation: 841 extension tests (baseline 839), 678 kernel tests (unchanged).
 The extension suite includes source navigation, stale links and error
-presentation checks. The real VS Code Host inspection and installed build
-verification remain with the integrating session.
+presentation checks. The integrating session also inspected the initial Y2
+layout in a real VS Code Host: the output-only label starts three pixels
+below the surface top, and expanding/collapsing output left the source
+cursor on line 6.
+
+The maintainer subsequently chose amber evaluated bars. The contributed
+`evalens.annotationBorder` now defaults to amber in both inline annotations
+and the Values panel, with darker shades for light backgrounds. Existing
+colour tests check that the accent remains visible and stale bars remain
+quieter. The screenshots above have been regenerated with those defaults;
+stale, pending and error colours are unchanged. Explicit user colour
+customizations retain priority. Actual Host inspection of the final amber
+palette and installed-build verification remain with the integrating session.
 
 Folding still counts captured newlines, as #155 specifies. This layout
 change does not add character-based folding for a huge single-line repr or

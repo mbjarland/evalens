@@ -55,8 +55,9 @@ export const COLOR_FLASH_REGION = 'evalens.flashRegionBackground';
  * whose whole job is to be seen. The annotation sits beside the user's own
  * trailing comment on real lines, often in near-identical text, and the bar
  * is the one element that can say where one stops and the other starts -- so
- * its default is its own saturated colour, distinct from the value's amber,
- * the error's red, the output label's blue and the pending grey.
+ * its default is a visible amber shared with the Values panel (#163),
+ * darker on light themes. The error's red and pending/stale greys remain
+ * separate states; explicit user colour customizations still take priority.
  */
 export const COLOR_ANNOTATION_BORDER = 'evalens.annotationBorder';
 

@@ -352,7 +352,7 @@ export const PANEL_PALETTE = {
   value: { id: 'evalens.resultForeground', fallback: '#d1a35c' },
   nameLabel: { id: 'evalens.labelForeground', fallback: '#8d7a5a' },
   streamLabel: { id: 'evalens.outputLabelForeground', fallback: '#5c7fa6' },
-  border: { id: 'evalens.annotationBorder', fallback: '#e0a3ff' },
+  border: { id: 'evalens.annotationBorder', fallback: '#e6ad45' },
   tint: { id: 'evalens.annotationTint', fallback: '#d1a35c1a' },
   staleTint: { id: 'evalens.staleTint', fallback: '#8c8c8c0d' },
   staleBorder: { id: 'evalens.staleBorder', fallback: '#8c8c8c' },
