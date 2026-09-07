@@ -1167,46 +1167,28 @@ test('Evalens: Toggle Follow in Values Panel flips the setting', async () => {
   }
 });
 
-/** Every `view/title` entry this manifest contributes for the values panel. */
-function valuesTitleBarEntries(): ReadonlyArray<{
-  readonly command: string; readonly when?: string; readonly icon?: string;
-}> {
-  const entries: ReadonlyArray<{
-    readonly command: string; readonly when?: string; readonly icon?: string;
-  }> = manifest.contributes?.menus?.['view/title'] ?? [];
-  return entries.filter((entry) => entry.when?.includes('view == evalens.values'));
-}
+// -- #181: the two toggles moved into the panel as checkboxes; no
+// view/title menu entries remain for them (checked by manifest.test.ts).
+// evalens.toggleValuesPanelFollow and evalens.toggleInlineValues stay
+// contributed as commands (checked just above and in manifest.test.ts) so
+// the palette and any keybinding on them keep working.
 
-test('the values panel title bar contributes the lock/unlock toggle', () => {
-  const forThisView = valuesTitleBarEntries()
-    .filter((entry) => entry.command === 'evalens.toggleValuesPanelFollow');
-  assert.equal(forThisView.length, 2,
-    'expected exactly two view/title entries for the follow toggle');
+test('Evalens: Toggle Inline Values in the Editor flips the setting', async () => {
+  const fake = createFakeVscode();
+  const extension = activated(fake);
+  try {
+    const mode = (): unknown =>
+      fake.config.getConfiguration('evalens').get('inlineValues', 'always');
+    assert.equal(mode(), 'always', 'setup: unset, so defaults to always');
 
-  const unlock = forThisView.find((entry) => entry.icon === '$(unlock)');
-  const lock = forThisView.find((entry) => entry.icon === '$(lock)');
-  assert.ok(unlock, 'no $(unlock) entry for the values panel');
-  assert.ok(lock, 'no $(lock) entry for the values panel');
-  assert.match(unlock!.when!, /config\.evalens\.valuesPanel\.follow/);
-  assert.doesNotMatch(unlock!.when!, /!config\.evalens\.valuesPanel\.follow/,
-    'the $(unlock) entry should show while following, not while not');
-  assert.match(lock!.when!, /!config\.evalens\.valuesPanel\.follow/);
-});
+    await fake.executeCommand('evalens.toggleInlineValues');
+    assert.equal(mode(), 'whenPanelHidden');
 
-// -- the eye / eye-closed toggle for evalens.inlineValues (#178) -------------
-
-test('the values panel title bar contributes the eye/eye-closed toggle', () => {
-  const forThisView = valuesTitleBarEntries()
-    .filter((entry) => entry.command === 'evalens.toggleInlineValues');
-  assert.equal(forThisView.length, 2,
-    'expected exactly two view/title entries for the inline-values toggle');
-
-  const eye = forThisView.find((entry) => entry.icon === '$(eye)');
-  const eyeClosed = forThisView.find((entry) => entry.icon === '$(eye-closed)');
-  assert.ok(eye, 'no $(eye) entry for the values panel');
-  assert.ok(eyeClosed, 'no $(eye-closed) entry for the values panel');
-  assert.match(eye!.when!, /config\.evalens\.inlineValues == 'always'/);
-  assert.match(eyeClosed!.when!, /config\.evalens\.inlineValues == 'whenPanelHidden'/);
+    await fake.executeCommand('evalens.toggleInlineValues');
+    assert.equal(mode(), 'always');
+  } finally {
+    extension.deactivate();
+  }
 });
 
 // -- folding a long block, through the real provider (#155) -----------------

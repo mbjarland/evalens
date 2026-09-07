@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import {
   followValuesCursor, followValuesPanel, inlineValues,
   printedLabel as printedLabelSetting, setFollowValuesCursor,
-  valuesPanelOutputLines,
+  setFollowValuesPanel, setInlineValues, valuesPanelOutputLines,
 } from '../config';
 import { AnnotationChangeEvent, Annotations } from '../render/annotations';
 import { LoopExplorerWire, LoopInvocation } from '../kernel/protocol';
@@ -89,8 +89,12 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
    * is not safe to read once the view it belonged to has gone.
    *
    * Kept here, not just inferred from `this.view?.visible` at paint time,
-   * because it is also what `rebuild` bakes into `summaryLine`'s own note
-   * -- see `valuesHtml`'s `inlineHidden` parameter.
+   * because it is also the flag `setInlineHidden` compares against to skip
+   * a redundant repaint of the editor's own chips. `valuesHtml`'s own
+   * "Hide inline values" checkbox (#181) is driven separately, straight
+   * from `inlineValues()` in `rebuild` -- it reflects the setting itself,
+   * not this visibility-gated flag, since the checkbox's own label already
+   * says "while this panel is visible".
    */
   private inlineHidden = false;
   private markedEditor: vscode.TextEditor | undefined;
@@ -136,11 +140,21 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
         if (event.affectsConfiguration('evalens.valuesPanel.followCursor')) {
           void this.view?.webview.postMessage({ followCursor: followValuesCursor() });
         }
+        // #181: a reader flips `evalens.valuesPanel.follow` from the
+        // command palette or the Settings UI -- the same setting the
+        // panel's own "Follow newest value" checkbox writes -- and the
+        // checkbox has to follow without waiting for an unrelated rebuild,
+        // exactly like the followCursor checkbox just above.
+        if (event.affectsConfiguration('evalens.valuesPanel.follow')) {
+          void this.view?.webview.postMessage({ followPanel: followValuesPanel() });
+        }
         // #178: a reader flips `evalens.inlineValues` from the command
         // palette or the settings UI while the panel already happens to be
-        // visible -- the same case the title-bar toggle drives through
-        // `evalens.toggleInlineValues`, reached here too since both write
-        // the same setting and this handler cannot tell which one moved it.
+        // visible -- the same case the panel's own "Hide inline values"
+        // checkbox drives through `setInlineValues`, reached here too since
+        // both write the same setting and this handler cannot tell which
+        // one moved it. The rebuild below regenerates the whole page, which
+        // is what updates that checkbox's own checked state.
         if (event.affectsConfiguration('evalens.inlineValues')) {
           this.setInlineHidden(
             inlineValues() === 'whenPanelHidden' && (this.view?.visible ?? false));
@@ -272,12 +286,13 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   /**
-   * Every message the webview posts (#116, #154, #155): `{ goto, revision,
-   * explicit }` from a clicked or keyboard-activated row, `{ followCursor,
-   * revision }` from the panel's own checkbox, `{ expand: line }` from
-   * *Show all*, *Show less* or a click on a foldable block's label, and
-   * `{ open: line, stream }` from *Open in editor*. None of the four
-   * evaluates anything or touches the kernel.
+   * Every message the webview posts (#116, #154, #155, #181): `{ goto,
+   * revision, explicit }` from a clicked or keyboard-activated row,
+   * `{ followCursor, revision }`, `{ followPanel, revision }` and
+   * `{ hideInlineValues, revision }` from the panel's own three checkboxes,
+   * `{ expand: line }` from *Show all*, *Show less* or a click on a
+   * foldable block's label, and `{ open: line, stream }` from *Open in
+   * editor*. None of these evaluates anything or touches the kernel.
    *
    * `revision` guards the first two: `rebuild` increments it on every
    * render and a message carrying any other value is a click queued
@@ -296,6 +311,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     }
     const data = message as {
       cause?: unknown; goto?: unknown; revision?: unknown; followCursor?: unknown;
+      followPanel?: unknown; hideInlineValues?: unknown;
       explicit?: unknown; expand?: unknown; open?: unknown; stream?: unknown;
       loop?: unknown; action?: unknown; node?: unknown; value?: unknown;
       resultFold?: unknown; collapsed?: unknown; token?: unknown;
@@ -339,6 +355,14 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     }
     if (typeof data.followCursor === 'boolean') {
       void setFollowValuesCursor(data.followCursor);
+      return;
+    }
+    if (typeof data.followPanel === 'boolean') {
+      void setFollowValuesPanel(data.followPanel);
+      return;
+    }
+    if (typeof data.hideInlineValues === 'boolean') {
+      void setInlineValues(data.hideInlineValues ? 'whenPanelHidden' : 'always');
       return;
     }
     if (!followValuesCursor() && data.explicit !== true) {
@@ -506,7 +530,8 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       this.renderedData, cursorLine, nonce(), revealLine,
       { outputLines: valuesPanelOutputLines(), expandedLines, loopStates,
         resultFolds: this.renderedResultFolds },
-      followValuesCursor(), ++this.revision, this.inlineHidden);
+      followValuesCursor(), ++this.revision, followValuesPanel(),
+      inlineValues() === 'whenPanelHidden');
     if (editor && this.view.visible && cursorLine !== undefined) {
       this.mark(editor, cursorLine);
     }
