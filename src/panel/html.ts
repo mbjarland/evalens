@@ -355,6 +355,9 @@ export function rowsFor(
 export interface ValuesPanelData {
   readonly fileName: string | undefined;
   readonly rows: readonly ValuesRow[];
+  /** The newest retained completed result in this document, independently
+   * of the editor cursor. Never a pending row or an inferred nearby line. */
+  readonly latestResultLine?: number;
 }
 
 /**
@@ -809,16 +812,20 @@ interface FoldRenderOptions {
 /** One `<tr>`, carrying the line data the embedded script needs to move the
  * cursor highlight and to jump to a click without a rebuild. */
 function rowHtml(
-  row: ValuesRow, isCursor: boolean, fold: FoldRenderOptions
+  row: ValuesRow, isCursor: boolean, isLatest: boolean, fold: FoldRenderOptions
 ): string {
   const cursorClass = isCursor ? ' cursor' : '';
   const loopClass = row.loopExplorer ? ' loop-row' : '';
-  return `<tr class="row${cursorClass}${loopClass}" data-goto="${row.line}" `
+  const latestClass = isLatest ? ' latest-result' : '';
+  const latestLabel = isLatest
+    ? '<span class="latest-result-label" title="Most recently recorded result in this file">Latest result</span>'
+    : '';
+  return `<tr class="row${cursorClass}${loopClass}${latestClass}" data-goto="${row.line}" `
     + `data-start="${row.startLine}" data-end="${row.endLine}" `
     + `tabindex="${isCursor ? 0 : -1}" aria-current="${isCursor}">`
     + `<td class="line-cell"><span class="navigation-arrow" aria-hidden="true">› </span>`
     + `<span class="line-num">${row.line + 1}</span></td>`
-    + `<td class="code-cell">${codeCellHtml(row)}</td>`
+    + `<td class="code-cell">${codeCellHtml(row)}${latestLabel}</td>`
     + `<td class="value-cell">`
     + `${valueCellHtml(row, fold.outputLines, fold.expandedLines, fold.loopStates)}</td>`
     + `</tr>`;
@@ -830,7 +837,7 @@ function emptyStateHtml(message: string): string {
 
 function tableHtml(
   fileName: string, rows: readonly ValuesRow[], cursorLine: number | undefined,
-  fold: FoldRenderOptions
+  fold: FoldRenderOptions, latestResultLine?: number
 ): string {
   const summary =
     `<div class="summary">${escapeHtml(summaryLine(fileName, rows))}</div>`;
@@ -838,7 +845,8 @@ function tableHtml(
     ?? rows.filter((row) => cursorLine !== undefined
       && cursorLine >= row.startLine && cursorLine <= row.endLine)
       .sort((a, b) => (a.endLine - a.startLine) - (b.endLine - b.startLine))[0];
-  const body = rows.map((row) => rowHtml(row, row === current, fold)).join('\n');
+  const body = rows.map((row) => rowHtml(row, row === current,
+    row.line === latestResultLine && row.state !== 'pending', fold)).join('\n');
   const table = '<table>'
     + '<colgroup><col class="col-line"><col class="col-code">'
     + '<col class="col-value"></colgroup>'
@@ -919,6 +927,15 @@ tr.cursor .line-cell {
 }
 .navigation-arrow { visibility: hidden; }
 tr.cursor .navigation-arrow { visibility: visible; }
+tr.latest-result .line-cell { border-left-color: ${cssVar('border')}; }
+.latest-result-label {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: 0.85em;
+  font-weight: 600;
+  color: ${cssVar('border')};
+}
 tr.row:focus-visible {
   outline: 2px dashed var(--vscode-focusBorder, currentColor);
   outline-offset: -2px;
@@ -1304,7 +1321,7 @@ export function valuesHtml(
     ? emptyStateHtml(NO_EDITOR_MESSAGE)
     : data.rows.length === 0
       ? emptyStateHtml(NO_ANNOTATIONS_MESSAGE)
-      : tableHtml(data.fileName, data.rows, cursorLine, foldOptions);
+      : tableHtml(data.fileName, data.rows, cursorLine, foldOptions, data.latestResultLine);
 
   return `<!doctype html>
 <html>

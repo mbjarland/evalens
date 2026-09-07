@@ -9,7 +9,7 @@ import { AnnotationChangeEvent, Annotations } from '../render/annotations';
 import { LoopExplorerWire, LoopInvocation } from '../kernel/protocol';
 import { LoopViewState, LOOP_PAGE_SIZE, invocationExpanded, loopExpanded, newLoopViewState } from './loopExplorer';
 import {
-  PanelAnnotation, ValuesPanelData, ValuesRow, fullTextFor, rowsFor, valuesHtml,
+  ValuesPanelData, ValuesRow, fullTextFor, rowsFor, valuesHtml,
 } from './html';
 
 /** No document has anything expanded -- the common case, and the one that
@@ -77,6 +77,9 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
    * each new evaluation gets a new object and therefore fresh fold IDs. */
   private readonly loopStates = new WeakMap<LoopExplorerWire, LoopViewState>();
   private nextLoopIdentity = 0;
+  /** One opaque result identity per live document. A row number cannot carry
+   * this fact across edits, and cursor movement is independent of completion. */
+  private latestResults = new WeakMap<vscode.TextDocument, object>();
 
   /** Incremented on every rebuild (#154); a message from the webview that
    * does not echo the current value is a click queued against HTML that
@@ -109,8 +112,12 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       // the old one is not the text the reader chose to see in full, so
       // `Show all` does not carry over to it.
       annotations.onDidChange((event) => {
+        this.trackLatestResult(event);
         this.dropExpandedFor(event);
         this.rebuild(this.revealLineFor(event));
+      }),
+      vscode.workspace.onDidCloseTextDocument((document) => {
+        this.latestResults.delete(document);
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration('evalens.valuesPanel.followCursor')) {
@@ -164,6 +171,21 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   // -- internals --------------------------------------------------------------
+
+  private trackLatestResult(event: AnnotationChangeEvent): void {
+    if (!event.document) {
+      this.latestResults = new WeakMap();
+      return;
+    }
+    if (event.resultIdentity) {
+      this.latestResults.set(event.document, event.resultIdentity);
+    }
+    const identity = this.latestResults.get(event.document);
+    if (identity && !this.annotations.all(event.document)
+      .some((annotation) => annotation.resultIdentity === identity && !annotation.pending)) {
+      this.latestResults.delete(event.document);
+    }
+  }
 
   private cursorRevealLine(): number | undefined {
     return followValuesCursor() ? vscode.window.activeTextEditor?.selection.active.line
@@ -506,10 +528,13 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     if (!editor || editor.document.languageId !== 'python') {
       return { fileName: undefined, rows: [] };
     }
-    const annotations: readonly PanelAnnotation[] =
-      this.annotations.all(editor.document);
+    const annotations = this.annotations.all(editor.document);
+    const identity = this.latestResults.get(editor.document);
+    const latest = identity && annotations.find((annotation) =>
+      annotation.resultIdentity === identity && !annotation.pending);
     return {
       fileName: path.basename(editor.document.uri.fsPath),
+      latestResultLine: latest ? latest.anchor ?? latest.range.end.line : undefined,
       rows: rowsFor(editor.document, annotations, printedLabelSetting()),
     };
   }

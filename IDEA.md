@@ -543,6 +543,15 @@ off. The panel's checkbox controls this preference separately from
 `evalens.valuesPanel.follow`, which follows newly evaluated results. Neither
 navigation mode evaluates code or opens a hidden panel.
 
+The Values panel separately marks the most recently recorded result in each
+document with an amber edge and a **Latest result** label. Completing a result,
+including an error, moves that cue; pending updates and source navigation do
+not. This keeps Evaluate and Advance's result identifiable when its cursor
+has already moved on. The result's identity survives source reanchoring and
+stale marking, and disappears when the result is removed or replaced. The
+cue does not alter following, focus, or the actual cursor's accessibility
+state, and the nested-loop surface remains transparent.
+
 ### Exploring loops without inventing a history
 
 Each supported nested loop's editor chip sits beside its own source header.
