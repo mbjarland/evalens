@@ -1,0 +1,22 @@
+2026-09-07 10:22:17.707 [info] [KeybindingService]: \ From 26 keybinding entries, no when clauses matched the context.
+2026-09-07 10:22:33.922 [info] [KeybindingService]: \ From 26 keybinding entries, matched extension.executeAREPLBlock, when: editorTextFocus && editorLangId == 'python', source: user extension almenon.arepl.
+2026-09-07 10:22:33.924 [info] [KeybindingService]: \ From 26 keybinding entries, matched extension.executeAREPLBlock, when: editorTextFocus && editorLangId == 'python', source: user extension almenon.arepl.
+2026-09-07 10:22:33.924 [info] [KeybindingService]: + Invoking command extension.executeAREPLBlock.
+2026-09-07 10:23:06.285 [info] [KeybindingService]: \ From 27 keybinding entries, matched evalens.evaluateAtCursor, when: editorTextFocus && !findWidgetVisible && editorLangId == 'python', source: user.
+2026-09-07 10:23:06.287 [info] [KeybindingService]: \ From 27 keybinding entries, matched evalens.evaluateAtCursor, when: editorTextFocus && !findWidgetVisible && editorLangId == 'python', source: user.
+2026-09-07 10:23:06.287 [info] [KeybindingService]: + Invoking command evalens.evaluateAtCursor.
+2026-09-07 10:23:06.623 [info] [KeybindingService]: \ From 7 keybinding entries, matched evalens.evaluateAndAdvance, when: editorTextFocus && !findWidgetVisible && editorLangId == 'python', source: user extension mbjarland.evalens.
+2026-09-07 10:23:06.624 [info] [KeybindingService]: \ From 7 keybinding entries, matched evalens.evaluateAndAdvance, when: editorTextFocus && !findWidgetVisible && editorLangId == 'python', source: user extension mbjarland.evalens.
+2026-09-07 10:23:06.624 [info] [KeybindingService]: + Invoking command evalens.evaluateAndAdvance.
+2026-09-07 10:23:06.656 [info] [KeybindingService]: \ From 7 keybinding entries, matched evalens.evaluateAndAdvance, when: editorTextFocus && !findWidgetVisible && editorLangId == 'python', source: user extension mbjarland.evalens.
+2026-09-07 10:23:06.656 [info] [KeybindingService]: \ From 7 keybinding entries, matched evalens.evaluateAndAdvance, when: editorTextFocus && !findWidgetVisible && editorLangId == 'python', source: user extension mbjarland.evalens.
+2026-09-07 10:23:06.656 [info] [KeybindingService]: + Invoking command evalens.evaluateAndAdvance.
+2026-09-07 10:23:06.767 [info] [KeybindingService]: \ From 12 keybinding entries, matched evalens.evaluateAtCursor, when: editorTextFocus && !findWidgetVisible && editorLangId == 'python', source: user.
+2026-09-07 10:23:06.767 [info] [KeybindingService]: \ From 12 keybinding entries, matched evalens.evaluateAtCursor, when: editorTextFocus && !findWidgetVisible && editorLangId == 'python', source: user.
+2026-09-07 10:23:06.767 [info] [KeybindingService]: + Invoking command evalens.evaluateAtCursor.
+2026-09-07 10:24:00.510 [info] [KeybindingService]: \ From 2 keybinding entries, matched workbench.action.zoomIn, when: no when condition, source: built-in.
+2026-09-07 10:24:00.511 [info] [KeybindingService]: \ From 2 keybinding entries, matched workbench.action.zoomIn, when: no when condition, source: built-in.
+2026-09-07 10:24:00.511 [info] [KeybindingService]: + Invoking command workbench.action.zoomIn.
+2026-09-07 10:24:00.617 [info] [KeybindingService]: \ From 2 keybinding entries, matched workbench.action.zoomIn, when: no when condition, source: built-in.
+2026-09-07 10:24:00.617 [info] [KeybindingService]: \ From 2 keybinding entries, matched workbench.action.zoomIn, when: no when condition, source: built-in.
+2026-09-07 10:24:00.617 [info] [KeybindingService]: + Invoking command workbench.action.zoomIn.

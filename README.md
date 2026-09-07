@@ -725,6 +725,16 @@ back and the key goes dead again, silently, for a reason that reads like a bad
 install. The entries above are unscoped on purpose; if you wrote one against
 the dev host, drop the `isDevelopment` clause.
 
+If the key stops working again, run **Developer: Toggle Keyboard Shortcuts
+Troubleshooting**, return focus to the Python editor, and press the key once.
+The output opened by that command shows which command VS Code matched and
+whether the binding came from a user override or an extension.
+`Cmd+Enter` / `Ctrl+Enter` should match `evalens.evaluateAtCursor` and leave
+the cursor in place; adding `Shift` should match `evalens.evaluateAndAdvance`
+and move to the next statement. Turn troubleshooting off with the same
+command afterwards. Check this in the ordinary window where you use Evalens:
+a successful development-host check can conceal an `isDevelopment` override.
+
 **On a machine with Evalens installed, the answer is not to install AREPL.**
 The two bind the same two keys to the same job, and which one answers is
 decided by extension load order, which nothing makes stable. There is no
