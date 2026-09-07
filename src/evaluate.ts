@@ -138,6 +138,8 @@ function annotationFor(
     ...(outcome.value === null ? {} : { value: outcome.value }),
     display: outcome.display,
     ...(outcome.loop === undefined ? {} : { loop: outcome.loop }),
+    ...(outcome.loop_explorer === undefined
+      ? {} : { loopExplorer: outcome.loop_explorer }),
     ...(outcome.bindings === undefined ? {} : { bindings: outcome.bindings }),
     ...(outcome.names === undefined ? {} : { names: outcome.names }),
     ...(printed === undefined ? {} : { printed }),
@@ -1262,6 +1264,8 @@ export class Evaluator {
             ...(presentation.loop === undefined
               ? {}
               : { loop: presentation.loop }),
+            ...(presentation.loopExplorer === undefined
+              ? {} : { loopExplorer: presentation.loopExplorer }),
             ...(presentation.bindings === undefined
               ? {}
               : { bindings: presentation.bindings }),
