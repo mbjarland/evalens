@@ -380,12 +380,12 @@
       },
       {
         "id": "evalens.annotationBorder",
-        "description": "Colour of the 3px border on an annotation's leading edge, marking it as a distinct surface from the source line it sits beside — and, on a line where a user's own trailing comment sits right next to near-identical annotation text, the one mark that says where one stops and the other starts. A saturated violet of its own rather than the dim `evalens.labelForeground`, which exists to recede and would make the bar the quietest thing on the row. Only for a value that is currently evaluated: a still-pending annotation is greyed through `evalens.pendingForeground`, a stale one takes its own `evalens.staleBorder` (#109), and an error takes `evalens.errorForeground` unless it is also stale, in which case stale outranks it — so the bar never reads more confidently than the state it marks.",
+        "description": "Colour of the 3px border on an annotation's leading edge, marking it as a distinct surface from the source line it sits beside — and, on a line where a user's own trailing comment sits right next to near-identical annotation text, the one mark that says where one stops and the other starts. An amber accent shared by inline annotations and the Values panel, with a darker shade on light themes so the edge stays visible. Explicit `workbench.colorCustomizations` remain authoritative. Only for a value that is currently evaluated: a still-pending annotation is greyed through `evalens.pendingForeground`, a stale one takes its own `evalens.staleBorder` (#109), and an error takes `evalens.errorForeground` unless it is also stale, in which case stale outranks it — so the bar never reads more confidently than the state it marks.",
         "defaults": {
-          "dark": "#e0a3ff",
-          "light": "#7a1fa2",
-          "highContrast": "#eab8ff",
-          "highContrastLight": "#4a1372"
+          "dark": "#e6ad45",
+          "light": "#8f580a",
+          "highContrast": "#ffd166",
+          "highContrastLight": "#593400"
         }
       },
       {

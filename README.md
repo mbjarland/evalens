@@ -368,6 +368,13 @@ A list long enough to have run off the screen now wraps onto a second line;
 a `print()` spanning several lines keeps every one of them, not the inline
 chip's first-line-and-a-count.
 
+Each statement's values and output share one background and a continuous
+leading bar. A quiet divider separates values from output within that block;
+the stronger separators across code and results mark different statements.
+Labels stay beside their values, with the same variable and output colours
+as the editor. Long output and multiline values retain **Show all**,
+**Show less**, and **Open in editor**.
+
 Move the editor cursor to bring the corresponding row into view, marked with
 an arrow and a frame. Click a row, or use Up/Down and Home/End after focusing
 one, to reveal and frame its source. Keyboard focus stays in the pane you
@@ -1090,7 +1097,7 @@ without the extension offering a setting of its own:
   "evalens.askingForeground": "#e8963c",
   "evalens.askingRegionBackground": "#e8963c66",
   "evalens.flashRegionBackground": "#4a9c8c66",
-  "evalens.annotationBorder": "#e0a3ff",
+  "evalens.annotationBorder": "#e6ad45",
   "evalens.annotationTint": "#d1a35c1a",
   "evalens.chipDivider": "#d1a35c66",
   "evalens.staleTint": "#8c8c8c0d",
@@ -1131,14 +1138,14 @@ makes the annotation read as structure rather than as a stray character. On
 its leading edge, a 3px `annotationBorder` bar, corners squared rather than
 rounded so it cannot be mistaken for a parenthesis, with 8px of breathing
 room at each of the annotation's two outer ends so the tint does not hug the
-text it introduces; the trailing edge rounds instead. The bar is a saturated
-violet of its own rather than the dim `labelForeground`, which exists to
-recede and would make it the quietest thing on the row; the tint takes
-`resultForeground`'s own hue at low opacity, one shade for every state,
+text it introduces; the trailing edge rounds instead. The evaluated bar is
+amber in both the editor and Values panel, darker on light themes so its
+edge stays visible. `workbench.colorCustomizations` can still override it.
+The tint takes `resultForeground`'s own hue at low opacity,
 computed to stay clear of the contrast floors above. The bar takes on the
 colour of whatever state the annotation is actually in: `pendingForeground`
-while stale or still running, `errorForeground` on a raised statement. A
-bare line with no annotation never gets either.
+while still running, `staleBorder` when stale, and `errorForeground` on a
+raised statement. A bare line with no annotation never gets either.
 
 Where a line carries several values — a label and the value it introduces,
 or `printed:` and its text — a 1px `chipDivider` hairline separates one from

@@ -228,6 +228,8 @@ test('the stale border is quieter than the evaluated border (#109)', () => {
   for (const [kind, background] of Object.entries(EDITOR_BACKGROUND)) {
     const evaluatedContrast = contrast(border[kind]!, background);
     const staleContrast = contrast(staleBorder[kind]!, background);
+    assert.ok(evaluatedContrast >= 3,
+      `${kind}: the evaluated accent must remain visible at 3:1 or better`);
     assert.ok(staleContrast < evaluatedContrast,
       `${kind}: the stale border (${staleContrast.toFixed(2)}:1) is not `
       + `quieter than the evaluated one (${evaluatedContrast.toFixed(2)}:1)`);

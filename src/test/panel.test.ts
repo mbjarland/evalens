@@ -30,7 +30,7 @@ function range(startLine: number, endLine: number): PanelAnnotation['range'] {
 
 /** The summary line's own text, apart from the rest of the document --
  * the static stylesheet mentions "stale" and "error" in every render
- * (`.chip.tone-stale`, `.error-text`, …), so a check for either word has to
+ * (`.result-surface.tone-stale`, `.error-text`, …), so a check for either word has to
  * be scoped to content that actually varies with the rows. */
 function summaryOf(html: string): string | undefined {
   return /<div class="summary">([^<]*)<\/div>/.exec(html)?.[1];
@@ -187,14 +187,10 @@ test('a stale error keeps the message under the grey, stale surface', () => {
   assert.equal(rows[0]!.state, 'stale');
   assert.equal(rows[0]!.errorText, 'ZeroDivisionError: division by zero');
   const html = valuesHtml({ fileName: 'x.py', rows }, undefined, 'n');
-  // The static stylesheet always defines a `.tone-error` rule, whether or
-  // not any row uses it -- so the check is against the chip's and bar's own
-  // class attributes, not the whole document. The bar -- not the chip -- is
-  // what carries the state's colour now (#116 review).
-  assert.match(html, /class="bar tone-stale">/);
-  assert.match(html, /class="chip tone-stale">/);
-  assert.doesNotMatch(html, /class="bar tone-error/);
-  assert.doesNotMatch(html, /class="chip tone-error/);
+  // The shared surface owns both the background and continuous bar.
+  // Staleness still outranks the captured error when its source changed.
+  assert.match(html, /class="result-surface tone-stale">/);
+  assert.doesNotMatch(html, /class="result-surface tone-error/);
   assert.match(html, /ZeroDivisionError: division by zero/);
   assert.match(html, /code changed since it ran/);
 });
@@ -259,7 +255,7 @@ test('printed output keeps every line, not the inline chip\'s summary', () => {
   assert.match(html, /one[\s\S]*two[\s\S]*three/);
   assert.ok(!html.includes('…(3 lines)'),
     'the panel must not fall back to the inline elision');
-  assert.match(html, /\.chip\.block\s*\{[^}]*white-space:\s*pre-wrap/);
+  assert.match(html, /\.result-group\.block\s*\{[^}]*white-space:\s*pre-wrap/);
 });
 
 test('printed output is a single block chip under the value chips, not ' +
@@ -276,14 +272,13 @@ test('printed output is a single block chip under the value chips, not ' +
     undefined, 'n');
   // Exactly two chips: the value ("x: 42") and one block chip carrying all
   // three printed lines -- never three chips, one per line.
-  const chipCount = (html.match(/class="chip /g) ?? []).length;
+  const chipCount = (html.match(/class="result-group(?: |")/g) ?? []).length;
   assert.equal(chipCount, 2,
     'expected one value chip and one block printed chip, not one per line');
-  assert.match(html, /class="chip tone-evaluated block"/);
-  // Only the value chip is leading -- the printed block sits under it and
-  // carries no bar of its own.
-  const barCount = (html.match(/class="bar /g) ?? []).length;
-  assert.equal(barCount, 1, 'only the first chip of the row gets a bar');
+  assert.match(html, /class="result-group block"/);
+  // Values and printed output share one enclosing surface and bar.
+  const barCount = (html.match(/class="result-surface /g) ?? []).length;
+  assert.equal(barCount, 1, 'one result surface owns the continuous bar');
 });
 
 test('a multi-line printed block starts every line under the label, the ' +
@@ -381,12 +376,12 @@ test('a hoisted loop count keeps every value chip and shows a printed ' +
   assert.ok(html.includes('4, 8, 12'), 'u\'s sequence should be shown in full');
   assert.ok(!html.includes('…(3 lines)'),
     'the panel must not fall back to the inline elision');
-  const blockCount = (html.match(/class="chip tone-evaluated block"/g) ?? []).length;
+  const blockCount = (html.match(/class="result-group block"/g) ?? []).length;
   assert.equal(blockCount, 1, 'the stream should appear exactly once, as a block');
-  const chipCount = (html.match(/class="chip /g) ?? []).length;
+  const chipCount = (html.match(/class="result-group(?: |")/g) ?? []).length;
   assert.equal(chipCount, 4, 'expected ×3, v, u and one printed block, no more');
-  const barCount = (html.match(/class="bar /g) ?? []).length;
-  assert.equal(barCount, 1, 'only the first chip of the row gets a bar');
+  const barCount = (html.match(/class="result-surface /g) ?? []).length;
+  assert.equal(barCount, 1, 'one result surface owns the continuous bar');
 });
 
 test('a loop with mismatched counts keeps its own inline ×N labels and ' +
@@ -417,9 +412,9 @@ test('a loop with mismatched counts keeps its own inline ×N labels and ' +
     'u keeps its own, differing inline count');
   assert.ok(!html.includes('…(2 lines)'),
     'the panel must not fall back to the inline elision');
-  const blockCount = (html.match(/class="chip tone-evaluated block"/g) ?? []).length;
+  const blockCount = (html.match(/class="result-group block"/g) ?? []).length;
   assert.equal(blockCount, 1, 'the stream should appear exactly once, as a block');
-  const chipCount = (html.match(/class="chip /g) ?? []).length;
+  const chipCount = (html.match(/class="result-group(?: |")/g) ?? []).length;
   assert.equal(chipCount, 3, 'expected v, u and one printed block, no more');
 });
 
@@ -439,16 +434,15 @@ test('a statement writing to both streams shows two blocks and no inline ' +
   assert.ok(html.includes('again'), 'stderr should be shown in full');
   assert.ok(!/…\(\d+ lines?\)/.test(html),
     'the panel must not fall back to either stream\'s inline elision');
-  const blockCount = (html.match(/class="chip tone-evaluated block"/g) ?? []).length;
+  const blockCount = (html.match(/class="result-group block"/g) ?? []).length;
   assert.equal(blockCount, 2, 'stdout and stderr should each render as one block');
-  const chipCount = (html.match(/class="chip /g) ?? []).length;
+  const chipCount = (html.match(/class="result-group(?: |")/g) ?? []).length;
   assert.equal(chipCount, 3, 'expected the value chip plus two stream blocks, no more');
-  const barCount = (html.match(/class="bar /g) ?? []).length;
-  assert.equal(barCount, 1, 'only the first chip of the row gets a bar');
+  const barCount = (html.match(/class="result-surface /g) ?? []).length;
+  assert.equal(barCount, 1, 'one result surface owns the continuous bar');
 });
 
-test('the accent bar is one element before the leading chip, never a ' +
-  'border repeated on every wrapped line', () => {
+test('the accent belongs to one surface, never each wrapped value fragment', () => {
   const long = Array.from({ length: 60 }, (_, i) => i).join(', ');
   const document = lineSource(['xs = list(range(60))']);
   const annotations: PanelAnnotation[] = [
@@ -457,11 +451,44 @@ test('the accent bar is one element before the leading chip, never a ' +
   const html = valuesHtml(
     { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
     undefined, 'n');
-  const barCount = (html.match(/class="bar /g) ?? []).length;
+  const barCount = (html.match(/class="result-surface /g) ?? []).length;
   assert.equal(barCount, 1,
     'a chip long enough to wrap must still carry exactly one bar');
-  assert.doesNotMatch(html, /\.chip\s*\{[^}]*border-left/,
-    'the chip itself must not carry a border-left any more');
+  assert.match(html, /\.result-surface\s*\{[^}]*border-left:/);
+  assert.doesNotMatch(html, /box-decoration-break/,
+    'a wrapped value must not clone its own surface or bar');
+});
+
+test('output-only and silent statements do not create an empty value block', () => {
+  const document = lineSource(['print("hello")', 'pass']);
+  const rows = rowsFor(document, [
+    { range: range(0, 0), value: null, printed: { stdout: 'hello\n' } },
+    { range: range(1, 1), value: null },
+  ], 'printed');
+  const html = valuesHtml({ fileName: 'x.py', rows }, undefined, 'n');
+  assert.equal((html.match(/class="result-surface /g) ?? []).length, 1);
+  assert.doesNotMatch(html, /class="result-values"/);
+  assert.match(html, /class="result-surface tone-evaluated"><div class="result-streams">/);
+  assert.equal(fullTextFor(rows[0]!, 'printed'), 'hello');
+});
+
+test('folding a value keeps its original order and separates it from output', () => {
+  const rows: ValuesRow[] = [{
+    line: 0, startLine: 0, endLine: 0, codeLines: ['compute()'], state: 'evaluated',
+    groups: [
+      [{ role: 'nameLabel', text: 'grid: ' }, { role: 'value', text: manyLines(25) }],
+      [{ role: 'nameLabel', text: 'count: ' }, { role: 'value', text: '25' }],
+    ],
+    streams: [{ label: 'printed', text: 'finished' }],
+  }];
+  for (const expanded of [false, true]) {
+    const html = valuesHtml({ fileName: 'x.py', rows }, undefined, 'n', undefined,
+      { expandedLines: new Set(expanded ? [0] : []) });
+    assert.ok(html.indexOf('>grid: </span>') < html.indexOf('>count: </span>'));
+    assert.ok(html.indexOf('>count: </span>') < html.indexOf('class="result-streams"'));
+    assert.equal((html.match(/class="result-surface /g) ?? []).length, 1);
+    assert.equal(fullTextFor(rows[0]!, 'value-0'), manyLines(25));
+  }
 });
 
 test('a loop\'s iterations are shown the way the inline chip shows them', () => {
@@ -745,7 +772,7 @@ test('a value whose own text runs past the limit folds the same way a ' +
     '<span class="seg-nameLabel fold-label" data-fold-action="expand" '
     + 'data-fold-line="0" data-fold-id="value-0">grid: </span>'),
     'the value\'s own label should become the click target, same as a stream\'s');
-  assert.match(html, /class="chip tone-evaluated block"/,
+  assert.match(html, /class="result-group block"/,
     'a folded value promotes to its own block, like a stream');
 });
 
@@ -761,8 +788,8 @@ test('a value within the limit stays an ordinary inline chip, never a block',
     };
     const html = valuesHtml({ fileName: 'x.py', rows: [row] }, undefined, 'n');
     assert.doesNotMatch(html, /class="fold-footer"/);
-    assert.doesNotMatch(html, /class="chip tone-evaluated block"/);
-    assert.match(html, /class="chip tone-evaluated">/);
+    assert.doesNotMatch(html, /class="result-group block"/);
+    assert.match(html, /class="result-group">/);
   });
 
 test('fullTextFor resolves a stream by its label and a value by its ' +
