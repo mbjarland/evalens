@@ -52,8 +52,17 @@ and the Values panel, with darker shades for light backgrounds. Existing
 colour tests check that the accent remains visible and stale bars remain
 quieter. The screenshots above have been regenerated with those defaults;
 stale, pending and error colours are unchanged. Explicit user colour
-customizations retain priority. Actual Host inspection of the final amber
-palette and installed-build verification remain with the integrating session.
+customizations retain priority.
+
+The integrating session then inspected the final amber layout in a real
+Extension Development Host using its own `y2.py` fixture.
+`y2-amber-host.png` and `y2-amber-light-host.png` show the editor annotations
+and Values panel in dark and light themes. Both use amber evaluated bars;
+the dark panel's computed border colour was `rgb(230, 173, 69)`, matching
+`#e6ad45`. The output-only row has no orphan bar or extra line. The earlier
+Host fold expansion/collapse checks kept the source cursor on line 6. No
+external teaching file was evaluated. Installed-build verification remains
+with the integrating session.
 
 Folding still counts captured newlines, as #155 specifies. This layout
 change does not add character-based folding for a huge single-line repr or
