@@ -447,6 +447,14 @@ export class Annotations implements vscode.Disposable {
     return annotationAt(this.registry.get(document.uri.toString()), line);
   }
 
+  /** Move only the gutter's navigation tick. Captured result text and kernel
+   * state are untouched; the decorator composes it with any state icon. */
+  markCurrentLine(editor: vscode.TextEditor, line: number | undefined): void {
+    if (this.disposed) return;
+    this.decorator.markCurrentLine(
+      editor, line, this.registry.get(editor.document.uri.toString()));
+  }
+
   /** Navigate a still-recorded cause in its original, open document.
    * The command carries an ID, not coordinates from a potentially old hover. */
   async revealDependency(uri: unknown, id: unknown): Promise<void> {

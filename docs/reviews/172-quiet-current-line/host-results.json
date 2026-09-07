@@ -1,0 +1,52 @@
+[
+  {
+    "case": "inner-header exact neutral wash, plain tick; syntax colors unchanged",
+    "overlays": [
+      {
+        "class": "cdr ced-1-TextEditorDecorationType86-0",
+        "top": 128,
+        "bg": "rgba(255, 255, 255, 0.05)",
+        "bt": "0px",
+        "bl": "0px"
+      }
+    ],
+    "glyphs": [
+      {
+        "top": 92,
+        "bg": "url(\"vscode-file://vscode-app/Users/mbjarland/projects/evalens-worktrees/172-quiet-current-line/media/gutter/evaluated-dark.svg\")"
+      },
+      {
+        "top": 128,
+        "bg": "url(\"vscode-file://vscode-app/Users/mbjarland/projects/evalens-worktrees/172-quiet-current-line/media/gutter/current-plain-dark.svg\")"
+      }
+    ]
+  },
+  {
+    "case": "body and root lines, combined evaluated glyph"
+  },
+  {
+    "case": "inner iteration activation marks actual inner header"
+  },
+  {
+    "case": "unmatched cursor clears, hiding clears, reopening restores"
+  },
+  {
+    "case": "Dark Modern",
+    "wash": "rgba(255, 255, 255, 0.05)"
+  },
+  {
+    "case": "Light Modern",
+    "wash": "rgba(0, 0, 0, 0.04)"
+  },
+  {
+    "case": "Default High Contrast",
+    "wash": "rgba(255, 255, 255, 0.1)"
+  },
+  {
+    "case": "Default High Contrast Light",
+    "wash": "rgba(0, 0, 0, 0.08)"
+  },
+  {
+    "case": "clear removes source wash and tick"
+  }
+]

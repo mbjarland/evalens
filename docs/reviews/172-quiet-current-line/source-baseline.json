@@ -1,0 +1,336 @@
+{
+  "tokens": [
+    [
+      {
+        "text": "for",
+        "color": "rgb(197, 134, 192)"
+      },
+      {
+        "text": " x ",
+        "color": "rgb(204, 204, 204)"
+      },
+      {
+        "text": "in",
+        "color": "rgb(197, 134, 192)"
+      },
+      {
+        "text": " ",
+        "color": "rgb(204, 204, 204)"
+      },
+      {
+        "text": "range",
+        "color": "rgb(220, 220, 170)"
+      },
+      {
+        "text": "(",
+        "color": "rgb(255, 215, 0)"
+      },
+      {
+        "text": "2",
+        "color": "rgb(181, 206, 168)"
+      },
+      {
+        "text": ")",
+        "color": "rgb(255, 215, 0)"
+      },
+      {
+        "text": ":",
+        "color": "rgb(204, 204, 204)"
+      }
+    ],
+    [
+      {
+        "text": "    ",
+        "color": "rgb(204, 204, 204)"
+      },
+      {
+        "text": "print",
+        "color": "rgb(220, 220, 170)"
+      },
+      {
+        "text": "(",
+        "color": "rgb(255, 215, 0)"
+      },
+      {
+        "text": "\"x is\"",
+        "color": "rgb(206, 145, 120)"
+      },
+      {
+        "text": ", x",
+        "color": "rgb(204, 204, 204)"
+      },
+      {
+        "text": ")",
+        "color": "rgb(255, 215, 0)"
+      }
+    ],
+    [
+      {
+        "text": "    ",
+        "color": "rgb(204, 204, 204)"
+      },
+      {
+        "text": "for",
+        "color": "rgb(197, 134, 192)"
+      },
+      {
+        "text": " y ",
+        "color": "rgb(204, 204, 204)"
+      },
+      {
+        "text": "in",
+        "color": "rgb(197, 134, 192)"
+      },
+      {
+        "text": " ",
+        "color": "rgb(204, 204, 204)"
+      },
+      {
+        "text": "range",
+        "color": "rgb(220, 220, 170)"
+      },
+      {
+        "text": "(",
+        "color": "rgb(255, 215, 0)"
+      },
+      {
+        "text": "4",
+        "color": "rgb(181, 206, 168)"
+      },
+      {
+        "text": ")",
+        "color": "rgb(255, 215, 0)"
+      },
+      {
+        "text": ":",
+        "color": "rgb(204, 204, 204)"
+      }
+    ],
+    [
+      {
+        "text": "        ",
+        "color": "rgb(204, 204, 204)"
+      },
+      {
+        "text": "if",
+        "color": "rgb(197, 134, 192)"
+      },
+      {
+        "text": " y ",
+        "color": "rgb(204, 204, 204)"
+      },
+      {
+        "text": "==",
+        "color": "rgb(212, 212, 212)"
+      },
+      {
+        "text": " ",
+        "color": "rgb(204, 204, 204)"
+      },
+      {
+        "text": "0",
+        "color": "rgb(181, 206, 168)"
+      },
+      {
+        "text": ":",
+        "color": "rgb(204, 204, 204)"
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "color": "rgb(204, 204, 204)"
+      },
+      {
+        "text": "continue",
+        "color": "rgb(197, 134, 192)"
+      }
+    ],
+    [
+      {
+        "text": "        ",
+        "color": "rgb(204, 204, 204)"
+      },
+      {
+        "text": "print",
+        "color": "rgb(220, 220, 170)"
+      },
+      {
+        "text": "(",
+        "color": "rgb(255, 215, 0)"
+      },
+      {
+        "text": "x, y",
+        "color": "rgb(204, 204, 204)"
+      },
+      {
+        "text": ")",
+        "color": "rgb(255, 215, 0)"
+      }
+    ],
+    []
+  ],
+  "overlays": [
+    {
+      "class": "cdr ced-1-TextEditorDecorationType61-0",
+      "top": 92,
+      "bg": "rgba(255, 255, 255, 0.04)",
+      "border": "",
+      "bl": "3px solid rgb(0, 120, 212)"
+    },
+    {
+      "class": "cdr ced-1-TextEditorDecorationType11-0",
+      "top": 92,
+      "bg": "rgba(74, 156, 140, 0.13)",
+      "border": "0px none rgb(204, 204, 204)",
+      "bl": "0px none rgb(204, 204, 204)"
+    },
+    {
+      "class": "core-guide core-guide-indent lvl-0 vertical",
+      "top": 110,
+      "bg": "rgba(0, 0, 0, 0)",
+      "border": "0px none rgb(204, 204, 204)",
+      "bl": "0px none rgb(204, 204, 204)"
+    },
+    {
+      "class": "cdr ced-1-TextEditorDecorationType61-0",
+      "top": 110,
+      "bg": "rgba(255, 255, 255, 0.04)",
+      "border": "",
+      "bl": "3px solid rgb(0, 120, 212)"
+    },
+    {
+      "class": "cdr ced-1-TextEditorDecorationType11-0",
+      "top": 110,
+      "bg": "rgba(74, 156, 140, 0.13)",
+      "border": "0px none rgb(204, 204, 204)",
+      "bl": "0px none rgb(204, 204, 204)"
+    },
+    {
+      "class": "current-line current-line-exact",
+      "top": 128,
+      "bg": "rgba(0, 0, 0, 0)",
+      "border": "2px solid rgb(40, 40, 40)",
+      "bl": "2px solid rgb(40, 40, 40)"
+    },
+    {
+      "class": "core-guide core-guide-indent lvl-0 vertical",
+      "top": 128,
+      "bg": "rgba(0, 0, 0, 0)",
+      "border": "0px none rgb(204, 204, 204)",
+      "bl": "0px none rgb(204, 204, 204)"
+    },
+    {
+      "class": "cdr ced-1-TextEditorDecorationType61-0",
+      "top": 128,
+      "bg": "rgba(255, 255, 255, 0.04)",
+      "border": "",
+      "bl": "3px solid rgb(0, 120, 212)"
+    },
+    {
+      "class": "cdr ced-1-TextEditorDecorationType11-0",
+      "top": 128,
+      "bg": "rgba(74, 156, 140, 0.13)",
+      "border": "0px none rgb(204, 204, 204)",
+      "bl": "0px none rgb(204, 204, 204)"
+    },
+    {
+      "class": "core-guide core-guide-indent lvl-0 vertical",
+      "top": 146,
+      "bg": "rgba(0, 0, 0, 0)",
+      "border": "0px none rgb(204, 204, 204)",
+      "bl": "0px none rgb(204, 204, 204)"
+    },
+    {
+      "class": "core-guide core-guide-indent lvl-1 indent-active vertical",
+      "top": 146,
+      "bg": "rgba(0, 0, 0, 0)",
+      "border": "0px none rgb(204, 204, 204)",
+      "bl": "0px none rgb(204, 204, 204)"
+    },
+    {
+      "class": "cdr ced-1-TextEditorDecorationType61-0",
+      "top": 146,
+      "bg": "rgba(255, 255, 255, 0.04)",
+      "border": "",
+      "bl": "3px solid rgb(0, 120, 212)"
+    },
+    {
+      "class": "cdr ced-1-TextEditorDecorationType11-0",
+      "top": 146,
+      "bg": "rgba(74, 156, 140, 0.13)",
+      "border": "0px none rgb(204, 204, 204)",
+      "bl": "0px none rgb(204, 204, 204)"
+    },
+    {
+      "class": "core-guide core-guide-indent lvl-0 vertical",
+      "top": 164,
+      "bg": "rgba(0, 0, 0, 0)",
+      "border": "0px none rgb(204, 204, 204)",
+      "bl": "0px none rgb(204, 204, 204)"
+    },
+    {
+      "class": "core-guide core-guide-indent lvl-1 indent-active vertical",
+      "top": 164,
+      "bg": "rgba(0, 0, 0, 0)",
+      "border": "0px none rgb(204, 204, 204)",
+      "bl": "0px none rgb(204, 204, 204)"
+    },
+    {
+      "class": "core-guide core-guide-indent lvl-2 vertical",
+      "top": 164,
+      "bg": "rgba(0, 0, 0, 0)",
+      "border": "0px none rgb(204, 204, 204)",
+      "bl": "0px none rgb(204, 204, 204)"
+    },
+    {
+      "class": "cdr ced-1-TextEditorDecorationType61-0",
+      "top": 164,
+      "bg": "rgba(255, 255, 255, 0.04)",
+      "border": "",
+      "bl": "3px solid rgb(0, 120, 212)"
+    },
+    {
+      "class": "cdr ced-1-TextEditorDecorationType11-0",
+      "top": 164,
+      "bg": "rgba(74, 156, 140, 0.13)",
+      "border": "0px none rgb(204, 204, 204)",
+      "bl": "0px none rgb(204, 204, 204)"
+    },
+    {
+      "class": "core-guide core-guide-indent lvl-0 vertical",
+      "top": 182,
+      "bg": "rgba(0, 0, 0, 0)",
+      "border": "0px none rgb(204, 204, 204)",
+      "bl": "0px none rgb(204, 204, 204)"
+    },
+    {
+      "class": "core-guide core-guide-indent lvl-1 indent-active vertical",
+      "top": 182,
+      "bg": "rgba(0, 0, 0, 0)",
+      "border": "0px none rgb(204, 204, 204)",
+      "bl": "0px none rgb(204, 204, 204)"
+    },
+    {
+      "class": "cdr ced-1-TextEditorDecorationType61-0",
+      "top": 182,
+      "bg": "rgba(255, 255, 255, 0.04)",
+      "border": "",
+      "bl": "3px solid rgb(0, 120, 212)"
+    },
+    {
+      "class": "cdr ced-1-TextEditorDecorationType11-0",
+      "top": 182,
+      "bg": "rgba(74, 156, 140, 0.13)",
+      "border": "0px none rgb(204, 204, 204)",
+      "bl": "0px none rgb(204, 204, 204)"
+    }
+  ],
+  "glyphs": [
+    {
+      "class": "cgmr codicon ced-1-TextEditorDecorationType58-2",
+      "style": "position: absolute; top: 0px; left: 0px; width: 18px; height: 18px;",
+      "bg": "url(\"vscode-file://vscode-app/Users/mbjarland/.vscode/extensions/mbjarland.evalens-0.0.1/media/gutter/evaluated-dark.svg\")"
+    }
+  ]
+}

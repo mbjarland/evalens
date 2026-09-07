@@ -320,12 +320,22 @@
       },
       {
         "id": "evalens.evaluatedRegionBackground",
-        "description": "Background of the region an evaluation covered.",
+        "description": "Colour of the evaluated-region scrollbar mark and temporary selection-snap highlight. Finished source code retains the editor background.",
         "defaults": {
           "dark": "#4a9c8c22",
           "light": "#2a7d6d1a",
           "highContrast": "#4a9c8c44",
           "highContrastLight": "#2a7d6d33"
+        }
+      },
+      {
+        "id": "evalens.currentLineBackground",
+        "description": "Neutral wash on the current source line linked to the visible Values panel. Syntax colors are unchanged; the amber gutter tick identifies the same line.",
+        "defaults": {
+          "dark": "#ffffff0d",
+          "light": "#0000000a",
+          "highContrast": "#ffffff1a",
+          "highContrastLight": "#00000014"
         }
       },
       {

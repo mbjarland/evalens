@@ -529,10 +529,8 @@ export class Decorator implements vscode.Disposable {
   });
 
   private readonly regionType = vscode.window.createTextEditorDecorationType({
-    backgroundColor: new vscode.ThemeColor(COLOR_REGION),
-    isWholeLine: false,
-    // The scrollbar mark is what makes evaluated regions findable in a file
-    // longer than a screen.
+    // Finished code keeps the editor's own background. Its result, state
+    // icon and scrollbar mark remain; only transient feedback paints source.
     overviewRulerColor: new vscode.ThemeColor(COLOR_REGION),
     overviewRulerLane: vscode.OverviewRulerLane.Right,
   });
@@ -567,6 +565,9 @@ export class Decorator implements vscode.Disposable {
   /** One decoration type per state, because each carries a different icon. */
   private readonly markerTypes: ReadonlyMap<
     Marker, vscode.TextEditorDecorationType>;
+  private readonly currentMarkerTypes: ReadonlyMap<
+    Marker | 'plain', vscode.TextEditorDecorationType>;
+  private readonly currentLines = new WeakMap<vscode.TextEditor, number>();
 
   constructor(extensionUri: vscode.Uri) {
     this.segmentTypes = paintOrder(
@@ -601,6 +602,54 @@ export class Decorator implements vscode.Disposable {
         light: { gutterIconPath: iconFor(extensionUri, marker, 'light') },
       }),
     ]));
+    this.currentMarkerTypes = new Map(([...MARKERS, 'plain'] as const).map((marker) => [
+      marker,
+      vscode.window.createTextEditorDecorationType({
+        gutterIconSize: 'contain',
+        dark: { gutterIconPath: vscode.Uri.joinPath(extensionUri,
+          'media', 'gutter', `current-${marker}-dark.svg`) },
+        light: { gutterIconPath: vscode.Uri.joinPath(extensionUri,
+          'media', 'gutter', `current-${marker}-light.svg`) },
+      }),
+    ]));
+  }
+
+  markCurrentLine(
+    editor: vscode.TextEditor, line: number | undefined,
+    annotations: readonly Annotation[]
+  ): void {
+    if (line === undefined) this.currentLines.delete(editor);
+    else this.currentLines.set(editor, line);
+    this.paintMarkers(editor, annotations);
+  }
+
+  /** One glyph per line: VS Code can layer gutter images in the same slot.
+   * A combined image keeps the short current-line tick separate from the
+   * evaluated, stale or error symbol without masking either one. */
+  private paintMarkers(editor: vscode.TextEditor, annotations: readonly Annotation[]): void {
+    const markers = new Map<Marker, vscode.DecorationOptions[]>(
+      MARKERS.map((marker) => [marker, []]));
+    const selected = this.currentLines.get(editor);
+    const current = selected !== undefined && annotations.some((annotation) =>
+      annotation.range.start.line <= selected && annotation.range.end.line >= selected)
+      ? selected : undefined;
+    let currentState: Marker | 'plain' = 'plain';
+    for (const annotation of annotations) {
+      // Pending has no state icon: it has not produced a value yet. Nested
+      // chips share the owner's state rather than adding independent icons.
+      if (annotation.pending) continue;
+      const line = annotation.anchor ?? annotation.range.end.line;
+      const marker = markerFor(annotation);
+      if (line === current) currentState = marker;
+      else markers.get(marker)!.push({ range: new vscode.Range(line, 0, line, 0) });
+    }
+    for (const [marker, type] of this.markerTypes) {
+      editor.setDecorations(type, markers.get(marker)!);
+    }
+    for (const [marker, type] of this.currentMarkerTypes) {
+      editor.setDecorations(type, current !== undefined && marker === currentState
+        ? [{ range: new vscode.Range(current, 0, current, 0) }] : []);
+    }
   }
 
   /** Replace this editor's annotations with `annotations`. */
@@ -616,8 +665,6 @@ export class Decorator implements vscode.Disposable {
     const regions: vscode.DecorationOptions[] = [];
     const pendingRegions: vscode.DecorationOptions[] = [];
     const askingRegions: vscode.DecorationOptions[] = [];
-    const markers = new Map<Marker, vscode.DecorationOptions[]>(
-      MARKERS.map((marker) => [marker, []]));
 
     const targetColumn = resultColumn();
     // Read here rather than captured, so editing the setting takes effect on
@@ -665,20 +712,6 @@ export class Decorator implements vscode.Disposable {
       const host = editor.document.lineAt(
         annotation.anchor ?? annotation.range.end.line);
       const at = new vscode.Range(host.range.end, host.range.end);
-
-      // On the line the value is written on, not on every line the statement
-      // covers: the marker is a claim about that value, and a twenty-line
-      // `def` with twenty markers down its side would read as twenty claims.
-      //
-      // A statement still running gets no marker at all. The three states are
-      // claims about how a value stands against the code beside it, and a
-      // statement that has not produced one yet is in none of them -- a green
-      // `evaluated` there would say the kernel had answered when it has not.
-      if (!child && !annotation.pending) {
-        markers.get(markerFor(annotation))?.push({
-          range: new vscode.Range(host.range.start, host.range.start),
-        });
-      }
 
       // The gap goes in the margin rather than in the content, so it stays
       // outside the annotation's background. Padding the content instead
@@ -905,8 +938,8 @@ export class Decorator implements vscode.Disposable {
           });
         }
       }
-      // A statement with nothing to show -- an `if`, a `del` -- still gets its
-      // region highlighted. It ran; there is simply no value to report.
+      // A statement with nothing to show still gets its gutter and scrollbar
+      // marks. It ran; there is simply no value to report.
     }
 
     this.segmentTypes.forEach((type, slot) => {
@@ -921,12 +954,7 @@ export class Decorator implements vscode.Disposable {
     editor.setDecorations(this.regionType, regions);
     editor.setDecorations(this.pendingRegionType, pendingRegions);
     editor.setDecorations(this.askingRegionType, askingRegions);
-    for (const [marker, type] of this.markerTypes) {
-      // Every state is set on every paint, empty included: leaving one out
-      // leaves its previous icons in the gutter, so a marker that has gone
-      // amber would keep a green twin underneath it.
-      editor.setDecorations(type, markers.get(marker) ?? []);
-    }
+    this.paintMarkers(editor, annotations);
   }
 
   clear(editor: vscode.TextEditor): void {
@@ -944,6 +972,9 @@ export class Decorator implements vscode.Disposable {
     this.pendingRegionType.dispose();
     this.askingRegionType.dispose();
     for (const type of this.markerTypes.values()) {
+      type.dispose();
+    }
+    for (const type of this.currentMarkerTypes.values()) {
       type.dispose();
     }
   }
