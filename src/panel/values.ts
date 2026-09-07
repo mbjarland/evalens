@@ -273,7 +273,10 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     }
     const position = new vscode.Position(row.line, 0);
     editor.selection = new vscode.Selection(position, position);
-    editor.revealRange(new vscode.Range(position, position));
+    // Always centred (#169): a row activation is a navigation, not a nudge,
+    // and the maintainer's rule is the editor's own Go to Line convention.
+    editor.revealRange(new vscode.Range(position, position),
+      vscode.TextEditorRevealType.InCenter);
     this.mark(editor, row.line);
   }
 
@@ -350,8 +353,9 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
         && sourceLine <= row.endLine && sourceLine < editor.document.lineCount) {
         const position = new vscode.Position(sourceLine, 0);
         editor.selection = new vscode.Selection(position, position);
+        // Always centred (#169), matching the goto handler above.
         editor.revealRange(new vscode.Range(position, position),
-          vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+          vscode.TextEditorRevealType.InCenter);
       }
     } else return;
     this.rebuild();

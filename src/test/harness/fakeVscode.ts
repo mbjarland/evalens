@@ -203,6 +203,9 @@ export class FakeEditor {
   selection: FakeSelection;
   readonly options: { tabSize: number } = { tabSize: 4 };
   readonly revealed: FakeRange[] = [];
+  /** The reveal type passed alongside each `revealed` entry, same index --
+   * `undefined` for a call that left it at the API's own default (#169). */
+  readonly revealTypes: Array<number | undefined> = [];
   /** The latest `setDecorations` call for each type, keyed by the type. */
   readonly painted = new Map<FakeDecorationType, readonly PaintedOptions[]>();
   /**
@@ -227,8 +230,9 @@ export class FakeEditor {
     this.decorationCalls.push({ type, options });
   }
 
-  revealRange(range: FakeRange): void {
+  revealRange(range: FakeRange, revealType?: number): void {
     this.revealed.push(range);
+    this.revealTypes.push(revealType);
   }
 }
 

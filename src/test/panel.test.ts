@@ -989,6 +989,40 @@ test('a click message moves the cursor to the line and reveals it', async () => 
     assert.equal(editor.selection.anchor.line, 2);
     assert.ok(editor.revealed.some((revealed) => revealed.start.line === 2),
       'the click must reveal the line it jumped to');
+    const revealType = (fake.module as { TextEditorRevealType: { InCenter: number } })
+      .TextEditorRevealType.InCenter;
+    assert.equal(
+      editor.revealTypes[editor.revealed.findIndex((revealed) => revealed.start.line === 2)],
+      revealType, 'a row activation always centres the editor line (#169)');
+  } finally {
+    extension.deactivate();
+  }
+});
+
+test('a loop-explorer iteration select centres the editor line (#169)', async () => {
+  const fake = createFakeVscode();
+  const editor = createEditor('for n in range(3):\n    print(n)\n');
+  fake.window.activeTextEditor = editor;
+  fake.window.visibleTextEditors = [editor];
+  const extension = activated(fake);
+  try {
+    editor.selection = new FakeSelection(new FakePosition(0, 0), new FakePosition(0, 0));
+    await fake.executeCommand('evalens.evaluateAtCursor');
+    const view = new FakeWebviewView();
+    fake.webviewViewProviders.get('evalens.values')!.resolveWebviewView(view, {}, {});
+    const revision = Number(/var revision = (\d+)/.exec(view.webview.html)![1]);
+    const select = /data-loop-action="select" data-loop-line="(\d+)"[^>]*data-loop-id="(\d+)"/
+      .exec(view.webview.html)!;
+    const line = Number(select[1]);
+    const id = Number(select[2]);
+    view.webview.fireMessage({ loop: line, node: id, action: 'select', value: 0, revision });
+
+    assert.ok(editor.revealed.length > 0,
+      'selecting an iteration must reveal its own source line');
+    const revealType = (fake.module as { TextEditorRevealType: { InCenter: number } })
+      .TextEditorRevealType.InCenter;
+    assert.equal(editor.revealTypes.at(-1), revealType,
+      'the loop explorer always centres the editor line, not only when off-screen (#169)');
   } finally {
     extension.deactivate();
   }
