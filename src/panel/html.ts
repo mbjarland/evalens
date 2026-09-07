@@ -72,6 +72,43 @@ export interface PanelAnnotation extends Announceable {
  * plus `'pending'` for a statement that has not finished. */
 export type RowState = Marker | 'pending';
 
+/**
+ * Where a navigated-to row should land along the page's one scroll axis
+ * (#169). `viewTop`/`viewBottom` bound the space below the sticky
+ * `#navigation-control` -- the part of the window a row can actually be
+ * read in; `rectTop`/`rectHeight` are the row's own position and height,
+ * document-relative (`getBoundingClientRect().top` plus the page's current
+ * `scrollY`); `maxScroll` is the furthest the page can scroll at all
+ * (`document.documentElement.scrollHeight - window.innerHeight`, never
+ * negative).
+ *
+ * Centred -- the row's vertical middle at the view's middle -- when it fits
+ * comfortably, at most 80% of the view's own height; a row taller than
+ * that is top-aligned instead, its own top edge placed a small margin
+ * below `viewTop`, so the reader starts at its beginning rather than
+ * somewhere in its middle. Both are then clamped to `[0, maxScroll]`: the
+ * result is never a request to scroll past either end of the document,
+ * even when the rule's own arithmetic would ask for that on the file's
+ * last few rows.
+ *
+ * A plain function of six numbers, so it is unit-tested directly with no
+ * DOM at all -- and its `.toString()` is what the page script below
+ * actually runs, embedded verbatim rather than retyped, so there is
+ * exactly one copy of this arithmetic rather than two that could drift
+ * apart.
+ */
+export function placeScroll(
+  rectTop: number, rectHeight: number, scrollY: number,
+  viewTop: number, viewBottom: number, maxScroll: number
+): number {
+  const viewSpan = viewBottom - viewTop;
+  const margin = 8;
+  const target = rectHeight <= 0.8 * viewSpan
+    ? scrollY + rectTop + rectHeight / 2 - (viewTop + viewSpan / 2)
+    : scrollY + rectTop - (viewTop + margin);
+  return Math.max(0, Math.min(maxScroll, target));
+}
+
 /** One stream a statement wrote to, in full -- never the line's own
  * first-line-plus-count summary, per the ticket: the panel has the room. */
 export interface FullStream {
@@ -1008,8 +1045,24 @@ tr.loop-row.cursor, .loop-row .result-surface { background: transparent; }
  * message from the editor and an on-load `revealLine` resolve a target row:
  * an exact `data-goto` first, or the smallest range containing the line,
  * the same "innermost statement wins" rule `valuesHtml`'s own caller uses.
- * `reveal` scrolls only when the target is not already fully visible below
- * the sticky `#navigation-control` checkbox, and only to the nearer edge.
+ *
+ * Two scrolling paths exist, deliberately not shared (#169). `revealCentred`
+ * is what every *navigation* uses -- the `{ cursor }` message and the
+ * on-load `revealLine` -- and places the target with `placeScroll`
+ * (exported above, embedded here by its own `.toString()` so there is one
+ * copy of the arithmetic, not two that could drift apart): centred, or
+ * top-aligned when the row is too tall to centre, `behavior: 'instant'`
+ * because a navigation is a jump, never an animation. It also guards
+ * against re-revealing the same row twice running -- `lastRevealedKey`
+ * remembers the last target's own `data-goto`, so a cursor moving within
+ * one statement, or the file simply being typed on, never yanks back a
+ * reader who has since scrolled away on purpose; a *different* row's
+ * navigation always reveals again. `revealEdge` is the pre-existing
+ * nearest-edge `scrollBy`, kept only for keyboard browsing inside the panel
+ * (arrow keys and Home/End moving the marked row) -- that is the reader
+ * scrolling the list themselves, not a navigation to it, and #169 says
+ * explicitly to leave it alone. A click never calls either: the row
+ * clicked is already under the pointer.
  * The checkbox itself posts `{ followCursor, revision }` when toggled, and
  * a `{ followCursor }` message from the extension (a setting changed
  * elsewhere) updates it back without a rebuild.
@@ -1107,7 +1160,11 @@ function script(
         - (Number(b.dataset.end) - Number(b.dataset.start));
     })[0];
   }
-  function reveal(row) {
+  ${placeScroll.toString()}
+  // Keyboard browsing inside the panel (Up/Down/Home/End) keeps this
+  // pre-#169 nearest-edge behaviour untouched: the reader is scrolling the
+  // list themselves, not being navigated to a target.
+  function revealEdge(row) {
     if (!row) return;
     var rect = row.getBoundingClientRect();
     var top = document.getElementById('navigation-control').getBoundingClientRect().bottom;
@@ -1119,6 +1176,25 @@ function script(
     var delta = rect.top < top || rect.bottom - rect.top > bottom - top
       ? rect.top - top : rect.bottom - bottom;
     window.scrollBy({ top: delta, behavior: 'instant' });
+  }
+  // Every *navigation* -- the editor's cursor message and the on-load
+  // revealLine -- centres the target (#169), and never re-reveals the same
+  // row a second time running.
+  var lastRevealedKey = null;
+  function revealCentred(row) {
+    if (!row) return;
+    var key = row.dataset.goto;
+    if (key === lastRevealedKey) return;
+    lastRevealedKey = key;
+    var rect = row.getBoundingClientRect();
+    var viewTop = document.getElementById('navigation-control').getBoundingClientRect().bottom;
+    var viewBottom = window.innerHeight;
+    var scrollY = window.pageYOffset || window.scrollY || 0;
+    var maxScroll = Math.max(
+      0, document.documentElement.scrollHeight - window.innerHeight);
+    var target = placeScroll(
+      rect.top, rect.bottom - rect.top, scrollY, viewTop, viewBottom, maxScroll);
+    window.scrollTo({ top: target, behavior: 'instant' });
   }
   function mark(target) {
     rows.forEach(function (row) {
@@ -1154,7 +1230,7 @@ function script(
       } else return;
       event.preventDefault();
       target.focus({ preventScroll: true });
-      reveal(target);
+      revealEdge(target);
       activate(target, false);
     });
   });
@@ -1171,10 +1247,10 @@ function script(
     if (typeof message.cursor !== 'number') return;
     var target = matching(message.cursor);
     mark(target);
-    if (message.reveal) reveal(target);
+    if (message.reveal) revealCentred(target);
   });
   var revealLine = ${literal};
-  if (revealLine !== null) reveal(matching(revealLine));
+  if (revealLine !== null) revealCentred(matching(revealLine));
   if (saved.loopFocus) {
     var parts = saved.loopFocus.split('/');
     var target = Array.prototype.find.call(document.querySelectorAll('[data-loop-action]'), function (button) {
