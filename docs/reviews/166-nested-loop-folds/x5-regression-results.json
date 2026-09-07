@@ -1,0 +1,55 @@
+[
+  {
+    "case": "small",
+    "status": "pass",
+    "checks": "Exact stdout; iteration/source selection; keyboard fold preserving cursor; amber shared bar",
+    "bar": "rgb(230, 173, 69)"
+  },
+  {
+    "case": "Unicode and repeated sibling values",
+    "status": "pass"
+  },
+  {
+    "case": "100-page output per iteration",
+    "status": "pass",
+    "initial": {
+      "elements": 74,
+      "characters": 717,
+      "entries": 11
+    },
+    "capturedCharacters": 65579
+  },
+  {
+    "case": "one million nested iterations",
+    "status": "pass",
+    "initial": {
+      "elements": 25,
+      "characters": 328,
+      "entries": 3
+    }
+  },
+  {
+    "case": "last of eight sibling groups reachable",
+    "status": "pass"
+  },
+  {
+    "case": "150 repeated inner invocations, last page reachable",
+    "status": "pass"
+  },
+  {
+    "case": "loop else output belongs to enclosing invocation",
+    "status": "pass"
+  },
+  {
+    "case": "stderr counts and export separate from stdout",
+    "status": "pass"
+  },
+  {
+    "case": "known silent iteration after output limit",
+    "status": "pass"
+  },
+  {
+    "case": "prefix edit reanchors labels/navigation and preserves folds",
+    "status": "pass"
+  }
+]

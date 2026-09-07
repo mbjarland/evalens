@@ -1,0 +1,68 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const {api,sleep,connect,until}=require('./client.cjs');
+async function main(){
+ await until(async()=>{try{return !!(await api({op:'state'}));}catch{return false;}},'Host ready');
+ const {browser,page,frame}=await connect();
+ const report=[];
+ const row='tr.row[data-goto="0"]';
+ const text=async()=> (await frame('.loop-explorer')).$eval('.loop-explorer',e=>e.innerText);
+ const count=async s=>(await frame('.loop-explorer')).$$eval(s,es=>es.length);
+ async function click(s){await(await frame(s)).click(s);await sleep(150);}
+ await api({op:'open',path:'/private/tmp/evalens-learning-live/workspace/x5-100x100.py'});
+ await api({op:'cursor',line:0});
+ await api({op:'command',command:'evalens.evaluateAtCursor'});
+ await api({op:'command',command:'evalens.showValuesPanel'});await sleep(300);
+ assert.equal(await count('.loop-output'),0);
+ assert.equal(await count('[data-loop-action="toggle"][aria-expanded="false"]'),20);
+ assert.equal(await count('[data-loop-action^="gap:"][aria-expanded="false"]'),1);
+ const rootGap=(await frame('[data-loop-action^="gap:"]'));
+ const gapId=await rootGap.$eval('[data-loop-action^="gap:"]',e=>e.getAttribute('data-loop-id'));
+ const gapAction=await rootGap.$eval('[data-loop-action^="gap:"]',e=>e.getAttribute('data-loop-action'));
+ const gapSelector=`[data-loop-id="${gapId}"][data-loop-action="${gapAction}"]`;
+ report.push({case:'100x100 starts folded without raw output',outerFolds:20,gapId,gapAction});
+ const sash=await page.$('.monaco-sash.horizontal:not(.disabled)');
+ if(sash){const r=await sash.boundingBox();await page.mouse.move(r.x+r.width/2,r.y+r.height/2);await page.mouse.down();await page.mouse.move(r.x+r.width/2,230,{steps:12});await page.mouse.up();await sleep(200);}
+ await page.screenshot({path:'/private/tmp/evalens-166-folded.png'});
+ await click('[data-loop-action="toggle"][data-loop-id="2"]');
+ assert.equal(await count('[data-loop-action="toggle-invocation"]'),0);
+ assert.equal(await count('.loop-data.loop-iteration'),20);
+ assert.match(await text(),/y = 0\s+0 0/);
+ assert.match(await text(),/y = 19\s+0 19/);
+ assert.match(await text(),/Iterations 1–20 of 100/);
+ await page.screenshot({path:'/private/tmp/evalens-166-one-click.png'});
+ await click('[data-loop-action="page"][data-loop-id="3"][data-loop-value="1"]');
+ assert.match(await text(),/y = 20\s+0 20/);
+ assert.match(await text(),/Iterations 21–40 of 100/);
+ await click('[data-loop-action="toggle"][data-loop-id="2"]');
+ assert.equal(await count('.loop-output'),0);
+ report.push({case:'one click reveals inner rows, page replaces them, parent closes all',status:'pass'});
+ await click(gapSelector);
+ assert.equal(await count('.loop-output'),1);
+ assert.match(await text(),/20 0\n20 1/);
+ assert.match(await text(),/Output part 1 of 400/);
+ await click(`[data-loop-action="text:20:0"][data-loop-id="${gapId}"][data-loop-value="1"]`);
+ assert.match(await text(),/20 20\n20 21/);
+ await click(gapSelector);assert.equal(await count('.loop-output'),0);
+ await click(gapSelector);assert.match(await text(),/Output part 2 of 400/);
+ await(await frame(gapSelector)).focus(gapSelector);await page.keyboard.press('Enter');await sleep(200);
+ assert.equal(await count('.loop-output'),0);
+ const active=await(await frame(gapSelector)).evaluate(()=>document.activeElement?.getAttribute('data-loop-action'));
+ assert.equal(active,gapAction);
+ assert.equal((await api({op:'state'})).active.line,0);
+ report.push({case:'unattributed output stays independently folded, bounded and keyboard operable',status:'pass',preservedPage:2});
+ // Opening the last retained outer iteration exposes only its own inner range.
+ const lastId=await(await frame('.loop-explorer')).$$eval('[data-loop-action="toggle"]',es=>es.at(-1).getAttribute('data-loop-id'));
+ await click(`[data-loop-action="toggle"][data-loop-id="${lastId}"]`);
+ assert.doesNotMatch(await text(),/\n20 0/);
+ assert((await count('[data-loop-entry],[data-loop-invocation]'))<=120);
+ await click(`[data-loop-action="toggle"][data-loop-id="${lastId}"]`);assert.equal(await count('.loop-output'),0);
+ await click('[data-loop-action="open"][data-loop-id="0"][data-loop-value="0"]');
+ const captured=(await api({op:'state'})).active.text;
+ const expected=Array.from({length:100},(_,x)=>Array.from({length:100},(_,y)=>`${x} ${y}\n`).join('')).join('');
+ assert.equal(captured,expected);
+ report.push({case:'full captured stdout export exact',lines:10000,characters:captured.length});
+ console.log(JSON.stringify(report,null,2));fs.writeFileSync('/private/tmp/evalens-166-host-results.json',JSON.stringify(report,null,2)+'\n');
+ await browser.disconnect();
+}
+main().catch(e=>{console.error(e);process.exit(1);});

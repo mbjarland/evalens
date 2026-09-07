@@ -53,7 +53,7 @@ async function main(){
  assert.match(out,/truncated|omitted/);assert(out.length<70000);
  report.push({case:'100-page output per iteration',status:'pass',initial:large,capturedCharacters:out.length});
  await evaluate('x5-million');assert.match(await text(),/not individually retained/);const million=await metrics();assert(million.elements<1500);assert(million.entries<=120);
- await click('[data-loop-action="toggle"]');await click('[data-loop-action="toggle-invocation"]');await click('[data-loop-action="page"]');
+ await click('[data-loop-action="toggle"]');assert.equal(await(await frame('.loop-explorer')).$('[data-loop-action="toggle-invocation"]'),null);await click('[data-loop-action="page"]');
  assert.match(await text(),/Iterations 21–40/);assert((await metrics()).entries<=120);
  await page.screenshot({path:`${root}/x5-million-host.png`});report.push({case:'one million nested iterations',status:'pass',initial:million});
  await evaluate('x5-siblings');await click('[data-loop-action="toggle"]');await lastClick('[data-loop-action="toggle-invocation"]');assert.match(await text(),/sibling 7 19/);

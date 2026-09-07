@@ -35,7 +35,59 @@ invocations, capture bounds and exact parent IDs.
 
 ## Actual Host acceptance
 
-The primary session owns the isolated VS Code Host and is verifying the
-compiled issue worktree with the reported example. Automated renderer tests
-alone do not prove the installed panel or physical keyboard behavior. Actual
-Host evidence and final package acceptance will be recorded before closure.
+The primary session drove the actual isolated VS Code Extension Development
+Host against compiled commit `046993b`. All four checks in
+[host-results.json](host-results.json) pass. Both sessions inspected the
+[folded view](folded.png) and [single-click inner table](one-click.png): the
+20 outer headings start collapsed with no raw output, the separately labeled
+output disclosure remains closed, and opening an outer iteration reveals
+`y = 0` through `y = 19` without another invocation arrow. The neutral
+background and amber bar remain.
+
+Actual Host controls replace the inner page with rows 21–40, close all output
+when its parent closes, and retain the selected fallback output page across
+collapse/reopen. Enter toggles the fallback disclosure while preserving its
+keyboard focus and source cursor. Opening captured stdout produces exactly
+58,000 characters and 10,000 lines, matching the original stream.
+
+All ten inherited X5 Host scenarios also pass; results are recorded in
+[x5-regression-results.json](x5-regression-results.json). These include the
+last of eight sibling groups, the last page of 150 repeated invocations,
+one million iterations under the visible-entry budget, large output,
+Unicode, separate stderr export, true loop `else` ownership, known silent
+iterations after capture exhaustion, and prefix-edit reanchoring.
+
+The Host uses browser-protocol input against generated fixtures, not the
+maintainer's teaching files. Physical keyboard dispatch, the final installed
+package and CI remain the primary session's final acceptance work.
+
+## Reproducing the checks
+
+Use the existing [X5 Host setup](../164-nested-loop-explorer/verification.md#reproducing-the-host-checks)
+and its [client.cjs](../164-nested-loop-explorer/harness/client.cjs), with the
+extension development path set to the compiled `166-nested-loop-folds`
+worktree. The Host bridge uses ports 9354 and 9355 and scratch root
+`/private/tmp/evalens-learning-live` on this machine. Update those paths for
+another machine.
+
+Copy [harness/verify-166.cjs](harness/verify-166.cjs) beside `client.cjs` in that
+scratch root. Create `workspace/x5-100x100.py` there with this fixture:
+
+```python
+for x in range(100):
+    for y in range(100):
+        print(x, y)
+```
+
+With the isolated Host running, execute:
+
+```sh
+node /private/tmp/evalens-learning-live/verify-166.cjs
+```
+
+The harness writes its four-case JSON and two screenshots under `/private/tmp`.
+For the inherited scenarios, copy and run the existing
+[verify-x5.cjs](../164-nested-loop-explorer/harness/verify-x5.cjs). Its million-
+iteration expectation now asserts that the redundant invocation toggle is
+absent before paging the immediately visible inner rows. The other nine
+scenarios are unchanged.
