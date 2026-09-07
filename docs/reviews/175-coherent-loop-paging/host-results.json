@@ -1,0 +1,53 @@
+[
+  {
+    "case": "100×100 coherent outer/inner controls, source-scoped folded overflow, keyboard focus and text paging",
+    "status": "pass",
+    "ownership": [
+      {
+        "id": "1941",
+        "parent": "1941",
+        "iteration": "1940",
+        "text": "▸ Remaining printed output\nfor y in range(100) · line 2 · within Iteration 20, x = 19"
+      },
+      {
+        "id": "1",
+        "parent": "1",
+        "iteration": null,
+        "text": "▸ Remaining printed output\nfor x in range(100) · line 1"
+      }
+    ]
+  },
+  {
+    "case": "exact captured stdout export",
+    "status": "pass",
+    "characters": 58000
+  },
+  {
+    "case": "fully captured nested loops page both levels and keep last-page controls",
+    "status": "pass"
+  },
+  {
+    "case": "silent partial trace explains capture boundary without offering output",
+    "status": "pass"
+  },
+  {
+    "case": "for-else text remains in loop-level output with no invented iteration range",
+    "status": "pass"
+  },
+  {
+    "case": "Unicode and stderr remain separate in remaining output",
+    "status": "pass"
+  },
+  {
+    "case": "sibling disclosures preserve the total visible-entry limit and later siblings remain reachable",
+    "status": "pass"
+  },
+  {
+    "case": "repeated invocations keep independent nested-loop pages",
+    "status": "pass"
+  },
+  {
+    "case": "long iteration output stays folded and pages under the unchanged capture limit",
+    "status": "pass"
+  }
+]

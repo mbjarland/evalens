@@ -1,0 +1,111 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const {api, sleep, connect} = require('./client.cjs');
+const root = '/private/tmp/evalens-175-live';
+async function main() {
+ const {browser, page, frame} = await connect();
+ const report = [];
+ const f = () => frame('.loop-explorer');
+ const text = async () => (await f()).$eval('.loop-explorer', e => e.innerText);
+ const count = async selector => (await f()).$$eval(selector, es => es.length);
+ const click = async selector => {const target=await frame(selector);await target.$eval(selector,e=>e.scrollIntoView({block:'center'}));await sleep(60);await target.click(selector); await sleep(180);};
+ const control = (id, direction) => `[data-loop-action="page"][data-loop-id="${id}"][data-loop-control="${direction}"]`;
+ const nav = async id => (await f()).$eval(`[data-loop-navigation="${id}"]`, e => ({text:e.innerText,buttons:[...e.querySelectorAll('button')].map(b=>({label:b.innerText,disabled:b.disabled}))}));
+ async function fixture(name, source) {
+  const path = `${root}/workspace/${name}.py`;
+  fs.writeFileSync(path, source);
+  await api({op:'open',path});await api({op:'cursor',line:0});
+  await api({op:'command',command:'evalens.evaluateAtCursor'});
+  await api({op:'command',command:'evalens.showValuesPanel'});await sleep(200);
+ }
+ try {
+ await api({op:'command',command:'workbench.action.closeSidebar'});
+ await api({op:'command',command:'workbench.action.closeAuxiliaryBar'});
+ const sash=await page.$('.monaco-sash.horizontal:not(.disabled)');
+ if(sash){const r=await sash.boundingBox();await page.mouse.move(r.x+r.width/2,r.y+r.height/2);await page.mouse.down();await page.mouse.move(r.x+r.width/2,270,{steps:12});await page.mouse.up();}
+ await fixture('paging','for x in range(100):\n    for y in range(100):\n        print(x, y)\n');
+ assert.equal(await count('.loop-output'),0);
+ const last = await (await f()).$$eval('.loop-group > .loop-iteration-header [data-loop-action="toggle"]', es => es.at(-1).dataset.loopId);
+ assert.equal(await count('.loop-group'),20);
+ assert.deepEqual((await nav(1)).buttons.map(b=>b.disabled),[true,true]);
+ assert.match((await nav(1)).text,/Iterations 1–20 of 100/);
+ await click(`[data-loop-action="toggle"][data-loop-id="${last}"]`);
+ const inner = await (await f()).$eval(`[data-loop-entry="${last}"] .loop-invocation`, e=>e.dataset.loopInvocation);
+ assert.deepEqual((await nav(inner)).buttons.map(b=>b.disabled),[true,false]);
+ assert.match((await nav(inner)).text,/first 59 of 100 iterations/);
+ assert.equal(await count('[data-loop-action="toggle-invocation"]'),0);
+ await click(control(inner,'next')); await click(control(inner,'next'));
+ assert.match((await nav(inner)).text,/Iterations 41–59 of 100/);
+ assert.deepEqual((await nav(inner)).buttons.map(b=>b.disabled),[false,true]);
+ const focused = await (await f()).evaluate(()=>({id:document.activeElement.dataset.loopId,control:document.activeElement.dataset.loopControl}));
+ assert.deepEqual(focused,{id:inner,control:'previous'});
+ const rootGap = '[data-loop-overflow="1"] [data-loop-action^="gap:"]';
+ const innerGap = `[data-loop-overflow="${inner}"] [data-loop-action^="gap:"]`;
+ const ownership = await (await f()).$$eval('.loop-overflow', es => es.map(e=>({id:e.dataset.loopOverflow,parent:e.parentElement.dataset.loopInvocation,iteration:e.closest('.loop-iteration')?.dataset.loopEntry??null,text:e.innerText})));
+ assert.deepEqual(ownership.map(x=>({id:x.id,parent:x.parent,iteration:x.iteration})),[{id:inner,parent:inner,iteration:last},{id:'1',parent:'1',iteration:null}]);
+ assert.match(ownership[0].text,/within Iteration 20, x = 19/);
+ assert.match(ownership[1].text,/for x in range\(100\) · line 1/);
+ assert.doesNotMatch(await text(),/8,121|41 iterations not|80 iterations not|retained iteration detail/);
+ await (await f()).$eval('[data-loop-overflow="1"]', e=>e.scrollIntoView({block:'end'}));
+ await page.screenshot({path:`${root}/nested-boundaries.png`});
+ await click(innerGap); assert.match(await text(),/19 59\n19 60/);assert.doesNotMatch(await text(),/20 0\n/);
+ await click(`[data-loop-action="toggle"][data-loop-id="${last}"]`);assert.equal(await count('.loop-output'),0);
+ await click(rootGap);assert.match(await text(),/20 0\n20 1/);
+ await click('[data-loop-action="text:20:0"][data-loop-id="1"][data-loop-control="next"]');
+ assert.match(await text(),/20 20\n20 21/);
+ await click(rootGap);assert.equal(await count('.loop-output'),0);
+ await click(rootGap);assert.match(await text(),/20 20\n20 21/);
+ assert.equal((await api({op:'state'})).active.line,0);
+ report.push({case:'100×100 coherent outer/inner controls, source-scoped folded overflow, keyboard focus and text paging',status:'pass',ownership});
+ await click('[data-loop-action="open"][data-loop-id="0"][data-loop-value="0"]');await sleep(150);
+ const expected=Array.from({length:100},(_,x)=>Array.from({length:100},(_,y)=>`${x} ${y}\n`).join('')).join('');
+ assert.equal((await api({op:'state'})).active.text,expected);
+ report.push({case:'exact captured stdout export',status:'pass',characters:expected.length});
+ await fixture('complete','for x in range(25):\n    for y in range(25):\n        print(x, y)\n');
+ await click('[data-loop-action="toggle"][data-loop-id="2"]');
+ await click(control(3,'next'));assert.match((await nav(3)).text,/Iterations 21–25 of 25/);
+ await click(control(1,'next'));assert.match((await nav(1)).text,/Iterations 21–25 of 25/);
+ assert.deepEqual((await nav(1)).buttons.map(b=>b.disabled),[false,true]);
+ assert.equal(await count('.loop-capture-limit'),0);assert.equal(await count('.loop-overflow'),0);
+ report.push({case:'fully captured nested loops page both levels and keep last-page controls',status:'pass'});
+ await fixture('silent','for x in range(100):\n    for y in range(100):\n        pass\n');
+ assert.match((await nav(1)).text,/first 20 of 100 iterations/);assert.equal(await count('.loop-overflow'),0);
+ report.push({case:'silent partial trace explains capture boundary without offering output',status:'pass'});
+ await fixture('else','for n in range(3000):\n    print(n)\nelse:\n    print("loop complete")\n');
+ // The bridge deliberately navigates captured pages, never re-evaluating.
+ await (await f()).evaluate(()=>{const b=document.querySelector('[data-loop-action="page"][data-loop-control="next"]');b.dataset.loopValue='99';b.click();});await sleep(150);
+ assert.match((await nav(1)).text,/Iterations 1,981–1,999 of 3,000/);
+ await click('[data-loop-action^="gap:"]');
+ await (await f()).evaluate(()=>{const b=document.querySelector('[data-loop-action^="text:"][data-loop-control="next"]');b.dataset.loopValue='1000';b.click();});await sleep(150);
+ assert.match(await text(),/2999\nloop complete/);
+ assert.equal(await (await f()).$eval('.loop-overflow',e=>e.closest('.loop-iteration')),null);
+ report.push({case:'for-else text remains in loop-level output with no invented iteration range',status:'pass'});
+ await fixture('streams','for x in [0]:\n    for y in range(3000):\n        import sys\n        print("😀", y)\n        print("🦉", y, file=sys.stderr)\n');
+ await click('[data-loop-action="toggle"][data-loop-id="2"]');
+ await (await f()).evaluate(()=>{const b=document.querySelector('[data-loop-action="page"][data-loop-id="3"][data-loop-control="next"]');b.dataset.loopValue='99';b.click();});await sleep(150);
+ await click('[data-loop-action^="gap:"]');assert.match(await text(),/Remaining printed output and stderr/);
+ assert.match(await text(),/😀 1997/);assert.match(await text(),/stderr:/);assert.match(await text(),/🦉 1997/);
+ assert.doesNotMatch(await text(),/\uFFFD/);
+ report.push({case:'Unicode and stderr remain separate in remaining output',status:'pass'});
+ await fixture('siblings','for x in [0]:\n'+Array.from({length:8},(_,i)=>`    for y${i} in range(20):\n        print(y${i})\n`).join(''));
+ await click('[data-loop-action="toggle"][data-loop-id="2"]');assert.equal(await count('[data-loop-action="toggle-invocation"]'),8);
+ const siblings=await (await f()).$$eval('[data-loop-action="toggle-invocation"]',es=>es.map(e=>e.dataset.loopId));
+ for(const id of siblings) {const selector=`[data-loop-action="toggle-invocation"][data-loop-id="${id}"]`; if(await count(selector)) await click(selector); else break;}
+ assert.ok(await count('[data-loop-entry],[data-loop-invocation]')<=120);assert.match(await text(),/Visible detail limit/);
+ for(const id of siblings) {const selector=`[data-loop-action="toggle-invocation"][data-loop-id="${id}"][aria-expanded="true"]`;if(await count(selector))await click(selector);}
+ await click(`[data-loop-action="toggle-invocation"][data-loop-id="${siblings.at(-1)}"]`);assert.match(await text(),/y7 = 19/);
+ report.push({case:'sibling disclosures preserve the total visible-entry limit and later siblings remain reachable',status:'pass'});
+ await fixture('repeated','for x in [0]:\n    i=0\n    while i<150:\n        for child in [0]:\n            print(i, child)\n        i+=1\n');
+ await click('[data-loop-action="toggle"][data-loop-id="2"]');assert.match(await text(),/Nested loops 1–20 of 150 retained/);
+ await (await f()).evaluate(()=>{const b=document.querySelector('[data-loop-action="page"][data-loop-id="2"][data-loop-control="next"]');b.dataset.loopValue='7';b.click();});await sleep(150);
+ assert.match(await text(),/Nested loops 141–150 of 150 retained/);
+ report.push({case:'repeated invocations keep independent nested-loop pages',status:'pass'});
+ await fixture('long','for n in range(2):\n    print("page line\\n"*5000)\n');
+ assert.equal(await count('.loop-output'),0);await click('[data-loop-action="toggle"][data-loop-id="2"]');
+ assert.match(await text(),/More output/);assert.ok(await count('.loop-output')<=1);assert.match(await text(),/Output capture is incomplete/);
+ report.push({case:'long iteration output stays folded and pages under the unchanged capture limit',status:'pass'});
+ fs.writeFileSync(`${root}/host-results.json`,JSON.stringify(report,null,2));
+ console.log(JSON.stringify(report,null,2));
+ } finally {await browser.disconnect();}
+}
+main().catch(error=>{console.error(error);process.exit(1)});

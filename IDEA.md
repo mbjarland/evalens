@@ -609,13 +609,22 @@ Target text is reused from the existing trace; browsing never asks the kernel
 to execute or describe anything again.
 
 The panel pages retained children in groups of 20 with a total visible budget
-of 120 entries. It displays output parts of roughly 2,000 UTF-16 units and at most 20
+of 120 entries. Inner and outer loops share an iteration-navigation strip
+showing the actual visible span against the invocation's true count. Previous
+and More iterations remain visible at page boundaries, with unavailable
+controls disabled. Each incomplete invocation states how many leading
+iteration details were captured; aggregate omitted counts do not repeat those
+local notices. Pages containing nested invocations outside iterations label
+their mixed contents as rows, rather than calling an `else` loop an iteration.
+It displays output parts of roughly 2,000 UTF-16 units and at most 20
 logical lines, preserving surrogate pairs. Small runs can show adjacent outer
 iterations together. Opening an iteration reveals its only inner invocation
 directly; sibling invocations retain independent folds so each remains
-reachable within the display budget. Captured output without retained
-iteration detail has a separate, initially collapsed disclosure at its actual
-parent interval. It is never assigned to the last visible iteration.
+reachable within the display budget. **Remaining printed output** has a
+separate, initially collapsed section after its owning loop's navigation,
+labelled with that source and any enclosing iteration. Its actual interval
+can include `else` or other output outside iterations, so no iteration range
+is invented for it. It is never assigned to the last visible iteration.
 Each capture owns its fold and page state, so unrelated
 refreshes preserve it and a new evaluation starts fresh. Source links shift
 with edits before the statement and are withdrawn after an intersecting edit.

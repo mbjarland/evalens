@@ -36,6 +36,11 @@ function contents(html: string) {
   return html.replace(/<style[^>]*>[\s\S]*?<\/style>/g, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/g, '');
 }
+function navigation(html: string, id: number): string {
+  const match = new RegExp(`data-loop-navigation="${id}">([\\s\\S]*?)</div></div>`).exec(html);
+  assert.ok(match, `missing navigation for invocation ${id}`);
+  return match[1]!;
+}
 
 test('single-level square-print loop uses three compact target/output rows', async () => {
   const result = await captured('for n in range(3):\n    print(n * n)\n');
@@ -123,13 +128,13 @@ test('single-level million-pass trace pages bounded rows and keeps final count h
   let html = loopExplorerHtml(model, 0, state);
   assert.ok(html.length < 20000, String(html.length));
   assert.match(html, /1,000,000 iterations/);
-  assert.match(html, /Iterations 1–20 of 1999 retained/);
-  assert.match(html, /998,001 iterations not individually retained/);
+  assert.match(html, /Iterations 1–20 of 1,000,000/);
+  assert.match(html, /Details were captured for the first 1,999 of 1,000,000 iterations/);
   assert.equal((html.match(/data-loop-entry=/g) ?? []).length, 20);
   state.pages.set(1, 99);
   html = loopExplorerHtml(model, 0, state);
   assert.match(html, /n = 1998/);
-  assert.match(html, /Iterations 1981–1999 of 1999 retained/);
+  assert.match(html, /Iterations 1,981–1,999 of 1,000,000/);
   assert.doesNotMatch(html, /n = 1979</);
 });
 
@@ -182,7 +187,7 @@ test('single-loop provider keeps manual folds/pages across reanchor and resets o
     send(0, 1, 'page', 1);
     send(0, 22, 'toggle');
     send(0, 22, 'text:0:0', 1);
-    assert.match(view.webview.html, /Iterations 21–25 of 25 retained/);
+    assert.match(view.webview.html, /Iterations 21–25 of 25/);
     assert.match(view.webview.html, /Output part 2 of 6/);
     const previousRevision = revision();
     editor.document.setText('# prefix\n' + sample);
@@ -193,11 +198,11 @@ test('single-loop provider keeps manual folds/pages across reanchor and resets o
     assert.equal(editor.selection.active.line, 1);
     assert.match(view.webview.html, /loop-selected/);
     await evaluate();
-    assert.match(view.webview.html, /Iterations 1–20 of 25 retained/);
+    assert.match(view.webview.html, /Iterations 1–20 of 25/);
     assert.doesNotMatch(contents(view.webview.html), /class="loop-output"/);
     view.webview.fireMessage({ loop: 1, node: 1, action: 'page', value: 1,
       revision: previousRevision });
-    assert.match(view.webview.html, /Iterations 1–20 of 25 retained/);
+    assert.match(view.webview.html, /Iterations 1–20 of 25/);
   } finally { extension.deactivate(); }
 });
 
@@ -301,8 +306,8 @@ test('100-by-100 output outside retained iterations starts folded and pages inde
   assert.ok(loopSlice(model, last.end, root.end, 0).startsWith('20 0\n'));
   const state = newLoopViewState();
   let html = loopExplorerHtml(model, 0, state);
-  assert.match(html, /Output without retained iteration detail/);
-  assert.match(html, /not individually retained/);
+  assert.match(html, /Remaining printed output/);
+  assert.match(html, /Details were captured for the first/);
   assert.doesNotMatch(html, /class="loop-output"/,
     'collapsed iterations must not leave a raw transcript tail visible');
 
@@ -322,6 +327,135 @@ test('100-by-100 output outside retained iterations starts folded and pages inde
   assert.equal(model.streams[0], expected, 'folds/pages do not change captured export');
 });
 
+test('outer and inner capture boundaries share paging against actual invocation totals', async () => {
+  const model = prepared(await captured('for x in range(100):\n'
+    + '    for y in range(100):\n        print(x, y)\n'));
+  const outer = model.roots[0]!;
+  const outerChildren = model.children.get(outer.id)!;
+  const lastOuter = outerChildren.at(-1)!;
+  const inner = model.children.get(lastOuter.id)![0]!;
+  const innerChildren = model.children.get(inner.id)!;
+  assert.equal(outerChildren.length, 20);
+  assert.equal(innerChildren.length, 59);
+  const state = newLoopViewState();
+  state.expanded.set(lastOuter.id, true);
+  let html = loopExplorerHtml(model, 0, state);
+  let outerNav = navigation(html, outer.id);
+  let innerNav = navigation(html, inner.id);
+  assert.match(outerNav, /for x in range\(100\) · line 1/);
+  assert.match(innerNav, /for y in range\(100\) · line 2 · within Iteration 20, x = 19/);
+  for (const nav of [outerNav, innerNav]) {
+    assert.match(nav, /Iterations 1–20 of 100/);
+    assert.match(nav, /disabled[^>]*>Previous iterations/);
+  }
+  assert.match(outerNav, /disabled[^>]*>More iterations/);
+  assert.match(outerNav, /first 20 of 100 iterations/);
+  assert.match(innerNav, /first 59 of 100 iterations/);
+  assert.doesNotMatch(innerNav, /disabled[^>]*>More iterations/);
+  assert.doesNotMatch(html, /8,121|41 iterations|80 iterations|retained iteration detail/);
+  assert.ok(html.indexOf(`data-loop-overflow="${outer.id}"`) > html.indexOf(`data-loop-navigation="${outer.id}"`));
+  assert.match(html, /Remaining printed output; for x in range\(100\) · line 1/);
+  assert.doesNotMatch(html, /20 0\n/);
+  assert.doesNotMatch(html, new RegExp(`data-loop-overflow="${inner.id}"`),
+    'the inner remainder follows its last captured page');
+
+  state.pages.set(inner.id, 2);
+  html = loopExplorerHtml(model, 0, state);
+  innerNav = navigation(html, inner.id);
+  assert.match(innerNav, /Iterations 41–59 of 100/);
+  assert.match(innerNav, /disabled[^>]*>More iterations/);
+  assert.doesNotMatch(innerNav, /disabled[^>]*>Previous iterations/);
+  assert.match(html, /y = 58/);
+  assert.doesNotMatch(html, /y = 59</);
+  assert.match(html, /Remaining printed output; for y in range\(100\) · line 2 · within Iteration 20, x = 19/);
+  state.expandedGaps.add(`${inner.id}:${innerChildren.length}`);
+  html = loopExplorerHtml(model, 0, state);
+  assert.match(html, /19 59\n19 60/);
+  assert.doesNotMatch(html, /20 0\n/);
+  state.expanded.set(lastOuter.id, false);
+  html = loopExplorerHtml(model, 0, state);
+  assert.doesNotMatch(html, /19 59\n/);
+  assert.doesNotMatch(html, new RegExp(`data-loop-overflow="${inner.id}"`));
+  assert.equal((html.match(/data-loop-overflow=/g) ?? []).length, 1,
+    'closing an outer iteration hides its inner remainder, leaving only root overflow');
+  state.expanded.set(lastOuter.id, true);
+  state.pages.set(inner.id, 1);
+  html = loopExplorerHtml(model, 0, state);
+  assert.match(navigation(html, inner.id), /Iterations 21–40 of 100/);
+  outerNav = navigation(html, outer.id);
+  assert.match(outerNav, /Iterations 1–20 of 100/);
+});
+
+test('complete loops keep both navigation controls at each page boundary', async () => {
+  const model = prepared(await captured('for x in range(25):\n'
+    + '    for y in range(25):\n        pass\n'));
+  const outer = model.roots[0]!;
+  const first = model.children.get(outer.id)![0]!;
+  const inner = model.children.get(first.id)![0]!;
+  const state = newLoopViewState();
+  state.expanded.set(first.id, true);
+  let html = loopExplorerHtml(model, 0, state);
+  for (const id of [outer.id, inner.id]) {
+    const nav = navigation(html, id);
+    assert.match(nav, /Iterations 1–20 of 25/);
+    assert.match(nav, /disabled[^>]*>Previous iterations/);
+    assert.doesNotMatch(nav, /disabled[^>]*>More iterations/);
+  }
+  state.pages.set(inner.id, 1);
+  html = loopExplorerHtml(model, 0, state);
+  let nav = navigation(html, inner.id);
+  assert.match(nav, /Iterations 21–25 of 25/);
+  assert.match(nav, /disabled title="Already at the last page"[^>]*>More iterations/);
+  assert.doesNotMatch(nav, /disabled[^>]*>Previous iterations/);
+  state.pages.set(outer.id, 1);
+  html = loopExplorerHtml(model, 0, state);
+  nav = navigation(html, outer.id);
+  assert.match(nav, /Iterations 21–25 of 25/);
+  assert.match(nav, /disabled[^>]*>More iterations/);
+  assert.doesNotMatch(html, /loop-capture-limit|loop-overflow/);
+});
+
+test('limited silent loops explain the local capture boundary without offering absent output', async () => {
+  const model = prepared(await captured('for x in range(100):\n'
+    + '    for y in range(100):\n        pass\n'));
+  const state = newLoopViewState();
+  const html = loopExplorerHtml(model, 0, state);
+  assert.match(navigation(html, 1), /first 20 of 100 iterations/);
+  assert.doesNotMatch(html, /Remaining printed output|data-loop-action="gap:|8,121/);
+});
+
+test('remaining loop output includes for-else text without inventing its iteration owner', async () => {
+  const model = prepared(await captured('for n in range(3000):\n'
+    + '    print(n)\nelse:\n    print("loop complete")\n'));
+  const root = model.roots[0]!;
+  const children = model.children.get(root.id)!;
+  const state = newLoopViewState();
+  state.pages.set(root.id, Math.floor((children.length - 1) / 20));
+  let html = loopExplorerHtml(model, 4, state);
+  assert.match(html, /Remaining printed output; for n in range\(3000\) · line 5/);
+  assert.doesNotMatch(html, /loop complete|Iterations 2000–3000/);
+  const gap = children.length;
+  state.expandedGaps.add(`${root.id}:${gap}`);
+  state.textPages.set(`${root.id}:${gap}:0`, 1000);
+  html = loopExplorerHtml(model, 4, state);
+  assert.match(html, /2999\nloop complete/);
+  assert.equal(model.streams[0], Array.from({ length: 3000 }, (_, n) => `${n}\n`).join('') + 'loop complete\n');
+});
+
+test('visible iteration spans stop at the DOM budget instead of claiming unrendered rows', async () => {
+  const model = prepared(await captured('for x in range(20):\n'
+    + '    for y in range(100):\n        pass\n'));
+  const state = newLoopViewState();
+  for (const entry of model.wire.entries) state.expanded.set(entry.id, true);
+  const html = loopExplorerHtml(model, 0, state);
+  const rootChildren = model.children.get(model.roots[0]!.id)!;
+  const shown = rootChildren.filter((entry) => html.includes(`data-loop-entry="${entry.id}"`));
+  assert.ok(shown.length > 0 && shown.length < 20);
+  assert.match(navigation(html, 1), new RegExp(`Iterations 1–${shown.length} of 20`));
+  assert.match(navigation(html, 1), /Collapse an expanded group/);
+  assert.ok((html.match(/data-loop-(?:entry|invocation)=/g) ?? []).length <= LOOP_VISIBLE_LIMIT);
+});
+
 test('one outer expansion reveals its only inner loop page but preserves long-output folds', async () => {
   const model = prepared(await captured('for x in range(2):\n'
     + '    for y in range(100):\n        print(x, y)\n'));
@@ -333,7 +467,7 @@ test('one outer expansion reveals its only inner loop page but preserves long-ou
   assert.doesNotMatch(html, /data-loop-action="toggle-invocation"/);
   assert.match(html, /y = 0/);
   assert.match(html, /y = 19/);
-  assert.match(html, /Iterations 1–20 of 100 retained/);
+  assert.match(html, /Iterations 1–20 of 100/);
   state.pages.set(inner.id, 1);
   html = loopExplorerHtml(model, 0, state);
   assert.match(html, /y = 20/);
@@ -364,7 +498,7 @@ test('unattributed Unicode and stderr remain separate from text that was never c
   state.pages.set(inner.id, Math.floor((children.length - 1) / 20));
   state.expandedGaps.add(`${inner.id}:${children.length}`);
   const html = loopExplorerHtml(model, 0, state);
-  assert.match(html, /Output without retained iteration detail/);
+  assert.match(html, /Remaining printed output/);
   assert.match(html, /😀 1997\n/);
   assert.match(html, /🦉 1997\n/);
   assert.match(html, /class="loop-stream-label">stderr:/);
@@ -430,7 +564,7 @@ test('stderr has its own count and mixed else pages count entries honestly', asy
   assert.doesNotMatch(loopExplorerHtml(error, 0), /No printed output/);
   const mixed = prepared(await captured('for x in range(20):\n    pass\n'
     + 'else:\n    for y in [0]: pass\n'));
-  assert.match(loopExplorerHtml(mixed, 0), /Trace entries 1–20 of 21 retained/);
+  assert.match(loopExplorerHtml(mixed, 0), /Rows 1–20 of 21 · Iterations 1–20 of 20/);
 });
 
 test('one million iterations have bounded wire and bounded initial/expanded DOM', async () => {
@@ -446,7 +580,7 @@ test('one million iterations have bounded wire and bounded initial/expanded DOM'
   for (const entry of model.wire.entries) state.expanded.set(entry.id, true);
   html = loopExplorerHtml(model, 0, state);
   assert.ok(html.length < 20000);
-  assert.match(html, /not individually retained/);
+  assert.match(html, /Details were captured for the first/);
   const inner = model.wire.entries.find((entry) => entry.kind === 'invocation' && entry.site === 1)!;
   state.pages.set(inner.id, 1);
   html = loopExplorerHtml(model, 0, state);
