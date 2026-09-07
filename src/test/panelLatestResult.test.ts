@@ -220,7 +220,7 @@ test('loop folds and pages preserve the completed loop cue after the cursor adva
       view.webview.fireMessage({ loop: 0, node, action, value, revision });
     };
     send(1, 'page', 1);
-    assert.match(view.webview.html, /Iterations 21–25 of 25 retained/);
+    assert.match(view.webview.html, /Iterations 21–25 of 25/);
     send(22, 'toggle');
     assert.equal(latestLine(view.webview.html), 0);
     send(22, 'text:0:0', 1);

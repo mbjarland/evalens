@@ -227,9 +227,14 @@ existing capture; they never run the code again. Folding survives unrelated
 edits and starts fresh after another evaluation.
 
 Opening an outer iteration also shows its only inner loop; sibling loops keep
-separate arrows. Output whose iteration detail was not retained starts folded
-under **Output without retained iteration detail**, with the same bounded
-output parts when opened.
+separate arrows. Both inner and outer loops show the current iteration range
+against the number that actually ran, with **Previous iterations** and
+**More iterations** controls. A disabled control marks a page boundary; when
+later iteration details were not captured, that loop says how many were saved.
+Remaining captured output starts folded under **Remaining printed output**,
+after its loop's navigation, with the source line identifying its owner. It
+keeps the same bounded output parts when opened and may include `else` output;
+it is not assigned to the last visible iteration.
 
 A statement retains at most 2,000 loop invocations and iterations combined,
 plus the existing 65,536-character limit for each output stream. The panel

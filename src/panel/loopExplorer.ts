@@ -184,6 +184,18 @@ export function loopExplorerHtml(
   let remaining = LOOP_VISIBLE_LIMIT;
   let exhausted = false;
   let columnsShown = false;
+  const number = (n: number): string => n.toLocaleString('en-US');
+  const sourceContext = (invocation: LoopInvocation): string => {
+    const site = model.sites.get(invocation.site)!;
+    const parent = invocation.parent === null ? undefined : model.entries.get(invocation.parent);
+    let context = `${site.source} · line ${line + site.line - model.wire.statement_line + 1}`;
+    if (parent?.kind === 'iteration') {
+      const owner = model.entries.get(parent.invocation) as LoopInvocation;
+      const target = model.sites.get(owner.site)!.target;
+      context += ` · within Iteration ${number(parent.ordinal)}, ${target} = ${parent.value}`;
+    }
+    return context;
+  };
   const button = (label: string, action: string, id: number, value = 0,
     extra = ''): string => `<button type="button" class="loop-action" `
     + `data-loop-action="${action}" data-loop-line="${line}" `
@@ -238,15 +250,29 @@ export function loopExplorerHtml(
     // Give its retained text its own fold instead of leaking it below folded
     // iterations or assigning it to the last retained iteration. Text that
     // was never captured stays an omission notice, not an expandable promise.
-    if (incomplete && start.some((n, stream) =>
-      Math.min(end[stream]!, model.wire.retained[stream]!) > n)) {
+    if (incomplete && start.some((n, stream) => end[stream]! > n)) {
+      const entry = model.entries.get(id);
+      const invocation = entry?.kind === 'iteration'
+        ? model.entries.get(entry.invocation) as LoopInvocation : entry;
+      const scope = invocation ? sourceContext(invocation)
+        + (entry?.kind === 'iteration' ? ` · Iteration ${number(entry.ordinal)}` : '')
+        : `Evaluated statement · line ${line + 1}`;
+      const hasOutput = start.some((n, stream) =>
+        Math.min(end[stream]!, model.wire.retained[stream]!) > n);
+      const stdout = end[0] > start[0];
+      const stderr = end[1] > start[1];
+      const label = stdout ? 'Remaining printed output' + (stderr ? ' and stderr' : '')
+        : 'Remaining stderr output';
       const expanded = state?.expandedGaps.has(`${id}:${gap}`) ?? false;
-      const toggle = button(`<span class="loop-disclosure" aria-hidden="true">${expanded ? '▾' : '▸'}</span> `
-        + 'Output without retained iteration detail', `gap:${gap}`, id, 0,
-        `aria-expanded="${expanded}"`);
-      return '<div class="loop-data loop-direct loop-unattributed"><span></span><div>'
-        + `<div class="loop-note">${toggle}</div>`
-        + (expanded ? output(start, end, id, gap) : '') + '</div></div>';
+      const heading = hasOutput
+        ? button(`<span class="loop-disclosure" aria-hidden="true">${expanded ? '▾' : '▸'}</span> `
+          + label, `gap:${gap}`, id, 0,
+          `aria-expanded="${expanded}" aria-label="${e(`${label}; ${scope}`)}"`)
+        : label;
+      return `<section class="loop-overflow" data-loop-overflow="${id}">`
+        + `<div class="loop-overflow-heading">${heading}</div>`
+        + `<div class="loop-note loop-overflow-scope">${e(scope)}</div>`
+        + (expanded || !hasOutput ? output(start, end, id, gap) : '') + '</section>';
     }
     const content = output(start, end, id, gap);
     return content ? `<div class="loop-data loop-direct"><span></span><div>${content}</div></div>` : '';
@@ -280,28 +306,50 @@ export function loopExplorerHtml(
     if (!expanded) return `<section class="loop-invocation" data-loop-invocation="${invocation.id}">`
       + header + '</section>';
     let body = '';
+    const shown: Entry[] = [];
     let cursor = from === 0 ? invocation.start : children[from - 1]!.end;
     selected.forEach((iteration, index) => {
       if (remaining <= 0) { exhausted = true; return; }
       body += gapHtml(cursor, iteration.start, invocation.id, from + index);
       body += iteration.kind === 'iteration' ? iterationHtml(iteration, site, depth)
         : invocationHtml(iteration, depth + 1);
+      shown.push(iteration);
       cursor = iteration.end;
     });
     const end = Math.min(from + LOOP_PAGE_SIZE, children.length);
+    let tail = '';
     if (end === children.length && !exhausted) {
-      body += gapHtml(cursor, invocation.end, invocation.id, children.length,
+      tail = gapHtml(cursor, invocation.end, invocation.id, children.length,
         invocation.incomplete);
     }
     if (invocation.count === 0) body += '<div class="loop-note">No iterations</div>';
-    if (iterationCount < invocation.count) body += `<div class="loop-note">`
-      + `${count(invocation.count - iterationCount, 'iteration')} not individually retained.</div>`;
-    const paging = children.length > LOOP_PAGE_SIZE ? `<div class="loop-paging loop-note">`
-      + `${iterationCount === children.length ? 'Iterations' : 'Trace entries'} ${from + 1}–${end} of ${children.length} retained · `
-      + (from > 0 ? button('Previous iterations', 'page', invocation.id, page - 1) + ' · ' : '')
-      + (end < children.length ? button('More iterations', 'page', invocation.id, page + 1) : '') + '</div>' : '';
+    const missing = iterationCount < invocation.count;
+    const mixed = iterationCount !== children.length;
+    const shownIterations = shown.filter((entry): entry is LoopIteration => entry.kind === 'iteration');
+    const span = shownIterations.length
+      ? `${number(shownIterations[0]!.ordinal)}–${number(shownIterations.at(-1)!.ordinal)}` : '0';
+    const limited = shown.length < selected.length;
+    const navigation = invocation.count > LOOP_PAGE_SIZE || children.length > LOOP_PAGE_SIZE || missing || limited;
+    const paging = navigation ? `<div class="loop-navigation" data-loop-navigation="${invocation.id}">`
+      + `<div class="loop-note loop-page-scope">${e(sourceContext(invocation))}</div>`
+      + '<div class="loop-paging loop-note">'
+      + (mixed ? `Rows ${shown.length ? `${number(from + 1)}–${number(from + shown.length)}` : '0'} of ${number(children.length)} · ` : '')
+      + (shownIterations.length ? `Iterations ${span} of ${number(invocation.count)}`
+        : `No iteration rows on this page · ${count(invocation.count, 'iteration')} total`) + ' · '
+      + button(mixed ? 'Previous rows' : 'Previous iterations', 'page', invocation.id, Math.max(0, page - 1),
+        from === 0 ? 'disabled title="Already at the first page"' : '') + ' · '
+      + button(mixed ? 'More rows' : 'More iterations', 'page', invocation.id, page + 1,
+        end < children.length ? '' : `disabled title="${missing
+          ? 'Later iteration details were not captured' : 'Already at the last page'}"`)
+      + '</div>'
+      + (mixed ? '<div class="loop-note">Rows also include nested loops outside the iterations.</div>' : '')
+      + (limited ? '<div class="loop-note">Collapse an expanded group to show the remaining rows on this page.</div>' : '')
+      + (missing ? `<div class="loop-note loop-capture-limit">Details were captured for `
+        + (iterationCount ? `the first ${number(iterationCount)}` : '0')
+        + ` of ${number(invocation.count)} iterations. Later details are unavailable.</div>` : '')
+      + '</div>' : '';
     return `<section class="loop-invocation" data-loop-invocation="${invocation.id}">`
-      + header + columns + body + paging + '</section>';
+      + header + columns + `<div class="loop-entries">${body}</div>` + paging + tail + '</section>';
   };
   const iterationHtml = (entry: LoopIteration, site: LoopSite, depth: number): string => {
     if (remaining-- <= 0) { exhausted = true; return ''; }
@@ -349,16 +397,13 @@ export function loopExplorerHtml(
     return prefix + invocationHtml(root, 0, true);
   }).join('') + gapHtml(cursor, model.wire.totals, 0, model.roots.length,
     model.wire.omitted_invocations > 0);
-  const omitted = model.wire.omitted_iterations
-    ? `<div class="loop-notice">${count(model.wire.omitted_iterations, 'iteration')} `
-      + 'not individually retained. Original captured output remains available.</div>' : '';
   const final = model.wire.final_values.length
     ? '<div class="loop-final">Values after loop: '
       + model.wire.final_values.map((v) => `${e(v.name)} = ${e(v.value)}`).join(', ') + '</div>' : '';
   const clipped = model.wire.totals.some((n, i) => n > model.wire.retained[i]!);
   return `<div class="loop-explorer" data-loop-root="${line}">`
     + body + (exhausted ? '<div class="loop-notice">Visible detail limit reached. Collapse a group to explore another.</div>' : '')
-    + omitted + (clipped ? '<div class="loop-notice">Output capture is incomplete; unretained text cannot be expanded.</div>' : '')
+    + (clipped ? '<div class="loop-notice">Output capture is incomplete; unretained text cannot be expanded.</div>' : '')
     + final + `<div class="loop-export">${button('Open captured stdout', 'open', 0, 0)}`
     + (model.streams[1] ? ` · ${button('Open captured stderr', 'open', 0, 1)}` : '') + '</div></div>';
 }
@@ -401,7 +446,12 @@ export const LOOP_EXPLORER_STYLE = `
 .loop-stream-label { color: var(--vscode-evalens-outputLabelForeground); }
 .loop-selected > .loop-iteration-header, .loop-data.loop-selected { background: var(--vscode-editor-rangeHighlightBackground); outline: 1px solid var(--vscode-focusBorder); }
 .loop-notice, .loop-paging { margin: .5em 0; }
+.loop-navigation, .loop-overflow { margin: .8em 0; padding-top: .5em; border-top: 1px solid var(--vscode-panel-border); }
+.loop-page-scope, .loop-overflow-scope { overflow-wrap: anywhere; }
+.loop-overflow-heading { font-size: .9em; }
+.loop-overflow-scope { margin: .3em 0 .5em; }
 .loop-note .loop-action, .loop-export .loop-action { color: var(--vscode-textLink-foreground); }
+.loop-explorer button:disabled { color: var(--vscode-disabledForeground); cursor: default; }
 .loop-final { margin-top: 1em; }
 .loop-export { margin-top: .5em; }
 body.vscode-high-contrast .loop-selected, body.vscode-high-contrast-light .loop-selected { outline: 1px solid var(--vscode-contrastActiveBorder); }

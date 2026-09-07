@@ -1274,6 +1274,12 @@ function script(
       return button.dataset.loopAction === parts[1] && button.dataset.loopId === parts[2]
         && button.dataset.loopToken === parts[4] && button.dataset.loopControl === parts[3];
     });
+    if (target && target.disabled) {
+      target = Array.prototype.find.call(document.querySelectorAll('[data-loop-action]'), function (button) {
+        return !button.disabled && button.dataset.loopAction === parts[1]
+          && button.dataset.loopId === parts[2] && button.dataset.loopToken === parts[4];
+      });
+    }
     if (target) {
       target.focus({ preventScroll: true });
       if (revealLine === null) window.scrollTo(0, saved.scrollY || 0);
