@@ -457,8 +457,14 @@ function pluralize(count: number, word: string): string {
 
 /** `basics.py · 8 values · 1 stale · 1 error` -- the counts that are zero
  * say nothing, the way `format.ts`'s own `…+N more` only appears at all
- * when there is one. */
-function summaryLine(fileName: string, rows: readonly ValuesRow[]): string {
+ * when there is one. `inlineHidden` (#178) appends `· inline values hidden`
+ * while `evalens.inlineValues` is `whenPanelHidden` and this very panel is
+ * what is hiding them -- the one place a reader looking at the panel is
+ * told the editor's chips are gone, rather than left to notice their
+ * absence and wonder whether Evalens is broken. */
+function summaryLine(
+  fileName: string, rows: readonly ValuesRow[], inlineHidden: boolean
+): string {
   const stale = rows.filter((row) => row.state === 'stale').length;
   const error = rows.filter((row) => row.state === 'error').length;
   const parts = [pluralize(rows.length, 'value')];
@@ -468,7 +474,8 @@ function summaryLine(fileName: string, rows: readonly ValuesRow[]): string {
   if (error > 0) {
     parts.push(`${error} error`);
   }
-  return `${fileName} · ${parts.join(' · ')}`;
+  const summary = `${fileName} · ${parts.join(' · ')}`;
+  return inlineHidden ? `${summary} · inline values hidden` : summary;
 }
 
 type Tone = 'evaluated' | 'stale' | 'error' | 'pending';
@@ -921,10 +928,10 @@ function emptyStateHtml(message: string): string {
 
 function tableHtml(
   fileName: string, rows: readonly ValuesRow[], cursorLine: number | undefined,
-  fold: FoldRenderOptions, latestResultLine?: number
+  fold: FoldRenderOptions, latestResultLine?: number, inlineHidden = false
 ): string {
-  const summary =
-    `<div class="summary">${escapeHtml(summaryLine(fileName, rows))}</div>`;
+  const summary = `<div class="summary">`
+    + `${escapeHtml(summaryLine(fileName, rows, inlineHidden))}</div>`;
   const current = rows.find((row) => row.line === cursorLine)
     ?? rows.filter((row) => cursorLine !== undefined
       && cursorLine >= row.startLine && cursorLine <= row.endLine)
@@ -1513,10 +1520,16 @@ function script(
  * rows `panel/values.ts` is still keeping open across rebuilds. Omitted
  * entirely, a caller gets the setting's own default and nothing expanded
  * -- see `FoldState`.
+ *
+ * `inlineHidden` (#178) is `panel/values.ts`'s own `hide` -- true only while
+ * `evalens.inlineValues` is `whenPanelHidden` and this panel is what is
+ * currently hiding the editor's chips -- and does nothing beyond appending
+ * `summaryLine`'s own note; the panel's rows are unaffected either way.
  */
 export function valuesHtml(
   data: ValuesPanelData, cursorLine: number | undefined, nonce: string,
-  revealLine?: number, fold?: FoldState, followCursor = true, revision = 0
+  revealLine?: number, fold?: FoldState, followCursor = true, revision = 0,
+  inlineHidden = false
 ): string {
   const foldOptions: FoldRenderOptions = {
     resultFolds: fold?.resultFolds,
@@ -1528,7 +1541,8 @@ export function valuesHtml(
     ? emptyStateHtml(NO_EDITOR_MESSAGE)
     : data.rows.length === 0
       ? emptyStateHtml(NO_ANNOTATIONS_MESSAGE)
-      : tableHtml(data.fileName, data.rows, cursorLine, foldOptions, data.latestResultLine);
+      : tableHtml(data.fileName, data.rows, cursorLine, foldOptions,
+        data.latestResultLine, inlineHidden);
 
   return `<!doctype html>
 <html>

@@ -572,6 +572,25 @@ export class Decorator implements vscode.Disposable {
     Marker | 'plain', vscode.TextEditorDecorationType>;
   private readonly currentLines = new WeakMap<vscode.TextEditor, number>();
 
+  /**
+   * Whether `show` paints result and error chips at all (#178). Set only
+   * through `setInlineHidden`, which `Annotations.setInlineHidden` calls and
+   * then repaints every visible editor -- nothing here decides *when* to
+   * hide, only what hiding does to one call to `show`.
+   *
+   * Every other layer `show` paints is unaffected on purpose: the gutter
+   * markers, the evaluated/pending/asking region tint, and the pending and
+   * asking chips themselves are status and calls to action, not the value
+   * the Values panel exists to hold instead. Hiding those too would leave a
+   * reader with no way to tell a hidden line ran at all.
+   */
+  private inlineHidden = false;
+
+  /** Flip whether this editor's `show` paints result/error chips (#178). */
+  setInlineHidden(hidden: boolean): void {
+    this.inlineHidden = hidden;
+  }
+
   constructor(extensionUri: vscode.Uri) {
     this.segmentTypes = paintOrder(
       Array.from({ length: SEGMENT_SLOTS }, () =>
@@ -754,28 +773,35 @@ export class Decorator implements vscode.Disposable {
         // once that code has been edited nobody has checked that it still
         // does. Only the chrome recedes -- the message stays in
         // `COLOR_ERROR`, the one colour this ticket does not touch.
-        const stale = markerFor(annotation) === 'stale';
-        errors.push({
-          range: at,
-          renderOptions: {
-            after: {
-              margin,
-              contentText: errorText(
-                annotation.error.type, annotation.error.message,
-                annotation.partialFrom),
-              ...(stale
-                ? {
-                    backgroundColor: new vscode.ThemeColor(COLOR_STALE_TINT),
-                    borderColor: new vscode.ThemeColor(COLOR_STALE_BORDER),
-                  }
-                : {}),
+        //
+        // Skipped entirely while `inlineHidden` (#178): the error text is a
+        // value the Values panel already holds, and the gutter's own error
+        // marker -- painted below regardless -- is what says this line
+        // still needs attention.
+        if (!this.inlineHidden) {
+          const stale = markerFor(annotation) === 'stale';
+          errors.push({
+            range: at,
+            renderOptions: {
+              after: {
+                margin,
+                contentText: errorText(
+                  annotation.error.type, annotation.error.message,
+                  annotation.partialFrom),
+                ...(stale
+                  ? {
+                      backgroundColor: new vscode.ThemeColor(COLOR_STALE_TINT),
+                      borderColor: new vscode.ThemeColor(COLOR_STALE_BORDER),
+                    }
+                  : {}),
+              },
             },
-          },
-        });
-      } else if (annotation.value !== undefined
+          });
+        }
+      } else if (!this.inlineHidden && (annotation.value !== undefined
                  || annotation.loop !== undefined
                  || (annotation.names?.length ?? 0) > 0
-                 || hasOutput(printed)) {
+                 || hasOutput(printed))) {
         // Output goes through the result layer, not the error one, and that
         // is the whole of how `stderr:` stays uncoloured: a library logging a
         // warning has not failed, and painting it red would teach a beginner
