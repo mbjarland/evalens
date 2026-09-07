@@ -1,0 +1,29 @@
+{
+  "extension": [
+    {
+      "id": "mbjarland.evalens",
+      "path": "/Users/mbjarland/projects/evalens-worktrees/177-whole-result-fold",
+      "active": false
+    }
+  ],
+  "fold": {
+    "closed": {
+      "closed": true,
+      "height": 42,
+      "source": 42,
+      "summary": "for x in range(25) · 25 iterations · 625 printed lines",
+      "sourceText": "for x in range(25):\n    for y in range(25):\n        print(x, y)",
+      "next": 114.5,
+      "focus": true
+    },
+    "keyboardEnterSpace": true,
+    "innerDomPreserved": true
+  },
+  "followAndViewPreserve": true,
+  "singleLinePrint": {
+    "height": 14,
+    "source": 14,
+    "summary": "81 printed lines"
+  },
+  "trivialHasNoControl": true
+}
