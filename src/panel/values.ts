@@ -2,8 +2,9 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 import {
-  followValuesCursor, followValuesPanel, printedLabel as printedLabelSetting,
-  setFollowValuesCursor, valuesPanelOutputLines,
+  followValuesCursor, followValuesPanel, inlineValues,
+  printedLabel as printedLabelSetting, setFollowValuesCursor,
+  valuesPanelOutputLines,
 } from '../config';
 import { AnnotationChangeEvent, Annotations } from '../render/annotations';
 import { LoopExplorerWire, LoopInvocation } from '../kernel/protocol';
@@ -79,6 +80,19 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
    * document's own annotations can have changed between the render and the
    * click landing. */
   private renderedData: ValuesPanelData = { fileName: undefined, rows: [] };
+  /**
+   * `evalens.inlineValues === 'whenPanelHidden' && this.view.visible` (#178)
+   * -- recomputed on `resolveWebviewView`, on visibility change, on the
+   * setting changing, and on the view being disposed, which is the only
+   * place this is forced back to `false` rather than recomputed: a
+   * disposed view is not visible by any definition, but `webviewView.visible`
+   * is not safe to read once the view it belonged to has gone.
+   *
+   * Kept here, not just inferred from `this.view?.visible` at paint time,
+   * because it is also what `rebuild` bakes into `summaryLine`'s own note
+   * -- see `valuesHtml`'s `inlineHidden` parameter.
+   */
+  private inlineHidden = false;
   private markedEditor: vscode.TextEditor | undefined;
   /** Linked navigation marks the actual source line, not every line of its
    * owning statement. The gutter tick is composed with the annotation's
@@ -122,6 +136,16 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
         if (event.affectsConfiguration('evalens.valuesPanel.followCursor')) {
           void this.view?.webview.postMessage({ followCursor: followValuesCursor() });
         }
+        // #178: a reader flips `evalens.inlineValues` from the command
+        // palette or the settings UI while the panel already happens to be
+        // visible -- the same case the title-bar toggle drives through
+        // `evalens.toggleInlineValues`, reached here too since both write
+        // the same setting and this handler cannot tell which one moved it.
+        if (event.affectsConfiguration('evalens.inlineValues')) {
+          this.setInlineHidden(
+            inlineValues() === 'whenPanelHidden' && (this.view?.visible ?? false));
+          this.rebuild(this.cursorRevealLine());
+        }
       }),
       vscode.window.onDidChangeActiveTextEditor(() => this.rebuild(this.cursorRevealLine())),
       // Cursor movement never rebuilds -- it only moves the highlighted row,
@@ -146,13 +170,22 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
         this.clearMarker();
         this.view = undefined;
         this.viewSubscriptions = [];
+        // #178: a disposed panel is not visible to anyone, so whatever it
+        // was hiding comes back, exactly like closing it while `always` is
+        // already the setting always looked -- the mode never leaves the
+        // editor silent by construction.
+        this.setInlineHidden(false);
       }),
       webviewView.onDidChangeVisibility(() => {
+        this.setInlineHidden(
+          inlineValues() === 'whenPanelHidden' && webviewView.visible);
         if (webviewView.visible) this.rebuild(this.cursorRevealLine());
         else this.clearMarker();
       }),
       webviewView.webview.onDidReceiveMessage((message) => this.onMessage(message)),
     ];
+    this.setInlineHidden(
+      inlineValues() === 'whenPanelHidden' && webviewView.visible);
     this.rebuild(this.cursorRevealLine());
   }
 
@@ -190,6 +223,22 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
   private cursorRevealLine(): number | undefined {
     return followValuesCursor() ? vscode.window.activeTextEditor?.selection.active.line
       : undefined;
+  }
+
+  /**
+   * Apply `hide` (#178): record it for `rebuild`'s own `summaryLine` note,
+   * and tell `Annotations` to repaint every visible editor with or without
+   * its inline chips. A no-op when `hide` already matches, so a config
+   * change and a visibility change landing for the same reason -- both
+   * fire when the setting is flipped while the panel is visible -- do not
+   * repaint twice.
+   */
+  private setInlineHidden(hide: boolean): void {
+    if (hide === this.inlineHidden) {
+      return;
+    }
+    this.inlineHidden = hide;
+    this.annotations.setInlineHidden(hide);
   }
 
   private clearMarker(): void {
@@ -457,7 +506,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       this.renderedData, cursorLine, nonce(), revealLine,
       { outputLines: valuesPanelOutputLines(), expandedLines, loopStates,
         resultFolds: this.renderedResultFolds },
-      followValuesCursor(), ++this.revision);
+      followValuesCursor(), ++this.revision, this.inlineHidden);
     if (editor && this.view.visible && cursorLine !== undefined) {
       this.mark(editor, cursorLine);
     }
