@@ -1,6 +1,7 @@
-"""Real-pipe evidence for nested identities and unchanged execution."""
+"""Real-pipe evidence for loop boundaries, identities and unchanged execution."""
 import ast
 import asyncio
+import contextlib
 import json
 import unittest
 
@@ -35,6 +36,85 @@ class LoopExplorerKernelTest(unittest.TestCase):
                          [outer[0]['id']] * 2 + [outer[1]['id']] * 2)
         self.assertTrue(all(e['start'] == e['end'] == [0, 0]
                             for e in wire['entries']))
+
+    def test_single_loop_pairs_target_and_output_without_losing_body_history(self):
+        result, wire = self.run_loop('for n in range(3):\n'
+                                    '    square = n * n\n'
+                                    '    print(square)\n')
+        self.assertEqual(result['stdout'], '0\n1\n4\n')
+        self.assertEqual(len(wire['sites']), 1)
+        iterations = wire['entries'][1:]
+        self.assertEqual([e['value'] for e in iterations], ['0', '1', '2'])
+        self.assertEqual([result['stdout'][e['start'][0]:e['end'][0]]
+                          for e in iterations], ['0\n', '1\n', '4\n'])
+        self.assertEqual(result['bindings'][0]['values'], ['0', '1', '4'])
+        self.assertEqual(wire['final_values'], [{'name': 'n', 'value': '2'},
+                                               {'name': 'square', 'value': '4'}])
+
+    def test_single_loop_continue_break_and_finally_preserve_exact_intervals(self):
+        result, wire = self.run_loop('for n in range(5):\n'
+                                    '    try:\n'
+                                    '        if n == 0: continue\n'
+                                    '        print(n)\n'
+                                    '        if n == 2: break\n'
+                                    '    finally:\n'
+                                    '        print("done", n)\n'
+                                    'else:\n    print("not reached")\n')
+        self.assertEqual(result['stdout'], 'done 0\n1\ndone 1\n2\ndone 2\n')
+        self.assertEqual(wire['iterations'], 3)
+        self.assertEqual([result['stdout'][e['start'][0]:e['end'][0]]
+                          for e in wire['entries'][1:]],
+                         ['done 0\n', '1\ndone 1\n', '2\ndone 2\n'])
+
+    def test_single_empty_loop_else_output_is_not_an_iteration(self):
+        result, wire = self.run_loop('for n in []:\n    print("never")\n'
+                                    'else:\n    print("😀 empty")\n')
+        self.assertEqual(result['stdout'], '😀 empty\n')
+        self.assertEqual(wire['iterations'], 0)
+        self.assertEqual(len(wire['entries']), 1)
+        self.assertEqual(wire['entries'][0]['end'], [8, 0])
+        self.assertEqual(wire['final_values'], [])
+
+    def test_single_loop_capture_adds_no_user_repr_or_body_calls(self):
+        result = self.kernel.send(op='eval_file', source=(
+            'events = []\n'
+            'class Item:\n'
+            '    def __repr__(self):\n'
+            '        events.append("repr")\n'
+            '        return "item"\n'
+            'items = [Item()]\n'
+            'for item in items:\n'
+            '    events.append("body")\n'))
+        self.assertTrue(all(r['ok'] for r in result['results']))
+        self.assertIn('loop_explorer', result['results'][-1])
+        # The existing loop trace pays three repr calls: items assignment,
+        # target capture, then the final named reading. Boundaries add none.
+        self.assertEqual(self.kernel.evaluate('events', 0)['value'],
+                         "['repr', 'repr', 'body', 'repr']")
+
+    def test_single_loop_disabled_unsupported_and_failed_paths_stay_flat(self):
+        self.kernel.evaluate('a = [0]', 0)
+        for source, options, ok in (
+                ('for n in range(2):\n    print(n)',
+                 {'limits': {'loop_values': 0}}, True),
+                ('for a[0] in range(2):\n    print(a[0])', {}, True),
+                ('for n in range(2):\n    print(n)\n    1 / 0', {}, False),
+                ('while False:\n    pass', {}, True),
+                ('[n * n for n in range(3)]', {}, True)):
+            with self.subTest(source=source):
+                result = self.kernel.evaluate(source, 0, **options)
+                self.assertEqual(result['ok'], ok)
+                self.assertNotIn('loop_explorer', result)
+
+    def test_single_million_pass_loop_keeps_only_bounded_entries(self):
+        _, wire = self.run_loop('for n in range(1000000):\n    pass\n')
+        self.assertEqual(wire['iterations'], 1000000)
+        self.assertEqual(wire['invocations'], 1)
+        self.assertEqual(len(wire['entries']), ENTRY_LIMIT)
+        self.assertEqual(wire['omitted_iterations'], 1000000 - ENTRY_LIMIT + 1)
+        self.assertEqual(wire['entries'][0]['count'], 1000000)
+        self.assertTrue(all(e['end'] == [0, 0] for e in wire['entries']))
+        self.assertLess(len(json.dumps(wire)), 400000)
 
     def test_three_levels_break_continue_and_unicode_streams(self):
         source = ('for x in range(2):\n'
@@ -191,6 +271,69 @@ class LoopExplorerKernelTest(unittest.TestCase):
 
 
 class LoopExplorerBoundariesTest(unittest.TestCase):
+    def test_single_explorer_matches_prior_trace_execution_and_repr_counts(self):
+        source = ('for n in values():\n'
+                  '    events.append(("body", n))\n'
+                  '    try:\n'
+                  '        if n == 0: continue\n'
+                  '        square = n * n\n'
+                  '        if n == 2: break\n'
+                  '    finally:\n'
+                  '        print("finally", n)\n')
+        outcomes = []
+        for exploring in (False, True):
+            events = []
+            def describe(value):
+                events.append(('repr', value))
+                return repr(value)
+            def values():
+                for n in range(5):
+                    events.append(('next', n))
+                    print('draw', n)
+                    yield n
+            node = ast.parse(source).body[0]
+            if exploring:
+                node, plan, watch_plan, sites = loops.instrument_exploring(node)
+            else:
+                node, plan, watch_plan = loops.instrument_watching(node, {})
+            out = OutputCapture()
+            recorders = loops.watching_traces(plan, watch_plan, describe)
+            if exploring:
+                capture = LoopExplorer(sites, out, OutputCapture())
+                for i, trace in enumerate(recorders):
+                    trace.explorer, trace.site = capture, i
+            namespace = {'events': events, 'values': values}
+            with loops.installed(namespace, recorders), contextlib.redirect_stdout(out):
+                exec(compile(ast.Module(body=[node], type_ignores=[]),
+                             '<single fixture>', 'exec', dont_inherit=True), namespace)
+            outcomes.append((events, out.getvalue(), recorders[0].wire(),
+                             recorders[0].bindings_wire(), namespace['square']))
+        self.assertEqual(outcomes[0], outcomes[1])
+
+    def test_single_async_for_keeps_boundaries_across_continue_and_else(self):
+        tree = ast.parse('async def run():\n'
+                         '    async for n in values():\n'
+                         '        if n == 0: continue\n'
+                         '        print(n)\n'
+                         '    else:\n        print("done")\n')
+        async def values():
+            for value in (0, 1, 2):
+                yield value
+        node, plan, watch_plan, sites = loops.instrument_exploring(tree.body[0].body[0])
+        tree.body[0].body[0] = node
+        out = OutputCapture()
+        capture = LoopExplorer(sites, out, OutputCapture())
+        recorders = loops.watching_traces(plan, watch_plan, repr)
+        recorders[0].explorer = capture
+        namespace = {'values': values}
+        with loops.installed(namespace, recorders), contextlib.redirect_stdout(out):
+            exec(compile(tree, '<single async fixture>', 'exec', dont_inherit=True), namespace)
+            asyncio.run(namespace['run']())
+        self.assertEqual(out.getvalue(), '1\n2\ndone\n')
+        self.assertEqual([e['end'] for e in capture.entries],
+                         [[9, 0], [0, 0], [2, 0], [4, 0]])
+        self.assertEqual(capture.stack, [])
+
     def test_budget_edges_and_async_for_use_explicit_parent_identity(self):
         source = ('async def run():\n'
                   '    async for x in values():\n'

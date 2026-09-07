@@ -1,0 +1,49 @@
+[
+  {
+    "case": "three compact square-print rows, source selection, exact export and square orange bar",
+    "status": "pass",
+    "style": {
+      "radius": "0px",
+      "bar": "rgb(230, 173, 69)",
+      "background": "rgba(0, 0, 0, 0)"
+    }
+  },
+  {
+    "case": "existing inline body history and saved hover preserved",
+    "status": "pass",
+    "chip": "×3n: 0, 1, 2squared: 0, 1, 4printed: 0 …(3 lines)"
+  },
+  {
+    "case": "continue and break retain entered silent iterations",
+    "status": "pass"
+  },
+  {
+    "case": "empty-loop else output is separate; known silent passes show No output",
+    "status": "pass"
+  },
+  {
+    "case": "two short printed lines stay visible within compact rows",
+    "status": "pass"
+  },
+  {
+    "case": "Unicode stdout/stderr remain separate and export exactly",
+    "status": "pass"
+  },
+  {
+    "case": "100 iterations replace a bounded 20-row page",
+    "status": "pass"
+  },
+  {
+    "case": "million-pass loop retains bounded detail, truthful totals and working pages",
+    "status": "pass"
+  },
+  {
+    "case": "long output starts folded, pages retained text and preserves page on reopen",
+    "status": "pass",
+    "exportedCharacters": 65578
+  },
+  {
+    "case": "iteration source selection reanchors with edits above loop",
+    "status": "pass"
+  }
+]

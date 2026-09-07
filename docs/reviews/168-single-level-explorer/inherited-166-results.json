@@ -1,0 +1,22 @@
+[
+  {
+    "case": "100x100 starts folded without raw output",
+    "outerFolds": 20,
+    "gapId": "1",
+    "gapAction": "gap:20"
+  },
+  {
+    "case": "one click reveals inner rows, page replaces them, parent closes all",
+    "status": "pass"
+  },
+  {
+    "case": "unattributed output stays independently folded, bounded and keyboard operable",
+    "status": "pass",
+    "preservedPage": 2
+  },
+  {
+    "case": "full captured stdout export exact",
+    "lines": 10000,
+    "characters": 58000
+  }
+]

@@ -538,7 +538,7 @@ off. The panel's checkbox controls this preference separately from
 `evalens.valuesPanel.follow`, which follows newly evaluated results. Neither
 navigation mode evaluates code or opens a hidden panel.
 
-### Exploring nested loops without inventing a history
+### Exploring loops without inventing a history
 
 Each supported nested loop's editor chip sits beside its own source header.
 It uses that source site's existing recorder, with an exact aggregate count,
@@ -562,11 +562,21 @@ sites keep the existing flat fallback. No display action evaluates code or
 adds user `repr()` calls.
 
 The Values panel separates **Iteration values** from **Printed output** for
-nested readable `for` statements. The former are target representations
+readable `for` statements at every depth. The former are target representations
 recorded on entry to each iteration; independent body-variable histories are
 never zipped into those rows. **Values after loop** reports bounded passive
 snapshots after success, separately from iteration readings. Failed or
 unsupported captures retain flat output.
+
+Single-level loops start with compact target/output rows. Up to three short
+lines and 160 characters across both streams stay visible without individual
+headings or expanders. Longer per-iteration output starts folded. Nesting adds
+outer iteration groups around the same leaf layout, keeping its established
+one-line compact threshold. Silent iterations say **No output**; a reached
+empty loop says **No iterations** and keeps any `else` output outside iteration
+rows. Single-loop inline target/body histories and saved hover text retain
+their existing grammar; independent body histories remain inline even though
+they cannot be paired with individual explorer rows.
 
 Large traces share the panel's neutral background. The statement's status bar
 and navigation frame remain; only the selected iteration receives a fill.
