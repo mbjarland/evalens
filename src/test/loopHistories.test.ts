@@ -104,7 +104,7 @@ test('loaded extension paints nested histories, keeps output with its owner and 
     assert.match(localHover!, /10000 iterations total across 100 loop runs/);
     assert.doesNotMatch(localHover!, /Current kernel value|x =|Explore/);
     const ownerHover = await hover(fake, editor, 0);
-    assert.match(ownerHover!, /Values after loop:\nx = 99\ny = 99/);
+    assert.match(ownerHover!, /Final values after this loop:\nx = 99\ny = 99/);
     (fake.commands.registered.get('evalens.clearResults') as () => void)();
     assert.deepEqual(paintedLines(editor), []);
     assert.equal(await hover(fake, editor, 1), undefined);

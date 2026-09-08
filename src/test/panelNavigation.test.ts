@@ -336,14 +336,14 @@ test('setting changes apply without rebuilding; evaluation reveal is '
 
 // -- the other two checkboxes in #navigation-control (#181) ------------------
 //
-// "Follow newest value" (`follow-panel`) and "Hide inline values while this
+// "Scroll to new results" (`follow-panel`) and "Hide inline values while this
 // panel is visible" (`hide-inline-values`) round-trip exactly like
 // `follow-cursor` above: a change posts `{ <name>, revision }`, and a
 // `{ <name> }` message from the extension updates the checkbox back without
 // a rebuild -- the title-bar lock and eye icons these replaced gave no
 // toggled appearance at all, which is the whole reason they moved here.
 
-test('the "Follow newest value" checkbox posts followPanel on change and '
+test('the "Scroll to new results" checkbox posts followPanel on change and '
   + 'follows a followPanel message back, without a rebuild', () => {
   const rows = [shortRow(0, 0), shortRow(1, 40)];
   const view = webview(rows, { scrollHeight: 2000 });

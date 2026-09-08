@@ -205,6 +205,7 @@ test('a pending row shows the pending mark, never a stale value', () => {
   const html = valuesHtml({ fileName: 'x.py', rows }, undefined, 'n');
   assert.match(html, /tone-pending/);
   assert.match(html, /running…/);
+  assert.equal(summaryOf(html), 'x.py · 0 recorded results · 1 running');
 });
 
 test('the full value is shown, not the inline chip\'s 120-character cut', () => {
@@ -556,7 +557,7 @@ test('the summary line names the file and counts stale and error rows', () => {
   const html = valuesHtml(
     { fileName: 'basics.py', rows: rowsFor(document, annotations, 'printed') },
     undefined, 'n');
-  assert.equal(summaryOf(html), 'basics.py · 3 values · 1 stale · 1 error');
+  assert.equal(summaryOf(html), 'basics.py · 3 recorded results · 1 stale · 1 error');
 });
 
 test('a summary with nothing stale or wrong says only the count', () => {
@@ -567,7 +568,20 @@ test('a summary with nothing stale or wrong says only the count', () => {
   const html = valuesHtml(
     { fileName: 'basics.py', rows: rowsFor(document, annotations, 'printed') },
     undefined, 'n');
-  assert.equal(summaryOf(html), 'basics.py · 1 value');
+  assert.equal(summaryOf(html), 'basics.py · 1 recorded result');
+});
+
+test('summary counts completed statements, not variable or output counts', () => {
+  const document = lineSource(['x, y = 1, 2', 'print("a\\nb")', 'slow()']);
+  const annotations: PanelAnnotation[] = [
+    { range: range(0, 0), value: null,
+      names: [{ name: 'x', value: '1' }, { name: 'y', value: '2' }] },
+    { range: range(1, 1), value: null, printed: { stdout: 'a\nb\n' } },
+    { range: range(2, 2), pending: { message: 'running…' } },
+  ];
+  const html = valuesHtml({ fileName: 'counts.py',
+    rows: rowsFor(document, annotations, 'printed') }, undefined, 'n');
+  assert.equal(summaryOf(html), 'counts.py · 2 recorded results · 1 running');
 });
 
 test('every colour rides a class, never an inline style attribute', () => {
@@ -1149,7 +1163,7 @@ test('an edit that cannot name a single line falls back to the cursor',
     }
   });
 
-test('Evalens: Toggle Follow in Values Panel flips the setting', async () => {
+test('Evalens: Toggle Scrolling to New Results flips the setting', async () => {
   const fake = createFakeVscode();
   const extension = activated(fake);
   try {

@@ -90,6 +90,6 @@ export function inlineLoopHover(
   }
   const text = hoverText({ ...annotation, loop: root.trace, names: [], more: 0 });
   const snapshots = annotation.loopExplorer!.final_values;
-  return text + caveat + (snapshots.length ? '\n\nValues after loop:\n'
+  return text + caveat + (snapshots.length ? '\n\nFinal values after this loop:\n'
     + snapshots.map((item) => `${item.name} = ${item.value}`).join('\n') : '');
 }

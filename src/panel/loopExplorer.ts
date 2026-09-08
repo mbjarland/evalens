@@ -243,7 +243,9 @@ export function loopExplorerHtml(
       const selected = Math.min(page, chunks.length - 1);
       const raw = chunks[Math.max(0, selected)] ?? '';
       const shown = raw.replace(/\r?\n$/, '') || (text ? '(blank line)' : '');
-      const label = stream ? '<span class="loop-stream-label">stderr: </span>' : '';
+      const label = stream ? '<span class="loop-stream-label" '
+        + 'title="stderr is a separate output stream, often used for warnings. '
+        + 'Output here does not by itself mean the code failed.">stderr: </span>' : '';
       const paging = chunks.length > 1
         ? `<div class="loop-note">Output part ${selected + 1} of ${chunks.length} · `
           + (selected > 0 ? button('Previous output', `text:${gap}:${stream}`, key, selected - 1) + ' · ' : '')
@@ -328,9 +330,10 @@ export function loopExplorerHtml(
       + (site.omitted_body_names ? ` · ${count(site.omitted_body_names, 'other body variable')} not recorded` : '')
       + '</span></div>';
     const columns = !columnsShown && root
-      ? '<div class="loop-columns"><span>Iteration values'
+      ? '<div class="loop-columns"><span>Variables'
         + (hasBodyValues ? `<span class="loop-value-timing loop-note" title="${e(timingDetail)}">${timing}</span>` : '')
-        + '</span><span>Printed output</span></div>' : '';
+        + '</span><span title="Python writes ordinary printed output to stdout.">'
+        + 'Printed output</span></div>' : '';
     if (root) columnsShown = true;
     if (!expanded) return `<section class="loop-invocation" data-loop-invocation="${invocation.id}">`
       + header + '</section>';
@@ -444,14 +447,14 @@ export function loopExplorerHtml(
   }).join('') + gapHtml(cursor, model.wire.totals, 0, model.roots.length,
     model.wire.omitted_invocations > 0);
   const final = model.wire.final_values.length
-    ? '<div class="loop-final">Values after loop: '
+    ? '<div class="loop-final">Final values after this loop: '
       + model.wire.final_values.map((v) => `${e(v.name)} = ${e(v.value)}`).join(', ') + '</div>' : '';
   const clipped = model.wire.totals.some((n, i) => n > model.wire.retained[i]!);
   return `<div class="loop-explorer" data-loop-root="${line}">`
     + body + (exhausted ? '<div class="loop-notice">Visible detail limit reached. Collapse a group to explore another.</div>' : '')
     + (clipped ? '<div class="loop-notice">Output capture is incomplete; unretained text cannot be expanded.</div>' : '')
-    + final + `<div class="loop-export">${button('Open captured stdout', 'open', 0, 0)}`
-    + (model.streams[1] ? ` · ${button('Open captured stderr', 'open', 0, 1)}` : '') + '</div></div>';
+    + final + `<div class="loop-export">${button('Open printed output', 'open', 0, 0)}`
+    + (model.streams[1] ? ` · ${button('Open stderr output', 'open', 0, 1)}` : '') + '</div></div>';
 }
 
 /** At most 65,536 retained code points enter this function. Never split an
