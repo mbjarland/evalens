@@ -774,7 +774,10 @@ function valueDetailHtml(
   const tone: Tone = row.state === 'stale' ? 'stale' : 'evaluated';
   if (row.loopExplorer) {
     const explorer = resultSurface(loopExplorerHtml(row.loopExplorer,
-      row.line, loopStates?.get(row.loopExplorer.wire), outputLines), tone);
+      row.line, loopStates?.get(row.loopExplorer.wire), outputLines,
+      [row.state === 'stale' ? 'Stale recorded result' : '',
+        row.partialFrom !== undefined ? `Partial run: source incomplete from line ${row.partialFrom + 1}` : '']
+        .filter(Boolean).join(' · ')), tone);
     return row.state === 'stale' && row.staleReason !== undefined
       ? explorer + staleReasonHtml(row) : explorer;
   }
@@ -866,6 +869,7 @@ function valueCellHtml(
     + `aria-expanded="${!collapsed}" aria-controls="result-detail-${row.line}" `
     + `aria-label="${collapsed ? 'Show' : 'Collapse'} values for line ${row.line + 1}; ${escapeHtml(description)}" `
     + `data-result-description="${escapeHtml(description)}" `
+    + `aria-description="${escapeHtml(title)}. Recorded during evaluation; not live state." `
     + `title="${collapsed ? 'Show' : 'Collapse'} values">`
     + `<span aria-hidden="true">${collapsed ? '▸' : '▾'}</span></button>`
     + `<div class="result-summary result-surface tone-${tone}"${collapsed ? '' : ' hidden'} `
@@ -1309,6 +1313,48 @@ function script(
   var revision = ${revision};
   ${LEARNING_SCRIPT}
   var saved = vscode.getState() || {};
+  // Local evidence disclosures are native controls: reading them never
+  // navigates source or posts an evaluation/provider message.
+  document.querySelectorAll('[data-local-disclosure]').forEach(function (details) {
+    details.addEventListener('click', function (event) { event.stopPropagation(); });
+    details.addEventListener('keydown', function (event) { event.stopPropagation(); });
+  });
+  var navigationControl = document.getElementById('navigation-control');
+  var loopContexts = Array.prototype.slice.call(document.querySelectorAll('.loop-context'));
+  loopContexts.forEach(function (context) {
+    context.style.setProperty('--loop-depth', context.dataset.loopDepth);
+  });
+  var contextQueued = false;
+  function measureLoopContexts() {
+    var top = navigationControl.getBoundingClientRect().height + 6;
+    document.documentElement.style.setProperty('--loop-context-top', top + 'px');
+    var stuck = loopContexts.filter(function (context) {
+      return context.getBoundingClientRect().top <= top + 1
+        && context.closest('.loop-invocation').getBoundingClientRect().bottom > top;
+    });
+    // Keep only the innermost current context visible in the sticky slot.
+    // Hidden ancestor headers retain their flow height, so scrolling never
+    // shifts the result; source, parent iteration and timing travel together.
+    var active = stuck.filter(function (context) {
+      return context.closest('.loop-invocation').getBoundingClientRect().bottom
+        >= top + context.getBoundingClientRect().height;
+    }).at(-1);
+    loopContexts.forEach(function (context) {
+      context.classList.toggle('loop-context-covered', stuck.includes(context) && context !== active);
+    });
+  }
+  function queueLoopContexts() {
+    if (contextQueued) return;
+    contextQueued = true;
+    requestAnimationFrame(function () { contextQueued = false; measureLoopContexts(); });
+  }
+  if (loopContexts.length) {
+    measureLoopContexts();
+    window.addEventListener('scroll', queueLoopContexts, { passive: true });
+    var contextObserver = new ResizeObserver(queueLoopContexts);
+    contextObserver.observe(navigationControl);
+    loopContexts.forEach(function (context) { contextObserver.observe(context); });
+  }
   var resultControls = Array.prototype.slice.call(document.querySelectorAll('.whole-result'));
   function paintResultFold(result, collapsed) {
     var button = result.querySelector('.result-disclosure');

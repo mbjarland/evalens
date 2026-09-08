@@ -79,6 +79,19 @@ test('folded summaries keep error, stale, partial and stream-capture facts separ
   { text: 'ValueError: message · captured printed output', status: 'Stale · Error · Partial run · Output truncated' });
 });
 
+test('collapsed stale error keeps essential facts in text and keyboard description', () => {
+  const rows = rowsFor({ lineAt: () => ({ text: 'raise ValueError("old")' }) }, [{
+    range: { start: { line: 0 }, end: { line: 0 } },
+    error: { type: 'ValueError', message: 'old' }, stale: true,
+    staleReason: 'edited', partialFrom: 9,
+    printed: { stdout: 'one\n… <99 characters omitted from trace>' },
+  }], 'printed');
+  const html = valuesHtml({ fileName: 'test.py', rows }, 0, 'n', undefined,
+    { resultFolds: new Map([[0, { identity: 42, collapsed: true }]]) });
+  assert.match(html, /class="result-summary-status error-text">Stale · Error · Partial run · Output truncated/);
+  assert.match(html, /aria-description="[^"<>]*Stale · Error · Partial run · Output truncated[^"<>]*Recorded during evaluation; not live state/);
+});
+
 test('generic folded stream counts include intentional trailing blank lines exactly once', () => {
   const summaryFor = (stdout: string) => resultFoldSummary(rowsFor({ lineAt: () => ({ text: 'print()' }) }, [{
     range: { start: { line: 0 }, end: { line: 0 } }, printed: { stdout },

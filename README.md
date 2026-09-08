@@ -234,6 +234,12 @@ from an earlier pass. A `continue` or `break` that skips this capture point
 shows **u: not recorded**. Unbound names and names that cannot yet be
 distinguished from pre-loop state also say **not recorded**. Up to three body
 names are captured; the loop heading reports any additional omitted names.
+Each loop names its timing, for example **v at iteration start; u at iteration
+end**. **Recording details** explains that timing and conditional carry-over;
+**Why?** beside a missing reading explains what Evalens could record. A missing
+reading does not establish that an assignment was skipped or that the Python
+variable had no value. For `u = 4; print(u); u = 99`, the end reading is `u = 99`
+and the printed output is `4`.
 Silent passes say **No output**; an empty loop says **No iterations**, with
 any `else` output shown separately.
 `stderr` is labelled separately. **Final values after this loop** is the
@@ -241,6 +247,9 @@ final snapshot, not a claim about any selected iteration or a live watch.
 
 The explorer uses the panel's neutral background with an orange leading bar.
 Filled emphasis stays on the selected iteration, keeping large traces quiet.
+The current loop's heading, timing and outer-iteration context remain visible
+while scrolling through its rows. Nested headings replace the outer sticky
+context instead of stacking over the results.
 
 Short nested runs show neighboring outer iterations together. Long output
 starts folded even in a single-level loop. Use the disclosure arrows for
@@ -254,7 +263,9 @@ Opening an outer iteration also shows its only inner loop; sibling loops keep
 separate arrows. Both inner and outer loops show the current iteration range
 against the number that actually ran, with **Previous iterations** and
 **More iterations** controls. A disabled control marks a page boundary; when
-later iteration details were not captured, that loop says how many were saved.
+later iteration details were not captured, that loop says beside its heading
+how many iterations ran and how many details were saved. Folding, another
+saved page, and details that were never saved are distinct states.
 Remaining captured output starts folded under **Remaining printed output**,
 after its loop's navigation, with the source line identifying its owner. It
 keeps the same bounded output parts when opened and may include `else` output;
