@@ -152,7 +152,7 @@ test('multi-line output shows a count, with all of it on the hover', async (t) =
   const source = 'for word in ["one", "two", "three"]:\n    print(word)\n';
 
   assert.deepEqual(await paint(client, source, [0]),
-    ["word ×3: 'one', 'two', 'three'   printed: one …(3 lines)"]);
+    ["word: 'one', 'two', 'three' · 3 iterations   printed: one …(3 lines)"]);
 
   const shown = present(await evaluate(client, source, 0), 0);
   assert.equal((shown as { hover: string }).hover,
@@ -383,19 +383,19 @@ test('a comprehension shows its own loop, not an unrelated variable', async (t) 
     // own `x` drew from `range(10)` -- ten iterations, bounded the same way
     // a `for` loop's are.
     'squares: [0, 1, 4, 9, 16, 25, 36, 49, 64, 81]   '
-      + 'x ×10: 0, 1, 2, 3, 4, … (+4 more) … 9',
+      + 'x: 0, 1, 2, 3, 4, …, 9 · 10 iterations',
     // Two `for` clauses, two sequences: the outer ran three times, the inner
     // six -- once per outer iteration -- which is the nesting lesson #75
-    // asks for rather than a bug to zip away. The counts say so directly now
-    // (#36): `×3` beside `×6` is the nesting, without having to count commas.
+    // asks for rather than a bug to zip away. Each trailing count names
+    // how many iterations that sequence records.
     'pairs: [(0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)]   '
-      + 'x ×3: 0, 1, 2   y ×6: 0, 1, 0, 1, 0, 1',
+      + 'x: 0, 1, 2 · 3 iterations   y: 0, 1, 0, 1, 0, 1 · 6 iterations',
     'factor: 10',
     'data: [1, 2]',
     // Only the loop target ever had a scope of its own to report; what the
     // line reads from the enclosing scope is still the context that makes it
     // make sense, and now sits beside the trace rather than in place of it.
-    'scaled: [10, 20]   x ×2: 1, 2   factor: 10   data: [1, 2]',
+    'scaled: [10, 20]   x: 1, 2 · 2 iterations   factor: 10   data: [1, 2]',
   ]);
 
   const outer = await evaluate(client, 'x\n', 0) as Evaluated;
@@ -1224,7 +1224,7 @@ test('a loop annotates its whole sequence, through the real kernel', async (t) =
   assert.equal(
     resultText({ value: shown.value ?? '', display: shown.display,
       loop: shown.loop }).replace(/ /g, ' '),
-    'p ×4: 1, 2, 3, 4');
+    'p: 1, 2, 3, 4 · 4 iterations');
 });
 
 test('a ten thousand row loop arrives bounded, not whole', async (t) => {
@@ -1241,7 +1241,7 @@ test('a ten thousand row loop arrives bounded, not whole', async (t) => {
     resultText({ value: result.value ?? '', display: result.display,
       loop: result.loop })
       .replace(/ /g, ' '),
-    'p ×10,000: 0, 1, 2, 3, 4, … (+9,994 more) … 9999');
+    'p: 0, 1, 2, 3, 4, …, 9999 · 10,000 iterations');
 });
 
 test('a mutable loop reports each iteration, not the end state', async (t) => {
@@ -1279,7 +1279,7 @@ test('a loop annotates what its body computed, through the real kernel', async (
   // the count says how much is not on screen. Every one of them is in the
   // channel already, and all three are on the hover.
   assert.deepEqual(await paint(client, source, [1]),
-    ['v ×3: 1, 2, 3   u ×3: 4, 8, 12   x: [1, 2, 3]   printed: value is 4 …(3 lines)']);
+    ['v: 1, 2, 3 · 3 iterations   u: 4, 8, 12 · 3 iterations   x: [1, 2, 3]   printed: value is 4 …(3 lines)']);
 });
 
 test('a filter loop paints two sequences of different lengths', async (t) => {
@@ -1299,13 +1299,12 @@ test('a filter loop paints two sequences of different lengths', async (t) => {
   ].join('\n');
 
   assert.deepEqual(await paint(client, source, [0]),
-    ['v ×3: 1, 2, 3   u ×2: 4, 12']);
+    ['v: 1, 2, 3 · 3 iterations   u: 4, 12 · 2 iterations']);
 });
 
 test('a loop body binding one value every time says it once', async (t) => {
   // `c: 7, 7, 7, 7` would crowd out the sequence beside it that is moving.
-  // `v`, `c` and `d` all ran four times, so #118 folds that into one leading
-  // `×4` rather than repeating it on every name.
+  // The constant still carries its four-iteration count after that value.
   const client = connect();
   t.after(() => client.dispose());
 
@@ -1317,7 +1316,7 @@ test('a loop body binding one value every time says it once', async (t) => {
   ].join('\n');
 
   assert.deepEqual(await paint(client, source, [0]),
-    ['×4   v: 1, 2, 3, 4   c: 7   d: 1, 4, 9, 16']);
+    ['v: 1, 2, 3, 4 · 4 iterations   c: 7 · 4 iterations   d: 1, 4, 9, 16 · 4 iterations']);
 });
 
 test('a loop stopped by break annotates the value it broke on', async (t) => {
@@ -1331,7 +1330,7 @@ test('a loop stopped by break annotates the value it broke on', async (t) => {
     resultText({ value: result.value ?? '', display: result.display,
       loop: result.loop })
       .replace(/ /g, ' '),
-    'p ×3: 1, 2, 3');
+    'p: 1, 2, 3 · 3 iterations');
 });
 
 test('a nominated expression paints as another name beside the loop', async (t) => {
@@ -1344,11 +1343,8 @@ test('a nominated expression paints as another name beside the loop', async (t) 
   const source = 'for p in [0, 1, 4, 9, 16]:\n    pass\n';
   assert.equal(
     await paintWatch(client, source, 0, 'p+6'),
-    // The `×5` is #36's iteration cue, and a watch gets it for free: the
-    // trace rides in `bindings`, so a nominated expression reads as a
-    // history exactly the way the loop's own target does. `p` and `p+6` ran
-    // the same five times, so #118 folds the cue into one leading group.
-    '×5   p: 0, 1, 4, 9, 16   p+6: 6, 7, 10, 15, 22');
+    // Watches use the same body-history convention, with their own count.
+    'p: 0, 1, 4, 9, 16 · 5 iterations   p+6: 6, 7, 10, 15, 22 · 5 iterations');
 });
 
 test('a watched accumulator traces the running total, end to end', async (t) => {
@@ -1359,8 +1355,7 @@ test('a watched accumulator traces the running total, end to end', async (t) => 
   await evaluate(client, source, 0);
   assert.equal(
     await paintWatch(client, source, 1, 'total'),
-    // `x` and `total` share a count, so #118 folds it into one leading `×4`.
-    '×4   x: 1, 2, 3, 4   total: 1, 3, 6, 10');
+    'x: 1, 2, 3, 4 · 4 iterations   total: 1, 3, 6, 10 · 4 iterations');
 });
 
 test('a watch that raises is reported once and the loop still completes', async (t) => {

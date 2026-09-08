@@ -57,24 +57,18 @@ const AFTER_RULE = 4;
  * two streams of output, the cap footnote and the reduced-context caveat is
  * twelve pieces. A test builds that line and checks it still fits.
  *
- * Twenty-two segments once neighbouring chrome is merged within each piece,
- * plus eleven boundaries between the twelve pieces. Before #95's chips a
- * boundary was a gap that could merge into whichever same-role segment sat
- * next to it, saving a slot; #95 made a boundary its own segment, since
- * merging it would paint the gap inside that segment's chip, which is where
- * the plain sum of the two -- thirty-three -- came from. #118 made a
- * boundary cost two slots rather than one: painting the divider's hairline
- * rule needs a plain spacer ahead of it, because a `border` always sits at
- * the very outside of its own box and cannot put clear space in front of
- * itself (see `decorations.ts`'s `DIVIDER_LEAD_SHAPE`). Twenty-two plus
- * twenty-two is forty-four -- higher again, for the same reason #95's own
- * rise was: paying for what chip-shaped chrome costs beyond a plain string,
- * rather than letting the widest lines quietly fall back to one colour.
+ * Twenty-six segments after merging neighboring chrome within each piece:
+ * four history slots each have a label, value and trailing count; four plain
+ * names and two streams each have two segments; the two footnotes have one.
+ * The eleven boundaries between pieces each cost two slots, for a spacer
+ * and a hairline divider (see `decorations.ts`'s `DIVIDER_LEAD_SHAPE`). That
+ * totals forty-eight slots. Separate count segments keep metadata quieter
+ * than values without making a full line fall back to one color.
  *
  * A line that somehow wants more is painted as one string in the value colour:
  * the rendering this replaced, which is still correct, only less legible.
  */
-export const SEGMENT_SLOTS = 44;
+export const SEGMENT_SLOTS = 48;
 
 /** The class name an `after` attachment on this type will be compared under. */
 export function afterClassName(key: string): string {

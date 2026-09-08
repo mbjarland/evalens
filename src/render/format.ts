@@ -25,8 +25,8 @@ export const GAP = '   ';
  *
  * A word rather than a glyph, and this word rather than `stdout`. The
  * annotation already reads `<label>: <value>` -- `x: [1, 2, 3]` for a binding,
- * `v ×3: 1, 2, 3` for a loop target -- so output is another label in the same
- * grammar and there is nothing new to learn. `printed` is what a first-year
+ * `v: 1, 2, 3 · 3 iterations` for a loop target -- so output is another
+ * label in the same grammar. `printed` is what a first-year
  * student literally did; `<stdout>` is jargon they have not met, and for
  * beginner code the two mean the same thing anyway.
  *
@@ -437,47 +437,14 @@ export function grouped(count: number): string {
 }
 
 /**
- * What says "this is a history of N moments," not a value that happens to
- * hold several.
- *
- * #36: beside `x = 16`, `p: 16` and, once a loop's sequence is rendered,
- * `p: 0, 1, 4, 9, 16` are still the same *shape* -- a label and a value --
- * and a comma-joined list reads as a tuple or a list, not as a trace of five
- * separate moments. The count is the cue, and it has to survive whatever the
- * font substitutes for it: measured in Menlo, SF Mono, Monaco and Courier
- * New the way `PRINTED_LABEL` above was, `↻`/`↺` exist only in Menlo, and
- * `⟳`/`⭮`/`⥁` exist in none of the four -- so the pretty loop arrows are all
- * disqualified except by the same default-only accident. `×` and `…`
- * measured clean in all four, and Python already uses `×` for exactly this
- * meaning outside code (`5×`, "five of these"), so the count is spelled
- * `p ×5: 0, 1, 4, 9, 16` -- two characters that exist wherever this renders,
- * reading correctly whether or not `sequenceText` had to elide anything.
- *
- * `evalens.loopGlyph` is meant to let this be overridden, for anyone whose
- * font does carry `↻`. Wiring a setting through touches `config.ts` and
- * `decorations.ts`, which belong to #99 and #23 respectively -- what is here
- * is the half `format.ts` owns: `Rendered.loopGlyph` already carries a
- * caller's choice down to this constant's only use, so the setting is
- * additive from here rather than a rework.
- */
-export const LOOP_GLYPH = '×';
-
-/**
- * A loop's iterations on one line: `1, 2, 3, … (+9,994 more) … 10000`.
- *
- * The elision is what makes this safe to paint at all. Ten thousand values
- * would not fit and would not be read; the first few say what the loop starts
- * with, the last says where it ended up -- which for a loop stopped by
- * `break` is the value it broke on, the thing you were looking for -- and the
- * count in between says how much is not being shown, so the summary never
- * pretends to be the whole run.
- *
- * A loop that ran zero times says so. It is a real and easily missed answer:
- * the target is left holding whatever a previous run put there, so "the
- * sequence was empty" and "the sequence ended at 4" look identical otherwise.
+ * A loop's observed values on one line: `1, 2, 3, …, 10000`.
+ * Keep the recorded head and final observation in execution order, including
+ * repeats. Counts follow each history separately; hover uses counted elision
+ * to explain how many observations the compact inline ellipsis omits.
+ * Reached empty loops and loops that were never reached remain distinct.
  */
 export function sequenceText(
-  loop: LoopTrace, elision: 'counted' | 'compact' = 'counted'
+  loop: LoopTrace, elision: 'counted' | 'compact' = 'compact'
 ): string {
   if (loop.invocations === 0) return '(not reached)';
   if (loop.count === 0) {
@@ -489,9 +456,8 @@ export function sequenceText(
   }
   const elided = loop.count - loop.values.length - 1;
   const tail = collapseLines(loop.last);
-  // Repeated source loops already state their aggregate count after the
-  // values. Keep the same observed head and final value without repeating
-  // an omitted count between them; hover retains the counted explanation.
+  // The same compact elision applies to every target and body history.
+  // Hover retains the exact omitted count.
   if (elided > 0 && elision === 'compact') {
     return [...shown, '…', tail].join(', ');
   }
@@ -500,30 +466,18 @@ export function sequenceText(
     : [...shown, tail].join(', ');
 }
 
-/**
- * One name the loop's body bound, and the sequence it took:
- * `u ×3: 4, 8, 12`.
- *
- * Rendered by exactly the same rule as the target's sequence, and separately
- * from it. The two are not columns of one table -- an iteration that hit
- * `continue` computed no result, so `v ×3: 1, 2, 3   u ×2: 4, 12` is a
- * correct annotation of a filter loop rather than a dropped value: the two
- * counts differing is itself the fact that a filter ran. Anything that zipped
- * them, or padded the shorter one, would invent an observation.
- */
+/** One body history, with its own count even when other bindings differ. */
 export function bindingText(binding: BindingTrace): string {
-  return `${binding.name}${iterationLabel(binding.count, LOOP_GLYPH)}: `
-    + sequenceText(binding);
+  return `${binding.name}: ${sequenceText(binding)}`
+    + historyCount(binding.count > 0 ? binding.count : undefined);
 }
 
-/**
- * `" ×5"`, the count `slotSegments` and `bindingText` fold into a label --
- * or nothing, for a value that was only ever read once and so carries no
- * history to mark. `grouped` so a five-figure loop reads the way every other
- * large count on this line already does.
- */
-function iterationLabel(count: number, glyph: string): string {
-  return count > 0 ? ` ${glyph}${grouped(count)}` : '';
+/** Quiet trailing metadata, never a count shared across unrelated slots. */
+function historyCount(count?: number, invocations?: number): string {
+  if (count === undefined) return '';
+  const runs = invocations === undefined ? '' : `${grouped(invocations)} runs · `;
+  return ` · ${runs}${grouped(count)} iteration${count === 1 ? '' : 's'}`
+    + (invocations === undefined ? '' : ' total');
 }
 
 /**
@@ -588,20 +542,12 @@ export interface Slot {
  * on its own really did answer `None`. The suppressed value is not lost -- the
  * hover still carries it, the third use of the same shelf.
  *
- * A loop displaces `value` with its whole sequence: `p ×4: 1, 2, 3, 4` rather
- * than `p: 4`. `value` is still the last iteration, so a caller that ignores
- * the trace shows something true rather than nothing. The `×4` is the same
- * decision said in glyphs rather than commas -- see `LOOP_GLYPH` (#36): a
- * history and a value that happens to be a list are the same *shape* of
- * annotation and need a cue that tells them apart before either is read.
- *
- * **What the loop's body bound goes between the two**, which is where the
- * reader was already finding it -- `for v in x:` with `u = 4 * v` inside
- * annotates `v ×3: 1, 2, 3   u ×3: 4, 8, 12   x: [1, 2, 3]`. The order
- * follows the same rule the rest of the line does: what the statement did,
- * then what it read. The difference is that `u` used to be one value from
- * the namespace sitting beside a history, and is now the history it actually
- * took.
+ * A loop displaces `value` with its observed sequence and trailing count:
+ * `p: 1, 2, 3, 4 · 4 iterations`. Counts distinguish histories from a
+ * single list or scalar value, even when a constant history shows one value.
+ * What the body bound follows the target, each with its own count: a body
+ * that skipped iterations must not inherit the target's larger count.
+ * Names merely read follow those histories without any iteration count.
  *
  * **What it printed comes last, and never in place of anything.**
  * `x = compute()` where `compute` prints wants `x: 42` *and* the output: they
@@ -654,7 +600,7 @@ export function paintedSlots(
   }));
   const repeated = (loop?.invocations ?? 0) > 1;
   const produced = loop
-    ? sequenceText(loop, repeated ? 'compact' : 'counted')
+    ? sequenceText(loop)
     : value === null ? null : collapseLines(value);
   const target = isBoundTarget(display, isBinding) ? display : null;
   // A loop's sequence is what the statement did, whatever its target unparses
@@ -689,38 +635,22 @@ export function paintedSlots(
  * the line merely *read* keeps it, because several of those sit side by side
  * and the label is the only thing telling the reader which is which.
  *
- * **A slot with `iterations` folds the count into the same label** (#36):
- * `p ×5: 0, 1, 4, 9, 16` rather than `p: 0, 1, 4, 9, 16`, so the shape of a
- * loop's history reads differently from a single value's before either is
- * read. It goes wherever the label goes, and disappears with it: a value that
- * already names itself has no chrome left to carry the count either, which
- * is right -- nothing here has ever recorded a `def` or `class` running in a
- * loop's target.
- *
- * A repeated source loop keeps its label and leads with observed values.
- * Run and total iteration counts follow in label color, including empty
- * runs, and do not consume the value's character allowance.
+ * A history's count follows its values in label color. Several runs also
+ * state their run count and qualify iterations as a total. These labels do
+ * not consume the value's character allowance or change its raw contents.
  */
-function slotSegments(slot: Slot, glyph: string): readonly Segment[] {
-  if (slot.invocations !== undefined) {
-    return [
-      asLabel(slot.name === null ? `${SEPARATOR} ` : `${slot.name}: `),
-      asValue(slot.value),
-      asLabel(` · ${grouped(slot.invocations)} runs · `
-        + `${grouped(slot.iterations!)} iteration${slot.iterations === 1 ? '' : 's'} total`),
-    ];
-  }
-  const count = slot.iterations === undefined
-    ? '' : iterationLabel(slot.iterations, glyph);
-  if (slot.name === null) {
-    return [asLabel(`${SEPARATOR}${count} `), asValue(slot.value)];
-  }
-  // A dropped label leaves the value alone on the line, which is exactly
-  // right: `def greet(name)` is what the statement produced, and there is no
-  // longer any chrome in front of it to colour.
-  return slot.own && namesItself(slot.name, slot.value)
-    ? [asValue(slot.value)]
-    : [asLabel(`${slot.name}${count}: `), asValue(slot.value)];
+function slotSegments(slot: Slot): readonly Segment[] {
+  const count = historyCount(slot.iterations, slot.invocations);
+  // Histories keep their name even if a recorded value names itself: the
+  // label and count describe observations, not a single definition.
+  const label = slot.name === null ? `${SEPARATOR} ` : `${slot.name}: `;
+  const dropLabel = slot.iterations === undefined && slot.own
+    && slot.name !== null && namesItself(slot.name, slot.value);
+  return [
+    ...(dropLabel ? [] : [asLabel(label)]),
+    asValue(slot.value),
+    ...(count ? [asLabel(count)] : []),
+  ];
 }
 
 /**
@@ -773,18 +703,10 @@ export interface Rendered {
     readonly message: string;
   };
   /**
-   * The glyph a loop's iteration count is shown with -- `LOOP_GLYPH` (`×`)
-   * when absent. Exists so `evalens.loopGlyph` (#36) has somewhere to land:
-   * this module reads the choice, it does not read the setting, the same
-   * split `printed`'s `label` already makes for `evalens.printedLabel`.
-   */
-  readonly loopGlyph?: string;
-  /**
    * How many graphemes a single value is shown in before `truncateValue`
    * cuts it -- `DEFAULT_MAX_VALUE_LENGTH` when absent. Exists so
-   * `evalens.maxValueLength` (#12) has somewhere to land, on the same terms
-   * as `loopGlyph` above: this module reads the width, a caller that knows
-   * the editor's is free to pass a narrower one down.
+   * `evalens.maxValueLength` (#12) has somewhere to land: this module reads
+   * the width, a caller that knows the editor's can pass a narrower one.
    */
   readonly maxValueLength?: number;
 }
@@ -872,42 +794,6 @@ function truncatedPiece(
 }
 
 /**
- * The shared count `paintedPieces` folds into one leading piece (#118), or
- * null when there is nothing worth folding.
- *
- * Four ways to be disqualified, and each is a different reason:
- *
- * - **Fewer than two slots carry a count.** Folding a single `×5` into its
- *   own leading piece is a net loss -- `×5   p: 1, 2, 3, 4, 5` is longer than
- *   `p ×5: 1, 2, 3, 4, 5` by exactly one gap, and the whole point of #118 is
- *   width. A solo loop keeps its inline count.
- * - **A slot carries no count at all.** A name merely read alongside a loop
- *   -- `for v in x: ...` leaves `x` sitting beside `v ×3` -- has nothing to
- *   do with the loop's own iteration count, and hoisting `×3` to the head of
- *   the line would put it where it reads as a claim about the whole line,
- *   `x` included. That over-claims by position rather than by text, which
- *   design rule 1 rules out exactly as firmly as a wrong word would.
- * - **The counts differ.** `for v in x: if v > 1: u = 4 * v` gives `v ×3`
- *   and `u ×2` -- the difference is itself the fact that a filter ran (see
- *   `bindingText`), and folding it away would erase the one thing the line
- *   is reporting.
- * - **A sequence spans several loop runs.** Its total belongs with its run
- *   count after its values. Matching a body count does not make that body
- *   history describe the same runs, nor justify moving the total first.
- *
- * Only when every slot on the line carries the very same count does saying
- * it once, first, cost nothing and lose nothing.
- */
-function sharedIterationCount(slots: readonly Slot[]): number | null {
-  if (slots.length < 2 || slots.some((slot) => slot.iterations === undefined
-      || slot.invocations !== undefined)) {
-    return null;
-  }
-  const first = slots[0]!.iterations!;
-  return slots.every((slot) => slot.iterations === first) ? first : null;
-}
-
-/**
  * The pieces `resultSegments` joins with a gap between each two, before that
  * gap goes in. A label and the value it introduces are one piece; `printed:`
  * and its text are one piece; the `…+N more` footnote and the reduced-context
@@ -930,25 +816,14 @@ function sharedIterationCount(slots: readonly Slot[]): number | null {
  * checked without an editor -- which matters more than usual, because the
  * painting side rests on behaviour VS Code does not document.
  *
- * **#118: when `sharedIterationCount` finds one count common to every slot,
- * it leads as its own bare piece** -- `×3`, no name, no colon -- **and every
- * slot loses its own copy of it**, so `v ×3: 1, 2, 3   u ×3: 4, 8, 12`
- * becomes `×3   v: 1, 2, 3   u: 4, 8, 12`: the same fact, said once. This
- * runs only here, never inside `paintedSlots` itself -- `announce.ts` calls
- * `paintedSlots` directly for speech, where repeating "3 iterations" once per
- * clause costs nothing and the fold has no equivalent, so leaving the shared
- * function alone is what keeps the two channels from disagreeing about what
- * `paintedSlots` itself hands back.
  */
 function paintedPieces(rendered: Rendered): readonly (readonly Segment[])[] {
   const { value, display, loop, names, bindings, printed, isBinding } = rendered;
   const more = rendered.more ?? 0;
   const partialFrom = rendered.partialFrom;
-  const glyph = rendered.loopGlyph ?? LOOP_GLYPH;
   const limit = rendered.maxValueLength ?? DEFAULT_MAX_VALUE_LENGTH;
   const slots = paintedSlots(
     value, display, loop, names, bindings, printed, isBinding);
-  const shared = sharedIterationCount(slots);
   // Cut here, once every piece has its final shape, rather than inside
   // `slotSegments` or `streamPiece`: those are shared with `announce.ts` (via
   // `paintedSlots` and `outputPieces`), which already caps what it says on
@@ -959,9 +834,7 @@ function paintedPieces(rendered: Rendered): readonly (readonly Segment[])[] {
   // inside `slotSegments` against the whole value, before this shortens it,
   // so a dropped label stays dropped on the same evidence it always was.
   const painted: (readonly Segment[])[] = [
-    ...(shared === null ? [] : [[asLabel(`${glyph}${grouped(shared)}`)]]),
-    ...slots.map((slot) => slotSegments(
-      shared === null ? slot : { ...slot, iterations: undefined }, glyph)),
+    ...slots.map(slotSegments),
     ...streamsOf(printed).map(([label, text]) => streamPiece(label, text)),
   ].map((piece) => truncatedPiece(piece, limit));
   // `more` is only ever positive because a cap left something off this exact
@@ -1035,11 +908,6 @@ export function resultSegments(rendered: Rendered): readonly Segment[] {
  * merging within a group is still the economy it always was, only merging a
  * gap into a group is not.
  *
- * A line #118 hoists (see `sharedIterationCount`) adds one more group at the
- * front, holding nothing but the shared count: `[[{role: 'nameLabel', text:
- * '×3'}]]` ahead of `v: 1, 2, 3` and everything after it. It is a group like
- * any other here -- the divider before the first per-name group is what
- * separates it from `v`, exactly as one already separates `v` from `u`.
  */
 export function resultGroups(rendered: Rendered): readonly (readonly Segment[])[] {
   return paintedPieces(rendered).map((piece) => piece.map(
@@ -1075,7 +943,7 @@ export function resultText(rendered: Rendered): string {
 /**
  * `"3 iterations"`, or `"1 iteration"`. Exported for `announce.ts`: the
  * spoken form needs the same words the hover already uses for the count a
- * line's `×N` abbreviates, on the same "cannot drift" terms as every other
+ * line spells out, on the same "cannot drift" terms as every other
  * function this module shares with that one.
  */
 export function iterations(count: number): string {
@@ -1123,7 +991,7 @@ export function hoverText(rendered: Rendered): string {
   const { display, value, loop, names, bindings, printed, partial } = rendered;
   const lines: string[] = [];
   if (loop) {
-    const sequence = sequenceText(loop);
+    const sequence = sequenceText(loop, 'counted');
     lines.push(display ? `${display} = ${sequence}` : sequence);
     lines.push(loop.invocations === 0
       ? 'Loop not reached during this evaluation'
@@ -1150,7 +1018,7 @@ export function hoverText(rendered: Rendered): string {
     // both look like the same short answer inline, and the difference is
     // exactly what someone hovering is asking about.
     lines.push(
-      `${each.name} = ${sequenceText(each)}${bindingNote(each, loop)}`);
+      `${each.name} = ${sequenceText(each, 'counted')}${bindingNote(each, loop)}`);
   }
   for (const each of names ?? []) {
     // The untouched repr where there is one, on the same terms as the value

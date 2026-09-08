@@ -343,16 +343,9 @@ test('a multi-line stderr block follows the same rule as printed (#148)',
       'every stderr line, first included, must start after the break');
   });
 
-// -- #152: a stream group is dropped by role, not by its position among ----
-// -- the hoisted `×N` group #118 can put ahead of the statement's slots ----
+// Stream groups are filtered by role; each fallback history keeps its count.
 
-test('a hoisted loop count keeps every value chip and shows a printed ' +
-  'stream once, as a block', () => {
-  // The ticket's own scene: `for v in x: u = 4 * v; print(...)`. `v` (the
-  // loop target) and `u` (the body binding) share one iteration count, so
-  // #118 hoists it to a leading `×3` group ahead of both names -- exactly
-  // the shape that made the old position-based cut mistake `u` for the
-  // elided stream and let the stream itself through twice.
+test('loop histories keep every value chip and show a printed stream once', () => {
   const document = lineSource([
     'for v in x:', '    u = 4 * v', '    print("value is " + str(u))',
   ]);
@@ -367,8 +360,8 @@ test('a hoisted loop count keeps every value chip and shows a printed ' +
   const html = valuesHtml(
     { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
     undefined, 'n');
-  assert.ok(html.includes('<span class="seg-nameLabel">×3</span>'),
-    'the shared count should still lead the row');
+  assert.equal((html.match(/ · 3 iterations<\/span>/g) ?? []).length, 2,
+    'both histories keep their own trailing count');
   assert.ok(html.includes('<span class="seg-nameLabel">v: </span>'),
     'v must keep its own chip -- the old bug dropped it');
   assert.ok(html.includes('1, 2, 3'), 'v\'s sequence should be shown in full');
@@ -380,18 +373,12 @@ test('a hoisted loop count keeps every value chip and shows a printed ' +
   const blockCount = (html.match(/class="result-group block"/g) ?? []).length;
   assert.equal(blockCount, 1, 'the stream should appear exactly once, as a block');
   const chipCount = (html.match(/class="result-group(?: |")/g) ?? []).length;
-  assert.equal(chipCount, 4, 'expected ×3, v, u and one printed block, no more');
+  assert.equal(chipCount, 3, 'expected v, u and one printed block, no more');
   const barCount = (html.match(/class="result-surface /g) ?? []).length;
   assert.equal(barCount, 1, 'one result surface owns the continuous bar');
 });
 
-test('a loop with mismatched counts keeps its own inline ×N labels and ' +
-  'still shows one printed block', () => {
-  // A filter loop: `u` only bound on two of the three iterations, so #118
-  // leaves each name its own inline count rather than folding one that
-  // would misstate the other -- no hoisted group at all. The old
-  // position-based cut already got this shape right; this guards the fix
-  // does not regress it.
+test('different history counts stay scoped to their values beside one printed block', () => {
   const document = lineSource([
     'for v in x:', '    if v > 1:', '        u = 4 * v',
     '        print("value is " + str(u))',
@@ -407,10 +394,8 @@ test('a loop with mismatched counts keeps its own inline ×N labels and ' +
   const html = valuesHtml(
     { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
     undefined, 'n');
-  assert.ok(html.includes('<span class="seg-nameLabel">v ×3: </span>'),
-    'v keeps its own inline count -- nothing was shared to hoist');
-  assert.ok(html.includes('<span class="seg-nameLabel">u ×2: </span>'),
-    'u keeps its own, differing inline count');
+  assert.match(html, /v: <\/span><span class="seg-value">1, 2, 3<\/span><span class="seg-nameLabel"> · 3 iterations/);
+  assert.match(html, /u: <\/span><span class="seg-value">8, 12<\/span><span class="seg-nameLabel"> · 2 iterations/);
   assert.ok(!html.includes('…(2 lines)'),
     'the panel must not fall back to the inline elision');
   const blockCount = (html.match(/class="result-group block"/g) ?? []).length;
@@ -503,7 +488,7 @@ test('a loop\'s iterations are shown the way the inline chip shows them', () => 
   const html = valuesHtml(
     { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
     undefined, 'n');
-  assert.match(html, /×3/);
+  assert.match(html, / · 3 iterations/);
   // `\s` rather than a literal space: the value went through
   // `preserveSpacing` on its way here, so the separator is a non-breaking
   // space, which `\s` matches and a literal `' '` in the pattern would not.
@@ -781,10 +766,13 @@ test('a value whose own text runs past the limit folds the same way a ' +
     groups: [[
       { role: 'nameLabel', text: 'grid: ' },
       { role: 'value', text: manyLines(25, 'row') },
+      { role: 'nameLabel', text: ' · 25 iterations' },
     ]],
   };
   const html = valuesHtml({ fileName: 'x.py', rows: [row] }, undefined, 'n');
   assert.ok(html.includes('row 20'));
+  assert.match(html, /<span class="seg-nameLabel"> · 25 iterations<\/span>/,
+    'folding preserves metadata after the value');
   assert.ok(!html.includes('row 21'));
   assert.ok(html.includes(foldedFooter(0, 'value-0', 5)));
   assert.ok(html.includes(
@@ -817,7 +805,9 @@ test('fullTextFor resolves a stream by its label and a value by its ' +
     const row: ValuesRow = {
       line: 3, startLine: 3, endLine: 3, codeLines: ['x = compute()'],
       state: 'evaluated',
-      groups: [[{ role: 'value', text: 'the value text' }]],
+      groups: [[{ role: 'nameLabel', text: 'x: ' },
+        { role: 'value', text: 'the value text' },
+        { role: 'nameLabel', text: ' · 3 iterations' }]],
       streams: [{ label: 'printed', text: 'the stream text' }],
     };
     assert.equal(fullTextFor(row, 'printed'), 'the stream text');

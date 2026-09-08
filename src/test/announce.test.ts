@@ -136,8 +136,8 @@ test('what a statement printed is spoken after its value', () => {
 });
 
 test('a loop is spoken as the sequence the line shows', () => {
-  // #36: painted, the same fact is `p ×3: 1, 2, 3` -- a listener needs the
-  // same "this is a history" cue a sighted reader gets from the glyph, or
+  // #36: painted, the same fact is `p: 1, 2, 3 · 3 iterations` -- a listener needs the
+  // same "this is a history" cue a sighted reader gets from the count, or
   // the two channels would tell two different stories about one line.
   const spoken = spokenText({
     value: '3', display: 'p',

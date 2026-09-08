@@ -318,7 +318,7 @@ test('single-loop loaded extension retains inline body histories, saved hover an
   try {
     await fake.executeCommand('evalens.evaluateFile');
     const inline = paintedLineText(editor, 0).replace(/\u00a0/g, ' ');
-    assert.match(inline, /×3/);
+    assert.equal((inline.match(/· 3 iterations/g) ?? []).length, 2);
     assert.match(inline, /n: 0, 1, 2/);
     assert.match(inline, /square: 0, 1, 4/);
     assert.match(paintedLineText(editor, 3).replace(/\u00a0/g, ' '), /square: 4/);

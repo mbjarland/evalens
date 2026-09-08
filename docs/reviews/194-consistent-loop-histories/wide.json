@@ -1,0 +1,423 @@
+{
+  "rows": [
+    {
+      "source": "import sys",
+      "pieces": [
+        {
+          "text": "sys: ",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"sys: \""
+        },
+        {
+          "text": "<module 'sys' (built-in)>",
+          "color": "rgb(209, 163, 92)",
+          "content": "\"<module 'sys' (built-in)>\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "(partial: line 10)",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"(partial: line 10)\""
+        }
+      ]
+    },
+    {
+      "source": "a, b, c, d, e = [1], [2], [3], [4], [5]",
+      "pieces": [
+        {
+          "text": "a: ",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"a: \""
+        },
+        {
+          "text": "[1]",
+          "color": "rgb(209, 163, 92)",
+          "content": "\"[1]\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "b: ",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"b: \""
+        },
+        {
+          "text": "[2]",
+          "color": "rgb(209, 163, 92)",
+          "content": "\"[2]\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "c: ",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"c: \""
+        },
+        {
+          "text": "[3]",
+          "color": "rgb(209, 163, 92)",
+          "content": "\"[3]\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "d: ",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"d: \""
+        },
+        {
+          "text": "[4]",
+          "color": "rgb(209, 163, 92)",
+          "content": "\"[4]\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "…+1 more",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"…+1 more\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "(partial: line 10)",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"(partial: line 10)\""
+        }
+      ]
+    },
+    {
+      "source": "for total in a + b + c + d + e:",
+      "pieces": [
+        {
+          "text": "total: ",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"total: \""
+        },
+        {
+          "text": "1, 2, 3, 4, 5",
+          "color": "rgb(209, 163, 92)",
+          "content": "\"1, 2, 3, 4, 5\""
+        },
+        {
+          "text": " · 5 iterations",
+          "color": "rgb(141, 122, 90)",
+          "content": "\" · 5 iterations\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "b1: ",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"b1: \""
+        },
+        {
+          "text": "1, 2, 3, 4, 5",
+          "color": "rgb(209, 163, 92)",
+          "content": "\"1, 2, 3, 4, 5\""
+        },
+        {
+          "text": " · 5 iterations",
+          "color": "rgb(141, 122, 90)",
+          "content": "\" · 5 iterations\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "b2: ",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"b2: \""
+        },
+        {
+          "text": "2, 4, 6, 8, 10",
+          "color": "rgb(209, 163, 92)",
+          "content": "\"2, 4, 6, 8, 10\""
+        },
+        {
+          "text": " · 5 iterations",
+          "color": "rgb(141, 122, 90)",
+          "content": "\" · 5 iterations\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "b3: ",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"b3: \""
+        },
+        {
+          "text": "3, 6, 9, 12, 15",
+          "color": "rgb(209, 163, 92)",
+          "content": "\"3, 6, 9, 12, 15\""
+        },
+        {
+          "text": " · 5 iterations",
+          "color": "rgb(141, 122, 90)",
+          "content": "\" · 5 iterations\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "a: ",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"a: \""
+        },
+        {
+          "text": "[1]",
+          "color": "rgb(209, 163, 92)",
+          "content": "\"[1]\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "b: ",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"b: \""
+        },
+        {
+          "text": "[2]",
+          "color": "rgb(209, 163, 92)",
+          "content": "\"[2]\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "c: ",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"c: \""
+        },
+        {
+          "text": "[3]",
+          "color": "rgb(209, 163, 92)",
+          "content": "\"[3]\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "d: ",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"d: \""
+        },
+        {
+          "text": "[4]",
+          "color": "rgb(209, 163, 92)",
+          "content": "\"[4]\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "printed: ",
+          "color": "rgb(92, 127, 166)",
+          "content": "\"printed: \""
+        },
+        {
+          "text": "1 …(5 lines)",
+          "color": "rgb(209, 163, 92)",
+          "content": "\"1 …(5 lines)\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "stderr: ",
+          "color": "rgb(92, 127, 166)",
+          "content": "\"stderr: \""
+        },
+        {
+          "text": "1 …(5 lines)",
+          "color": "rgb(209, 163, 92)",
+          "content": "\"1 …(5 lines)\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "…+1 more",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"…+1 more\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "​",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"​\""
+        },
+        {
+          "text": "(partial: line 10)",
+          "color": "rgb(141, 122, 90)",
+          "content": "\"(partial: line 10)\""
+        }
+      ]
+    },
+    {
+      "source": "    b1 = total",
+      "pieces": []
+    },
+    {
+      "source": "    b2 = total * 2",
+      "pieces": []
+    },
+    {
+      "source": "    b3 = total * 3",
+      "pieces": []
+    },
+    {
+      "source": "    print(total)",
+      "pieces": []
+    },
+    {
+      "source": "    print(total, file=sys.stderr)",
+      "pieces": []
+    },
+    {
+      "source": "",
+      "pieces": []
+    },
+    {
+      "source": "broken =",
+      "pieces": [
+        {
+          "text": "=> SyntaxError: invalid syntax",
+          "color": "rgb(241, 76, 76)",
+          "content": "\"=> SyntaxError: invalid syntax\""
+        }
+      ]
+    },
+    {
+      "source": "",
+      "pieces": []
+    }
+  ],
+  "slots": 48
+}

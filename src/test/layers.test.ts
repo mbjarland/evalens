@@ -142,11 +142,7 @@ test('the widest line still fits the pool painted as #118 chips, dividers includ
   // see `DIVIDER_LEAD_SHAPE` in `decorations.ts`), since a divider can no
   // longer merge into a neighbouring chip to save one.
   //
-  // Differing loop counts (`total`'s 40 against every binding's 2) and a
-  // countless read name (`name1`..`name4`) both keep #118's count-fold from
-  // firing here (see `sharedIterationCount` in `format.ts`), which is
-  // deliberate: folding drops groups rather than adding them, so the
-  // widest line the pool has to hold is the one where nothing folds.
+  // Every history has a trailing count, while plain read names have none.
   const groups = resultGroups({
     value: '12',
     display: 'total',
@@ -168,13 +164,7 @@ test('the widest line still fits the pool painted as #118 chips, dividers includ
     + `${SEGMENT_SLOTS}`);
 });
 
-test('the widest line that folds its count still fits the pool', () => {
-  // The fold (`sharedIterationCount` in `format.ts`) requires every
-  // countable slot to share one count and forbids a plain read beside them,
-  // so the widest line that folds is a different shape from the widest line
-  // above, not a smaller version of it: the loop target and all three
-  // bindings sharing one count, no read names at all, plus one more group
-  // for the folded `×N` itself.
+test('equal-count histories and footnotes still fit the pool', () => {
   const groups = resultGroups({
     value: '12',
     display: 'total',
@@ -191,7 +181,7 @@ test('the widest line that folds its count still fits the pool', () => {
   const dividers = Math.max(0, groups.length - 1);
   const slots = content + dividers * 2;
   assert.ok(slots <= SEGMENT_SLOTS,
-    `the widest folded line takes ${content} segments and ${dividers} `
+    `the equal-count line takes ${content} segments and ${dividers} `
     + `two-slot dividers, ${slots} slots total, and the pool holds `
     + `${SEGMENT_SLOTS}`);
 });

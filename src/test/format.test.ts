@@ -201,63 +201,50 @@ test('a loop shows the sequence, not the value it stopped on', () => {
   // The point of the whole feature: `p: 4` is true and nearly useless.
   assert.equal(resultText({ value: '4', display: 'p',
     loop: trace(['1', '2', '3', '4'], null) }),
-    preserveSpacing('p ×4: 1, 2, 3, 4'));
+    preserveSpacing('p: 1, 2, 3, 4 · 4 iterations'));
 });
 
-test("a loop's count is said in a glyph that survives every font", () => {
-  // #36: `p: 16` and `x: 16` are the same shape, and a comma-joined sequence
-  // does not fix that on its own -- it still reads as *a* value rather than
-  // as a history. The count is the cue, and `×` is the one candidate
-  // that measured clean in Menlo, SF Mono, Monaco and Courier New alike.
+test("a loop's trailing count distinguishes its history from a single value", () => {
   assert.equal(resultText({ value: '16', display: 'p',
     loop: trace(['0', '1', '4', '9', '16'], null) }),
-    preserveSpacing('p ×5: 0, 1, 4, 9, 16'));
+    preserveSpacing('p: 0, 1, 4, 9, 16 · 5 iterations'));
 });
 
 test('a loop that ran once still says so', () => {
   assert.equal(resultText({ value: '1', display: 'p', loop: trace(['1'], null) }),
-    preserveSpacing('p ×1: 1'));
+    preserveSpacing('p: 1 · 1 iteration'));
 });
 
 test('the count is grouped the same way the elision already is', () => {
   assert.equal(resultText({ value: '10000', display: 'p',
     loop: trace(['1'], '10000', 10000) }),
-    preserveSpacing('p ×10,000: 1, … (+9,998 more) … 10000'));
+    preserveSpacing('p: 1, …, 10000 · 10,000 iterations'));
 });
 
-test('a tuple loop target carries its count on the arrow, not on a name', () => {
-  // `(key, value)` has no identifier to attach the count to, so it goes where
-  // the label would have gone: right after `=>`.
+test('a tuple loop target puts its count after its values too', () => {
   assert.equal(
     resultText({ value: "('b', 2)", display: '(key, value)',
       loop: trace(["('a', 1)", "('b', 2)"], null) }),
-    preserveSpacing("=> ×2 ('a', 1), ('b', 2)"));
+    preserveSpacing("=> ('a', 1), ('b', 2) · 2 iterations"));
 });
 
-test('the count is overridable, for a font that has its own arrow', () => {
-  // `evalens.loopGlyph` (#36) is meant to reach here; this is the half
-  // `format.ts` owns -- `Rendered.loopGlyph` threads a caller's choice down
-  // to the one place the glyph is used.
-  assert.equal(
-    resultText({ value: '4', display: 'p',
-      loop: trace(['1', '2', '3', '4'], null), loopGlyph: '↻' }),
-    preserveSpacing('p ↻4: 1, 2, 3, 4'));
-});
-
-test('a long loop is elided with a count of what is not shown', () => {
+test('a long loop uses compact elision with exact omitted counts in hover', () => {
   // Ten thousand values would not fit and would not be read. The count is
   // what stops the summary from pretending to be the whole run.
   assert.equal(
     sequenceText(trace(['1', '2', '3', '4', '5'], '10000', 10000)),
-    '1, 2, 3, 4, 5, … (+9,994 more) … 10000');
+    '1, 2, 3, 4, 5, …, 10000');
+  assert.match(hoverText({ value: null, display: 'p',
+    loop: trace(['1', '2', '3', '4', '5'], '10000', 10000) }),
+    /p = 1, 2, 3, 4, 5, … \(\+9,994 more\) … 10000/);
 });
 
 test('the elided count is grouped the same way wherever it runs', () => {
   // toLocaleString() renders 9.994 on a German machine, which is ambiguous
   // next to a Python repr() and makes this test depend on where it runs.
-  assert.equal(sequenceText(trace(['0'], '999999', 1000000)),
+  assert.equal(sequenceText(trace(['0'], '999999', 1000000), 'counted'),
     '0, … (+999,998 more) … 999999');
-  assert.equal(sequenceText(trace(['0'], '999', 1000)),
+  assert.equal(sequenceText(trace(['0'], '999', 1000), 'counted'),
     '0, … (+998 more) … 999');
 });
 
@@ -280,7 +267,7 @@ test('a multi-line value in a sequence still collapses to one line', () => {
   assert.equal(sequenceText(trace(['Point(\n  x=1\n)', '2'], null)),
     'Point( x=1 ), 2');
   assert.equal(sequenceText(trace(['1'], 'Point(\n  x=9\n)', 40)),
-    '1, … (+38 more) … Point( x=9 )');
+    '1, …, Point( x=9 )');
 });
 
 test('several names share one line, Rider-style', () => {
@@ -378,7 +365,7 @@ test("a loop's sequence leads and the names it read follow", () => {
     resultText({ value: '16', display: 'p',
       loop: trace(['1', '4', '9', '16'], null),
       names: pairs(['squares', '[1, 4, 9, 16]']) }),
-    preserveSpacing('p ×4: 1, 4, 9, 16   squares: [1, 4, 9, 16]'));
+    preserveSpacing('p: 1, 4, 9, 16 · 4 iterations   squares: [1, 4, 9, 16]'));
 });
 
 test('a tuple loop target still leads with its sequence', () => {
@@ -389,7 +376,7 @@ test('a tuple loop target still leads with its sequence', () => {
     resultText({ value: "('b', 2)", display: '(key, value)',
       loop: trace(["('a', 1)", "('b', 2)"], null),
       names: pairs(['shelf', "{'a': 1, 'b': 2}"]) }),
-    preserveSpacing("=> ×2 ('a', 1), ('b', 2)   shelf: {'a': 1, 'b': 2}"));
+    preserveSpacing("=> ('a', 1), ('b', 2) · 2 iterations   shelf: {'a': 1, 'b': 2}"));
 });
 
 test('what the loop computed is shown as a sequence, not as where it stopped', () => {
@@ -397,50 +384,41 @@ test('what the loop computed is shown as a sequence, not as where it stopped', (
   // beside a target rendered as a history -- so one of the two names on the
   // line read as the other's last entry.
   //
-  // `v` and `u` share a count here, but `x` sits beside them with none of its
-  // own -- a plain read, not a loop trace -- so #118 does not fold `×3` to
-  // the front: that would put it where it reads as a claim about `x` too.
+  // Each history carries its own count; the ordinary list read has none.
   assert.equal(
     resultText({ value: '3', display: 'v', loop: trace(['1', '2', '3'], null),
       names: pairs(['x', '[1, 2, 3]']),
       bindings: [bound('u', ['4', '8', '12'])] }),
-    preserveSpacing('v ×3: 1, 2, 3   u ×3: 4, 8, 12   x: [1, 2, 3]'));
+    preserveSpacing('v: 1, 2, 3 · 3 iterations   u: 4, 8, 12 · 3 iterations   x: [1, 2, 3]'));
 });
 
 test('a body binding shorter than the loop still renders', () => {
   // A filter loop: three iterations, two results, because the iteration that
   // hit `continue` computed nothing. Anything that zipped or padded the two
-  // sequences would invent an observation here. The counts differing --
-  // `×3` beside `×2` -- is itself the fact that a filter ran, so #118 leaves
-  // both counts where they are rather than folding one that would misstate
-  // the other.
+  // sequences would invent an observation here. The differing counts show
+  // the filter rather than imply that every iteration bound the name.
   assert.equal(
     resultText({ value: '3', display: 'v', loop: trace(['1', '2', '3'], null),
       names: [], bindings: [bound('u', ['4', '12'], 2)] }),
-    preserveSpacing('v ×3: 1, 2, 3   u ×2: 4, 12'));
+    preserveSpacing('v: 1, 2, 3 · 3 iterations   u: 4, 12 · 2 iterations'));
 });
 
-// -- #118: a shared iteration count is said once, as a leading group -------
+// -- Every history owns its count, including equal and constant histories --
 
-test('#118: equal iteration counts fold into one leading count', () => {
-  // The width this ticket exists to buy back: two repeats of `×3` become
-  // one, ahead of both names rather than inside either of them.
+test('equal iteration counts stay with their own values', () => {
   assert.equal(
     resultText({ value: '3', display: 'v', loop: trace(['1', '2', '3'], null),
       names: [], bindings: [bound('u', ['4', '8', '12'])] }),
-    preserveSpacing('×3   v: 1, 2, 3   u: 4, 8, 12'));
+    preserveSpacing('v: 1, 2, 3 · 3 iterations   u: 4, 8, 12 · 3 iterations'));
 });
 
-test('#118: a solo loop keeps its inline count', () => {
-  // Folding buys width only by removing a repeat. With one name there is
-  // nothing to remove: `×3` as its own leading piece is longer than the
-  // ` ×3` it would replace, so a lone loop is left exactly as #36 shows it.
+test('a solo loop keeps its own trailing count', () => {
   assert.equal(
     resultText({ value: '3', display: 'p', loop: trace(['1', '2', '3'], null) }),
-    preserveSpacing('p ×3: 1, 2, 3'));
+    preserveSpacing('p: 1, 2, 3 · 3 iterations'));
 });
 
-test('#118: a line with no loop at all is unaffected', () => {
+test('a line with no loop at all is unaffected', () => {
   assert.equal(
     resultText({ value: null, display: null,
       names: pairs(['x', '1'], ['y', '2']) }),
@@ -450,21 +428,20 @@ test('#118: a line with no loop at all is unaffected', () => {
 test('an unchanging binding is one reading beside a moving one', () => {
   // `c: 7, 7, 7, 7` is four observations of one fact, and it crowds out the
   // sequence next to it that is actually moving. `c: 7` still says it ran
-  // four times, which `c: 7` alone would not -- #118 folds that count into
-  // the leading `×4`, shared with `v` and `d`, rather than dropping it.
+  // four times, which `c: 7` alone would not.
   assert.equal(
     resultText({ value: '4', display: 'v',
       loop: trace(['1', '2', '3', '4'], null), names: [],
       bindings: [bound('c', ['7'], 4, { constant: true }),
         bound('d', ['1', '4', '9', '16'])] }),
-    preserveSpacing('×4   v: 1, 2, 3, 4   c: 7   d: 1, 4, 9, 16'));
+    preserveSpacing('v: 1, 2, 3, 4 · 4 iterations   c: 7 · 4 iterations   d: 1, 4, 9, 16 · 4 iterations'));
 });
 
 test('a body binding is bounded exactly as the target is', () => {
   assert.equal(
     bindingText(bound('u', ['0', '2', '4', '6', '8'], 10000,
       { last: '19998' })),
-    'u ×10,000: 0, 2, 4, 6, 8, … (+9,994 more) … 19998');
+    'u: 0, 2, 4, 6, 8, …, 19998 · 10,000 iterations');
 });
 
 test('a line says when the cap left names off it', () => {
@@ -941,12 +918,12 @@ test('a loop sequence long enough to be a screenful is truncated the same way', 
   assert.ok(shown.includes('more character'), shown);
 });
 
-test('a truncated value never carries the label past its own count', () => {
-  // Truncation only ever shortens a `value` segment; the `×N` and the name
-  // it is attached to are chrome, and chrome is never cut.
+test('value truncation preserves the name and trailing count', () => {
+  // Truncation only shortens a value, keeping its name and count intact.
   const shown = resultText({ value: '9', display: 'p',
     loop: trace(Array.from({ length: 40 }, (_, i) => String(i)), null) });
-  assert.ok(shown.startsWith(preserveSpacing('p ×40: ')), shown);
+  assert.ok(shown.startsWith(preserveSpacing('p: ')), shown);
+  assert.ok(shown.endsWith(preserveSpacing(' · 40 iterations')), shown);
 });
 
 /** Segments as `role "text"`, with the non-breaking spaces read back. */
@@ -1121,7 +1098,8 @@ test('an elision stays inside the value it shortens', () => {
   assert.deepEqual(
     coloured({ value: '10000', display: 'p',
       loop: trace(['1'], '10000', 10000) }),
-    ['nameLabel "p ×10,000: "', 'value "1, … (+9,998 more) … 10000"']);
+    ['nameLabel "p: "', 'value "1, …, 10000"',
+      'nameLabel " · 10,000 iterations"']);
 });
 
 test('repeated loops put observed values before separately colored aggregate counts', () => {
@@ -1139,14 +1117,15 @@ test('repeated loops put observed values before separately colored aggregate cou
   ]);
 });
 
-test('aggregate counts cannot be hoisted into a shared single-run count', () => {
+test('body counts do not inherit the target history run metadata', () => {
   assert.deepEqual(coloured({ value: null, display: 'y',
     loop: { ...trace(['1', '2', '1', '2'], null), invocations: 2 },
     bindings: [bound('u', ['4', '8', '4', '8'])],
   }), [
     'nameLabel "y: "', 'value "1, 2, 1, 2"',
     'nameLabel " · 2 runs · 4 iterations total"',
-    'nameLabel "   "', 'nameLabel "u ×4: "', 'value "4, 8, 4, 8"',
+    'nameLabel "   "', 'nameLabel "u: "', 'value "4, 8, 4, 8"',
+    'nameLabel " · 4 iterations"',
   ]);
 });
 
@@ -1184,20 +1163,14 @@ test('the footnote and the caveat are remarks, not values', () => {
 });
 
 test('a loop sequence is one value however many iterations it holds', () => {
-  // The commas belong to the sequence, not to the annotation: they are how a
-  // Python value of several parts is written, so colouring them as chrome
-  // would claim this extension put them there. The `×3` is chrome, though --
-  // it is this extension's own count, not part of the value that follows it.
-  // `v` and `u` ran the same three times, so #118 folds their count into one
-  // leading piece rather than repeating it on each name.
+  // Both equal-count histories retain a quieter count after the value.
   assert.deepEqual(
     coloured({ value: '3', display: 'v', loop: trace(['1', '2', '3'], null),
       bindings: [bound('u', ['4', '8', '12'])] }),
-    ['nameLabel "×3"',
-      'nameLabel "   "',
-      'nameLabel "v: "', 'value "1, 2, 3"',
-      'nameLabel "   "',
-      'nameLabel "u: "', 'value "4, 8, 12"']);
+    ['nameLabel "v: "', 'value "1, 2, 3"',
+      'nameLabel " · 3 iterations"', 'nameLabel "   "',
+      'nameLabel "u: "', 'value "4, 8, 12"',
+      'nameLabel " · 3 iterations"']);
 });
 
 test('a line with nothing on it has no segments at all', () => {

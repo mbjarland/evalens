@@ -1,0 +1,27 @@
+{
+  "panel": "squares: [0, 1, 4, 9, 16, 25] n: 0, 1, 2, 3, 4, 5 · 6 iterations",
+  "images": [
+    {
+      "src": "https://file+.vscode-resource.vscode-cdn.net/Users/mbjarland/projects/evalens-worktrees/194-consistent-loop-histories/media/learning/screenshots/accumulator-before.png",
+      "width": 2240,
+      "height": 300
+    },
+    {
+      "src": "https://file+.vscode-resource.vscode-cdn.net/Users/mbjarland/projects/evalens-worktrees/194-consistent-loop-histories/media/learning/screenshots/accumulator-after.png",
+      "width": 2264,
+      "height": 300
+    }
+  ],
+  "extensions": [
+    {
+      "id": "mbjarland.evalens",
+      "path": "/Users/mbjarland/projects/evalens-worktrees/194-consistent-loop-histories",
+      "active": true
+    },
+    {
+      "id": "local.evalens-review-bridge",
+      "path": "/private/tmp/evalens-learning-images/bridge-extension",
+      "active": true
+    }
+  ]
+}
