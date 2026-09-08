@@ -10,6 +10,14 @@ Initial branch base `f24d5ac`: 937 extension and 718 kernel tests.
 After rebasing onto `44019ba` (the font-relative gutter fix): 942 extension
 and 718 kernel tests. Five new extension regressions; kernel unchanged.
 
+After integration rebase onto `f0040a9` (responsive results and optional
+learning guidance), both suites pass again: 949 extension and 718 kernel
+tests. This is five extension regressions above that integrated baseline.
+The narrow layout retains real Variables and Printed output labels. Named
+timing remains outside the column headings hidden by the container query.
+The optional introduction and Help controls, including dismissal persistence,
+remain intact and independent of essential result evidence.
+
 The extension suite drives the real Python kernel over its request pipe and
 renders the returned recording through the compiled panel modules. Added
 checks cover printed `4` beside end-of-iteration `u = 99`, an assignment
