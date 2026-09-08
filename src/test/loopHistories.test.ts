@@ -72,7 +72,7 @@ test('zero runs and empty runs are distinct; one inner run keeps the ordinary co
     /0 iterations total across 2 loop runs/);
   assert.match(plain(resultText({ value: null, display: 'y', loop: {
     ...trace, count: 2, invocations: 1, values: ['0', '1'],
-  } })), /y ×2: 0, 1/);
+  } })), /y: 0, 1 · 2 iterations/);
 });
 
 test('real uneven and early-exit runs retain repetitions and actual final values', async () => {
@@ -118,7 +118,7 @@ test('loaded extension paints nested histories, keeps output with its owner and 
     assert.deepEqual(paintedLines(editor), [0, 1]);
     const outer = plain(paintedLineText(editor, 0));
     const inner = plain(paintedLineText(editor, 1));
-    assert.match(outer, /x ×100:/);
+    assert.match(outer, /x: 0, 1, 2, 3, 4, …, 99 · 100 iterations/);
     assert.doesNotMatch(outer, /y:/);
     assert.match(outer, /printed:/);
     assert.match(inner, /y: 0, 1, 2, 3, 4, …, 99 · 100 runs · 10,000 iterations total/);
@@ -177,7 +177,7 @@ test('repeated target names and three levels retain separate decoration anchors'
   try {
     await evaluate();
     assert.deepEqual(paintedLines(editor), [0, 1, 2]);
-    assert.match(plain(paintedLineText(editor, 0)), /x ×2: 3, 4/);
+    assert.match(plain(paintedLineText(editor, 0)), /x: 3, 4 · 2 iterations/);
     assert.match(plain(paintedLineText(editor, 1)), /x: 7, 8, 7, 8 · 2 runs · 4 iterations total/);
     assert.match(plain(paintedLineText(editor, 2)), /x: 9, 9, 9, 9 · 4 runs · 4 iterations total/);
   } finally { extension.deactivate(); }
@@ -190,7 +190,7 @@ test('file-load repeat suppression never treats hidden final snapshots as painte
   try {
     await (fake.commands.registered.get('evalens.evaluateFile') as () => Promise<void>)();
     assert.doesNotMatch(plain(paintedLineText(editor, 0)), /y:/);
-    assert.match(plain(paintedLineText(editor, 1)), /y ×2: 0, 1/);
+    assert.match(plain(paintedLineText(editor, 1)), /y: 0, 1 · 2 iterations/);
     assert.match(plain(paintedLineText(editor, 2)), /y: 1/);
   } finally { extension.deactivate(); }
 });
@@ -205,7 +205,7 @@ test('dependency staleness keeps child histories as old readings with the owner 
       contentChanges: [{ range: new FakeRange(0, 4, 0, 5), text: '3' }] });
     editor.selection = new FakeSelection(new FakePosition(0, 0), new FakePosition(0, 0));
     await evaluate();
-    assert.match(plain(paintedLineText(editor, 1)), /x ×2: 0, 1/);
+    assert.match(plain(paintedLineText(editor, 1)), /x: 0, 1 · 2 iterations/);
     assert.match(plain(paintedLineText(editor, 2)), /y: 0, 1, 2, 0, 1, 2 · 2 runs · 6 iterations total/);
     const text = await hover(fake, editor, 2);
     assert.match(text!, /Stale:.*‘n’.*re-bound/);

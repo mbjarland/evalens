@@ -207,14 +207,9 @@ export function capSpoken(text: string, limit = SPOKEN_LIMIT): string {
 }
 
 /**
- * One slot's value, with its iteration count read out where the line paints
- * one as `×N` (#36).
- *
- * `p ×3: 1, 2, 3` and `p: 1, 2, 3` are visually two different shapes; spoken,
- * both would say "p is 1, 2, 3" unless the count is added back in, which
- * would erase in speech the exact distinction the glyph exists to draw on
- * screen. Said after the value rather than before it, the same order
- * `hoverText` already uses for the same two facts.
+ * Read each history's count after its values, matching the visible order.
+ * Repeated source loops qualify their total across runs; ordinary values
+ * carry no history metadata.
  */
 function spokenValue(
   slot: { readonly value: string; readonly iterations?: number;

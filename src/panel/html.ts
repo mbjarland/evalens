@@ -703,16 +703,9 @@ function streamGroupHtml(
  * -- or `undefined` when it does not, telling the caller to keep rendering
  * it inline exactly as before.
  *
- * `slotSegments` and `streamPiece` (`render/format.ts`) are the only two
- * places a group is ever built, and both produce at most one `value`-role
- * segment per group, always last -- a shared iteration count and the
- * `…+N more`/`(partial: …)` footnotes carry none at all, so they can never
- * be foldable, correctly, without this having to know anything about what
- * kind of group it was handed. The label segments ahead of the value are
- * this extension's own short chrome and are kept exactly as `segmentHtml`
- * already renders them, in front of the fold -- only the one immediately
- * before the value becomes the click target, the same label a stream's own
- * `printed:` is.
+ * Each group contains at most one value segment. Footnotes contain none.
+ * Keep labels on either side of that value: iteration counts now follow it.
+ * Only the label immediately before the value becomes the fold target.
  */
 function foldableGroupHtml(
   group: readonly Segment[], line: number,
@@ -732,7 +725,8 @@ function foldableGroupHtml(
     index === valueIndex - 1
       ? { className: 'fold-label', attrs: foldLabelAttrs(line, blockId, expanded) }
       : undefined)).join('');
-  return resultGroup(before + fold.html, true);
+  const after = group.slice(valueIndex + 1).map(segment => segmentHtml(segment)).join('');
+  return resultGroup(before + fold.html + after, true);
 }
 
 /**

@@ -71,17 +71,16 @@ if you stop writing programs and start writing cells.
 
 <p align="center">
   <img src="media/demo/spot-the-bug.png" width="720" alt="The same program
-    with total = s instead of total += s: the loop's history reads ×4, s:
-    72, 85, 91, 64, total: 72, 85, 91, 64 -- total mirrors s exactly -- and
+    with total = s instead of total += s: s and total both show the four
+    values 72, 85, 91, 64 -- total mirrors s exactly -- and
     average: 16.0 follows two lines later">
 </p>
 
 **Here is the same program with one character missing** — `total = s` where
-it should say `total += s`. Read line 3: `×4   s: 72, 85, 91, 64   total:
-72, 85, 91, 64`. Both ran four times, so the count is said once, and once
-it is said the two sequences sit close enough to compare by eye: `total`
-mirrors `s` exactly. The accumulator never accumulates; it just takes each
-score in turn. Two lines down, `average: 16.0` is the consequence. A
+it should say `total += s`. Read line 3: `s: 72, 85, 91, 64 · 4 iterations`
+and `total: 72, 85, 91, 64 · 4 iterations`. Compare the two sequences:
+`total` mirrors `s` exactly. The accumulator never accumulates; it just takes
+each score in turn. Two lines down, `average: 16.0` is the consequence. A
 debugger stopped at the end would show you `total: 64` and nothing about
 how it got there. The trace shows you the bug on the line that has it,
 without a breakpoint, without a `print()`, without leaving the file.
@@ -209,23 +208,26 @@ for n in range(5):
 ```
 
 Every value the target took, **everything the body bound**, and what it
-printed — on the header line, where you are looking. `n` and `squared`
-both ran five times here, so the count leads the line once, as `×5`,
-rather than repeating on each name — a history never reads as a list that
-happens to have five things in it. Only when the counts genuinely differ
-does each name carry its own: a filtered loop shows the filtering
-directly, `v ×5` beside `kept ×2`.
+printed — on the header line, where you are looking. Each history puts
+its values first and its own count afterward: `n: 0, 1, 2, 3, 4 · 5 iterations`
+and `squared: 0, 1, 4, 9, 16 · 5 iterations`. The quieter count distinguishes
+a history from a single list or scalar value. A filtered body keeps its
+actual count: `v: 0, 1, 2, 3, 4 · 5 iterations` beside
+`kept: 1, 3 · 2 iterations`. A constant history can show one value and still
+state how many iterations recorded it; hover explains that it was unchanged.
 
 ### Loops keep values beside the output they produced
 
 In the editor, each loop's history appears beside its own `for` header. For
-nested `range(100)` loops, the outer line shows `x ×100: 0, 1, …, 99` and the
-inner line shows
+nested `range(100)` loops, the outer line shows
+`x: 0, 1, 2, 3, 4, …, 99 · 100 iterations` and the inner line shows
 `y: 0, 1, 2, 3, 4, …, 99 · 100 runs · 10,000 iterations total`.
 A **run** is one execution of that `for` statement; an **iteration** is one
 pass through its body. Values come first, followed by these counts in the
-quieter label color. The sequence preserves the first recorded values and the
-final observation across all runs, including repeats and irregular values;
+quieter label color. Runs appear only when there was more than one.
+Outer loops, inner loops and body histories share the same compact elision.
+The sequence preserves the first recorded values and the final observation
+across all runs, including repeats and irregular values;
 it does not imply a range or identical runs. Hover explains any omitted
 values. A loop that was reached but drew nothing says **(no iterations)**
 and still reports its counts when run more than once; one inside an outer
