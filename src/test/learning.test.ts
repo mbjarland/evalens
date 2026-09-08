@@ -53,7 +53,7 @@ test('every exercise opens a fresh editable Python copy without issuing evaluati
       assert.match(document.getText(), /^# /);
       assert.doesNotMatch(document.getText(), /\{\{/);
       assert.equal(fake.shownDocuments.at(-1)!.preserveFocus, false);
-      assert.equal(fs.readFileSync(path.join(root, 'media/learning', `${step.id}.py`), 'utf8'), template(step.id));
+      assert.equal(document.getText(), template(step.id));
     }
     await fake.executeCommand('evalens.openLearningExercise', 'predict');
     assert.notEqual(fake.openedDocuments[0].uri.toString(), fake.openedDocuments.at(-1)!.uri.toString());
@@ -78,18 +78,24 @@ test('exercise picker can be cancelled and rejects arbitrary file paths', async 
   } finally { extension.deactivate(); }
 });
 
-test('example comment keys match the contributed defaults on all platforms', () => {
-  const { extension } = activate();
+test('each opened example gives its Mac default with Windows/Linux in parentheses', async () => {
+  const { fake, extension } = activate();
+  const commands: Record<string, string> = {
+    predict: 'evaluateAtCursor', advance: 'evaluateAndAdvance',
+    aliasing: 'evaluateAndAdvance', accumulator: 'evaluateFile', stale: 'evaluateAtCursor',
+  };
   try {
-    const { learningContent } = require('../learning') as typeof import('../learning');
-    for (const platform of ['darwin', 'win32', 'linux']) {
-      const content = steps.map(step => learningContent(template(step.id), platform))
-        .join('\n').toLowerCase();
+    for (const step of steps) {
+      await fake.executeCommand('evalens.openLearningExercise', step.id);
+      const content = fake.openedDocuments.at(-1)!.getText().toLowerCase();
       assert.doesNotMatch(content, /\{\{/);
-      for (const command of ['evaluateAtCursor', 'evaluateAndAdvance', 'evaluateFile']) {
-        const binding = manifest.contributes.keybindings.find((b: { command: string }) => b.command === `evalens.${command}`);
-        assert.ok(content.includes(platform === 'darwin' ? binding.mac : binding.key));
-      }
+      const command = `evalens.${commands[step.id]}`;
+      const binding = manifest.contributes.keybindings.find((b: { command: string }) => b.command === command);
+      assert.ok(binding?.key && binding.mac, `${step.id} has no platform defaults`);
+      const title = manifest.contributes.commands.find((c: { command: string }) => c.command === command)?.title;
+      assert.ok(title && content.includes(title.toLowerCase()), `${step.id} names its evaluation command`);
+      assert.ok(content.includes(`default key: ${binding.mac} (${binding.key} on windows/linux).`),
+        `${step.id} must put the Mac default first and Windows/Linux in parentheses`);
     }
   } finally { extension.deactivate(); }
 });

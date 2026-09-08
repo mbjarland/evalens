@@ -1,7 +1,7 @@
 # 5. Notice an old answer
-# Use Evalens: Evaluate at Cursor ({{evaluate}}) on answer = 10.
-# Change 10 to 20. The old value stays 10 and its marker becomes stale.
-# Hover the code to read the stale explanation: this answer is from before the edit.
+# Use Evalens: Evaluate at Cursor on answer = 10.
+# Default key: Cmd+Enter (Ctrl+Enter on Windows/Linux).
+# Change 10 to 20. The recorded 10 becomes stale; hover the code to read why.
 # Typing does not execute Python. Explicitly Evaluate at Cursor again.
 # Now answer is 20 and the stale marker clears.
 answer = 10

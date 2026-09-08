@@ -11,15 +11,6 @@ export const EXERCISES = [
   { id: 'stale', label: '5. Notice an old answer' },
 ] as const;
 
-/** Comments travel with the editable example when the guide is hidden. */
-export function learningContent(template: string, platform: string): string {
-  const modifier = platform === 'darwin' ? 'Cmd' : 'Ctrl';
-  return template
-    .replaceAll('{{evaluate}}', `${modifier}+Enter`)
-    .replaceAll('{{advance}}', `${modifier}+Shift+Enter`)
-    .replaceAll('{{file}}', `${modifier}+Alt+Enter`);
-}
-
 export function registerLearningWalkthrough(context: vscode.ExtensionContext): void {
   const exerciseDocuments = new Set<string>();
   context.subscriptions.push(
@@ -45,9 +36,8 @@ export function registerLearningWalkthrough(context: vscode.ExtensionContext): v
         return;
       }
       try {
-        const template = await fs.readFile(path.join(
+        const content = await fs.readFile(path.join(
           context.extensionUri.fsPath, 'media', 'learning', `${id}.py`), 'utf8');
-        const content = learningContent(template, process.platform);
         const document = await vscode.workspace.openTextDocument({ language: 'python', content });
         const existing = vscode.window.visibleTextEditors.find(editor =>
           exerciseDocuments.has(editor.document.uri.toString()));
