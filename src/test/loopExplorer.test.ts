@@ -52,7 +52,7 @@ test('single-level square-print loop uses three compact target/output rows', asy
     ['0', '1', '4']);
   assert.match(html, /for n in range\(3\)/);
   assert.match(html, /3 iterations/);
-  assert.equal((html.match(/Iteration values/g) ?? []).length, 1);
+  assert.equal((html.match(/Variables/g) ?? []).length, 1);
   assert.equal((html.match(/Printed output/g) ?? []).length, 1);
   assert.doesNotMatch(html, /data-loop-action="toggle|loop-iteration-header/);
 });
@@ -67,7 +67,7 @@ test('body values share their own iteration cell while printed output stays sepa
     assert.match(html, new RegExp(`>v = ${v}, u = ${u}</button></div><div>`
       + `<div class="loop-stream"><span class="loop-output">value is ${u}</span>`));
   }
-  assert.match(html, /Values after loop: v = 3, u = 12/);
+  assert.match(html, /Final values after this loop: v = 3, u = 12/);
   assert.equal((html.match(/data-loop-action="select"/g) ?? []).length, 3);
   assert.doesNotMatch(html, /data-loop-action="toggle|not recorded/);
 });
@@ -198,7 +198,7 @@ test('short single-level multiline output stays compact with a combined stream b
   let html = loopExplorerHtml(small, 0);
   assert.doesNotMatch(html, /data-loop-action="toggle/);
   assert.match(html, /😀 first\nsecond/);
-  assert.match(html, /class="loop-stream-label">stderr:/);
+  assert.match(html, /class="loop-stream-label"[^>]*>stderr:/);
   assert.match(html, /🦉 warning/);
   const four = prepared(await captured('for n in [0]:\n    import sys\n'
     + '    print("one\\ntwo")\n    print("three\\nfour", file=sys.stderr)\n'));
@@ -223,7 +223,7 @@ test('single-level long iteration output folds, pages Unicode safely and exports
   assert.match(html, /unretained text cannot be expanded/);
   assert.ok(model.streams[0].startsWith('😀 page line\n'.repeat(5000)));
   assert.ok(model.streams[0].includes('characters omitted'));
-  assert.match(html, /Open captured stdout/);
+  assert.match(html, /Open printed output/);
   const clipped = prepared(await captured('for n in range(2):\n'
     + '    if n == 0: print("x" * 70000)\n'));
   assert.match(loopExplorerHtml(clipped, 0), /n = 1[\s\S]*?>No output<\/span>/);
@@ -272,7 +272,7 @@ test('single-loop loaded extension retains inline body histories, saved hover an
     fake.webviewViewProviders.get('evalens.values')!.resolveWebviewView(view, {}, {});
     const html = contents(view.webview.html);
     assert.match(html, /class="loop-explorer"/);
-    assert.match(html, /Values after loop: n = 2, square = 4/);
+    assert.match(html, /Final values after this loop: n = 2, square = 4/);
   assert.match(html, />n = 0, square = 0<\/button>/);
   assert.match(html, />n = 1, square = 1<\/button>/);
   } finally { extension.deactivate(); }
@@ -331,11 +331,11 @@ test('real nested output becomes X5 with Unicode slices and separate final snaps
   const rows = rowsFor({ lineAt: (line) => ({ text: source.split('\n')[line] ?? '' }) }, [presentation], 'printed');
   assert.ok(rows[0]?.loopExplorer);
   const html = contents(valuesHtml({ fileName: 'example.py', rows }, 0, 'test'));
-  assert.equal((html.match(/Iteration values/g) ?? []).length, 1);
+  assert.equal((html.match(/Variables/g) ?? []).length, 1);
   assert.equal((html.match(/Printed output/g) ?? []).length, 1);
   assert.equal((html.match(/printed 4 lines/g) ?? []).length, 2);
   assert.equal((html.match(/No output/g) ?? []).length, 2);
-  assert.match(html, /Values after loop: x = 1, y = 3/);
+  assert.match(html, /Final values after this loop: x = 1, y = 3/);
   assert.match(html, /😀 x 0/);
   assert.match(html, /🦉 1 3/);
   assert.doesNotMatch(html, /class="result-values"/,
@@ -611,7 +611,7 @@ test('unattributed Unicode and stderr remain separate from text that was never c
   assert.match(html, /Remaining printed output/);
   assert.match(html, /😀 1997\n/);
   assert.match(html, /🦉 1997\n/);
-  assert.match(html, /class="loop-stream-label">stderr:/);
+  assert.match(html, /class="loop-stream-label"[^>]*>stderr:/);
   assert.doesNotMatch(html, /\uFFFD/);
 
   const clipped = prepared(await captured('for x in [0]:\n'

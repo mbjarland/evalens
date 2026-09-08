@@ -103,7 +103,7 @@
       },
       {
         "command": "evalens.toggleValuesPanelFollow",
-        "title": "Evalens: Toggle Follow in Values Panel"
+        "title": "Evalens: Toggle Scrolling to New Results"
       },
       {
         "command": "evalens.toggleInlineValues",
@@ -163,7 +163,7 @@
           "type": "string",
           "default": "printed",
           "scope": "application",
-          "markdownDescription": "What the annotation calls the output a statement printed. The default word keeps the `label: value` grammar the rest of the annotation uses and says in plain English what the code did — `<stdout>` is jargon a first-year student has not met. Set `»` for a terse marker instead; it is the one that exists in every font VS Code falls back to on macOS, where `▸` and `▶` do not and render at a width that misaligns the lines the marker is there to clarify. `stderr` keeps its own name whatever this says."
+          "markdownDescription": "Label for ordinary printed output in inline results and flat Values rows. The default reads `printed: hello`; set `»` for a compact marker. Python normally writes printed output to `stdout`. `stderr` keeps its own label and can contain warnings even when execution succeeds. Loop column headings and open-output actions keep their descriptive names."
         },
         "evalens.announceResults": {
           "type": "string",
@@ -227,7 +227,7 @@
           "type": "boolean",
           "default": true,
           "scope": "application",
-          "markdownDescription": "Whether the values panel scrolls the row that just changed into view, every time an evaluation lands. On (the default), the newest value is always what you see, which is the point of a panel that would otherwise keep showing whatever was on screen while new rows land out of sight below the fold. Off keeps your scroll position exactly where you left it — useful for reading back through a file's history without the view jumping away from it underneath you. **Evalens: Toggle Follow in Values Panel** flips this from the command palette, or check/uncheck **Follow newest value**, the checkbox in the panel, so you never have to leave the panel to turn it off mid-session."
+          "markdownDescription": "Scroll newly recorded results into view in the Values panel. Turn off to read earlier results without evaluation moving the view. Change this with the **Scroll to new results** checkbox or **Evalens: Toggle Scrolling to New Results**. **Link code and values** (`evalens.valuesPanel.followCursor`) controls cursor navigation separately."
         },
         "evalens.valuesPanel.outputLines": {
           "type": "number",
@@ -241,7 +241,7 @@
           "type": "boolean",
           "default": true,
           "scope": "application",
-          "markdownDescription": "Reveal corresponding values and source while navigating either pane, keeping keyboard focus where you are working. On (the default), learners can follow code and its captured results together. Off lets you browse independently; clicking a row or pressing Enter/Space still reveals its source. The Values panel checkbox changes this setting. Following newly evaluated results is controlled separately by `evalens.valuesPanel.follow`."
+          "markdownDescription": "Link navigation between code and recorded results, keeping keyboard focus where you are working. Turn off to browse independently; clicking a row or pressing Enter/Space still reveals its source. Change this with the **Link code and values** checkbox. **Scroll to new results** (`evalens.valuesPanel.follow`) controls evaluation scrolling separately."
         },
         "evalens.inlineValues": {
           "type": "string",

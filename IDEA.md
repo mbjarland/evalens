@@ -528,7 +528,11 @@ what it now is, and would not be if anything depended on it.
 
 ### Navigating captured results
 
-The optional Values panel shows the existing trace at full width. With
+The optional Values panel shows the existing trace at full width. Its
+canonical terminology is recorded in
+[`docs/development/recorded-result-language.md`](docs/development/recorded-result-language.md).
+The file summary counts completed statement results, including stale and
+error results; pending evaluations are reported separately as running. With
 `evalens.valuesPanel.followCursor` on (the default), moving the editor cursor
 reveals the matching row, and navigating rows reveals the corresponding source.
 The source carries a short square amber gutter tick and a soft neutral wash
@@ -569,13 +573,13 @@ results. Pending and dismissal remove them together; disjoint edits shift
 all their source offsets with the owner. An edit to the statement withdraws
 child positions that can no longer be verified while retaining the stale
 capture in Values. Final namespace snapshots leave the outer inline chip and
-appear under **Values after loop** in the panel and hover. Reading a nested
+appear under **Final values after this loop** in the panel and hover. A nested
 history hover uses saved strings and does not inspect current namespace state.
 Unsupported targets, disabled loop tracing and sources exceeding 64 loop
 sites keep the existing flat fallback. No display action evaluates code or
 adds user `repr()` calls.
 
-The Values panel separates **Iteration values** from **Printed output** for
+The Values panel separates **Variables** from **Printed output** for
 readable `for` statements at every depth. The former pair the target recorded
 on entry with up to three selected body names captured at normal body end.
 These body strings are reused immediately from the existing recorder and
@@ -589,7 +593,7 @@ unchanged. Names beyond the three-name cap, or over 120 code points, are counted
 once in their loop heading. Additive body text is limited to 1,000 code points
 using only the already captured string; custom representation failure text
 cannot expand the wire without bound. Older captures remain valid without
-body metadata. **Values after loop** reports bounded passive
+body metadata. **Final values after this loop** reports bounded passive
 snapshots after success, separately from iteration readings. Failed or
 unsupported captures retain flat output.
 

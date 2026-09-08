@@ -142,7 +142,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
         }
         // #181: a reader flips `evalens.valuesPanel.follow` from the
         // command palette or the Settings UI -- the same setting the
-        // panel's own "Follow newest value" checkbox writes -- and the
+        // panel's own "Scroll to new results" checkbox writes -- and the
         // checkbox has to follow without waiting for an unrelated rebuild,
         // exactly like the followCursor checkbox just above.
         if (event.affectsConfiguration('evalens.valuesPanel.follow')) {

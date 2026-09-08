@@ -204,7 +204,7 @@ that was reached but drew nothing says **(no iterations)**; one inside an
 outer loop that never entered says **(not reached)**.
 
 Open **Evalens: Show Values Panel** after evaluating a `for` loop. The
-**Iteration values** column contains the loop variable at the start of that
+**Variables** column contains the loop variable at the start of that
 pass and selected body values captured at the normal end of its body;
 **Printed output** contains the text it produced. For example,
 `for n in range(3): print(n * n)` shows three compact rows pairing `n = 0`,
@@ -221,8 +221,8 @@ distinguished from pre-loop state also say **not recorded**. Up to three body
 names are captured; the loop heading reports any additional omitted names.
 Silent passes say **No output**; an empty loop says **No iterations**, with
 any `else` output shown separately.
-`stderr` is labelled separately. **Values after loop** is the final snapshot,
-not a claim about any selected iteration or a live watch.
+`stderr` is labelled separately. **Final values after this loop** is the
+final snapshot, not a claim about any selected iteration or a live watch.
 
 The explorer uses the panel's neutral background with an orange leading bar.
 Filled emphasis stays on the selected iteration, keeping large traces quiet.
@@ -248,7 +248,7 @@ it is not assigned to the last visible iteration.
 A statement retains at most 2,000 loop invocations and iterations combined,
 plus the existing 65,536-character limit for each output stream. The panel
 states when iteration detail or output was not retained: expanding cannot
-recover it. **Open captured stdout** and **Open captured stderr** open the
+recover it. **Open printed output** and **Open stderr output** open the
 original captured stream, including any capture-limit notice. Unsupported
 loop targets, failed evaluations, and disabled loop tracing keep the ordinary
 flat output rather than guess a history. Body-variable histories are not
@@ -423,11 +423,15 @@ of the line: VS Code gives an extension no way to even ask how many columns
 wide the editor is, so an inline value that runs past the edge cannot wrap,
 cannot pin itself to what is visible, and cannot take a line of its own.
 
-**Evalens: Show Values Panel** opens the same values in the bottom panel
-instead, one row per annotated line in file order, full width and wrapping.
+**Evalens: Show Values Panel** opens the same recorded results in the bottom
+panel instead, one row per annotated line in file order, full width and wrapping.
 A list long enough to have run off the screen now wraps onto a second line;
 a `print()` spanning several lines keeps every one of them, not the inline
 chip's first-line-and-a-count.
+
+The file summary counts **recorded results**: one completed statement is one
+result, even when it contains several variables or many loop iterations.
+Running evaluations are counted separately until they finish.
 
 Each statement's values and output share one background and a continuous
 leading bar. A quiet divider separates values from output within that block;
@@ -459,10 +463,10 @@ state rather than swapping an icon for a near-identical one — a toggle whose
 state cannot be read has to be tested by clicking and then remembered, and a
 checkbox does not have that problem:
 
-- **Follow cursor between code and values** — uncheck it to browse
+- **Link code and values** — uncheck it to browse
   independently. Clicking a row or pressing Enter/Space still reveals its
   source. Controls `evalens.valuesPanel.followCursor`.
-- **Follow newest value** — controls `evalens.valuesPanel.follow`, following
+- **Scroll to new results** — controls `evalens.valuesPanel.follow`, following
   newly evaluated results into view separately from cursor navigation.
 - **Hide inline values while this panel is visible** — check it, with
   `evalens.inlineValues` set to `whenPanelHidden`, to hide the editor's own
@@ -619,7 +623,7 @@ because a stolen key then never leaves you without a way to run these.
 | Evalens: Clear Input Answers | Forgets every replayed `input()` answer, keeping the namespace |
 | Evalens: Show Output | Opens the Evalens output channel without taking the cursor out of the editor |
 | Evalens: Show Values Panel | Opens the bottom-panel view listing the active file's annotations full width, wrapping, and synced to the cursor |
-| Evalens: Toggle Follow in Values Panel | Flips `evalens.valuesPanel.follow`; also the **Follow newest value** checkbox in the panel |
+| Evalens: Toggle Scrolling to New Results | Flips `evalens.valuesPanel.follow`; also the **Scroll to new results** checkbox in the panel |
 | Evalens: Toggle Inline Values in the Editor | Flips `evalens.inlineValues`; also the **Hide inline values while this panel is visible** checkbox in the panel |
 | Evalens: Fix Keybinding Conflict | Hands you the user keybinding described below |
 
@@ -915,8 +919,12 @@ the rest. The whole text is on the hover, along with the link that opens the
 while a long loop is still running.
 
 Set `evalens.printedLabel` to `»` if you want the marker terse instead of
-spelled out. `stderr:` keeps its own name, and is deliberately **not** painted
-in the error colour: a library writing a warning has not failed.
+spelled out. Python normally writes printed output to a stream called
+`stdout`. A separate stream, `stderr`, often carries warnings and diagnostic
+messages; output there does not by itself mean the code failed. `stderr:`
+keeps its own name and is not painted in the error colour. The loop explorer
+uses **Printed output** as its column heading and **Open printed output** /
+**Open stderr output** as its actions regardless of the inline label setting.
 
 The channel never opens itself and never takes the cursor. Output belongs
 beside the code that produced it; a panel would put the answer somewhere other
@@ -1015,7 +1023,9 @@ Edit the first line and re-run it, and the second is out of date without its
 own text having changed at all. So Evalens marks it: re-evaluating a statement
 marks every annotation *below it in the file* that reads a name it just bound.
 Hover or look in Values to see the names and the first statement that re-bound
-them. **Go to re-binding** navigates to that source without evaluating it.
+them. Rebinding means assigning a name again; the value itself may be
+unchanged. **Go to variable change** navigates to that source without
+evaluating it.
 The link follows inserted or removed lines above the source; editing or
 removing the source withdraws the link while keeping the named explanation.
 Later changes do not replace this first cause. Re-evaluating the stale
@@ -1120,9 +1130,9 @@ description says what the option *costs* rather than what it is called.
 | `evalens.advanceSkipsComments` | `true` | Whether Evaluate and Advance steps over comment lines. Off, it stops once per comment block — one more press each, and that press evaluates nothing |
 | `evalens.announceResults` | `"auto"` | Whether a result is announced as well as painted, for a screen reader. `auto` follows `editor.accessibilitySupport`; `always` announces every one; `never` announces none. See above |
 | `evalens.resetOnLoad` | `true` | Whether Evaluate File clears the namespace before running the whole file. On, a deleted binding is actually gone and a second file cannot read back an earlier one's leftovers. Off keeps expensive setup from an earlier load, at the cost of the namespace remembering more than the file defines — Evalens then notes it in the status bar. A selection never resets regardless; Run File as Script always does |
-| `evalens.valuesPanel.follow` | `true` | Whether the values panel scrolls the row that just changed into view on every evaluation. On, the newest value is always what you see. Off stops evaluations from scrolling the panel. Cursor navigation is controlled separately by `evalens.valuesPanel.followCursor`. Flip evaluation following from the panel's own **Follow newest value** checkbox as well as from here |
+| `evalens.valuesPanel.follow` | `true` | Whether the values panel scrolls the row that just changed into view on every evaluation. On, each new recorded result is brought into view. Off stops evaluations from scrolling the panel. Cursor navigation is controlled separately by `evalens.valuesPanel.followCursor`. Flip evaluation following from the panel's own **Scroll to new results** checkbox as well as from here |
 | `evalens.valuesPanel.outputLines` | `20` | Lines of a printed stream or a long value the panel shows before folding. Fewer lines fold sooner; more lines show a longer stretch at the cost of a taller row. Long single lines also fold. `Show more` keeps large expanded previews bounded; `Open in editor` opens the complete captured text. Nested-loop output uses bounded parts and shows at most 20 lines per part |
-| `evalens.valuesPanel.followCursor` | `true` | Reveal the matching value when moving the editor cursor, and reveal source when navigating Values rows. Keyboard focus stays in the pane you use. Turn off with **Follow cursor between code and values** in the panel to browse independently; clicking a row or pressing Enter/Space still reveals source. Use Up/Down or Home/End to browse rows. Navigation only reads captured results |
+| `evalens.valuesPanel.followCursor` | `true` | Reveal the matching value when moving the editor cursor, and reveal source when navigating Values rows. Keyboard focus stays in the pane you use. Turn off with **Link code and values** in the panel to browse independently; clicking a row or pressing Enter/Space still reveals source. Use Up/Down or Home/End to browse rows. Navigation only reads captured results |
 | `evalens.inlineValues` | `"always"` | Whether inline value and error chips paint in the editor while the Values panel is also visible. `always` paints both; `whenPanelHidden` hides the inline chips while the panel is open on its Values tab and brings them back the moment it is not. Gutter markers, the evaluated region, and the running/asking marks are unaffected either way, and the hover keeps showing a hidden value |
 
 Two of them are off switches on purpose. Loop sequences and read-name

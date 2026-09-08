@@ -128,7 +128,7 @@ export class ValueHoverProvider implements vscode.HoverProvider {
         const args = encodeURIComponent(JSON.stringify([
           document.uri.toString(), annotation.staleCause.id,
         ]));
-        lines.push(`[Go to re-binding](command:${GO_TO_STALE_CAUSE}?${args})`, '');
+        lines.push(`[Go to variable change](command:${GO_TO_STALE_CAUSE}?${args})`, '');
       }
     }
     const historyHover = inlineLoopHover(

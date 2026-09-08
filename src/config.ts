@@ -113,10 +113,10 @@ export async function setFollowValuesCursor(value: boolean): Promise<void> {
 }
 
 /**
- * Flip `evalens.valuesPanel.follow`, for **Evalens: Toggle Follow in Values
- * Panel** (#149). Before #181 this also drove a title-bar lock icon; VS Code
- * gives an extension-contributed title-bar item no toggled appearance, so
- * that icon is gone and the panel's own "Follow newest value" checkbox
+ * Flip `evalens.valuesPanel.follow`, for **Evalens: Toggle Scrolling
+ * to New Results** (#149). Before #181 this drove a title-bar lock icon.
+ * VS Code gives an extension-contributed title-bar item no toggled appearance, so
+ * that icon is gone and the panel's own "Scroll to new results" checkbox
  * (`setFollowValuesPanel`, below) is the one place this state is shown.
  *
  * Always writes to the user's global settings, matching "flips the setting

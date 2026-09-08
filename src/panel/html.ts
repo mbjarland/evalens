@@ -455,7 +455,7 @@ function pluralize(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? '' : 's'}`;
 }
 
-/** `basics.py · 8 values · 1 stale · 1 error` -- the counts that are zero
+/** `basics.py · 8 recorded results · 1 stale · 1 error` -- zero counts
  * say nothing, the way `format.ts`'s own `…+N more` only appears at all
  * when there is one. Before #181 this also appended `· inline values
  * hidden` while `evalens.inlineValues` was `whenPanelHidden` and this very
@@ -465,7 +465,9 @@ function pluralize(count: number, word: string): string {
 function summaryLine(fileName: string, rows: readonly ValuesRow[]): string {
   const stale = rows.filter((row) => row.state === 'stale').length;
   const error = rows.filter((row) => row.state === 'error').length;
-  const parts = [pluralize(rows.length, 'value')];
+  const pending = rows.filter((row) => row.state === 'pending').length;
+  const parts = [pluralize(rows.length - pending, 'recorded result')];
+  if (pending > 0) parts.push(`${pending} running`);
   if (stale > 0) {
     parts.push(`${stale} stale`);
   }
@@ -729,7 +731,9 @@ function staleReasonHtml(row: ValuesRow): string {
   const clause = staleReasonText(row.staleReason, row.staleCause);
   const sentence = `${clause.charAt(0).toUpperCase()}${clause.slice(1)}.`;
   const link = row.staleCause?.source
-    ? ` <button type="button" data-stale-cause="${row.staleCause.id}">Go to re-binding</button>` : '';
+    ? ` <button type="button" data-stale-cause="${row.staleCause.id}" `
+      + 'title="Reveal the statement that rebound these names. Their values may be unchanged.">'
+      + 'Go to variable change</button>' : '';
   return `<div class="stale-reason">${escapeHtml(sentence)}${link}</div>`;
 }
 
@@ -1558,7 +1562,7 @@ function script(
  * -- see `FoldState`.
  *
  * `followPanel` (#149) and `hideInlineValues` (#178) drive the row's other
- * two checkboxes -- "Follow newest value" (`evalens.valuesPanel.follow`)
+ * two checkboxes -- "Scroll to new results" (`evalens.valuesPanel.follow`)
  * and "Hide inline values while this panel is visible"
  * (`evalens.inlineValues === 'whenPanelHidden'`). Both toggles used to be
  * title-bar icons that swapped one codicon for a near-identical one with no
@@ -1599,8 +1603,8 @@ export function valuesHtml(
 </head>
 <body>
 <div id="navigation-control" class="navigation-control">
-<label><input id="follow-cursor" type="checkbox" ${followCursor ? 'checked' : ''}> Follow cursor between code and values</label>
-<label><input id="follow-panel" type="checkbox" ${followPanel ? 'checked' : ''}> Follow newest value</label>
+<label><input id="follow-cursor" type="checkbox" ${followCursor ? 'checked' : ''}> Link code and values</label>
+<label><input id="follow-panel" type="checkbox" ${followPanel ? 'checked' : ''}> Scroll to new results</label>
 <label><input id="hide-inline-values" type="checkbox" ${hideInlineValues ? 'checked' : ''}> Hide inline values while this panel is visible</label>
 </div>
 ${body}
