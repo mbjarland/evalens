@@ -41,7 +41,7 @@ result gets the existing fresh-result fold behavior.
 
 ## Automated and real-kernel evidence
 
-`src/test/recordedText.test.ts` adds eight checks, including a loaded extension
+`src/test/recordedText.test.ts` adds nine checks, including a loaded extension
 using the real Python subprocess and its request pipe. The request probe sees
 actual evaluations and verifies that stream and repr exports add no request:
 no evaluation, inspection, reset or extra representation call.
@@ -55,9 +55,20 @@ the native provider's exact text and source context.
 
 Before integration rebase: 944 extension tests on the parent branch; 952
 extension tests pass after this change. After rebasing onto master `173ef23`,
-which includes recording evidence and session help, 958 extension tests pass
+which includes recording evidence and session help, 959 extension tests pass
 (parent: 950). The unchanged kernel suite passes 718 tests. Logs are
 `/private/tmp/evalens-186-extension.log` and
 `/private/tmp/evalens-186-kernel.log`. Root review must still check native
 Find/copy, readonly behavior,
 status tooltip legibility, and physical focus return in an actual Host.
+
+
+## Host review correction
+
+The root Host review caught a flat-export dispatch mismatch: the receiver
+required the render revision, but the existing flat action click listener did
+not send it. The listener now sends its revision. The new regression executes
+that actual listener extracted from compiled webview HTML, dispatches a click
+through the provider and real-kernel fixture, and checks exact Unicode output,
+no additional Python request, and rejection of a queued old-render click.
+It does not bypass the sender by constructing an already-valid message.

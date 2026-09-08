@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as path from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { fullTextFor, rowsFor, valuesHtml } from '../panel/html';
 import {
   FakeEditor, FakePosition, FakeSelection, FakeTabInputText,
@@ -213,4 +214,51 @@ test('source navigation from a recording reveals Python without moving the text 
     assert.equal(shown.preserveFocus, true, 'panel navigation retains panel focus');
     assert.equal(reading.selection.active.line, 0);
   } finally { f.dispose(); }
+});
+
+
+test('the compiled flat Open click dispatch reaches the provider with its render revision', async () => {
+  const f = fixture('print("åäö 🐍\\n" * 60, end="")\n');
+  const { KernelClient } = require('../kernel/client') as typeof import('../kernel/client');
+  const request = KernelClient.prototype.request;
+  let requests = 0;
+  KernelClient.prototype.request = function (...args) { requests++; return request.apply(this, args); };
+  try {
+    await f.fake.executeCommand('evalens.evaluateAtCursor');
+    const html = f.view.webview.html;
+    const attrs = /<(?:span|button)\b([^>]*data-fold-action="open"[^>]*)>/.exec(html)![1]!;
+    const attributes = new Map([...attrs.matchAll(/([\w-]+)="([^"]*)"/g)]
+      .map(match => [match[1]!, match[2]!]));
+    let click: ((event: { stopPropagation(): void }) => void) | undefined;
+    const control = {
+      getAttribute: (name: string) => attributes.get(name),
+      addEventListener: (event: string, listener: typeof click) => {
+        if (event === 'click') click = listener;
+      },
+    };
+    // Execute the actual compiled webview listener. A hand-built message
+    // with a revision would miss a sender/receiver contract break entirely.
+    const start = html.indexOf('var foldControls =');
+    const end = html.indexOf("document.querySelectorAll('[data-stale-cause]')", start);
+    assert.ok(start > 0 && end > start);
+    runInNewContext(/var revision = \d+;/.exec(html)![0] + html.slice(start, end), {
+      document: { querySelectorAll: (selector: string) => {
+        assert.equal(selector, '[data-fold-action]'); return [control];
+      } },
+      vscode: { postMessage: (message: unknown) => f.view.webview.fireMessage(message) },
+    });
+    assert.ok(click);
+    let stopped = false;
+    const before = requests;
+    click({ stopPropagation: () => { stopped = true; } });
+    await settled();
+    assert.ok(stopped, 'export does not also navigate the source row');
+    assert.equal(requests, before, 'opening the recording adds no Python request');
+    assert.equal(f.fake.openedDocuments.length, 1);
+    assert.equal(f.fake.openedDocuments[0]!.getText(), 'åäö 🐍\n'.repeat(60));
+    await f.fake.executeCommand('evalens.evaluateAtCursor');
+    click({ stopPropagation() {} });
+    await settled();
+    assert.equal(f.fake.openedDocuments.length, 1, 'a queued click from the replaced render is rejected');
+  } finally { KernelClient.prototype.request = request; f.dispose(); }
 });

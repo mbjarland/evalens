@@ -1521,7 +1521,8 @@ function script(
       event.stopPropagation();
       var line = Number(foldControl.getAttribute('data-fold-line'));
       if (foldControl.getAttribute('data-fold-action') === 'open') {
-        vscode.postMessage({ open: line, stream: foldControl.getAttribute('data-fold-id') });
+        vscode.postMessage({ open: line, stream: foldControl.getAttribute('data-fold-id'),
+          revision: revision });
       } else {
         vscode.postMessage({ expand: line });
       }
