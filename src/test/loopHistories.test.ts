@@ -52,21 +52,44 @@ test('real saved recorder summaries place exact aggregate histories on each sour
     [[0, 'x', 100], [1, 'y', 10000]]);
   assert.ok(result.loop_explorer!.omitted_iterations > 8000);
   const text = resultText({ value: null, display: 'y', loop: rows[1]!.trace });
-  assert.match(plain(text), /y ×10,000 total: 0, 1, 2, 3, 4, … \(\+9,994 more\) … 99/);
-  assert.match(inlineLoopHover({ ...annotation, partial: undefined }, 1)!, /10000 iterations total across 100 loop runs/);
+  assert.equal(plain(text),
+    'y: 0, 1, 2, 3, 4, …, 99 · 100 runs · 10,000 iterations total');
+  const savedHover = inlineLoopHover({ ...annotation, partial: undefined }, 1)!;
+  assert.match(savedHover, /10000 iterations total across 100 loop runs/);
+  assert.match(savedHover, /0, 1, 2, 3, 4, … \(\+9,994 more\) … 99/);
+  assert.match(savedHover, /A run is one execution of this for statement/);
+  assert.match(savedHover, /An iteration is one pass through its body/);
+  assert.match(savedHover, /inline … skips 9,994 values between the first 5 and final observation/);
 });
 
 test('zero runs and empty runs are distinct; one inner run keeps the ordinary count grammar', () => {
   const trace = { site: 1, invocations: 0, count: 0, values: [], last: null };
   assert.match(plain(resultText({ value: null, display: 'y', loop: trace })), /y: \(not reached\)/);
   assert.match(hoverText({ value: null, display: 'y', loop: trace }), /Loop not reached/);
-  assert.match(plain(resultText({ value: null, display: 'y', loop: { ...trace, invocations: 2 } })),
-    /y: \(no iterations\)/);
+  assert.equal(plain(resultText({ value: null, display: 'y', loop: { ...trace, invocations: 2 } })),
+    'y: (no iterations) · 2 runs · 0 iterations total');
   assert.match(hoverText({ value: null, loop: { ...trace, invocations: 2 } }),
     /0 iterations total across 2 loop runs/);
   assert.match(plain(resultText({ value: null, display: 'y', loop: {
     ...trace, count: 2, invocations: 1, values: ['0', '1'],
   } })), /y ×2: 0, 1/);
+});
+
+test('real uneven and early-exit runs retain repetitions and actual final values', async () => {
+  const result = await capture(
+    'for xs in ([8, 8, -3], [], [5, 9, 2, 4], [-7]):\n'
+    + '    for y in xs:\n'
+    + '        if y == 2: break\n');
+  const annotation = present(result, 0);
+  assert.equal(annotation.kind, 'value');
+  if (annotation.kind !== 'value') return;
+  const inner = inlineLoopHistories(annotation)![1]!;
+  assert.equal(inner.trace.count, 7);
+  assert.equal(inner.trace.invocations, 4);
+  assert.equal(plain(resultText({ value: null, display: 'y', loop: inner.trace })),
+    'y: 8, 8, -3, 5, 9, …, -7 · 4 runs · 7 iterations total');
+  assert.match(inlineLoopHover({ ...annotation, partial: undefined }, 1)!,
+    /8, 8, -3, 5, 9, … \(\+1 more\) … -7/);
 });
 
 test('malformed or incomplete source-history metadata never guesses child placements', async () => {
@@ -98,7 +121,7 @@ test('loaded extension paints nested histories, keeps output with its owner and 
     assert.match(outer, /x ×100:/);
     assert.doesNotMatch(outer, /y:/);
     assert.match(outer, /printed:/);
-    assert.match(inner, /y ×10,000 total:/);
+    assert.match(inner, /y: 0, 1, 2, 3, 4, …, 99 · 100 runs · 10,000 iterations total/);
     assert.doesNotMatch(inner, /printed:/);
     const localHover = await hover(fake, editor, 1);
     assert.match(localHover!, /10000 iterations total across 100 loop runs/);
@@ -120,7 +143,7 @@ test('child decorations reanchor as one owned capture and withdraw uncertain pos
     fake.emitters.onDidChangeTextDocument.fire({ document: editor.document,
       contentChanges: [{ range: new FakeRange(0, 0, 0, 0), text: '# prefix\n' }] });
     assert.deepEqual(paintedLines(editor), [1, 2]);
-    assert.match(plain(paintedLineText(editor, 2)), /y ×6 total:/);
+    assert.match(plain(paintedLineText(editor, 2)), /y: 0, 1, 2, 0, 1, 2 · 2 runs · 6 iterations total/);
     assert.match((await hover(fake, editor, 2))!, /6 iterations total across 2 loop runs/);
     editor.document.setText('# prefix\n' + source.replace('range(3)', 'range(4)'));
     fake.emitters.onDidChangeTextDocument.fire({ document: editor.document,
@@ -131,7 +154,7 @@ test('child decorations reanchor as one owned capture and withdraw uncertain pos
     editor.selection = new FakeSelection(new FakePosition(1, 0), new FakePosition(1, 0));
     await evaluate();
     assert.deepEqual(paintedLines(editor), [1, 2]);
-    assert.match(plain(paintedLineText(editor, 2)), /y ×8 total:/);
+    assert.match(plain(paintedLineText(editor, 2)), /y: 0, 1, 2, 3, 0, …, 3 · 2 runs · 8 iterations total/);
   } finally { extension.deactivate(); }
 });
 
@@ -144,7 +167,7 @@ test('new pending evaluation removes every old child before the response arrives
     const running = evaluate();
     assert.equal(paintedLineText(editor, 1), '');
     await running;
-    assert.match(plain(paintedLineText(editor, 1)), /y ×4 total:/);
+    assert.match(plain(paintedLineText(editor, 1)), /y: 0, 1, 0, 1 · 2 runs · 4 iterations total/);
   } finally { extension.deactivate(); }
 });
 
@@ -155,8 +178,8 @@ test('repeated target names and three levels retain separate decoration anchors'
     await evaluate();
     assert.deepEqual(paintedLines(editor), [0, 1, 2]);
     assert.match(plain(paintedLineText(editor, 0)), /x ×2: 3, 4/);
-    assert.match(plain(paintedLineText(editor, 1)), /x ×4 total: 7, 8, 7, 8/);
-    assert.match(plain(paintedLineText(editor, 2)), /x ×4 total: 9, 9, 9, 9/);
+    assert.match(plain(paintedLineText(editor, 1)), /x: 7, 8, 7, 8 · 2 runs · 4 iterations total/);
+    assert.match(plain(paintedLineText(editor, 2)), /x: 9, 9, 9, 9 · 4 runs · 4 iterations total/);
   } finally { extension.deactivate(); }
 });
 
@@ -183,7 +206,7 @@ test('dependency staleness keeps child histories as old readings with the owner 
     editor.selection = new FakeSelection(new FakePosition(0, 0), new FakePosition(0, 0));
     await evaluate();
     assert.match(plain(paintedLineText(editor, 1)), /x ×2: 0, 1/);
-    assert.match(plain(paintedLineText(editor, 2)), /y ×6 total:/);
+    assert.match(plain(paintedLineText(editor, 2)), /y: 0, 1, 2, 0, 1, 2 · 2 runs · 6 iterations total/);
     const text = await hover(fake, editor, 2);
     assert.match(text!, /Stale:.*‘n’.*re-bound/);
     assert.match(text!, /6 iterations total across 2 loop runs/);

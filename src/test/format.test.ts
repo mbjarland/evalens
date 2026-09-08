@@ -1124,6 +1124,50 @@ test('an elision stays inside the value it shortens', () => {
     ['nameLabel "p ×10,000: "', 'value "1, … (+9,998 more) … 10000"']);
 });
 
+test('repeated loops put observed values before separately colored aggregate counts', () => {
+  const loop = { ...trace(['0', '1', '2', '3', '4'], '99', 10000),
+    invocations: 100 };
+  assert.deepEqual(coloured({ value: null, display: 'y', loop }), [
+    'nameLabel "y: "', 'value "0, 1, 2, 3, 4, …, 99"',
+    'nameLabel " · 100 runs · 10,000 iterations total"',
+  ]);
+  // Character truncation is still applied to the value only; it cannot
+  // hide or recolor the run/count qualification appended after that value.
+  assert.deepEqual(coloured({ value: null, display: 'y', loop, maxValueLength: 5 }), [
+    'nameLabel "y: "', 'value "0, 1,… (+15 more characters)"',
+    'nameLabel " · 100 runs · 10,000 iterations total"',
+  ]);
+});
+
+test('aggregate counts cannot be hoisted into a shared single-run count', () => {
+  assert.deepEqual(coloured({ value: null, display: 'y',
+    loop: { ...trace(['1', '2', '1', '2'], null), invocations: 2 },
+    bindings: [bound('u', ['4', '8', '4', '8'])],
+  }), [
+    'nameLabel "y: "', 'value "1, 2, 1, 2"',
+    'nameLabel " · 2 runs · 4 iterations total"',
+    'nameLabel "   "', 'nameLabel "u ×4: "', 'value "4, 8, 4, 8"',
+  ]);
+});
+
+test('aggregate elision preserves the supplied head and final observation without inferring a range', () => {
+  const loop = { ...trace(['9', '9'], '-4', 8), invocations: 3 };
+  assert.equal(resultText({ value: null, display: 'y', loop }).split(NBSP).join(' '),
+    'y: 9, 9, …, -4 · 3 runs · 8 iterations total');
+  assert.match(hoverText({ value: null, display: 'y', loop }),
+    /y = 9, 9, … \(\+5 more\) … -4/);
+  assert.match(hoverText({ value: null, display: 'y', loop }),
+    /first 2 and final observation/);
+  // An adjacent final observation is not an omission, and one total
+  // iteration among several empty runs still uses the singular noun.
+  assert.equal(resultText({ value: null, display: 'y', loop: {
+    ...loop, values: ['9', '9'], count: 3,
+  } }).split(NBSP).join(' '), 'y: 9, 9, -4 · 3 runs · 3 iterations total');
+  assert.equal(resultText({ value: null, display: 'y', loop: {
+    ...loop, values: ['-4'], last: null, count: 1,
+  } }).split(NBSP).join(' '), 'y: -4 · 3 runs · 1 iteration total');
+});
+
 test('the footnote and the caveat are remarks, not values', () => {
   // Both are this extension talking about the line rather than reporting what
   // ran on it, which is exactly what the label colour is for.

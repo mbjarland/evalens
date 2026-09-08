@@ -476,7 +476,9 @@ export const LOOP_GLYPH = '×';
  * the target is left holding whatever a previous run put there, so "the
  * sequence was empty" and "the sequence ended at 4" look identical otherwise.
  */
-export function sequenceText(loop: LoopTrace): string {
+export function sequenceText(
+  loop: LoopTrace, elision: 'counted' | 'compact' = 'counted'
+): string {
   if (loop.invocations === 0) return '(not reached)';
   if (loop.count === 0) {
     return '(no iterations)';
@@ -487,6 +489,12 @@ export function sequenceText(loop: LoopTrace): string {
   }
   const elided = loop.count - loop.values.length - 1;
   const tail = collapseLines(loop.last);
+  // Repeated source loops already state their aggregate count after the
+  // values. Keep the same observed head and final value without repeating
+  // an omitted count between them; hover retains the counted explanation.
+  if (elided > 0 && elision === 'compact') {
+    return [...shown, '…', tail].join(', ');
+  }
   return elided > 0
     ? `${shown.join(', ')}, … (+${grouped(elided)} more) … ${tail}`
     : [...shown, tail].join(', ');
@@ -547,8 +555,8 @@ export interface Slot {
    * observed once and carries nothing to count (#36).
    */
   readonly iterations?: number;
-  /** This sequence spans more than one invocation of its source loop. */
-  readonly total?: boolean;
+  /** More than one run of this source loop; iterations is present, even 0. */
+  readonly invocations?: number;
 }
 
 /**
@@ -644,8 +652,9 @@ export function paintedSlots(
   const pairs: Slot[] = (names ?? []).map((each) => ({
     name: each.name, value: collapseLines(each.value), own: false,
   }));
+  const repeated = (loop?.invocations ?? 0) > 1;
   const produced = loop
-    ? sequenceText(loop)
+    ? sequenceText(loop, repeated ? 'compact' : 'counted')
     : value === null ? null : collapseLines(value);
   const target = isBoundTarget(display, isBinding) ? display : null;
   // A loop's sequence is what the statement did, whatever its target unparses
@@ -661,8 +670,8 @@ export function paintedSlots(
     return [...bound, ...pairs];
   }
   const slot: Slot = { name: target, value: produced, own: true,
-    ...(loop && loop.count > 0 ? { iterations: loop.count } : {}),
-    ...((loop?.invocations ?? 0) > 1 ? { total: true } : {}) };
+    ...(loop && (loop.count > 0 || repeated) ? { iterations: loop.count } : {}),
+    ...(repeated ? { invocations: loop!.invocations } : {}) };
   return leads ? [slot, ...bound, ...pairs] : [...bound, ...pairs, slot];
 }
 
@@ -687,10 +696,22 @@ export function paintedSlots(
  * already names itself has no chrome left to carry the count either, which
  * is right -- nothing here has ever recorded a `def` or `class` running in a
  * loop's target.
+ *
+ * A repeated source loop keeps its label and leads with observed values.
+ * Run and total iteration counts follow in label color, including empty
+ * runs, and do not consume the value's character allowance.
  */
 function slotSegments(slot: Slot, glyph: string): readonly Segment[] {
+  if (slot.invocations !== undefined) {
+    return [
+      asLabel(slot.name === null ? `${SEPARATOR} ` : `${slot.name}: `),
+      asValue(slot.value),
+      asLabel(` · ${grouped(slot.invocations)} runs · `
+        + `${grouped(slot.iterations!)} iteration${slot.iterations === 1 ? '' : 's'} total`),
+    ];
+  }
   const count = slot.iterations === undefined
-    ? '' : iterationLabel(slot.iterations, glyph) + (slot.total ? ' total' : '');
+    ? '' : iterationLabel(slot.iterations, glyph);
   if (slot.name === null) {
     return [asLabel(`${SEPARATOR}${count} `), asValue(slot.value)];
   }
@@ -854,7 +875,7 @@ function truncatedPiece(
  * The shared count `paintedPieces` folds into one leading piece (#118), or
  * null when there is nothing worth folding.
  *
- * Three ways to be disqualified, and each is a different reason:
+ * Four ways to be disqualified, and each is a different reason:
  *
  * - **Fewer than two slots carry a count.** Folding a single `×5` into its
  *   own leading piece is a net loss -- `×5   p: 1, 2, 3, 4, 5` is longer than
@@ -870,12 +891,16 @@ function truncatedPiece(
  *   and `u ×2` -- the difference is itself the fact that a filter ran (see
  *   `bindingText`), and folding it away would erase the one thing the line
  *   is reporting.
+ * - **A sequence spans several loop runs.** Its total belongs with its run
+ *   count after its values. Matching a body count does not make that body
+ *   history describe the same runs, nor justify moving the total first.
  *
  * Only when every slot on the line carries the very same count does saying
  * it once, first, cost nothing and lose nothing.
  */
 function sharedIterationCount(slots: readonly Slot[]): number | null {
-  if (slots.length < 2 || slots.some((slot) => slot.iterations === undefined)) {
+  if (slots.length < 2 || slots.some((slot) => slot.iterations === undefined
+      || slot.invocations !== undefined)) {
     return null;
   }
   const first = slots[0]!.iterations!;
@@ -1104,6 +1129,17 @@ export function hoverText(rendered: Rendered): string {
       ? 'Loop not reached during this evaluation'
       : iterations(loop.count) + ((loop.invocations ?? 0) > 1
         ? ` total across ${grouped(loop.invocations!)} loop runs` : ''));
+    if ((loop.invocations ?? 0) > 1) {
+      lines.push('A run is one execution of this for statement. '
+        + 'An iteration is one pass through its body.');
+      lines.push('Values are observations in execution order across all runs, '
+        + 'not a range or a pattern assumed to repeat in each run.');
+      const elided = loop.count - loop.values.length - 1;
+      if (loop.last !== null && elided > 0) {
+        lines.push(`The inline … skips ${grouped(elided)} values between the `
+          + `first ${grouped(loop.values.length)} and final observation.`);
+      }
+    }
   } else if (value !== null) {
     lines.push(display ? `${display} = ${value}` : value);
   }

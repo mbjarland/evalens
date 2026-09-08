@@ -217,11 +217,14 @@ export function capSpoken(text: string, limit = SPOKEN_LIMIT): string {
  * `hoverText` already uses for the same two facts.
  */
 function spokenValue(
-  slot: { readonly value: string; readonly iterations?: number }
+  slot: { readonly value: string; readonly iterations?: number;
+    readonly invocations?: number }
 ): string {
   return slot.iterations === undefined
     ? slot.value
-    : `${slot.value}, ${iterations(slot.iterations)}`;
+    : `${slot.value}, ${iterations(slot.iterations)}`
+      + (slot.invocations === undefined
+        ? '' : ` total across ${slot.invocations} loop runs`);
 }
 
 /**
