@@ -199,16 +199,28 @@ export function invocationExpanded(
 /** A hard DOM budget applies even when every retained node has been opened.
  * Pagination replaces old entries/chunks; hidden text is never in the DOM. */
 export function loopExplorerHtml(
-  model: LoopExplorer, line: number, state?: LoopViewState, outputLines = 20
+  model: LoopExplorer, line: number, state?: LoopViewState, outputLines = 20,
+  recordingState = ''
 ): string {
   let remaining = LOOP_VISIBLE_LIMIT;
   let exhausted = false;
-  let columnsShown = false;
-  const hasBodyValues = [...model.sites.values()].some((site) => site.body_names?.length);
-  const timing = 'Loop variable at start · body values at end';
-  const timingDetail = 'The loop variable is captured at the start of the iteration. '
-    + 'Body values are captured when the normal end of its body is reached; '
-    + 'a value can carry over from an earlier iteration.';
+  const timingFor = (site: LoopSite): string => `${site.target} at iteration start`
+    + (site.body_names?.length ? `; ${site.body_names.join(', ')} at iteration end` : '');
+  const recordingDetails = (site: LoopSite): string =>
+    '<details class="loop-recording-details" data-local-disclosure>'
+    + '<summary>Recording details</summary><div class="loop-explanation">'
+    + 'These are readings saved during evaluation, not live values. '
+    + 'The loop variable is recorded when an iteration starts. '
+    + (site.body_names?.length ? 'Selected body variables are recorded only when the normal end '
+      + 'of the body is reached. A value can carry over from an earlier iteration; '
+      + 'it need not have been assigned during this one. Printed output can therefore '
+      + 'differ from the value recorded at the end. ' : '')
+    + (site.omitted_body_names ? 'At most three body variable names are selected per loop. '
+      + 'Names too long for this view can also be omitted. ' : '')
+    + 'Folding hides saved detail; More iterations opens another saved page. '
+    + 'Detail that was not saved cannot be expanded. '
+    + 'A missing stale warning does not prove that every dependency is unchanged.'
+    + '</div></details>';
   const number = (n: number): string => n.toLocaleString('en-US');
   const sourceContext = (invocation: LoopInvocation): string => {
     const site = model.sites.get(invocation.site)!;
@@ -300,6 +312,9 @@ export function loopExplorerHtml(
       return `<section class="loop-overflow" data-loop-overflow="${id}">`
         + `<div class="loop-overflow-heading">${heading}</div>`
         + `<div class="loop-note loop-overflow-scope">${e(scope)}</div>`
+        + '<div class="loop-note">' + (hasOutput
+          ? 'Saved output without individual iteration details. It belongs to this loop, not to the last displayed iteration.'
+          : 'Output from this loop was not saved. There is no additional text to expand.') + '</div>'
         + (expanded || !hasOutput ? output(start, end, id, gap) : '') + '</section>';
     }
     const content = output(start, end, id, gap);
@@ -325,19 +340,36 @@ export function loopExplorerHtml(
       ? button(`<span class="loop-disclosure" aria-hidden="true">${expanded ? '▾' : '▸'}</span> `
         + e(site.source), 'toggle-invocation', invocation.id, 0,
         `aria-expanded="${expanded}"`) : e(site.source);
+    const missing = iterationCount < invocation.count;
+    const saved = missing ? `<div class="loop-note loop-capture-limit">`
+      + `${count(invocation.count, 'iteration')} ran; details saved for `
+      + (iterationCount ? `the first ${number(iterationCount)}` : '0')
+      + '. Later iteration details were not saved.</div>'
+      : invocation.incomplete ? '<div class="loop-note loop-capture-limit">'
+        + 'Some nested loop detail was not saved.</div>' : '';
+    const owner = invocation.parent === null ? undefined : model.entries.get(invocation.parent);
+    const ownerContext = owner?.kind === 'iteration'
+      ? ` · within Iteration ${number(owner.ordinal)}, `
+        + `${model.sites.get((model.entries.get(owner.invocation) as LoopInvocation).site)!.target} = ${owner.value}`
+      : '';
     const header = `<div class="loop-source${root ? ' loop-root-source' : ''}">${source}`
       + ` <span class="loop-note">· ${count(invocation.count, 'iteration')}`
       + (root ? '' : ` · line ${line + site.line - model.wire.statement_line + 1}`)
       + (site.omitted_body_names ? ` · ${count(site.omitted_body_names, 'other body variable')} not recorded` : '')
       + '</span></div>';
-    const columns = !columnsShown && root
-      ? '<div class="loop-columns"><span>Variables</span>'
-        + '<span title="Python writes ordinary printed output to stdout.">'
-        + 'Printed output</span></div>'
-        + (hasBodyValues ? `<div class="loop-value-timing loop-note" title="${e(timingDetail)}">${timing}</div>` : '') : '';
-    if (root) columnsShown = true;
+    const columns = '<div class="loop-columns"><span>Variables</span>'
+      + '<span title="Python writes ordinary printed output to stdout.">Printed output</span></div>'
+      + `<div class="loop-value-timing loop-note">${e(timingFor(site))} `
+      + recordingDetails(site) + '</div>';
+    // Each invocation owns its timing and source context. A nested header
+    // covers its ancestor while it is being read; neither repeats per row.
+    const context = `<div class="loop-context" data-loop-context="${invocation.id}" `
+      + `data-loop-depth="${depth}">`
+      + (recordingState ? `<div class="loop-note loop-recording-state">${e(recordingState)}</div>` : '') + header
+      + (ownerContext ? `<div class="loop-note loop-owner">${e(ownerContext.slice(3))}</div>` : '')
+      + saved + (expanded ? columns : '') + '</div>';
     if (!expanded) return `<section class="loop-invocation" data-loop-invocation="${invocation.id}">`
-      + header + '</section>';
+      + context + '</section>';
     let body = '';
     const shown: Entry[] = [];
     let cursor = from === 0 ? invocation.start : children[from - 1]!.end;
@@ -356,7 +388,6 @@ export function loopExplorerHtml(
         invocation.incomplete);
     }
     if (invocation.count === 0) body += '<div class="loop-note">No iterations</div>';
-    const missing = iterationCount < invocation.count;
     const mixed = iterationCount !== children.length;
     const shownIterations = shown.filter((entry): entry is LoopIteration => entry.kind === 'iteration');
     const span = shownIterations.length
@@ -373,16 +404,13 @@ export function loopExplorerHtml(
         from === 0 ? 'disabled title="Already at the first page"' : '') + ' · '
       + button(mixed ? 'More rows' : 'More iterations', 'page', invocation.id, page + 1,
         end < children.length ? '' : `disabled title="${missing
-          ? 'Later iteration details were not captured' : 'Already at the last page'}"`)
+          ? 'Later iteration details were not saved' : 'Already at the last page'}"`)
       + '</div>'
       + (mixed ? '<div class="loop-note">Rows also include nested loops outside the iterations.</div>' : '')
       + (limited ? '<div class="loop-note">Collapse an expanded group to show the remaining rows on this page.</div>' : '')
-      + (missing ? `<div class="loop-note loop-capture-limit">Details were captured for `
-        + (iterationCount ? `the first ${number(iterationCount)}` : '0')
-        + ` of ${number(invocation.count)} iterations. Later details are unavailable.</div>` : '')
       + '</div>' : '';
     return `<section class="loop-invocation" data-loop-invocation="${invocation.id}">`
-      + header + columns + `<div class="loop-entries">${body}</div>` + paging + tail + '</section>';
+      + context + `<div class="loop-entries">${body}</div>` + paging + tail + '</section>';
   };
   const iterationHtml = (entry: LoopIteration, site: LoopSite, depth: number): string => {
     if (remaining-- <= 0) { exhausted = true; return ''; }
@@ -391,13 +419,18 @@ export function loopExplorerHtml(
     const expanded = loopExpanded(model, entry, state);
     const selected = state?.selected === entry.id ? ' loop-selected' : '';
     const missingReason = entry.body?.status === 'not-reached'
-      ? 'The end of this iteration’s body was not reached, so its body values were not recorded.'
+      ? 'The normal end-of-body recording point was not reached. This does not tell us whether the assignment ran or the variable had a value.'
       : entry.body?.status === 'unavailable'
         ? 'Body values could not be recorded because this interpreter does not provide a frame.'
         : entry.body?.status === 'captured'
-          ? 'No value was recorded for this name at the end of the body. It was unbound or not proven to belong to this loop.'
-          : 'This capture does not contain body values for this iteration.';
+          ? 'The end-of-body recording point was reached, but this name had no eligible reading. It may have been unbound or not proven to belong to this loop; this recording cannot distinguish those cases.'
+          : 'This recording does not contain a body reading for this iteration.';
     const bodyValues = new Map(entry.body?.values.map((value) => [value.name, value.value]));
+    const missingNames = (site.body_names ?? []).filter((name) => !bodyValues.has(name));
+    const why = missingNames.length ? '<details class="loop-missing-why" data-local-disclosure>'
+      + `<summary aria-label="${e(`Why ${missingNames.join(', ')} was not recorded in Iteration ${entry.ordinal}`)}">Why?</summary>`
+      + `<div class="loop-explanation">${e(missingReason)} `
+      + 'Not recorded is a missing reading, not a Python value such as None or zero.</div></details>' : '';
     const labels = [`${site.target} = ${entry.value}`];
     const valueParts = [e(labels[0]!)];
     for (const name of site.body_names ?? []) {
@@ -405,13 +438,13 @@ export function loopExplorerHtml(
       const text = value === undefined ? `${name}: not recorded` : `${name} = ${value}`;
       labels.push(text);
       valueParts.push(value === undefined
-        ? `<span class="loop-body-missing loop-note" title="${e(missingReason)}">${e(text)}</span>` : e(text));
+        ? `<span class="loop-body-missing loop-note">${e(text)}</span>` : e(text));
     }
     const label = labels.join(', ');
     const selection = button(valueParts.join(', '), 'select', entry.id, 0,
-      `aria-label="${e(`Iteration ${entry.ordinal}, ${label}; reveal loop header`)}"`);
+      `aria-label="${e(`Iteration ${entry.ordinal}, ${label}; ${timingFor(site)}; reveal loop header`)}"`);
     if (!foldable) return `<div class="loop-data loop-iteration${selected}" data-loop-entry="${entry.id}">`
-      + `<div class="loop-target"><span class="loop-stack-label">Variables</span>${selection}</div>`
+      + `<div class="loop-target"><span class="loop-stack-label">Variables</span>${selection}${why}</div>`
       + `<div>${output(entry.start, entry.end, entry.id, 0, true)}</div></div>`;
     const toggle = button(`<span class="loop-disclosure" aria-hidden="true">${expanded ? '▾' : '▸'}</span> `
       + `Iteration ${entry.ordinal}`, 'toggle', entry.id, 0,
@@ -438,7 +471,7 @@ export function loopExplorerHtml(
     }
     return `<section class="loop-iteration loop-group${selected}" data-loop-entry="${entry.id}">`
       + `<div class="loop-iteration-header">${toggle} <span class="loop-note">·</span> ${selection} `
-      + `<span class="loop-note">· ${e(outputCount(entry))}</span></div>`
+      + `<span class="loop-note">· ${e(outputCount(entry))}</span>${why}</div>`
       + (expanded ? `<div class="loop-body">${body}</div>` : '') + '</section>';
   };
   let cursor: LoopOffsets = [0, 0];
@@ -485,7 +518,20 @@ export const LOOP_EXPLORER_STYLE = `
 .loop-columns > *, .loop-data > * { min-width: 0; }
 .loop-stack-label { display: none; }
 .loop-columns { color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: .45em; margin: .15em 0 .6em; }
-.loop-value-timing { display: block; margin-top: .15em; }
+.loop-value-timing { margin: .15em 0 .5em; overflow-wrap: anywhere; }
+.loop-context { position: sticky; top: var(--loop-context-top, 0px); z-index: calc(2 + var(--loop-depth)); background: var(--vscode-panel-background, #1e1e1e); padding-top: .15em; }
+.loop-context-unpinned { position: static; }
+.loop-context-covered { visibility: hidden; }
+.loop-owner { overflow-wrap: anywhere; margin-bottom: .25em; }
+.loop-recording-details, .loop-missing-why { color: var(--vscode-descriptionForeground); }
+.loop-recording-details, .loop-missing-why { display: inline-block; vertical-align: top; margin-left: .6em; }
+.loop-recording-details[open], .loop-missing-why[open] { display: block; margin: .35em 0; }
+.loop-missing-why { font-size: .86em; }
+.loop-recording-details > summary, .loop-missing-why > summary { cursor: pointer; color: var(--vscode-textLink-foreground); width: fit-content; list-style-position: inside; }
+.loop-recording-details > summary:focus-visible, .loop-missing-why > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.loop-explanation { max-width: 75ch; white-space: normal; overflow-wrap: anywhere; padding: .4em 0; }
+.loop-capture-limit { margin: .2em 0; }
+.loop-recording-state { font-weight: 600; margin-bottom: .25em; }
 .loop-source { font-size: .88em; margin: .4em 0 .3em; overflow-wrap: anywhere; }
 .loop-root-source { font-size: 1em; margin: .15em 0 .6em; }
 .loop-group { margin: .6em 0 .8em; }

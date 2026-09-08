@@ -11,7 +11,7 @@ terms where they arise without presenting recorded results as live state.
 | Term | Meaning |
 | --- | --- |
 | Recorded result | One completed statement's recorded values, output or error. A nested loop is one result. Pending evaluations count separately as running. |
-| Variables | Loop target at iteration start and selected body variables at normal body end. The timing note remains alongside the heading. |
+| Variables | Loop target at iteration start and selected body variables at normal body end. Name the recorded variables in the timing note beside each invocation heading. |
 | Printed output | Ordinary output written to stdout. Keep it separate from variable readings. |
 | stderr output | A separate stream often used for warnings or diagnostics. Its presence alone does not establish failure. |
 | Final values after this loop | The bounded snapshot after the completed loop, separate from any selected iteration. |
@@ -34,5 +34,6 @@ existing label and behavior.
 This vocabulary changes neither X5/Y2/R2 layout nor recording semantics.
 Preserve square amber bars, the neutral loop surface, folding, and the
 distinction between recorded detail and live debugger inspection. Recorded
-result evidence and optional teaching help are developed separately in
-#185 and #184.
+result evidence names start/end timing and distinguishes folded text, saved
+pages and unavailable recordings. Optional teaching help is separate; hiding
+it must never hide stale, error or incomplete-recording facts.

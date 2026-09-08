@@ -65,8 +65,8 @@ test('body values share their own iteration cell while printed output stays sepa
   const model = prepared(await captured('for v in [1, 2, 3]:\n'
     + '    u = 4 * v\n    print("value is " + str(u))\n'));
   const html = loopExplorerHtml(model, 0);
-  assert.match(html, /Loop variable at start · body values at end/);
-  assert.match(html, /a value can carry over from an earlier iteration/);
+  assert.match(html, /v at iteration start; u at iteration end/);
+  assert.match(html, /A value can carry over from an earlier iteration/);
   for (const [v, u] of [[1, 4], [2, 8], [3, 12]]) {
     assert.match(html, new RegExp(`>v = ${v}, u = ${u}</button></div><div>`
       + '<div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span>'
@@ -85,10 +85,64 @@ test('early exits show missing body capture and conditional carry-over stays exp
   assert.equal((html.match(/class="loop-body-missing loop-note"/g) ?? []).length, 2);
   assert.match(html, /v = 0, <span[^>]*>u: not recorded/);
   assert.match(html, /v = 3, <span[^>]*>u: not recorded/);
-  assert.match(html, /The end of this iteration’s body was not reached/);
+  assert.match(html, /The normal end-of-body recording point was not reached/);
   assert.match(html, />v = 1, u = 4<\/button>/);
   assert.match(html, />v = 2, u = 4<\/button>/);
   assert.doesNotMatch(html, />v = 3, u = 12<\/button>/);
+});
+
+test('timing explains print-before-reassignment using the actual recorded names', async () => {
+  const model = prepared(await captured('for v in [1]:\n'
+    + '    u = 4\n    print(u)\n    u = 99\n'));
+  const before = JSON.stringify(model.wire);
+  const html = loopExplorerHtml(model, 0);
+  assert.match(html, /v at iteration start; u at iteration end/);
+  assert.match(html, />v = 1, u = 99<\/button>/);
+  assert.match(html, /class="loop-output">4<\/span>/);
+  assert.match(html, /<details class="loop-recording-details" data-local-disclosure><summary>Recording details<\/summary>/);
+  assert.match(html, /Printed output can therefore differ from the value recorded at the end/);
+  assert.match(html, /not live values/);
+  assert.equal(JSON.stringify(model.wire), before, 'reading evidence must not change capture metadata');
+  assert.doesNotMatch(html, / style=/, 'CSP forbids inline style attributes, even for numeric depth');
+});
+
+test('missing-body Why describes missing observation even after an assignment and continue', async () => {
+  const model = prepared(await captured('for v in [1]:\n    u = 4\n    print(u)\n    continue\n'));
+  const html = loopExplorerHtml(model, 0);
+  assert.match(html, /u: not recorded/);
+  assert.match(html, /class="loop-output">4<\/span>/);
+  assert.match(html, /<summary aria-label="Why u was not recorded in Iteration 1">Why\?<\/summary>/);
+  assert.match(html, /This does not tell us whether the assignment ran or the variable had a value/);
+  assert.doesNotMatch(html, /assignment was skipped|variable is undefined/);
+});
+
+test('missing-body Why distinguishes unavailable frames, unproven names and old metadata', async () => {
+  const result = await captured('for v in [1]:\n    if False: u = 4\n');
+  const wire = result.loop_explorer!;
+  const messages = new Map([
+    ['captured', /cannot distinguish those cases/],
+    ['unavailable', /interpreter does not provide a frame/],
+    ['legacy', /does not contain a body reading/],
+  ]);
+  for (const [status, expected] of messages) {
+    const entries = wire.entries.map((entry) => entry.kind === 'invocation' ? entry
+      : { ...entry, body: status === 'legacy' ? undefined : { status, values: [] } });
+    const model = prepareLoopExplorer({ ...wire, entries } as LoopExplorerWire, result.stdout, result.stderr)!;
+    const html = loopExplorerHtml(model, 0);
+    assert.match(html, expected);
+    assert.match(html, /not a Python value such as None or zero/);
+  }
+});
+
+test('nested context names its own values and owning outer iteration', async () => {
+  const model = prepared(await captured('for x in [0, 1]:\n    outer = x + 10\n'
+    + '    for y in [2, 3]:\n        inner = y + 20\n'));
+  const html = loopExplorerHtml(model, 0);
+  assert.equal((html.match(/class="loop-value-timing loop-note">x at iteration start; outer at iteration end/g) ?? []).length, 1);
+  assert.equal((html.match(/class="loop-value-timing loop-note">y at iteration start; inner at iteration end/g) ?? []).length, 2);
+  assert.match(html, /class="loop-note loop-owner">within Iteration 1, x = 0/);
+  assert.match(html, /class="loop-note loop-owner">within Iteration 2, x = 1/);
+  assert.doesNotMatch(html, /x at iteration start; inner at iteration end/);
 });
 
 test('nested and reused loop names render only their own captured body snapshots', async () => {
@@ -244,7 +298,7 @@ test('single-level million-pass trace pages bounded rows and keeps final count h
   assert.ok(html.length < 20000, String(html.length));
   assert.match(html, /1,000,000 iterations/);
   assert.match(html, /Iterations 1–20 of 1,000,000/);
-  assert.match(html, /Details were captured for the first 1,999 of 1,000,000 iterations/);
+  assert.match(html, /1,000,000 iterations ran; details saved for the first 1,999/);
   assert.equal((html.match(/data-loop-entry=/g) ?? []).length, 20);
   state.pages.set(1, 99);
   html = loopExplorerHtml(model, 0, state);
@@ -336,8 +390,8 @@ test('real nested output becomes X5 with Unicode slices and separate final snaps
   const rows = rowsFor({ lineAt: (line) => ({ text: source.split('\n')[line] ?? '' }) }, [presentation], 'printed');
   assert.ok(rows[0]?.loopExplorer);
   const html = contents(valuesHtml({ fileName: 'example.py', rows }, 0, 'test'));
-  assert.equal((html.match(/<span>Variables<\/span>/g) ?? []).length, 1);
-  assert.equal((html.match(/>Printed output<\/span>/g) ?? []).length, 1);
+  assert.equal((html.match(/<span>Variables<\/span>/g) ?? []).length, 3);
+  assert.equal((html.match(/>Printed output<\/span>/g) ?? []).length, 3);
   assert.equal((html.match(/printed 4 lines/g) ?? []).length, 2);
   assert.equal((html.match(/No output/g) ?? []).length, 2);
   assert.match(html, /Final values after this loop: x = 1, y = 3/);
@@ -422,7 +476,7 @@ test('100-by-100 output outside retained iterations starts folded and pages inde
   const state = newLoopViewState();
   let html = loopExplorerHtml(model, 0, state);
   assert.match(html, /Remaining printed output/);
-  assert.match(html, /Details were captured for the first/);
+  assert.match(html, /iterations ran; details saved for the first/g);
   assert.doesNotMatch(html, /class="loop-output"/,
     'collapsed iterations must not leave a raw transcript tail visible');
 
@@ -464,8 +518,8 @@ test('outer and inner capture boundaries share paging against actual invocation 
     assert.match(nav, /disabled[^>]*>Previous iterations/);
   }
   assert.match(outerNav, /disabled[^>]*>More iterations/);
-  assert.match(outerNav, /first 20 of 100 iterations/);
-  assert.match(innerNav, /first 59 of 100 iterations/);
+  assert.match(html, /100 iterations ran; details saved for the first 20/);
+  assert.match(html, /100 iterations ran; details saved for the first 59/);
   assert.doesNotMatch(innerNav, /disabled[^>]*>More iterations/);
   assert.doesNotMatch(html, /8,121|41 iterations|80 iterations|retained iteration detail/);
   assert.ok(html.indexOf(`data-loop-overflow="${outer.id}"`) > html.indexOf(`data-loop-navigation="${outer.id}"`));
@@ -535,7 +589,7 @@ test('limited silent loops explain the local capture boundary without offering a
     + '    for y in range(100):\n        pass\n'));
   const state = newLoopViewState();
   const html = loopExplorerHtml(model, 0, state);
-  assert.match(navigation(html, 1), /first 20 of 100 iterations/);
+  assert.match(html, /100 iterations ran; details saved for the first 20/);
   assert.doesNotMatch(html, /Remaining printed output|data-loop-action="gap:|8,121/);
 });
 
@@ -691,11 +745,13 @@ test('one million iterations have bounded wire and bounded initial/expanded DOM'
   assert.ok(JSON.stringify(model.wire).length < 400000);
   let html = loopExplorerHtml(model, 0);
   assert.ok(html.length < 6000);
+  assert.match(html, /Some nested loop detail was not saved/);
+  assert.doesNotMatch(html, /1 iteration ran; details saved for 0/);
   const state = newLoopViewState();
   for (const entry of model.wire.entries) state.expanded.set(entry.id, true);
   html = loopExplorerHtml(model, 0, state);
   assert.ok(html.length < 20000);
-  assert.match(html, /Details were captured for the first/);
+  assert.match(html, /iterations ran; details saved for the first/g);
   const inner = model.wire.entries.find((entry) => entry.kind === 'invocation' && entry.site === 1)!;
   state.pages.set(inner.id, 1);
   html = loopExplorerHtml(model, 0, state);
