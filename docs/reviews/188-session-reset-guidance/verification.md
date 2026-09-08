@@ -1,7 +1,8 @@
 # Session and reset guidance verification
 
 Date: 2026-09-08. Issue: #188 session-reset-guidance. The implementation was
-rebased onto `f0040a9`, which contains the responsive panel and optional help.
+first rebased onto `f0040a9`, then onto `aa9a58f`, retaining the responsive
+panel, optional help and explicit loop recording evidence.
 
 ## Scope
 
@@ -19,8 +20,11 @@ and IDEA now explain that distinction alongside the contextual help.
 
 ## Automated and real-pipe verification
 
-The baseline was 944 extension tests and 718 kernel tests. After this change
-and the rebase, **945 extension tests and 718 kernel tests passed**. The new
+The initial baseline was 944 extension tests and 718 kernel tests. The first
+rebase passed 945 extension tests and 718 kernel tests. After incorporating
+the loop recording evidence branch (949 extension / 718 kernel baseline),
+**950 extension tests and 718 kernel tests passed**. The real-pipe probe and
+compiled-renderer checks below also passed again on the final rebase. The new
 test covers configuration changes while the introduction is dismissed and
 Session help is open. The existing help request probe now covers opening the
 Session topic and refreshing its configuration without a Python request.
