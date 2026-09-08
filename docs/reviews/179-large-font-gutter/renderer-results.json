@@ -1,0 +1,581 @@
+{
+  "measurements": [
+    {
+      "font": "Menlo",
+      "fontSize": 14,
+      "theme": "dark",
+      "geometry": [
+        {
+          "line": "1",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.84375,
+          "arrowLeft": 18.734375,
+          "numberRight": 56.640625,
+          "codeLeft": 66.84375,
+          "gap": 10.203125,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.84375
+        },
+        {
+          "line": "5",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.84375,
+          "arrowLeft": 18.734375,
+          "numberRight": 56.640625,
+          "codeLeft": 66.84375,
+          "gap": 10.203125,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.84375
+        },
+        {
+          "line": "137",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.84375,
+          "arrowLeft": 18.71875,
+          "numberRight": 56.640625,
+          "codeLeft": 66.84375,
+          "gap": 10.203125,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.84375
+        }
+      ],
+      "message": {
+        "goto": 136,
+        "revision": 0,
+        "explicit": true
+      }
+    },
+    {
+      "font": "Menlo",
+      "fontSize": 14,
+      "theme": "light",
+      "geometry": [
+        {
+          "line": "1",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.84375,
+          "arrowLeft": 18.734375,
+          "numberRight": 56.640625,
+          "codeLeft": 66.84375,
+          "gap": 10.203125,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.84375
+        },
+        {
+          "line": "5",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.84375,
+          "arrowLeft": 18.734375,
+          "numberRight": 56.640625,
+          "codeLeft": 66.84375,
+          "gap": 10.203125,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.84375
+        },
+        {
+          "line": "137",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.84375,
+          "arrowLeft": 18.71875,
+          "numberRight": 56.640625,
+          "codeLeft": 66.84375,
+          "gap": 10.203125,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.84375
+        }
+      ],
+      "message": {
+        "goto": 136,
+        "revision": 0,
+        "explicit": true
+      }
+    },
+    {
+      "font": "Menlo",
+      "fontSize": 14,
+      "theme": "high-contrast",
+      "geometry": [
+        {
+          "line": "1",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.84375,
+          "arrowLeft": 18.734375,
+          "numberRight": 56.640625,
+          "codeLeft": 66.84375,
+          "gap": 10.203125,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.84375
+        },
+        {
+          "line": "5",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.84375,
+          "arrowLeft": 18.734375,
+          "numberRight": 56.640625,
+          "codeLeft": 66.84375,
+          "gap": 10.203125,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.84375
+        },
+        {
+          "line": "137",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.84375,
+          "arrowLeft": 18.71875,
+          "numberRight": 56.640625,
+          "codeLeft": 66.84375,
+          "gap": 10.203125,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.84375
+        }
+      ],
+      "message": {
+        "goto": 136,
+        "revision": 0,
+        "explicit": true
+      }
+    },
+    {
+      "font": "Menlo",
+      "fontSize": 28,
+      "theme": "dark",
+      "geometry": [
+        {
+          "line": "1",
+          "gutterLeft": 11.5,
+          "gutterRight": 107.203125,
+          "arrowLeft": 22.953125,
+          "numberRight": 98.78125,
+          "codeLeft": 113.203125,
+          "gap": 14.421875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 407.203125
+        },
+        {
+          "line": "5",
+          "gutterLeft": 11.5,
+          "gutterRight": 107.203125,
+          "arrowLeft": 22.953125,
+          "numberRight": 98.78125,
+          "codeLeft": 113.203125,
+          "gap": 14.421875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 407.203125
+        },
+        {
+          "line": "137",
+          "gutterLeft": 11.5,
+          "gutterRight": 107.203125,
+          "arrowLeft": 22.9375,
+          "numberRight": 98.78125,
+          "codeLeft": 113.203125,
+          "gap": 14.421875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 407.203125
+        }
+      ],
+      "message": {
+        "goto": 136,
+        "revision": 0,
+        "explicit": true
+      }
+    },
+    {
+      "font": "Menlo",
+      "fontSize": 28,
+      "theme": "light",
+      "geometry": [
+        {
+          "line": "1",
+          "gutterLeft": 11.5,
+          "gutterRight": 107.203125,
+          "arrowLeft": 22.953125,
+          "numberRight": 98.78125,
+          "codeLeft": 113.203125,
+          "gap": 14.421875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 407.203125
+        },
+        {
+          "line": "5",
+          "gutterLeft": 11.5,
+          "gutterRight": 107.203125,
+          "arrowLeft": 22.953125,
+          "numberRight": 98.78125,
+          "codeLeft": 113.203125,
+          "gap": 14.421875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 407.203125
+        },
+        {
+          "line": "137",
+          "gutterLeft": 11.5,
+          "gutterRight": 107.203125,
+          "arrowLeft": 22.9375,
+          "numberRight": 98.78125,
+          "codeLeft": 113.203125,
+          "gap": 14.421875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 407.203125
+        }
+      ],
+      "message": {
+        "goto": 136,
+        "revision": 0,
+        "explicit": true
+      }
+    },
+    {
+      "font": "Menlo",
+      "fontSize": 28,
+      "theme": "high-contrast",
+      "geometry": [
+        {
+          "line": "1",
+          "gutterLeft": 11.5,
+          "gutterRight": 107.203125,
+          "arrowLeft": 22.953125,
+          "numberRight": 98.78125,
+          "codeLeft": 113.203125,
+          "gap": 14.421875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 407.203125
+        },
+        {
+          "line": "5",
+          "gutterLeft": 11.5,
+          "gutterRight": 107.203125,
+          "arrowLeft": 22.953125,
+          "numberRight": 98.78125,
+          "codeLeft": 113.203125,
+          "gap": 14.421875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 407.203125
+        },
+        {
+          "line": "137",
+          "gutterLeft": 11.5,
+          "gutterRight": 107.203125,
+          "arrowLeft": 22.9375,
+          "numberRight": 98.78125,
+          "codeLeft": 113.203125,
+          "gap": 14.421875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 407.203125
+        }
+      ],
+      "message": {
+        "goto": 136,
+        "revision": 0,
+        "explicit": true
+      }
+    },
+    {
+      "font": "Courier New",
+      "fontSize": 14,
+      "theme": "dark",
+      "geometry": [
+        {
+          "line": "1",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.703125,
+          "arrowLeft": 18.734375,
+          "numberRight": 56.515625,
+          "codeLeft": 66.703125,
+          "gap": 10.1875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.703125
+        },
+        {
+          "line": "5",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.703125,
+          "arrowLeft": 18.734375,
+          "numberRight": 56.515625,
+          "codeLeft": 66.703125,
+          "gap": 10.1875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.703125
+        },
+        {
+          "line": "137",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.703125,
+          "arrowLeft": 18.71875,
+          "numberRight": 56.515625,
+          "codeLeft": 66.703125,
+          "gap": 10.1875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.703125
+        }
+      ],
+      "message": {
+        "goto": 136,
+        "revision": 0,
+        "explicit": true
+      }
+    },
+    {
+      "font": "Courier New",
+      "fontSize": 14,
+      "theme": "light",
+      "geometry": [
+        {
+          "line": "1",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.703125,
+          "arrowLeft": 18.734375,
+          "numberRight": 56.515625,
+          "codeLeft": 66.703125,
+          "gap": 10.1875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.703125
+        },
+        {
+          "line": "5",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.703125,
+          "arrowLeft": 18.734375,
+          "numberRight": 56.515625,
+          "codeLeft": 66.703125,
+          "gap": 10.1875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.703125
+        },
+        {
+          "line": "137",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.703125,
+          "arrowLeft": 18.71875,
+          "numberRight": 56.515625,
+          "codeLeft": 66.703125,
+          "gap": 10.1875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.703125
+        }
+      ],
+      "message": {
+        "goto": 136,
+        "revision": 0,
+        "explicit": true
+      }
+    },
+    {
+      "font": "Courier New",
+      "fontSize": 14,
+      "theme": "high-contrast",
+      "geometry": [
+        {
+          "line": "1",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.703125,
+          "arrowLeft": 18.734375,
+          "numberRight": 56.515625,
+          "codeLeft": 66.703125,
+          "gap": 10.1875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.703125
+        },
+        {
+          "line": "5",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.703125,
+          "arrowLeft": 18.734375,
+          "numberRight": 56.515625,
+          "codeLeft": 66.703125,
+          "gap": 10.1875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.703125
+        },
+        {
+          "line": "137",
+          "gutterLeft": 11.5,
+          "gutterRight": 60.703125,
+          "arrowLeft": 18.71875,
+          "numberRight": 56.515625,
+          "codeLeft": 66.703125,
+          "gap": 10.1875,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 360.703125
+        }
+      ],
+      "message": {
+        "goto": 136,
+        "revision": 0,
+        "explicit": true
+      }
+    },
+    {
+      "font": "Courier New",
+      "fontSize": 28,
+      "theme": "dark",
+      "geometry": [
+        {
+          "line": "1",
+          "gutterLeft": 11.5,
+          "gutterRight": 106.90625,
+          "arrowLeft": 22.921875,
+          "numberRight": 98.515625,
+          "codeLeft": 112.90625,
+          "gap": 14.390625,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 406.90625
+        },
+        {
+          "line": "5",
+          "gutterLeft": 11.5,
+          "gutterRight": 106.90625,
+          "arrowLeft": 22.921875,
+          "numberRight": 98.515625,
+          "codeLeft": 112.90625,
+          "gap": 14.390625,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 406.90625
+        },
+        {
+          "line": "137",
+          "gutterLeft": 11.5,
+          "gutterRight": 106.90625,
+          "arrowLeft": 22.90625,
+          "numberRight": 98.515625,
+          "codeLeft": 112.90625,
+          "gap": 14.390625,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 406.90625
+        }
+      ],
+      "message": {
+        "goto": 136,
+        "revision": 0,
+        "explicit": true
+      }
+    },
+    {
+      "font": "Courier New",
+      "fontSize": 28,
+      "theme": "light",
+      "geometry": [
+        {
+          "line": "1",
+          "gutterLeft": 11.5,
+          "gutterRight": 106.90625,
+          "arrowLeft": 22.921875,
+          "numberRight": 98.515625,
+          "codeLeft": 112.90625,
+          "gap": 14.390625,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 406.90625
+        },
+        {
+          "line": "5",
+          "gutterLeft": 11.5,
+          "gutterRight": 106.90625,
+          "arrowLeft": 22.921875,
+          "numberRight": 98.515625,
+          "codeLeft": 112.90625,
+          "gap": 14.390625,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 406.90625
+        },
+        {
+          "line": "137",
+          "gutterLeft": 11.5,
+          "gutterRight": 106.90625,
+          "arrowLeft": 22.90625,
+          "numberRight": 98.515625,
+          "codeLeft": 112.90625,
+          "gap": 14.390625,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 406.90625
+        }
+      ],
+      "message": {
+        "goto": 136,
+        "revision": 0,
+        "explicit": true
+      }
+    },
+    {
+      "font": "Courier New",
+      "fontSize": 28,
+      "theme": "high-contrast",
+      "geometry": [
+        {
+          "line": "1",
+          "gutterLeft": 11.5,
+          "gutterRight": 106.90625,
+          "arrowLeft": 22.921875,
+          "numberRight": 98.515625,
+          "codeLeft": 112.90625,
+          "gap": 14.390625,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 406.90625
+        },
+        {
+          "line": "5",
+          "gutterLeft": 11.5,
+          "gutterRight": 106.90625,
+          "arrowLeft": 22.921875,
+          "numberRight": 98.515625,
+          "codeLeft": 112.90625,
+          "gap": 14.390625,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 406.90625
+        },
+        {
+          "line": "137",
+          "gutterLeft": 11.5,
+          "gutterRight": 106.90625,
+          "arrowLeft": 22.90625,
+          "numberRight": 98.515625,
+          "codeLeft": 112.90625,
+          "gap": 14.390625,
+          "codeWidth": 288,
+          "codeOverflow": "ellipsis",
+          "valueLeft": 406.90625
+        }
+      ],
+      "message": {
+        "goto": 136,
+        "revision": 0,
+        "explicit": true
+      }
+    }
+  ],
+  "sixDigitWidth": true
+}
