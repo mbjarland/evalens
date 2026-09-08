@@ -284,7 +284,7 @@ it is not assigned to the last visible iteration.
 A statement retains at most 2,000 loop invocations and iterations combined,
 plus the existing 65,536-character limit for each output stream. The panel
 states when iteration detail or output was not retained: expanding cannot
-recover it. **Open printed output** and **Open stderr output** open the
+recover it. **Open statement printed output** and **Open statement stderr output** open the
 original captured stream, including any capture-limit notice. Unsupported
 loop targets, failed evaluations, and disabled loop tracing keep the ordinary
 flat output rather than guess a history. Body-variable histories are not
@@ -474,7 +474,8 @@ leading bar. A quiet divider separates values from output within that block;
 the stronger separators across code and results mark different statements.
 Labels stay beside their values, with the same variable and output colours
 as the editor. Long output and multiline values retain **Show all**,
-**Show less**, and **Open in editor**.
+**Show less**, and contextual actions such as **Open recorded value** or
+**Open statement printed output**.
 
 A result taller than its source has a small disclosure arrow beside its
 value heading, just after the leading bar. Click it, or focus it and press
@@ -974,8 +975,8 @@ spelled out. Python normally writes printed output to a stream called
 `stdout`. A separate stream, `stderr`, often carries warnings and diagnostic
 messages; output there does not by itself mean the code failed. `stderr:`
 keeps its own name and is not painted in the error colour. The loop explorer
-uses **Printed output** as its column heading and **Open printed output** /
-**Open stderr output** as its actions regardless of the inline label setting.
+uses **Printed output** as its column heading and **Open statement printed output** /
+**Open statement stderr output** as its actions regardless of the inline label setting.
 
 The channel never opens itself and never takes the cursor. Output belongs
 beside the code that produced it; a panel would put the answer somewhere other
@@ -1182,7 +1183,7 @@ description says what the option *costs* rather than what it is called.
 | `evalens.announceResults` | `"auto"` | Whether a result is announced as well as painted, for a screen reader. `auto` follows `editor.accessibilitySupport`; `always` announces every one; `never` announces none. See above |
 | `evalens.resetOnLoad` | `true` | Whether Evaluate File clears the namespace before running the whole file. On, a deleted binding is actually gone and a second file cannot read back an earlier one's leftovers. Off keeps expensive setup from an earlier load, at the cost of the namespace remembering more than the file defines — Evalens then notes it in the status bar. A selection never resets regardless; Run File as Script always does |
 | `evalens.valuesPanel.follow` | `true` | Whether the values panel scrolls the row that just changed into view on every evaluation. On, each new recorded result is brought into view. Off stops evaluations from scrolling the panel. Cursor navigation is controlled separately by `evalens.valuesPanel.followCursor`. Flip evaluation following from the panel's own **Scroll to new results** checkbox as well as from here |
-| `evalens.valuesPanel.outputLines` | `20` | Lines of a printed stream or a long value the panel shows before folding. Fewer lines fold sooner; more lines show a longer stretch at the cost of a taller row. Long single lines also fold. `Show more` keeps large expanded previews bounded; `Open in editor` opens the complete captured text. Nested-loop output uses bounded parts and shows at most 20 lines per part |
+| `evalens.valuesPanel.outputLines` | `20` | Lines of a printed stream or a long value the panel shows before folding. Fewer lines fold sooner; more lines show a longer stretch at the cost of a taller row. Long single lines also fold. `Show more` keeps large expanded previews bounded; `Open recorded value` and stream actions open the available recording in a read-only editor. Nested-loop output uses bounded parts and shows at most 20 lines per part |
 | `evalens.valuesPanel.followCursor` | `true` | Reveal the matching value when moving the editor cursor, and reveal source when navigating Values rows. Keyboard focus stays in the pane you use. Turn off with **Link code and values** in the panel to browse independently; clicking a row or pressing Enter/Space still reveals source. Use Up/Down or Home/End to browse rows. Navigation only reads captured results |
 | `evalens.inlineValues` | `"always"` | Whether inline value and error chips paint in the editor while the Values panel is also visible. `always` paints both; `whenPanelHidden` hides the inline chips while the panel is open on its Values tab and brings them back the moment it is not. Gutter markers, the evaluated region, and the running/asking marks are unaffected either way, and the hover keeps showing a hidden value |
 
@@ -1222,8 +1223,25 @@ There is no setting to turn the **values panel's fold** off. A statement that
 prints ten thousand lines still gets a bounded preview. Ordinary text starts
 at 2,000 characters or `evalens.valuesPanel.outputLines`, whichever comes first.
 `Show more` raises the preview to at most 16,000 characters in a scrolling area;
-`Show all` is offered when that includes everything. `Open in editor` opens the
-complete captured text. Nested loops page retained entries and output parts
+`Show all` is offered when that includes everything. The contextual open action opens the
+available recording in a read-only editor. Its tab names the source file,
+statement lines and value or stream. The lock item in the status bar explains
+the scope and capture limits. Native **Find** searches the opened recording,
+including text beyond the panel preview. Selection and copy use the recorded
+text, without added headings; VS Code may normalize line endings.
+
+Stream actions open the whole statement's available printed or stderr output,
+including all its loops. They do not limit the text to a selected iteration.
+A recorded value is a saved representation or history summary, which can
+already be truncated; opening it does not inspect the live object. Existing
+capture-limit notices remain visible. Recordings stay unchanged when code is
+run again, and panel folds, pages and selection remain available on return.
+Close a recording's tab to release it. Recordings do not survive reloading VS
+Code, and opening many recordings eventually asks you to close one first.
+This is separate from **Evalens: Inspect Value**, which reads the current
+namespace when explicitly requested.
+
+Nested loops page retained entries and output parts
 instead of expanding an arbitrarily large tree.
 
 **Evaluate and Advance** stops at the last statement rather than wrapping to

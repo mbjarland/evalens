@@ -121,6 +121,13 @@ export interface FakeQuickPickItem {
   readonly [key: string]: unknown;
 }
 
+export class FakeTabInputText {
+  constructor(public readonly uri: FakeUri) {}
+}
+export class FakeTabInputTextDiff {
+  constructor(public readonly original: FakeUri, public readonly modified: FakeUri) {}
+}
+
 export interface FakeUri {
   readonly fsPath: string;
   readonly path: string;
@@ -589,6 +596,8 @@ export interface FakeVscode {
    * here does yet, so it is left unimplemented rather than half-faked.
    */
   readonly openedDocuments: readonly FakeDocument[];
+  readonly contentProviders: ReadonlyMap<string, { provideTextDocumentContent(uri: FakeUri): string }>;
+  readonly tabs: { all: { tabs: { input: unknown }[] }[] };
   /** Every `window.showTextDocument` call, in order -- see
    * `FakeShownDocument` for what each entry records and why. */
   readonly shownDocuments: readonly FakeShownDocument[];
@@ -662,6 +671,7 @@ export interface FakeVscode {
       }[];
     }>;
     readonly onDidCloseTextDocument: FakeEmitter<FakeDocument>;
+    readonly onDidChangeTabs: FakeEmitter<{ closed: { input: unknown }[] }>;
     readonly onDidChangeActiveTextEditor: FakeEmitter<FakeEditor | undefined>;
     readonly onDidChangeVisibleTextEditors: FakeEmitter<readonly FakeEditor[]>;
     readonly onDidChangeConfiguration: FakeEmitter<{
@@ -703,6 +713,8 @@ export function createFakeVscode(): FakeVscode {
     readonly placeHolder: string | undefined;
   }> = [];
   const openedDocuments: FakeDocument[] = [];
+  const contentProviders = new Map<string, { provideTextDocumentContent(uri: FakeUri): string }>();
+  const tabs = { all: [] as { tabs: { input: unknown }[] }[] };
   const shownDocuments: FakeShownDocument[] = [];
   let untitledCount = 0;
 
@@ -714,6 +726,7 @@ export function createFakeVscode(): FakeVscode {
   const emitters: FakeVscode['emitters'] = {
     onDidChangeTextDocument: new FakeEmitter(),
     onDidCloseTextDocument: new FakeEmitter(),
+    onDidChangeTabs: new FakeEmitter(),
     onDidChangeActiveTextEditor: new FakeEmitter(),
     onDidChangeVisibleTextEditors: new FakeEmitter(),
     onDidChangeConfiguration: new FakeEmitter(),
@@ -782,7 +795,13 @@ export function createFakeVscode(): FakeVscode {
     MarkdownString: FakeMarkdownString,
     Hover: FakeHover,
     EventEmitter: FakeEventEmitter,
+    TabInputText: FakeTabInputText,
+    TabInputTextDiff: FakeTabInputTextDiff,
     Uri: {
+      from: (value: { scheme: string; path: string }) => ({
+        fsPath: value.path, path: value.path,
+        toString: () => `${value.scheme}:${value.path}`,
+      }),
       file: (fsPath: string) => makeUri(fsPath),
       joinPath: (base: FakeUri, ...segments: string[]) =>
         makeUri(path.join(base.fsPath, ...segments)),
@@ -807,6 +826,7 @@ export function createFakeVscode(): FakeVscode {
       executeCommand,
     },
     window: {
+      tabGroups: { get all() { return tabs.all; }, onDidChangeTabs: emitters.onDidChangeTabs.event },
       get activeTextEditor() {
         return windowState.activeTextEditor;
       },
@@ -898,6 +918,11 @@ export function createFakeVscode(): FakeVscode {
       },
     },
     workspace: {
+      registerTextDocumentContentProvider: (scheme: string,
+        provider: { provideTextDocumentContent(uri: FakeUri): string }) => {
+        contentProviders.set(scheme, provider);
+        return { dispose: () => contentProviders.delete(scheme) };
+      },
       getConfiguration: (section: string) => config.getConfiguration(section),
       onDidChangeTextDocument: emitters.onDidChangeTextDocument.event,
       onDidCloseTextDocument: emitters.onDidCloseTextDocument.event,
@@ -908,8 +933,17 @@ export function createFakeVscode(): FakeVscode {
       // names an untitled document itself; this fake only needs each call
       // to produce a distinct one.
       openTextDocument: (
-        options?: { readonly content?: string; readonly language?: string }
+        options?: FakeUri | { readonly content?: string; readonly language?: string }
       ) => {
+        if (options && 'fsPath' in options) {
+          const scheme = options.toString().split(':')[0]!;
+          const provider = contentProviders.get(scheme);
+          if (!provider) throw new Error(`No content provider for ${scheme}`);
+          const document = new FakeDocument(options,
+            provider.provideTextDocumentContent(options), 'plaintext');
+          openedDocuments.push(document);
+          return Promise.resolve(document);
+        }
         untitledCount += 1;
         const document = new FakeDocument(
           makeUri(`untitled:Untitled-${untitledCount}`),
@@ -950,7 +984,7 @@ export function createFakeVscode(): FakeVscode {
     webviewViewProviders,
     commands: { registered, executed },
     executeCommand,
-    openedDocuments,
+    openedDocuments, contentProviders, tabs,
     shownDocuments,
     outputChannels,
     decorationTypes,

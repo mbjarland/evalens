@@ -13,6 +13,7 @@ import {
   ValuesPanelData, fullTextFor, rowsFor, valuesHtml,
 } from './html';
 import { ResultFolds, ResultFoldState } from './resultFold';
+import { RecordedTextDocuments } from './recordedText';
 import { INTRO_DISMISSED_KEY, LearningTopic, isLearningTopic } from './learningHelp';
 
 /** No document has anything expanded -- the common case, and the one that
@@ -58,6 +59,9 @@ function nonce(): string {
 export class ValuesViewProvider
 implements vscode.WebviewViewProvider, vscode.Disposable {
   private view: vscode.WebviewView | undefined;
+  private readonly recordings = new RecordedTextDocuments();
+  private renderedEditor: vscode.TextEditor | undefined;
+  private inspectingRecording = false;
   private readonly subscriptions: vscode.Disposable[] = [];
   private viewSubscriptions: vscode.Disposable[] = [];
 
@@ -172,7 +176,17 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
         // after the optional introduction has been dismissed.
         if (event.affectsConfiguration('evalens.resetOnLoad')) this.rebuild();
       }),
-      vscode.window.onDidChangeActiveTextEditor(() => this.rebuild(this.cursorRevealLine())),
+      vscode.window.onDidChangeActiveTextEditor(() => {
+        const editor = this.editorForPanel();
+        const active = vscode.window.activeTextEditor;
+        const recording = Boolean(active && this.recordings.context(active.document.uri));
+        const returning = this.inspectingRecording && editor === this.renderedEditor;
+        this.inspectingRecording = recording;
+        // Keep the DOM itself, including focused controls and scroll offset,
+        // while native Find/copy uses this result's read-only document.
+        if ((recording || returning) && editor === this.renderedEditor) return;
+        this.rebuild(this.cursorRevealLine());
+      }),
       // Cursor movement never rebuilds -- it only moves the highlighted row,
       // in the webview's own script, from the one number `onSelection` posts.
       vscode.window.onDidChangeTextEditorSelection(
@@ -215,6 +229,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   dispose(): void {
+    this.recordings.dispose();
     this.resultFolds.clear();
     this.clearMarker();
     this.navigation.dispose();
@@ -334,6 +349,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       return;
     }
     if (typeof data.open === 'number') {
+      if (data.revision !== this.revision) return;
       void this.openInEditor(
         data.open, typeof data.stream === 'string' ? data.stream : undefined);
       return;
@@ -376,7 +392,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       return;
     }
     if (typeof data.cause === 'number') {
-      const editor = vscode.window.activeTextEditor;
+      const editor = this.editorForPanel();
       if (editor && this.renderedData.rows.some((row) => row.staleCause?.id === data.cause)) {
         void this.annotations.revealDependency(editor.document.uri.toString(), data.cause);
       }
@@ -397,7 +413,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     if (!followValuesCursor() && data.explicit !== true) {
       return;
     }
-    const editor = vscode.window.activeTextEditor;
+    const editor = this.editorForPanel();
     if (!editor || editor.document.languageId !== 'python'
       || typeof data.goto !== 'number' || !Number.isInteger(data.goto)) {
       return;
@@ -407,13 +423,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     if (!row) {
       return;
     }
-    const position = new vscode.Position(row.line, 0);
-    editor.selection = new vscode.Selection(position, position);
-    // Always centred (#169): a row activation is a navigation, not a nudge,
-    // and the maintainer's rule is the editor's own Go to Line convention.
-    editor.revealRange(new vscode.Range(position, position),
-      vscode.TextEditorRevealType.InCenter);
-    this.mark(editor, row.line);
+    void this.revealSourceLine(editor, row.line);
   }
 
   /**
@@ -437,9 +447,13 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     const entry = model.entries.get(id);
     if (action === 'open') {
       if (value > 1 || (id !== 0 && !entry)) return;
-      const text = model.streams[value as 0 | 1];
-      void vscode.workspace.openTextDocument({ content: text, language: 'plaintext' })
-        .then((document) => vscode.window.showTextDocument(document));
+      const editor = this.editorForPanel();
+      if (!editor) return;
+      void this.recordings.open(model.streams[value as 0 | 1], {
+        source: editor.document.uri, startLine: row.startLine, endLine: row.endLine,
+        kind: value === 0 ? 'printed output' : 'stderr output', stale: row.state === 'stale',
+        recordedSource: row.recordedSource,
+      });
       return;
     }
     if (!entry && id !== 0) return;
@@ -466,7 +480,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       state.textPages.set(`${id}:${gap}:${stream}`, value);
     } else if (action === 'select' && entry?.kind === 'iteration') {
       state.selected = id;
-      const editor = vscode.window.activeTextEditor;
+      const editor = this.editorForPanel();
       const invocation = model.entries.get(entry.invocation) as LoopInvocation;
       const site = model.sites.get(invocation.site)!;
       const sourceLine = row.startLine + site.line - model.wire.statement_line;
@@ -474,41 +488,56 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       // edits, and withdraw navigation if this statement itself was edited.
       if (editor && row.staleReason !== 'edited' && sourceLine >= row.startLine
         && sourceLine <= row.endLine && sourceLine < editor.document.lineCount) {
-        const position = new vscode.Position(sourceLine, 0);
-        editor.selection = new vscode.Selection(position, position);
-        // Always centred (#169), matching the goto handler above.
-        editor.revealRange(new vscode.Range(position, position),
-          vscode.TextEditorRevealType.InCenter);
+        void this.revealSourceLine(editor, sourceLine);
       }
     } else return;
     this.rebuild();
   }
 
-  /**
-   * *Open in editor* (#155): the full text `blockId` names, as a new
-   * untitled plaintext document beside the panel. `fullTextFor` only ever
-   * reads text this provider already rendered from -- the same text the
-   * kernel sent when the statement ran -- so nothing here evaluates
-   * anything or asks the kernel a second time. Silently does nothing for a
-   * `blockId` the current row no longer recognises: the row can have
-   * rebuilt between the click landing in the webview and this message
-   * reaching the extension, and there is no code beside it to report an
-   * error about.
-   */
+  /** Showing source replaces only the visible text editor, not its pinned
+   * recording tab or the panel's keyboard focus. Native Focus Active Editor
+   * Group then returns to Python, rather than to the read-only recording. */
+  private async revealSourceLine(editor: vscode.TextEditor, line: number): Promise<void> {
+    const active = vscode.window.activeTextEditor;
+    if (active && this.recordings.context(active.document.uri)) {
+      editor = await vscode.window.showTextDocument(editor.document,
+        { preserveFocus: true, viewColumn: editor.viewColumn });
+    }
+    const position = new vscode.Position(line, 0);
+    editor.selection = new vscode.Selection(position, position);
+    editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+    this.mark(editor, line);
+  }
+
+  /** Open only the captured block currently shown by this render. A queued
+   * click with an old revision must not open a different evaluation. */
   private async openInEditor(line: number, blockId: string | undefined): Promise<void> {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor || blockId === undefined) {
-      return;
-    }
-    const row = this.dataFor(editor).rows.find((each) => each.line === line);
+    const editor = this.editorForPanel();
+    if (!editor || blockId === undefined) return;
+    const row = this.renderedData.rows.find(each => each.line === line);
     const text = row && fullTextFor(row, blockId);
-    if (text === undefined) {
-      return;
-    }
-    const document = await vscode.workspace.openTextDocument({
-      content: text, language: 'plaintext',
+    if (!row || text === undefined) return;
+    const value = /^value-(\d+)$/.exec(blockId);
+    const label = value ? row.groups?.[Number(value[1])]
+      ?.filter(segment => segment.role !== 'value').map(segment => segment.text).join('').trim() : undefined;
+    await this.recordings.open(text, {
+      source: editor.document.uri, startLine: row.startLine, endLine: row.endLine,
+      kind: value ? 'value' : blockId === 'stderr' ? 'stderr output' : 'printed output',
+      label, stale: row.state === 'stale', recordedSource: row.recordedSource,
     });
-    await vscode.window.showTextDocument(document, { preserveFocus: false });
+  }
+
+  /** A recording borrows only its originating Python view. An unrelated
+   * non-Python editor still gets the ordinary empty panel. */
+  private editorForPanel(): vscode.TextEditor | undefined {
+    const active = vscode.window.activeTextEditor;
+    if (!active) return active;
+    const context = this.recordings.context(active.document.uri);
+    if (!context) return active;
+    const source = context.source.toString();
+    return vscode.window.visibleTextEditors.find(editor => editor.document.uri.toString() === source)
+      ?? (this.renderedEditor?.document.uri.toString() === source
+        && !this.renderedEditor.document.isClosed ? this.renderedEditor : undefined);
   }
 
   /**
@@ -538,7 +567,8 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       return;
     }
     this.clearMarker();
-    const editor = vscode.window.activeTextEditor;
+    const editor = this.editorForPanel();
+    this.renderedEditor = editor;
     const cursorLine = editor?.selection.active.line;
     this.renderedData = this.dataFor(editor);
     if (!editor) this.renderedResultFolds = new Map();
@@ -564,7 +594,8 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
         introDismissed: this.introDismissed, openTopics: this.openLearningTopics,
         resetOnLoad: resetOnLoad(),
       });
-    if (editor && this.view.visible && cursorLine !== undefined) {
+    if (editor && this.view.visible && cursorLine !== undefined
+      && vscode.window.visibleTextEditors.includes(editor)) {
       this.mark(editor, cursorLine);
     }
   }
@@ -591,6 +622,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       annotation.resultIdentity === identity && !annotation.pending);
     return {
       fileName: path.basename(editor.document.uri.fsPath),
+      sourceUri: editor.document.uri.toString(),
       latestResultLine: latest ? latest.anchor ?? latest.range.end.line : undefined,
       rows: rowsFor(editor.document, annotations, printedLabelSetting()),
     };
