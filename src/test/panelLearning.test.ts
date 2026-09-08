@@ -128,6 +128,30 @@ test('help actions are revision guarded, allowlisted, and inactive while hidden'
   } finally { f.dispose(); }
 });
 
+test('session configuration stays visible after dismissal and tracks setting changes', async () => {
+  const f = fixture();
+  try {
+    f.post({ learningAction: 'dismiss-intro' });
+    f.post({ learningTopic: 'help', learningOpen: true });
+    f.post({ learningTopic: 'session', learningOpen: true });
+    const setReset = (value: boolean) => {
+      f.fake.config.set('evalens', 'resetOnLoad', value);
+      f.fake.emitters.onDidChangeConfiguration.fire({
+        affectsConfiguration: (name: string) => name === 'evalens.resetOnLoad',
+      });
+    };
+    setReset(false);
+    assert.match(f.view.webview.html, /class="session-notice"/);
+    assert.match(f.view.webview.html, /id="learning-intro"[^>]* hidden/);
+    assert.match(f.view.webview.html, /data-learning-topic="session" open/);
+    assert.match(f.view.webview.html, /resetOnLoad<\/code> is off/);
+    setReset(true);
+    assert.doesNotMatch(f.view.webview.html, /class="session-notice"/);
+    assert.match(f.view.webview.html, /resetOnLoad<\/code> is on, the default/);
+    assert.match(f.view.webview.html, /data-learning-topic="session" open/);
+  } finally { f.dispose(); }
+});
+
 test('panel walkthrough and editable exercise actions issue no kernel request', async () => {
   const f = fixture();
   const { KernelClient } = require('../kernel/client') as typeof import('../kernel/client');
@@ -142,6 +166,11 @@ test('panel walkthrough and editable exercise actions issue no kernel request', 
     assert.ok(requests > 0, 'the probe observes the real evaluation pipe');
     const before = requests;
     f.post({ learningTopic: 'help', learningOpen: true });
+    f.post({ learningTopic: 'session', learningOpen: true });
+    f.fake.config.set('evalens', 'resetOnLoad', false);
+    f.fake.emitters.onDidChangeConfiguration.fire({
+      affectsConfiguration: (name: string) => name === 'evalens.resetOnLoad',
+    });
     f.post({ learningAction: 'walkthrough' });
     await new Promise(resolve => setImmediate(resolve));
     assert.ok(f.fake.commands.executed.some(command => command.id === 'workbench.action.openWalkthrough'));
@@ -183,7 +212,8 @@ test('the shipped help script updates only optional content and posts fixed acti
     vscode: { postMessage: (value: unknown) => messages.push(JSON.parse(JSON.stringify(value))) },
     document: {
       querySelectorAll: (selector: string) => selector === '[data-learning-toggle]' ? [toggle]
-        : selector === '[data-learning-topic]' ? [topic] : [dismiss, show],
+        : selector === '[data-learning-topic]' ? [topic]
+          : selector === '[data-learning-session]' ? [] : [dismiss, show],
       querySelector: (selector: string) => selector.includes('show-intro') ? show : toggle,
       getElementById: (id: string) => id === 'navigation-control'
         ? { getBoundingClientRect: () => ({ height: 30 }) }
