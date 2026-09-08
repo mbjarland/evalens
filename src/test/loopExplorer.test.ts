@@ -52,8 +52,10 @@ test('single-level square-print loop uses three compact target/output rows', asy
     ['0', '1', '4']);
   assert.match(html, /for n in range\(3\)/);
   assert.match(html, /3 iterations/);
-  assert.equal((html.match(/Variables/g) ?? []).length, 1);
-  assert.equal((html.match(/Printed output/g) ?? []).length, 1);
+  assert.equal((html.match(/<span>Variables<\/span>/g) ?? []).length, 1);
+  assert.equal((html.match(/>Printed output<\/span>/g) ?? []).length, 1);
+  assert.equal((html.match(/class="loop-stack-label">Variables/g) ?? []).length, 3);
+  assert.equal((html.match(/class="loop-stream-label loop-stack-label">Printed output:/g) ?? []).length, 3);
   assert.doesNotMatch(html, /data-loop-action="toggle|loop-iteration-header/);
 });
 
@@ -65,7 +67,8 @@ test('body values share their own iteration cell while printed output stays sepa
   assert.match(html, /a value can carry over from an earlier iteration/);
   for (const [v, u] of [[1, 4], [2, 8], [3, 12]]) {
     assert.match(html, new RegExp(`>v = ${v}, u = ${u}</button></div><div>`
-      + `<div class="loop-stream"><span class="loop-output">value is ${u}</span>`));
+      + '<div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span>'
+      + `<span class="loop-output">value is ${u}</span>`));
   }
   assert.match(html, /Final values after this loop: v = 3, u = 12/);
   assert.equal((html.match(/data-loop-action="select"/g) ?? []).length, 3);
@@ -331,8 +334,8 @@ test('real nested output becomes X5 with Unicode slices and separate final snaps
   const rows = rowsFor({ lineAt: (line) => ({ text: source.split('\n')[line] ?? '' }) }, [presentation], 'printed');
   assert.ok(rows[0]?.loopExplorer);
   const html = contents(valuesHtml({ fileName: 'example.py', rows }, 0, 'test'));
-  assert.equal((html.match(/Variables/g) ?? []).length, 1);
-  assert.equal((html.match(/Printed output/g) ?? []).length, 1);
+  assert.equal((html.match(/<span>Variables<\/span>/g) ?? []).length, 1);
+  assert.equal((html.match(/>Printed output<\/span>/g) ?? []).length, 1);
   assert.equal((html.match(/printed 4 lines/g) ?? []).length, 2);
   assert.equal((html.match(/No output/g) ?? []).length, 2);
   assert.match(html, /Final values after this loop: x = 1, y = 3/);

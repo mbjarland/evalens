@@ -1059,10 +1059,11 @@ tr.row:focus-visible {
 }
 .navigation-control label {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 4px;
-  white-space: nowrap;
+  max-width: 100%;
 }
+.navigation-control input { flex: none; }
 .result-surface {
   padding: 3px 8px;
   border-left: 3px solid ${cssVar('border')};
@@ -1204,6 +1205,25 @@ tr.loop-row.cursor, .loop-row .result-surface { background: transparent; }
   max-height: 19.6em;
   overflow: auto;
   white-space: pre-wrap;
+}
+/* Keep the source/result pair together when there is no useful room for
+   the ordinary 300px source column. The source gutter retains its font
+   metrics; results use the whole width below it rather than disappearing
+   into the fixed table's remainder. Navigation still targets this row. */
+@media (max-width: 720px) {
+  table, tbody { display: block; }
+  colgroup { display: none; }
+  tr.row {
+    display: grid;
+    grid-template-columns: calc(var(--line-number-width) + 2.5ch + 3px) minmax(0, 1fr);
+    border-bottom: 1px solid var(--vscode-panel-border, currentColor);
+  }
+  td { display: block; min-width: 0; border-bottom: 0; }
+  .value-cell { grid-column: 1 / -1; padding-top: 0; }
+  .vscode-high-contrast tr.row,
+  .vscode-high-contrast-light tr.row { border-bottom-width: 2px; }
+  .vscode-high-contrast td,
+  .vscode-high-contrast-light td { border-bottom-width: 0; }
 }
 `;
 
