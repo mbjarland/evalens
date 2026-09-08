@@ -52,7 +52,8 @@ const pause = () => new Promise(resolve => setTimeout(resolve, 100));
     await page.setContent(valuesHtml({ fileName: 'keyboard.py', sourceUri, rows: [...rows, flat], latestResultLine: 20 },
       0, 'keyboard', undefined, { loopStates: new Map([[model.wire, state]]),
         resultFolds: new Map([[0, resultState]]), expandedLines: expanded }, true, revision++, true, false,
-      { introDismissed: true }));
+      { introDismissed: true, resetOnLoad: false }).replace('<script nonce=',
+        '<button type="button" class="keyboard-probe">Unkeyed fixture control</button><script nonce='));
     await pause();
   }
   const focused = () => page.evaluate(() => document.activeElement.dataset.focusKey);
@@ -78,15 +79,25 @@ const pause = () => new Promise(resolve => setTimeout(resolve, 100));
     expanded.add(20); await render();
     assert.equal(await focused(), flatFocus, 'Show all -> Show less keeps the same control');
     assert.equal(await page.$eval(flatExpand, el => el.tagName), 'BUTTON');
+    // Session details has its own stable key even outside the optional Help.
+    await page.focus('[data-learning-session]');
+    saved = await page.evaluate(() => window.saved);
+    assert.equal(saved.key, 'learning/session-details');
+    await render();
+    assert.equal(await focused(), 'learning/session-details');
+    await key('[data-learning-session]');
+    assert.equal(await focused(), 'topic/session');
     // Help Escape closes the topic, then help, without producing source messages.
-    await key('[data-learning-toggle]');
-    await key('[data-learning-topic="session"] summary');
     await page.keyboard.press('Escape'); await pause();
     assert.equal(await page.$eval('[data-learning-topic="session"]', el => el.open), false);
     await page.keyboard.press('Escape'); await pause();
     assert.equal(await page.$eval('#learning-help', el => el.hidden), true);
     assert.equal(await focused(), 'learning/help');
     assert.equal(await page.evaluate(() => window.messages.some(m => m.goto !== undefined)), false);
+    // Unknown future controls remain native focus targets without fake keys.
+    assert.equal(await page.$eval('.keyboard-probe', el => el.hasAttribute('data-focus-key')), false);
+    await page.focus('.keyboard-probe');
+    assert.equal(await page.evaluate(() => window.saved.key), undefined);
     // The final page disables Next: focus falls back to Previous for this loop.
     message = await key('[data-loop-action="page"][data-loop-id="1"][data-loop-control="next"]');
     state.pages.set(message.node, message.value); await render();
@@ -140,7 +151,7 @@ const pause = () => new Promise(resolve => setTimeout(resolve, 100));
     assert.deepEqual(errors, []);
     const screenshot = process.env.EVALENS_SCREENSHOT || '/private/tmp/evalens-187-renderer.png';
     await page.screenshot({ path: screenshot });
-    const report = { passed: ['native flat open dispatch revision and label color', 'native flat buttons and rebuild focus', 'Session help Escape',
+    const report = { passed: ['native flat open dispatch revision and label color', 'native flat buttons and rebuild focus', 'Session details focus/rebuild and Help Escape; unkeyed-control safety',
       'disabled paging fallback', 'iteration disclosure focus', 'Why Escape', 'focus below sticky loop context',
       'whole-result fold', 'replacement fallback', 'cross-file focus isolation'],
       sourceUri, kernelRequests: 1, browserErrors: errors, screenshot };

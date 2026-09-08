@@ -31,8 +31,8 @@ only; evaluation commands, kernel requests and debugger bindings are unchanged.
 
 ## Checks completed by the implementing agent
 
-The integrated extension suite passes **961 tests**: #186's corrected base
-passes 959, and #187 adds two behavior regressions. They exercise unlinked
+The integrated extension suite passes **962 tests**: #186's corrected base
+passes 960, and #187 adds two behavior regressions. They exercise unlinked
 browsing versus source/Latest state, and nested-control/modifier isolation
 including debugger keys and Escape. Existing fold assertions now require
 native buttons. The kernel suite passes **718 tests**.
@@ -43,7 +43,9 @@ HTML with physical Chromium keyboard events. It checks ten cases:
 
 1. Native flat Open sends the current revision and preserves label color.
 2. Show all/Show less preserve the focused control across a DOM rebuild.
-3. Escape closes Session details, then Help, with no source navigation.
+3. Session details keeps its own focus key through a rebuild. Escape closes
+   its explanation, then Help, with no source navigation. Unkeyed future
+   controls cannot be remembered under the literal string `undefined`.
 4. The disabled last-page Next control falls back to Previous.
 5. Expanding an outer iteration keeps its disclosure focused.
 6. Why opens/closes natively and keeps its summary focused.

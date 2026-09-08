@@ -16,6 +16,7 @@ export const KEYBOARD_SCRIPT = `
       var details = element.closest('details');
       if (element.id) return 'id/' + element.id;
       if (data.learningToggle !== undefined) return 'learning/help';
+      if (data.learningSession !== undefined) return 'learning/session-details';
       if (data.learningAction) return 'learning/' + data.learningAction;
       if (element.tagName === 'SUMMARY' && details && details.dataset.learningTopic) return 'topic/' + details.dataset.learningTopic;
       if (data.loopAction) return ['loop', data.loopToken, data.loopId,
@@ -32,7 +33,12 @@ export const KEYBOARD_SCRIPT = `
       if (element.tagName === 'A') return 'link/' + element.getAttribute('href');
       return row ? 'row/' + token : undefined;
     }
-    focusables.forEach(function (element) { element.dataset.focusKey = controlKey(element); });
+    focusables = focusables.filter(function (element) {
+      var key = controlKey(element);
+      if (typeof key !== 'string') return false;
+      element.dataset.focusKey = key;
+      return true;
+    });
     var localDetails = Array.prototype.slice.call(document.querySelectorAll('[data-local-disclosure]'));
     localDetails.forEach(function (details) {
       var key = controlKey(details.querySelector('summary'));
@@ -60,10 +66,11 @@ export const KEYBOARD_SCRIPT = `
         var result = item.querySelector('.whole-result');
         return focusState.token && result && result.dataset.resultToken === focusState.token;
       }) || rows.find(function (item) { return item.dataset.goto === focusState.line; });
-      if (!target && focusState.key && focusState.key.startsWith('loop/')) {
+      if (!target && typeof focusState.key === 'string' && focusState.key.startsWith('loop/')) {
         var prefix = focusState.key.split('/').slice(0, 4).join('/') + '/';
         target = focusables.find(function (element) {
-          return element.dataset.focusKey.startsWith(prefix) && visibleControl(element);
+          return typeof element.dataset.focusKey === 'string'
+            && element.dataset.focusKey.startsWith(prefix) && visibleControl(element);
         });
       }
       if (!target && row) {
@@ -94,7 +101,13 @@ export const KEYBOARD_SCRIPT = `
       }
     }
     function rememberControl(element) {
-      if (!element || !element.dataset.focusKey) return;
+      if (!element || typeof element.dataset.focusKey !== 'string') {
+        delete focusState.key;
+        delete focusState.line;
+        delete focusState.token;
+        saveFocusState();
+        return;
+      }
       var row = element.closest('tr.row');
       var result = row && row.querySelector('.whole-result');
       focusState.key = element.dataset.focusKey;
