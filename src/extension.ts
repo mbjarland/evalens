@@ -62,7 +62,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // window. Not auto-revealed -- the user opens it once, the same way any
   // other panel view is opened, and VS Code remembers whether it stayed
   // open.
-  const valuesProvider = new ValuesViewProvider(annotations);
+  const valuesProvider = new ValuesViewProvider(annotations, context.globalState);
   context.subscriptions.push(valuesProvider);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(VALUES_VIEW_ID, valuesProvider)

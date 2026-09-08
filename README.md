@@ -130,11 +130,26 @@ install options, including building from source, are under
 [Install](#install) below.
 
 For five optional hands-on exercises, choose **Evalens: Open Learning Walkthrough**
-from the Command Palette. Predict values, step through code, explore list aliasing,
+from the Command Palette, or **Try a guided example** in the empty Values panel.
+Predict values, evaluate successive statements, explore list aliasing,
 fix an accumulator, and see why an edited answer becomes stale. Each exercise opens
 as an editable, unsaved Python document; nothing runs until you evaluate it.
 **Evalens: Open Learning Exercise** opens an individual exercise. The walkthrough
 is optional, and its checkboxes are yours to mark after trying each exercise.
+
+The panel's **Help and learning** button stays available alongside its three
+preferences. It explains recorded results, loop timing, missing readings, and
+when to use the Python debugger. **Dismiss** hides the short introduction and
+remembers your choice across reloads; **Show introduction** in Help brings it
+back. Dismissing guidance never hides a result's error, stale marker, or capture
+limit. Opening help or an exercise does not evaluate code or reset your session.
+
+**Evaluate and Advance** runs a statement and moves the editor cursor. To pause
+inside a loop, step into a function, inspect the call stack, or examine variables
+at a breakpoint, use the
+[Python debugger](https://code.visualstudio.com/docs/python/debugging).
+Starting a normal Python debugging session runs your program separately; it
+does not resume an Evalens recording or carry over its variables.
 
 ## Learn it in four keys
 

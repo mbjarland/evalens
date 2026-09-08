@@ -33,8 +33,10 @@ function prepared(result: Evaluated) {
   return model;
 }
 function contents(html: string) {
-  return html.replace(/<style[^>]*>[\s\S]*?<\/style>/g, '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/g, '');
+  // Result budgets and labels exclude optional help and toolbar content.
+  const table = /<table>[\s\S]*?<\/table>/.exec(html);
+  assert.ok(table, 'expected a result table');
+  return table[0];
 }
 function navigation(html: string, id: number): string {
   const match = new RegExp(`data-loop-navigation="${id}">([\\s\\S]*?)</div></div>`).exec(html);

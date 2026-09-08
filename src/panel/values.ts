@@ -13,6 +13,7 @@ import {
   ValuesPanelData, fullTextFor, rowsFor, valuesHtml,
 } from './html';
 import { ResultFolds, ResultFoldState } from './resultFold';
+import { INTRO_DISMISSED_KEY, LearningTopic, isLearningTopic } from './learningHelp';
 
 /** No document has anything expanded -- the common case, and the one that
  * must not allocate a `Set` just to be handed to `valuesHtml`. */
@@ -66,6 +67,8 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly resultFolds = new ResultFolds();
   private renderedResultFolds: ReadonlyMap<number, ResultFoldState> = new Map();
   private nextLoopIdentity = 0;
+  private introDismissed: boolean;
+  private readonly openLearningTopics = new Set<LearningTopic>();
   /** One opaque result identity per live document. A row number cannot carry
    * this fact across edits, and cursor movement is independent of completion. */
   private latestResults = new WeakMap<vscode.TextDocument, object>();
@@ -107,7 +110,11 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
   });
 
-  constructor(private readonly annotations: Annotations) {
+  constructor(
+    private readonly annotations: Annotations,
+    private readonly uiState?: Pick<vscode.Memento, 'get' | 'update'>
+  ) {
+    this.introDismissed = uiState?.get<boolean>(INTRO_DISMISSED_KEY, false) === true;
     this.subscriptions.push(
       // The one non-polling trigger design rule 6's spirit asks for: the
       // registry's own mutation points say when they changed, rather than
@@ -315,6 +322,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       explicit?: unknown; expand?: unknown; open?: unknown; stream?: unknown;
       loop?: unknown; action?: unknown; node?: unknown; value?: unknown;
       resultFold?: unknown; collapsed?: unknown; token?: unknown;
+      learningAction?: unknown; learningTopic?: unknown; learningOpen?: unknown;
     };
 
     if (typeof data.expand === 'number') {
@@ -328,6 +336,23 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     }
 
     if (data.revision !== this.revision) {
+      return;
+    }
+    if (isLearningTopic(data.learningTopic) && typeof data.learningOpen === 'boolean') {
+      if (data.learningOpen) this.openLearningTopics.add(data.learningTopic);
+      else this.openLearningTopics.delete(data.learningTopic);
+      return;
+    }
+    if (data.learningAction !== undefined) {
+      // This is an action allowlist, never a command or URI supplied by HTML.
+      if (data.learningAction === 'dismiss-intro' || data.learningAction === 'show-intro') {
+        this.introDismissed = data.learningAction === 'dismiss-intro';
+        void this.uiState?.update(INTRO_DISMISSED_KEY, this.introDismissed);
+      } else if (data.learningAction === 'walkthrough') {
+        void vscode.commands.executeCommand('evalens.openLearningWalkthrough');
+      } else if (data.learningAction === 'exercise') {
+        void vscode.commands.executeCommand('evalens.openLearningExercise');
+      }
       return;
     }
     if (typeof data.resultFold === 'number' && typeof data.collapsed === 'boolean') {
@@ -531,7 +556,9 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       { outputLines: valuesPanelOutputLines(), expandedLines, loopStates,
         resultFolds: this.renderedResultFolds },
       followValuesCursor(), ++this.revision, followValuesPanel(),
-      inlineValues() === 'whenPanelHidden');
+      inlineValues() === 'whenPanelHidden', {
+        introDismissed: this.introDismissed, openTopics: this.openLearningTopics,
+      });
     if (editor && this.view.visible && cursorLine !== undefined) {
       this.mark(editor, cursorLine);
     }

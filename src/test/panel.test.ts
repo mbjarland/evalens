@@ -541,7 +541,8 @@ test('no active Python editor says so', () => {
 
 test('a Python file with no annotations yet says how to get one', () => {
   const html = valuesHtml({ fileName: 'x.py', rows: [] }, undefined, 'n');
-  assert.match(html, /to see its values here/);
+  assert.match(html, /evaluates the current statement/);
+  assert.match(html, /Try a guided example/);
 });
 
 test('the summary line names the file and counts stale and error rows', () => {
@@ -601,13 +602,15 @@ test('every colour rides a class, never an inline style attribute', () => {
     'an inline style attribute cannot be painted under this CSP');
 });
 
-test('the CSP allows only the one nonce and nothing external', () => {
+test('the CSP allows only the one nonce; the official guide is a navigation link', () => {
   const html = valuesHtml({ fileName: undefined, rows: [] }, undefined, 'abc123');
   assert.match(html, /default-src 'none'/);
   assert.match(html, /style-src 'nonce-abc123'/);
   assert.match(html, /script-src 'nonce-abc123'/);
-  assert.ok(!html.includes('http://') && !html.includes('https://'),
-    'no external resource should ever be referenced');
+  assert.deepEqual([...html.matchAll(/https?:[^"'\s<]+/g)].map(match => match[0]),
+    ['https://code.visualstudio.com/docs/python/debugging']);
+  assert.match(html, /<a href="https:\/\/code.visualstudio.com\/docs\/python\/debugging">/);
+  assert.doesNotMatch(html, /(?:src|url)=["']https?:/, 'no external resources load');
 });
 
 // -- the reveal line (#149): scroll the row that just changed into view -----
@@ -873,7 +876,7 @@ test('resolving the view for a Python file with nothing evaluated yet ' +
     const view = new FakeWebviewView();
     provider.resolveWebviewView(view, {}, {});
 
-    assert.match(view.webview.html, /to see its values here/);
+    assert.match(view.webview.html, /evaluates the current statement/);
   } finally {
     extension.deactivate();
   }
@@ -914,7 +917,7 @@ test('a later evaluation rebuilds an already-open panel (onDidChange)',
       const provider = fake.webviewViewProviders.get('evalens.values')!;
       const view = new FakeWebviewView();
       provider.resolveWebviewView(view, {}, {});
-      assert.match(view.webview.html, /to see its values here/, 'setup: empty');
+      assert.match(view.webview.html, /Try a guided example/, 'setup: empty');
 
       await (fake.commands.registered.get('evalens.evaluateAtCursor') as
         () => Promise<void>)();
