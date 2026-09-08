@@ -819,6 +819,19 @@ nobody ever saw it) is fixed: a `HoverProvider` answers the position instead,
 which is also the path VS Code's Accessible View and keyboard-triggered hover
 use.
 
+**Session explanations share the optional learning help.** Recorded answers,
+the persistent Evalens Python session, and a normal Python debugging session
+are separate concepts. The Values panel explains the existing clear, restart,
+selection, whole-file, script and above-cursor actions without adding any
+execution trigger. Clear Inline Results removes recordings across files but
+keeps variables and input replay; Restart Kernel discards the Python session
+while recordings remain earlier readings. The help shows the current
+`evalens.resetOnLoad` choice. When off, a compact notice outside the dismissed
+introduction says whole-file evaluation is set to keep existing variables,
+without pretending to know which variables exist. The existing load-status
+report remains responsible for naming detected leftovers. Reading this help
+never starts Python or inspects its namespace.
+
 ## Why reactive re-evaluation is closed
 
 The adjacent question every contributor eventually asks — *why not re-run the

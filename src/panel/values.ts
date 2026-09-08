@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 
 import {
   followValuesCursor, followValuesPanel, inlineValues,
-  printedLabel as printedLabelSetting, setFollowValuesCursor,
+  printedLabel as printedLabelSetting, resetOnLoad, setFollowValuesCursor,
   setFollowValuesPanel, setInlineValues, valuesPanelOutputLines,
 } from '../config';
 import { AnnotationChangeEvent, Annotations } from '../render/annotations';
@@ -167,6 +167,10 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
             inlineValues() === 'whenPanelHidden' && (this.view?.visible ?? false));
           this.rebuild(this.cursorRevealLine());
         }
+        // Read existing configuration only; explaining a session must not
+        // start Python or inspect its namespace. Keep this fact visible even
+        // after the optional introduction has been dismissed.
+        if (event.affectsConfiguration('evalens.resetOnLoad')) this.rebuild();
       }),
       vscode.window.onDidChangeActiveTextEditor(() => this.rebuild(this.cursorRevealLine())),
       // Cursor movement never rebuilds -- it only moves the highlighted row,
@@ -558,6 +562,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       followValuesCursor(), ++this.revision, followValuesPanel(),
       inlineValues() === 'whenPanelHidden', {
         introDismissed: this.introDismissed, openTopics: this.openLearningTopics,
+        resetOnLoad: resetOnLoad(),
       });
     if (editor && this.view.visible && cursorLine !== undefined) {
       this.mark(editor, cursorLine);

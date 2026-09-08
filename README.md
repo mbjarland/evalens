@@ -138,11 +138,19 @@ as an editable, unsaved Python document; nothing runs until you evaluate it.
 is optional, and its checkboxes are yours to mark after trying each exercise.
 
 The panel's **Help and learning** button stays available alongside its three
-preferences. It explains recorded results, loop timing, missing readings, and
+preferences. It explains recorded results, loop timing, missing readings, session
+and reset actions, and
 when to use the Python debugger. **Dismiss** hides the short introduction and
 remembers your choice across reloads; **Show introduction** in Help brings it
 back. Dismissing guidance never hides a result's error, stale marker, or capture
 limit. Opening help or an exercise does not evaluate code or reset your session.
+
+**Session and reset actions** shows the current `evalens.resetOnLoad` setting
+and distinguishes clearing the display from discarding Python variables.
+When that setting is off, a short notice remains visible above the results,
+with **Session details** opening the explanation. This reports the setting;
+it does not claim that a particular variable still exists. A non-resetting
+file run's existing status-bar report names any detected leftover bindings.
 
 **Evaluate and Advance** runs a statement and moves the editor cursor. To pause
 inside a loop, step into a function, inspect the call stack, or examine variables
@@ -643,11 +651,11 @@ because a stolen key then never leaves you without a way to run these.
 | Evalens: Evaluate File | Clears the namespace, then runs the file top to bottom, annotating each statement — or the selected statements, when there is a selection, which never resets |
 | Evalens: Run File as Script | Runs the whole file the way `python3 file.py` would, so an `if __name__ == "__main__":` block runs |
 | Evalens: Evaluate Above Cursor | Resets the namespace and runs everything above the statement the cursor is in, stopping at the first failure |
-| Evalens: Clear Inline Results | Removes the annotations from the active editor |
+| Evalens: Clear Inline Results | Removes recorded results from all editors and the Values panel; keeps Python variables and saved input answers |
 | Evalens: Announce Result at Cursor | Puts what is painted on the cursor's line into a notification, where a screen reader reads it |
 | Evalens: Inspect Value | Opens a QuickPick over the fields of the value at the cursor, for going deeper than the hover's own table |
 | Evalens: Interrupt Evaluation | Stops a running evaluation and keeps the namespace it built |
-| Evalens: Restart Kernel | Throws away the namespace and starts a fresh interpreter |
+| Evalens: Restart Kernel | Stops Python and discards variables and saved input answers; the next evaluation starts a fresh interpreter |
 | Evalens: Clear Input Answers | Forgets every replayed `input()` answer, keeping the namespace |
 | Evalens: Show Output | Opens the Evalens output channel without taking the cursor out of the editor |
 | Evalens: Show Values Panel | Opens the bottom-panel view listing the active file's annotations full width, wrapping, and synced to the cursor |
@@ -670,6 +678,21 @@ selection never resets, whatever this setting says, because resetting and
 then running three lines would leave everything above them unbound.
 **Evalens: Run File as Script** always resets too, for a reason of its own —
 see below.
+
+**Clearing results is not restarting Python.** Clear Inline Results removes
+the recorded answers for every file without stopping running code or changing
+variables or saved input answers. Restart Kernel stops Evalens's Python
+process and discards that session; it leaves the recorded answers visible
+as earlier readings. Neither those readings nor selecting an iteration tells
+you which variables exist in the new session. Statement evaluations share
+one Python session across files in a VS Code window. A normal Python debugger
+session runs separately and does not resume an Evalens recording.
+
+Resetting before a whole-file run, Run File as Script, and Evaluate Above
+Cursor also clear saved input answers. Evaluate File with a selection keeps
+them, as does a whole-file run with `evalens.resetOnLoad` off. Clear Input
+Answers forgets saved answers without clearing variables; literal
+`# evalens:` answers in the source are unaffected.
 
 **Evaluate File runs a selection, and runs whole statements.** Select the
 first twenty lines and press the key: those statements run, in order,
