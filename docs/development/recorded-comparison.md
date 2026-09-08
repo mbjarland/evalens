@@ -3,15 +3,15 @@
 > Status: Decision — defer a dedicated comparison feature
 > Audience: Maintainer and implementation agents
 > Source of truth for: the scope decision for issue #189
-> Last verified: 2026-09-08, source at `cffbf52`
+> Last reviewed: 2026-09-08, integrated source `173ef23` and exports `e28143b`
 
 ## Decision
 
 Do not add a pin, comparison toolbar, or run-history store now. Use recorded
 text opened in VS Code for occasional before/after comparisons, and the
 existing loop table for adjacent saved iterations. Revisit this decision if
-observed tasks show repeated, costly manual comparison after the clarity,
-inspection, and session explanations have shipped.
+observed tasks show repeated, costly manual comparison with the clarity,
+inspection, and session explanations available.
 
 This closes the investigation, not an implementation promise. No comparison
 feature is shipped by this document, and no follow-on build ticket is needed
@@ -34,9 +34,13 @@ The implementation already provides:
   not a persistent run identifier. See
   [`Annotation`](../../src/render/decorations.ts) and
   [`ResultFolds`](../../src/panel/resultFold.ts).
-- Captured source and bounded value/output strings. The existing panel
-  opens these strings as untitled text without contacting Python. See
-  [`ValuesViewProvider`](../../src/panel/values.ts).
+- Captured source and bounded value/output strings. The panel opens these
+  as read-only native documents without contacting Python. Numbered tabs
+  identify source, statement range, and recorded kind. A lock status item
+  supplies scope, known staleness when opened, and a frozen source preview.
+  This metadata is separate from the compared text. See
+  [`ValuesViewProvider`](../../src/panel/values.ts) and
+  [`RecordedTextDocuments`](../../src/panel/recordedText.ts).
 - Explicit site, invocation, and iteration IDs with stream intervals. Loop
   targets are read at entry and selected body names at normal body end.
   These are not assignment-by-assignment states. Missing body readings must
@@ -55,15 +59,14 @@ describes comparing with the clipboard and other files. Locally installed
 VS Code also registers `vscode.diff`; the installed API defines read-only
 `TextDocumentContentProvider` documents and release on document close.
 
-Three related work items improve the manual workflow. At the time of this
-source review, these behaviors are planned, not verified as shipped:
+The reviewed implementations supply the following supporting behavior:
 
 - [#185 result evidence](https://github.com/mbjarland/evalens/issues/185)
   makes timing, missing readings, and saved-detail limits explicit.
 - [#186 native text inspection](https://github.com/mbjarland/evalens/issues/186)
   gives opened recorded text source/stream context and bounded lifetime.
-  Its final document lifetime must be checked against keeping a baseline
-  open while deliberately producing a second result.
+  Its source review is against `e28143b`; actual Host confirmation of the
+  manual comparison workflow is recorded at the end of this decision.
 - [#188 session clarity](https://github.com/mbjarland/evalens/issues/188)
   explains reset/load choices and the difference between clearing answers
   and discarding the Python namespace.
@@ -73,28 +76,64 @@ not make text equality a proof of equal Python objects or equal execution.
 No first-time learner or experienced-user study was performed for this
 decision. The tradeoffs below are design judgments, not participant findings.
 
+### Native export lifetime and provenance
+
+An opened recording is immutable and its tab is pinned against preview
+replacement. It remains available across reruns, Clear Inline Results, and
+Restart Kernel. Those actions affect current answers or Python state, not
+the historical text already open. Closing its last text or diff tab releases
+the provider data, even if VS Code caches a document. A language-mode change
+does not release a recording with an open tab. Window reload discards these
+transient recordings.
+
+The provider caps all open recordings at **32 documents and 8 Mi UTF-16 code
+units**, counting payload and retained source/label metadata. It refuses
+another export at the bound instead of evicting a document being read.
+This is a string-storage bound, not a total VS Code heap measurement.
+
+The recording number identifies an opened export, not a Python evaluation;
+opening one result twice produces two export numbers. Its range describes
+the statement's panel position when opened. The source preview is bounded
+to roughly 2,000 UTF-16 units and visibly clipped when necessary, so it is
+not always a complete source snapshot. Staleness metadata describes what was
+known when the export opened; it does not track subsequent changes or certify
+that inputs were equivalent. Preserve the original source separately when a
+full reproducible experiment matters.
+
+The original captured text is supplied without adding contextual prose.
+Existing capture omission markers remain; native text models can normalize
+line endings. This is text inspection, not a byte-preserving file export.
+Each loop output action opens the whole statement's saved stream, including
+all its loops, rather than only the selected iteration. Short flat results
+have no separate export link when they fit in the panel; the workflow below
+uses the loop's always-available stream action.
+
 ## Workflow 1: a changed transformation
 
-Question: "Did filtering blank names change anything except the empty item?"
+Question: "Did filtering blank names remove the empty output line?"
 
-Evaluate this single statement with Cmd+Enter:
-
-```python
-print([name.strip().lower() for name in [" Ada ", "", " Lin "]])
-```
-
-Open its recorded printed output in the editor and keep that document open.
-Copy its text. Change the statement and deliberately evaluate it again:
+Evaluate this loop with Cmd+Enter:
 
 ```python
-print([name.strip().lower()
-       for name in [" Ada ", "", " Lin "] if name.strip()])
+for name in [" Ada ", "", " Lin "]:
+    print(name.strip().lower())
 ```
 
-Open the new printed output. Run **File: Compare Active File with Clipboard**
+Choose **Open statement printed output** in the loop result. Keep its
+recording tab open and copy its text. Change the statement and deliberately
+evaluate it again:
+
+```python
+for name in [" Ada ", "", " Lin "]:
+    if name.strip():
+        print(name.strip().lower())
+```
+
+Open the new statement output. Run **File: Compare Active File with Clipboard**
 while the clipboard still contains the earlier output. Keep both source
-contexts available; the clipboard itself carries no provenance. Native file
-comparison is another route if the user chooses to save the two outputs.
+contexts available in their recording tabs; the clipboard carries no source
+context. Native file comparison is another route if the user chooses to
+save the two outputs.
 Evalens should never save those files automatically or modify the `.py` file
 to retain results.
 
@@ -102,7 +141,9 @@ The two observations are:
 
 ```text
 Earlier printed output             Later printed output
-['ada', '', 'lin']                  ['ada', 'lin']
+ada                                ada
+                                   lin
+lin
 ```
 
 This workflow has a real cost: retaining the first export, preserving or
@@ -210,6 +251,8 @@ These are proposed constraints for a future ticket, not current behavior:
   explanation; never silently shorten either side to fit. This cap is a
   proposal, not a claim about total VS Code heap use. Do not retain an
   entire loop model or live Python object behind a small text selection.
+  Reuse the native provider; comparison documents also count toward its
+  existing 32-document/8-Mi-unit budget. Do not create a second archive.
 - Replacement requires an explicit new pin. Clear the pin on Clear Results,
   source document close, namespace reset/restart, and extension disposal.
   Do not add a new reset or evaluation trigger. A change to source leaves
@@ -220,7 +263,10 @@ These are proposed constraints for a future ticket, not current behavior:
   count against the two-snapshot cap: until closed, reject new snapshots
   that would exceed the cap. Closing the last view releases its provider
   data. Never keep an invisible export archive or silently evict text the
-  user is reading. Finalize this lifecycle against the export provider.
+  user is reading. Clearing the comparison pin would not close unrelated
+  native exports. The stricter comparison lifecycle and ended-session
+  metadata described here are proposed; ordinary exports currently remain
+  fixed historical documents across resets, as described above.
 - Inspection, copying, pinning, and diffing send no `eval`, `inspect`, or
   reset requests. They cannot call `repr()` again, restore bindings, or
   replay statements. No stepping controls appear in the comparison.
@@ -254,13 +300,20 @@ Source review covered the modules linked above, the existing kernel pipe
 harness, and the installed native VS Code API/command registrations. A fresh
 kernel subprocess ran only the two scratch examples in this document:
 
-- Transformation output: `['ada', '', 'lin']\n`, then `['ada', 'lin']\n`.
+- Transformation output: `ada\n\nlin\n`, then `ada\nlin\n`.
 - Accumulator: target strings `2`, `3`, `4`; the matching iteration IDs each
   contain captured `total` strings `2`, `5`, `9` and output `2\n`, `5\n`,
   `9\n`. The pairing was read from each entry, never array-index inference.
 
+The source review was refreshed against integrated `173ef23` and native
+exports `e28143b`, including the provider's ownership/release paths and
+source-context tests. The literal-input transformation above deliberately
+uses a loop because its stream action is available even for short output.
+Both scratch examples were rerun over the real kernel pipe after rebase.
+
 No production code or tests changed. Full suites were not rerun for this
-documentation-only branch. No native diff or new export lifecycle was driven
-in an Extension Development Host during this investigation. The final
-dependency integration needs that check; this record does not claim user
-validation or visual verification.
+documentation-only branch. Root-session native clipboard diff verification
+is pending and will be recorded here when available. The separate #190
+agent walkthrough is developer evidence, not a participant study; neither
+that work nor this review establishes the user observations required by the
+go criteria.
