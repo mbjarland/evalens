@@ -1,0 +1,80 @@
+{
+  "kind": "Developer-led, agent-operated real VS Code Host walkthrough",
+  "participants": 0,
+  "observations": {
+    "1-guidance": {
+      "empty": "In the Python editor, Cmd+Enter evaluates the current statement. Cmd+Shift+Enter evaluates it and moves to the next statement.\n\nThese are the default shortcuts; the same Evalens commands are available in the Command Palette.\n\nTry a guided example",
+      "exercise": {
+        "uri": "untitled:Untitled-3",
+        "language": "python",
+        "untitled": true
+      },
+      "introDismissed": true,
+      "comprehensionTested": false
+    },
+    "2-timing": {
+      "timing": "for v in [1, 2, 3] · 3 iterations\nVariables\nPrinted output\nv at iteration start; u at iteration end \nRecording details\nv = 1, u = 99\n4\nv = 2, u = 99\n8\nv = 3, u = 99\n12\nFinal values after this loop: v = 3, u = 99\nOpen printed output",
+      "timingRows": [
+        [
+          "v = 1, u = 99",
+          "4"
+        ],
+        [
+          "v = 2, u = 99",
+          "8"
+        ],
+        [
+          "v = 3, u = 99",
+          "12"
+        ]
+      ],
+      "timingWhy": "Recording details\nThese are readings saved during evaluation, not live values. The loop variable is recorded when an iteration starts. Selected body variables are recorded only when the normal end of the body is reached. A value can carry over from an earlier iteration; it need not have been assigned during this one. Printed output can therefore differ from the value recorded at the end. Folding hides saved detail; More iterations opens another saved page. Detail that was not saved cannot be expanded. A missing stale warning does not prove that every dependency is unchanged."
+    },
+    "3-stale": {
+      "answer": "2\t\nanswer = scale * 3\n\t\n▾\nanswer: 12\nThis line reads ‘scale’; line 1 re-bound ‘scale’ after this result was recorded. Go to variable change",
+      "interpretation": "Historical 12 preserved after only scale reevaluated."
+    },
+    "4-missing": {
+      "assignedBeforeContinue": "Why?\nThe normal end-of-body recording point was not reached. This does not tell us whether the assignment ran or the variable had a value. Not recorded is a missing reading, not a Python value such as None or zero.",
+      "carry": [
+        "v = 1, u = 4\n4",
+        "v = 2, u = 4\n4",
+        "v = 3, u = 4\n4"
+      ]
+    },
+    "5-paging-and-limits": {
+      "outerPage": "for x in range(25) · line 1\nIterations 21–25 of 25 · Previous iterations · More iterations",
+      "innerPage": "for y in range(25) · line 2 · within Iteration 21, x = 20\nIterations 21–25 of 25 · Previous iterations · More iterations",
+      "innerPageSurvivedFold": true,
+      "outerLimit": "for x in range(100) · 100 iterations\n100 iterations ran; details saved for the first 20. Later iteration details were not saved.\nVariables\nPrinted output\nx at iteration start \nRecording details",
+      "overflow": "▸ Remaining printed output\nfor x in range(100) · line 1\nSaved output without individual iteration details. It belongs to this loop, not to the last displayed iteration."
+    },
+    "8-session": {
+      "clearThenOtherFile": "remembered: 7",
+      "afterRestart": "NameError: name 'remembered' is not defined",
+      "sessionHelp": "Session and reset actions\n\nEvalens keeps one Python session for statement evaluations in this VS Code window. Files share its variables. Switching files or editing code does not reset it.\n\nRecorded results describe earlier evaluations; they are not a list of variables currently in Python. Moving the cursor or selecting an iteration does not move Python execution to that point. A normal Python debugging session is separate.\n\nClear Inline Results\nRemoves recorded results from the editor and Values panel for all files. Variables and saved input answers stay in Python. It does not stop running code.\nRestart Kernel\nStops Evalens’s Python process and discards its variables and saved input answers. The next evaluation starts a fresh process. Existing recorded results remain visible; they do not describe the new session.\nEvaluate at Cursor / Evaluate and Advance\nRuns the statement at the cursor using the existing variables, without resetting. Repeating an evaluation runs it again, including any side effects.\nEvaluate File\nCurrently set to clear variables and saved input answers before a whole-file run (evalens.resetOnLoad is on, the default). With a selection, it runs the selected whole statements and never resets, regardless of that setting. When a non-resetting whole-file run reports names left over from earlier evaluations, the status bar reports them after the run.\nRun File as Script\nAlways clears variables and saved input answers, then runs the whole file with __name__ = \"__main__\". It ignores the selection and evalens.resetOnLoad.\nEvaluate Above Cursor\nClears variables and saved input answers, then runs complete top-level statements above the cursor, stopping at the first error. The statement containing the cursor stays unrun. This reset cannot be turned off.\nClear Input Answers\nForgets saved answers for input() without clearing variables. Otherwise a repeated prompting statement can reuse its saved answers until the statement changes or the session resets. Answers supplied by a # evalens: comment remain part of the source.\n\nFind these Evalens commands in the Command Palette. Reading this help does not run code, clear results, or reset Python.",
+      "replayEvidence": "Reuse #188 real-pipe lifecycle report; not rerun here."
+    },
+    "9-debugger-choice": {
+      "debuggerHelp": "When to use the Python debugger\n\nUse Evalens to evaluate a chosen statement and inspect its recorded result. Use the Python debugger to follow execution order, stop at breakpoints, step into function calls, inspect the call stack, or read variables at a paused point.\n\nStarting a normal Python debugging session runs your program separately. It does not resume an Evalens recording or carry over its variables.\n\nPython debugging in VS Code (official guide)",
+      "humanChoiceObserved": false,
+      "debuggerStartedByThisTask": false
+    },
+    "complete": {
+      "tasksSixAndSeven": "pending integrated #186/#187"
+    }
+  },
+  "extensionCommit": "173ef23bc76e50152be6473cede712ce1c715cf1",
+  "extension": [
+    {
+      "id": "local.evalens-review-bridge",
+      "path": "/private/tmp/evalens-learning-live/bridge-extension",
+      "active": true
+    },
+    {
+      "id": "mbjarland.evalens",
+      "path": "/Users/mbjarland/projects/evalens",
+      "active": true
+    }
+  ]
+}

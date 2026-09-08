@@ -254,8 +254,9 @@ Separate functional failures, wording judgments, and untested comprehension.
 Do not treat passing a DOM assertion as evidence that a learner understood it.
 
 Repeat representative result/help views at a narrow usable panel width and
-an enlarged font. Note the existing #179 and #180 findings instead of calling
-them regressions in this change set. Inspect contrast and controls by eye;
+an enlarged font. Compare against the #179 and #180 fixes for enlarged line
+numbers and narrow result columns; preserve their improvements in this
+integrated pass. Inspect contrast and controls by eye;
 screen-reader names can be inspected without claiming screen-reader testing.
 
 Prioritize verified defects affecting truth or access before extra controls.
