@@ -37,6 +37,7 @@ import {
   learningHelpHtml, learningToggleHtml,
 } from './learningHelp';
 import { ResultFoldState } from './resultFold';
+import { KEYBOARD_SCRIPT } from './keyboard';
 
 // -- building rows from annotations ------------------------------------------
 
@@ -477,7 +478,7 @@ function escapeHtml(text: string): string {
 const FOOTER_TEXT =
   'Values are what each line produced when it ran. Click a row to jump to '
   + 'the line. Use Up/Down or Home/End to browse, Enter or Space to reveal '
-  + 'source. Nothing here is re-evaluated.';
+  + 'source. Use Focus Active Editor Group to return to editing. Nothing here is re-evaluated.';
 
 function pluralize(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? '' : 's'}`;
@@ -532,7 +533,8 @@ function segmentHtml(
   const role: SegmentRole = segment.role;
   const className = extra ? `seg-${role} ${extra.className}` : `seg-${role}`;
   const attrs = extra ? ` ${extra.attrs}` : '';
-  return `<span class="${className}"${attrs}>${escapeHtml(segment.text)}</span>`;
+  const tag = extra ? 'button' : 'span';
+  return `<${tag}${extra ? ' type="button"' : ''} class="${className}"${attrs}>${escapeHtml(segment.text)}</${tag}>`;
 }
 
 function groupHtml(group: readonly Segment[]): string {
@@ -579,8 +581,8 @@ function foldFooterHtml(
   fullyExpandable = true
 ): string {
   const action = (label: string, kind: 'expand' | 'open'): string =>
-    `<span class="fold-action" data-fold-action="${kind}" `
-    + `data-fold-line="${line}" data-fold-id="${escapeHtml(blockId)}"${kind === 'open' ? ` title="${OPEN_RECORDING_HINT}"` : ''}>${label}</span>`;
+    `<button type="button" class="fold-action" data-fold-action="${kind}" `
+    + `data-fold-line="${line}" data-fold-id="${escapeHtml(blockId)}"${kind === 'open' ? ` title="${OPEN_RECORDING_HINT}"` : ''}>${label}</button>`;
   if (remaining === undefined) {
     return `<div class="fold-footer">${action('Show less', 'expand')}</div>`;
   }
@@ -624,8 +626,8 @@ function foldedValueHtml(
     const charBound = end >= previewChars - 1;
     if (charBound || expanded) {
       const action = (label: string, kind: 'expand' | 'open') =>
-        `<span class="fold-action" data-fold-action="${kind}" data-fold-line="${line}" `
-        + `data-fold-id="${escapeHtml(blockId)}"${kind === 'open' ? ` title="${OPEN_RECORDING_HINT}"` : ''}>${label}</span>`;
+        `<button type="button" class="fold-action" data-fold-action="${kind}" data-fold-line="${line}" `
+        + `data-fold-id="${escapeHtml(blockId)}"${kind === 'open' ? ` title="${OPEN_RECORDING_HINT}"` : ''}>${label}</button>`;
       const footer = `<div class="fold-footer">… ${grouped(text.length - end)} more characters · `
         + action(expanded ? 'Show less' : (text.length > 16000 ? 'Show more' : 'Show all'), 'expand')
         + ` · ${action(openRecordingLabel(blockId), 'open')}</div>`;
@@ -651,9 +653,10 @@ function foldedValueHtml(
 
 /** The attributes that make a label a fold toggle -- shared so a stream's
  * label and a value group's label become click targets the same way. */
-function foldLabelAttrs(line: number, blockId: string): string {
+function foldLabelAttrs(line: number, blockId: string, expanded: boolean): string {
   return `data-fold-action="expand" data-fold-line="${line}" `
-    + `data-fold-id="${escapeHtml(blockId)}"`;
+    + `data-fold-id="${escapeHtml(blockId)}" aria-expanded="${expanded}" `
+    + `aria-label="${expanded ? 'Show less' : 'Show more'} of ${escapeHtml(blockId.startsWith('value-') ? 'recorded value' : blockId + ' output')} for line ${line + 1}"`;
 }
 
 /**
@@ -689,7 +692,7 @@ function streamGroupHtml(
   const labelHtml = segmentHtml(
     labelSegment,
     fold.foldable
-      ? { className: 'fold-label', attrs: foldLabelAttrs(line, blockId) }
+      ? { className: 'fold-label', attrs: foldLabelAttrs(line, blockId, expanded) }
       : undefined);
   return resultGroup(labelHtml + fold.html, true);
 }
@@ -727,7 +730,7 @@ function foldableGroupHtml(
   const before = group.slice(0, valueIndex).map((segment, index) => segmentHtml(
     segment,
     index === valueIndex - 1
-      ? { className: 'fold-label', attrs: foldLabelAttrs(line, blockId) }
+      ? { className: 'fold-label', attrs: foldLabelAttrs(line, blockId, expanded) }
       : undefined)).join('');
   return resultGroup(before + fold.html, true);
 }
@@ -954,8 +957,10 @@ function rowHtml(
     : '';
   return `<tr class="row${cursorClass}${loopClass}${latestClass}" data-goto="${row.line}" `
     + `data-start="${row.startLine}" data-end="${row.endLine}" `
-    + `tabindex="${isCursor ? 0 : -1}" aria-current="${isCursor}">`
-    + `<td class="line-cell"><span class="navigation-arrow" aria-hidden="true">›</span>`
+    + `tabindex="${isCursor ? 0 : -1}" aria-current="${isCursor}" `
+    + `aria-label="Line ${row.line + 1}${isCursor ? '; matches the editor cursor' : ''}${isLatest ? '; latest recorded result' : ''}" `
+    + `aria-description="Enter or Space reveals this source line. Arrow keys browse results.">`
+    + `<td class="line-cell"><span class="navigation-arrow" aria-hidden="true" title="Matches the editor cursor">→</span>`
     + `<span class="line-num">${row.line + 1}</span></td>`
     + `<td class="code-cell"><div class="source-content">${codeCellHtml(row)}${latestLabel}</div></td>`
     + `<td class="value-cell">`
@@ -1226,10 +1231,14 @@ tr.loop-row.cursor, .loop-row .result-surface { background: transparent; }
   color: var(--vscode-descriptionForeground, #9d9d9d);
 }
 .fold-action, .fold-label {
+  border: 0; padding: 0; background: transparent; color: inherit; font: inherit;
   cursor: pointer;
   text-decoration: underline;
   text-decoration-style: dotted;
   text-underline-offset: 2px;
+}
+.fold-action:focus-visible, .fold-label:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, currentColor); outline-offset: 2px;
 }
 /* An expanded block's full text (#155): capped at roughly fourteen lines of
    the panel's own line-height and scrollable past that, so opening one very
@@ -1348,7 +1357,6 @@ function script(
   var hideInlineValues = ${hideInlineValues};
   var revision = ${revision};
   ${LEARNING_SCRIPT}
-  var saved = vscode.getState() || {};
   // Local evidence disclosures are native controls: reading them never
   // navigates source or posts an evaluation/provider message.
   document.querySelectorAll('[data-local-disclosure]').forEach(function (details) {
@@ -1447,17 +1455,12 @@ function script(
   resultControls.forEach(function (result) {
     result.dataset.resultClosed = String(result.classList.contains('result-collapsed'));
     var button = result.querySelector('.result-disclosure');
-    function rememberResultFocus() {
-      vscode.setState({ resultFocus: result.dataset.resultToken, scrollY: window.scrollY });
-    }
-    button.addEventListener('focus', rememberResultFocus);
     button.addEventListener('keydown', function (event) { event.stopPropagation(); });
     button.addEventListener('click', function (event) {
       event.stopPropagation();
       var collapsed = result.dataset.resultClosed !== 'true';
       result.dataset.resultClosed = String(collapsed);
       paintResultFold(result, collapsed);
-      rememberResultFocus();
       vscode.postMessage({ resultFold: Number(result.dataset.resultLine),
         collapsed: collapsed, token: Number(result.dataset.resultToken), revision: revision });
     });
@@ -1479,24 +1482,13 @@ function script(
     });
   }
   document.querySelectorAll('[data-loop-action]').forEach(function (button) {
-    function rememberFocus() {
-      var key = ['loopLine', 'loopAction', 'loopId', 'loopControl', 'loopToken'].map(function (name) {
-        return button.dataset[name];
-      }).join('/');
-      vscode.setState({ loopFocus: key, scrollY: window.scrollY });
-    }
-    button.addEventListener('focus', rememberFocus);
     button.addEventListener('click', function (event) {
       event.stopPropagation();
-      rememberFocus();
       vscode.postMessage({ loop: Number(button.dataset.loopLine),
         action: button.dataset.loopAction, node: Number(button.dataset.loopId),
         value: Number(button.dataset.loopValue), revision: revision });
     });
     button.addEventListener('keydown', function (event) { event.stopPropagation(); });
-  });
-  window.addEventListener('blur', function () {
-    setTimeout(function () { if (!document.hasFocus()) vscode.setState({}); }, 0);
   });
   var rows = Array.prototype.slice.call(document.querySelectorAll('tr.row'));
   var control = document.getElementById('follow-cursor');
@@ -1517,6 +1509,7 @@ function script(
   var foldControls = Array.prototype.slice.call(
     document.querySelectorAll('[data-fold-action]'));
   foldControls.forEach(function (foldControl) {
+    foldControl.addEventListener('keydown', function (event) { event.stopPropagation(); });
     foldControl.addEventListener('click', function (event) {
       event.stopPropagation();
       var line = Number(foldControl.getAttribute('data-fold-line'));
@@ -1587,13 +1580,16 @@ function script(
       var active = row === target;
       row.classList.toggle('cursor', active);
       row.setAttribute('aria-current', String(active));
+      row.setAttribute('aria-label', 'Line ' + (Number(row.dataset.goto) + 1)
+        + (active ? '; matches the editor cursor' : '')
+        + (row.classList.contains('latest-result') ? '; latest recorded result' : ''));
       row.tabIndex = active ? 0 : -1;
     });
     if (!target && rows[0]) rows[0].tabIndex = 0;
   }
   function activate(row, explicit) {
-    mark(row);
     if (followCursor || explicit) {
+      mark(row);
       vscode.postMessage({ goto: Number(row.dataset.goto), revision: revision,
         explicit: explicit });
     }
@@ -1604,6 +1600,8 @@ function script(
       activate(row, true);
     });
     row.addEventListener('keydown', function (event) {
+      if ((event.target && event.target !== row)
+        || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
       var target;
       if (event.key === 'ArrowDown') target = rows[Math.min(index + 1, rows.length - 1)];
       else if (event.key === 'ArrowUp') target = rows[Math.max(index - 1, 0)];
@@ -1645,33 +1643,8 @@ function script(
   });
   var revealLine = ${literal};
   if (revealLine !== null) revealCentred(matching(revealLine));
-  if (saved.loopFocus) {
-    var parts = saved.loopFocus.split('/');
-    var target = Array.prototype.find.call(document.querySelectorAll('[data-loop-action]'), function (button) {
-      return button.dataset.loopAction === parts[1] && button.dataset.loopId === parts[2]
-        && button.dataset.loopToken === parts[4] && button.dataset.loopControl === parts[3];
-    });
-    if (target && target.disabled) {
-      target = Array.prototype.find.call(document.querySelectorAll('[data-loop-action]'), function (button) {
-        return !button.disabled && button.dataset.loopAction === parts[1]
-          && button.dataset.loopId === parts[2] && button.dataset.loopToken === parts[4];
-      });
-    }
-    if (target && !target.closest('.result-collapsed')) {
-      target.focus({ preventScroll: true });
-      if (revealLine === null) window.scrollTo(0, saved.scrollY || 0);
-    } else vscode.setState({});
-  }
-  if (saved.resultFocus) {
-    var result = resultControls.find(function (item) {
-      return item.dataset.resultToken === saved.resultFocus;
-    });
-    var disclosure = result && result.querySelector('.result-disclosure');
-    if (disclosure && !disclosure.hidden) {
-      disclosure.focus({ preventScroll: true });
-      if (revealLine === null) window.scrollTo(0, saved.scrollY || 0);
-    } else vscode.setState({});
-  }
+  ${KEYBOARD_SCRIPT}
+
 }());
 `;
 }
@@ -1748,7 +1721,7 @@ export function valuesHtml(
 table { --line-number-width: ${lineDigits}ch; }
 </style>
 </head>
-<body>
+<body data-source-uri="${escapeHtml(data.sourceUri ?? data.fileName ?? '')}">
 <div id="navigation-control" class="navigation-control">
 <label><input id="follow-cursor" type="checkbox" ${followCursor ? 'checked' : ''}> Link code and values</label>
 <label><input id="follow-panel" type="checkbox" ${followPanel ? 'checked' : ''}> Scroll to new results</label>

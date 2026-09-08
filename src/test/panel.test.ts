@@ -652,9 +652,9 @@ test('valuesHtml carries no reveal target when none is given ' +
  * `.fold-action` and `.fold-label` selectors would also match. */
 function foldedFooter(line: number, blockId: string, remaining: number): string {
   const action = (label: string, kind: 'expand' | 'open'): string =>
-    `<span class="fold-action" data-fold-action="${kind}" `
+    `<button type="button" class="fold-action" data-fold-action="${kind}" `
     + `data-fold-line="${line}" data-fold-id="${blockId}"${kind === 'open'
-      ? ' title="Opens the available recording in a read-only editor. Use native Find and copy; text that was not captured cannot be recovered."' : ''}>${label}</span>`;
+      ? ' title="Opens the available recording in a read-only editor. Use native Find and copy; text that was not captured cannot be recovered."' : ''}>${label}</button>`;
   return `<div class="fold-footer">… ${remaining} more `
     + `line${remaining === 1 ? '' : 's'} · ${action('Show all', 'expand')} · `
     + `${action(blockId.startsWith('value-') ? 'Open recorded value'
@@ -747,9 +747,9 @@ test('expanding a row shows the full stream inside a scrolling container, ' +
   assert.match(html, /class="fold-scroll"/,
     'the full text should sit in its own capped, scrolling container');
   assert.ok(html.includes(
-    '<div class="fold-footer"><span class="fold-action" '
+    '<div class="fold-footer"><button type="button" class="fold-action" '
     + 'data-fold-action="expand" data-fold-line="0" '
-    + 'data-fold-id="printed">Show less</span></div>'));
+    + 'data-fold-id="printed">Show less</button></div>'));
   assert.doesNotMatch(html, />Show all</);
   assert.doesNotMatch(html, />Open (?:recorded value|statement printed output)</,
     'nothing is left folded to open once the row is expanded');
@@ -768,8 +768,8 @@ test('a click on the block\'s own label is the same fold toggle as Show all',
       { fileName: 'x.py', rows: rowsFor(document, annotations, 'printed') },
       undefined, 'n');
     assert.ok(html.includes(
-      '<span class="seg-streamLabel fold-label" data-fold-action="expand" '
-      + 'data-fold-line="0" data-fold-id="printed">printed:\n</span>'),
+      '<button type="button" class="seg-streamLabel fold-label" data-fold-action="expand" '
+      + 'data-fold-line="0" data-fold-id="printed" aria-expanded="false" aria-label="Show more of printed output for line 1">printed:\n</button>'),
       'the label should carry the same toggle the footer\'s own actions do');
   });
 
@@ -788,8 +788,8 @@ test('a value whose own text runs past the limit folds the same way a ' +
   assert.ok(!html.includes('row 21'));
   assert.ok(html.includes(foldedFooter(0, 'value-0', 5)));
   assert.ok(html.includes(
-    '<span class="seg-nameLabel fold-label" data-fold-action="expand" '
-    + 'data-fold-line="0" data-fold-id="value-0">grid: </span>'),
+    '<button type="button" class="seg-nameLabel fold-label" data-fold-action="expand" '
+    + 'data-fold-line="0" data-fold-id="value-0" aria-expanded="false" aria-label="Show more of recorded value for line 1">grid: </button>'),
     'the value\'s own label should become the click target, same as a stream\'s');
   assert.match(html, /class="result-group block"/,
     'a folded value promotes to its own block, like a stream');

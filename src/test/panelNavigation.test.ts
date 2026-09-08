@@ -81,7 +81,7 @@ function webview(rows: readonly RowLayout[], options: {
   const scrollCalls: number[] = [];
   const posted: Array<Record<string, unknown>> = [];
   let focused: FakeRow | undefined;
-  type Listener = (event: { key: string; preventDefault(): void }) => void;
+  type Listener = (event: { key: string; target?: unknown; metaKey?: boolean; preventDefault(): void }) => void;
 
   class FakeRow {
     tabIndex = -1;
@@ -90,6 +90,7 @@ function webview(rows: readonly RowLayout[], options: {
     readonly events = new Map<string, Listener>();
     readonly classes = new Set<string>();
     readonly classList = {
+      contains: (name: string) => this.classes.has(name),
       toggle: (name: string, active: boolean) => {
         if (active) this.classes.add(name); else this.classes.delete(name);
       },
@@ -108,9 +109,9 @@ function webview(rows: readonly RowLayout[], options: {
       assert.equal((options as { preventScroll: boolean }).preventScroll, true);
       focused = this;
     }
-    fire(name: string, key = '') {
+    fire(name: string, key = '', extra: { target?: unknown; metaKey?: boolean } = {}) {
       let prevented = false;
-      this.events.get(name)?.({ key, preventDefault: () => { prevented = true; } });
+      this.events.get(name)?.({ key, ...extra, preventDefault: () => { prevented = true; } });
       return prevented;
     }
   }
@@ -363,4 +364,27 @@ test('the "Hide inline values" checkbox posts hideInlineValues on change and '
   assert.deepEqual(view.posted, [{ hideInlineValues: true, revision: 7 }]);
   view.message({ hideInlineValues: false });
   assert.equal(view.hideInlineControl.checked, false);
+});
+
+
+test('unlinked keyboard browsing leaves source correspondence and latest result intact', () => {
+  const view = webview([shortRow(0, 0), shortRow(1, 40)], { followCursor: false });
+  view.rows[1]!.classes.add('latest-result');
+  view.message({ cursor: 0, reveal: false });
+  view.rows[0]!.fire('keydown', 'ArrowDown');
+  assert.equal(view.rows[0]!.attributes.get('aria-current'), 'true');
+  assert.equal(view.rows[1]!.attributes.get('aria-current'), 'false');
+  assert.equal(view.focused(), view.rows[1]);
+  assert.equal(view.posted.length, 0);
+  assert.equal(view.rows[1]!.attributes.get('aria-label'), 'Line 2; latest recorded result');
+});
+
+test('nested control and modified Enter never activate their containing source row', () => {
+  const view = webview([shortRow(0, 0), shortRow(1, 40)]);
+  assert.equal(view.rows[0]!.fire('keydown', 'Enter', { target: {} }), false);
+  assert.equal(view.rows[0]!.fire('keydown', 'Enter', { metaKey: true }), false);
+  for (const key of ['F5', 'F9', 'F10', 'F11', 'Escape']) {
+    assert.equal(view.rows[0]!.fire('keydown', key), false);
+  }
+  assert.equal(view.posted.length, 0);
 });
