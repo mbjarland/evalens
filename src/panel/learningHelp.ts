@@ -60,7 +60,12 @@ export function learningHelpHtml(state: LearningHelpState): string {
     + `${state.openTopics?.has('help') ? '' : ' hidden'}>`
     + topic('evaluate', 'Evaluate code', shortcutInstructions(state.platform ?? process.platform)
       + '<p>Evaluate and Advance runs the entire statement before moving the cursor. '
-      + 'It does not pause inside a loop or step into a function.</p>')
+      + 'It does not pause inside a loop or step into a function.</p>'
+      + '<p>Use <strong>Evalens: Show Values Panel</strong> to enter the panel. '
+      + 'Arrow keys browse result rows; Tab reaches folds, pages, explanations and recorded-text actions. '
+      + 'Enter or Space activates a control. Escape closes the explanation you are reading, '
+      + 'or returns from a result control to its row. '
+      + 'Use the native <strong>Focus Active Editor Group</strong> command to resume editing.</p>')
     + topic('results', 'Understand recorded results',
       '<dl><dt>Variables and printed output</dt><dd>Variables are recorded readings. '
       + 'Printed output is the text your code wrote, for example with <code>print()</code>.</dd>'

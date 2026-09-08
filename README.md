@@ -488,12 +488,28 @@ Re-evaluating the unchanged statement keeps it folded but starts fresh inner
 pages; changed source or cleared results starts a new choice.
 
 Move the editor cursor to bring the corresponding row into view, marked with
-an arrow and a frame. Click a row, or use Up/Down and Home/End after focusing
+a rightward arrow and a frame. The arrow marks source correspondence;
+triangles disclose folded values. Click a row, or use Up/Down and Home/End after focusing
 one, to reveal its source. A short amber gutter tick and a soft neutral wash
 identify the editor's current line. Keyboard focus stays in the pane you
 are using, so you can keep navigating there. A cursor inside a multiline
 statement selects that statement's captured result; an unrelated blank line
-selects none. Moving around never evaluates code or rebuilds the panel.
+selects none. With linking off, arrow-key browsing moves keyboard focus
+without changing the source marker. Moving around never evaluates code.
+
+For a keyboard workflow, use **Evalens: Show Values Panel**, then arrow keys
+to browse rows and Tab to reach folds, pages, explanations and recorded-text
+actions. Enter/Space activates the focused control. Focus stays with the
+same control across page changes; replacing a recording returns it to a
+surviving control in that row. Escape closes the current explanation, then
+Help if pressed again; from another result control it returns to the row.
+Use the native **Focus Active Editor Group** command to return to editing
+(with one editor group, Cmd+1 on macOS or Ctrl+1 elsewhere also focuses it).
+When a recorded-text tab is open,
+revealing a panel row brings its Python source back into view while leaving
+keyboard focus in the panel. Native Find, copy and tab navigation work in
+recorded-text editors. The editor's Escape-to-clear and Python debugger
+shortcuts remain unchanged.
 
 The panel's sticky control row holds three checkboxes, each carrying its own
 state rather than swapping an icon for a near-identical one — a toggle whose
