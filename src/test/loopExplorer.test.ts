@@ -745,6 +745,8 @@ test('one million iterations have bounded wire and bounded initial/expanded DOM'
   assert.ok(JSON.stringify(model.wire).length < 400000);
   let html = loopExplorerHtml(model, 0);
   assert.ok(html.length < 6000);
+  assert.match(html, /Some nested loop detail was not saved/);
+  assert.doesNotMatch(html, /1 iteration ran; details saved for 0/);
   const state = newLoopViewState();
   for (const entry of model.wire.entries) state.expanded.set(entry.id, true);
   html = loopExplorerHtml(model, 0, state);

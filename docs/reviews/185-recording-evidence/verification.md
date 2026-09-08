@@ -7,7 +7,8 @@ unchanged. No stored values are re-read, re-represented or inferred.
 ## Automated evidence
 
 Initial branch base `f24d5ac`: 937 extension and 718 kernel tests.
-First implementation pass: 942 extension and 718 kernel tests.
+After rebasing onto `44019ba` (the font-relative gutter fix): 942 extension
+and 718 kernel tests. Five new extension regressions; kernel unchanged.
 
 The extension suite drives the real Python kernel over its request pipe and
 renders the returned recording through the compiled panel modules. Added
@@ -32,10 +33,22 @@ kernel requests. The current loop context uses the measured toolbar height;
 covered ancestor contexts retain layout height rather than accumulating
 sticky boxes or moving results.
 
-## Still requiring actual Host inspection
+## Actual Host review and follow-up
 
-The root session will inspect the built extension in its isolated VS Code
-Host: native Why/Recording details with Enter and Space, sticky nested context
-while scrolling, dark/light/high-contrast and enlarged text, R2 closure,
-source staleness, and compatibility with the optional introduction. These
-visual and physical-key checks are not claimed by the module assertions.
+The root session drove its isolated real VS Code Host and inspected the
+rendered screenshots. It confirmed named timing, `u = 99` beside printed
+`4`, physical Enter opening Recording details and Why without moving source,
+100x100 saved counts and nested parent context while scrolling. No CSP
+console errors appeared. Evidence is initially in
+`/private/tmp/evalens-185-host.json` and the companion timing, missing and
+sticky PNGs owned by the root session.
+
+That review found a six-pixel seam above the sticky context leaking a clipped
+row. The implementation now uses the toolbar's actual bottom edge. Contexts
+unpin while Recording details is open, or when the heading itself exceeds
+half the available height. Help uses ordinary document scrolling; opening a
+previously pinned summary preserves its visible position. These final
+adjustments still need the root session's final Host pass, including short
+panes, dark/light/high-contrast, enlarged text, R2 closure and compatibility
+with the optional introduction. The initial Host pass is not offered as
+proof of the final revised scroll behavior.

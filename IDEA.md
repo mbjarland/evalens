@@ -613,14 +613,16 @@ Each invocation names its timing, for example **v at iteration start; u at
 iteration end**, beside a native **Recording details** disclosure. Its source,
 parent iteration, timing and any capture limit remain in a single sticky
 context while scrolling; the innermost context covers ancestors rather than
-stacking them.
+stacking them. Reading an open Recording details explanation temporarily
+unpins the contexts; headings taller than half the available viewport also
+remain in normal flow. No nested help scroll box is introduced.
 Repeated assignments show the value at that capture point; conditional values
 can carry over from a previous pass. A skipped capture point (`continue`,
 `break`) or an unavailable/unproven name says **not recorded**, without filling
 in an earlier value. A keyboard-accessible **Why?** disclosure explains only
 what the recorded status proves: missing observation never means an
-assignment was skipped, a name was undefined, or the Python value was None. The existing pre-loop identity guard and frame reads are
-unchanged. Names beyond the three-name cap, or over 120 code points, are counted
+assignment was skipped, a name was undefined, or the Python value was None.
+The existing pre-loop identity guard and frame reads are unchanged. Names beyond the three-name cap, or over 120 code points, are counted
 once in their loop heading. Additive body text is limited to 1,000 code points
 using only the already captured string; custom representation failure text
 cannot expand the wire without bound. Older captures remain valid without

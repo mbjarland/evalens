@@ -1316,7 +1316,20 @@ function script(
   // Local evidence disclosures are native controls: reading them never
   // navigates source or posts an evaluation/provider message.
   document.querySelectorAll('[data-local-disclosure]').forEach(function (details) {
-    details.addEventListener('click', function (event) { event.stopPropagation(); });
+    details.addEventListener('click', function (event) {
+      event.stopPropagation();
+      if (!details.classList.contains('loop-recording-details')
+        || !event.target.closest('summary')) return;
+      var summary = details.querySelector('summary');
+      var before = summary.getBoundingClientRect().top;
+      // Opening help restores ordinary document scrolling. Keep the control
+      // at the point the reader chose when its sticky offset is removed.
+      requestAnimationFrame(function () {
+        measureLoopContexts();
+        window.scrollBy({ top: summary.getBoundingClientRect().top - before,
+          behavior: 'instant' });
+      });
+    });
     details.addEventListener('keydown', function (event) { event.stopPropagation(); });
   });
   var navigationControl = document.getElementById('navigation-control');
@@ -1326,10 +1339,22 @@ function script(
   });
   var contextQueued = false;
   function measureLoopContexts() {
-    var top = navigationControl.getBoundingClientRect().height + 6;
+    var top = navigationControl.getBoundingClientRect().bottom;
     document.documentElement.style.setProperty('--loop-context-top', top + 'px');
+    var unpinnedExplorers = new Set();
+    loopContexts.forEach(function (context) {
+      var explorer = context.closest('.loop-explorer');
+      var openHelp = explorer.querySelector('.loop-recording-details[open]');
+      var tall = context.getBoundingClientRect().height > (window.innerHeight - top) / 2;
+      if (openHelp || tall) unpinnedExplorers.add(explorer);
+    });
+    loopContexts.forEach(function (context) {
+      context.classList.toggle('loop-context-unpinned',
+        unpinnedExplorers.has(context.closest('.loop-explorer')));
+    });
     var stuck = loopContexts.filter(function (context) {
-      return context.getBoundingClientRect().top <= top + 1
+      return !context.classList.contains('loop-context-unpinned')
+        && context.getBoundingClientRect().top <= top + 1
         && context.closest('.loop-invocation').getBoundingClientRect().bottom > top;
     });
     // Keep only the innermost current context visible in the sticky slot.
@@ -1351,6 +1376,7 @@ function script(
   if (loopContexts.length) {
     measureLoopContexts();
     window.addEventListener('scroll', queueLoopContexts, { passive: true });
+    window.addEventListener('resize', queueLoopContexts);
     var contextObserver = new ResizeObserver(queueLoopContexts);
     contextObserver.observe(navigationControl);
     loopContexts.forEach(function (context) { contextObserver.observe(context); });

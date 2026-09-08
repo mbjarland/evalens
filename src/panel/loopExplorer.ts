@@ -344,7 +344,9 @@ export function loopExplorerHtml(
     const saved = missing ? `<div class="loop-note loop-capture-limit">`
       + `${count(invocation.count, 'iteration')} ran; details saved for `
       + (iterationCount ? `the first ${number(iterationCount)}` : '0')
-      + '. Later iteration details were not saved.</div>' : '';
+      + '. Later iteration details were not saved.</div>'
+      : invocation.incomplete ? '<div class="loop-note loop-capture-limit">'
+        + 'Some nested loop detail was not saved.</div>' : '';
     const owner = invocation.parent === null ? undefined : model.entries.get(invocation.parent);
     const ownerContext = owner?.kind === 'iteration'
       ? ` · within Iteration ${number(owner.ordinal)}, `
@@ -518,12 +520,13 @@ export const LOOP_EXPLORER_STYLE = `
 .loop-columns { color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: .45em; margin: .15em 0 .6em; }
 .loop-value-timing { margin: .15em 0 .5em; overflow-wrap: anywhere; }
 .loop-context { position: sticky; top: var(--loop-context-top, 0px); z-index: calc(2 + var(--loop-depth)); background: var(--vscode-panel-background, #1e1e1e); padding-top: .15em; }
+.loop-context-unpinned { position: static; }
 .loop-context-covered { visibility: hidden; }
 .loop-owner { overflow-wrap: anywhere; margin-bottom: .25em; }
 .loop-recording-details, .loop-missing-why { color: var(--vscode-descriptionForeground); }
-.loop-recording-details { display: inline-block; vertical-align: top; margin-left: .6em; }
-.loop-recording-details[open] { display: block; margin: .35em 0; }
-.loop-missing-why { font-size: .86em; margin: .25em 0 .45em; }
+.loop-recording-details, .loop-missing-why { display: inline-block; vertical-align: top; margin-left: .6em; }
+.loop-recording-details[open], .loop-missing-why[open] { display: block; margin: .35em 0; }
+.loop-missing-why { font-size: .86em; }
 .loop-recording-details > summary, .loop-missing-why > summary { cursor: pointer; color: var(--vscode-textLink-foreground); width: fit-content; list-style-position: inside; }
 .loop-recording-details > summary:focus-visible, .loop-missing-why > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
 .loop-explanation { max-width: 75ch; white-space: normal; overflow-wrap: anywhere; padding: .4em 0; }

@@ -249,7 +249,9 @@ The explorer uses the panel's neutral background with an orange leading bar.
 Filled emphasis stays on the selected iteration, keeping large traces quiet.
 The current loop's heading, timing and outer-iteration context remain visible
 while scrolling through its rows. Nested headings replace the outer sticky
-context instead of stacking over the results.
+context instead of stacking over the results. Opening **Recording details**
+returns its explanation to ordinary scrolling; oversized headings also stay
+in the normal flow so that results remain reachable in a short panel.
 
 Short nested runs show neighboring outer iterations together. Long output
 starts folded even in a single-level loop. Use the disclosure arrows for
