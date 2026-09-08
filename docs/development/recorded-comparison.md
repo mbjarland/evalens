@@ -53,11 +53,13 @@ The implementation already provides:
   See [loop capture](../../kernel/loop_explorer.py) and
   [output capture](../../kernel/capture.py).
 
-The plain-text comparison commands are native VS Code facilities. The
+Text comparison is a native VS Code facility. The
 [editing documentation](https://code.visualstudio.com/docs/editing/codebasics#_compare-files)
-describes comparing with the clipboard and other files. Locally installed
-VS Code also registers `vscode.diff`; the installed API defines read-only
-`TextDocumentContentProvider` documents and release on document close.
+describes comparing files. Actual Host review confirms **File: Compare
+Active File With...** accepts Evalens's numbered recording documents.
+The similarly named clipboard comparison command silently ignores this
+read-only document scheme in the reviewed VS Code build; do not recommend
+that route. No file-system provider or Evalens history feature is needed.
 
 The reviewed implementations supply the following supporting behavior:
 
@@ -120,8 +122,8 @@ for name in [" Ada ", "", " Lin "]:
 ```
 
 Choose **Open statement printed output** in the loop result. Keep its
-recording tab open and copy its text. Change the statement and deliberately
-evaluate it again:
+numbered recording tab open. Change the statement and deliberately evaluate
+it again:
 
 ```python
 for name in [" Ada ", "", " Lin "]:
@@ -129,13 +131,13 @@ for name in [" Ada ", "", " Lin "]:
         print(name.strip().lower())
 ```
 
-Open the new statement output. Run **File: Compare Active File with Clipboard**
-while the clipboard still contains the earlier output. Keep both source
-contexts available in their recording tabs; the clipboard carries no source
-context. Native file comparison is another route if the user chooses to
-save the two outputs.
-Evalens should never save those files automatically or modify the `.py` file
-to retain results.
+Open the new statement output. Return to the earlier recording tab, run
+**File: Compare Active File With...** from the Command Palette, and choose
+the later numbered recording in its picker. Native diff puts the active
+document on the left and the selected document on the right, so this order
+compares earlier to later. Both source contexts remain available through
+their recording tabs. Nothing needs saving or copying to the clipboard.
+Evalens must not modify the `.py` file to retain results.
 
 The two observations are:
 
@@ -146,8 +148,8 @@ ada                                ada
 lin
 ```
 
-This workflow has a real cost: retaining the first export, preserving or
-recopying clipboard text, and identifying both recordings. The cost is
+This workflow has a real cost: retaining the first export, switching to it,
+and selecting the correct later recording. The cost is
 acceptable for an occasional question, pending evidence that it becomes a
 repeated obstacle. A command-only shortcut would not remove provenance and
 lifetime requirements.
@@ -206,7 +208,7 @@ initialization; selecting an older row would not undo that state.
 
 1. **Keep manual text comparison — recommended now.** No comparison runtime
    or permanent panel controls. Reuses native Find, selection, copy, and
-   diff. The costs are manual provenance and an extra open/copy operation.
+   diff. The costs are manual provenance and an extra open/selection step.
    Documentation and a real Host workflow check are sufficient for the
    initial decision; the inspection work has its own implementation cost.
 
@@ -311,9 +313,27 @@ source-context tests. The literal-input transformation above deliberately
 uses a loop because its stream action is available even for short output.
 Both scratch examples were rerun over the real kernel pipe after rebase.
 
+The root session opened both transformation exports in an actual Extension
+Development Host. Exact payloads stayed available in separate pinned tabs.
+The Command Palette offered **File: Compare Active File With...**, its
+picker listed both recordings, and selecting the other produced a native
+diff. Screenshot review confirmed the blank-line difference. The first
+check started from the later recording and therefore showed the inverse
+addition; the workflow above explicitly chooses earlier on the left.
+
+The clipboard comparison route failed silently because that native command
+accepts a file-service provider or an untitled document, whereas these
+recordings use `TextDocumentContentProvider`. This is a checked platform
+limitation, not evidence of a missing Evalens history feature. The initial
+clipboard-oriented harness did not pass in full; the separate direct-compare
+check establishes the successful workflow.
+
+The [Host evidence](../reviews/189-native-comparison/verification.md)
+includes the recorded outcome and inspected screenshot. This evidence
+supports the native manual route; it does not establish demand for a
+dedicated comparison feature.
+
 No production code or tests changed. Full suites were not rerun for this
-documentation-only branch. Root-session native clipboard diff verification
-is pending and will be recorded here when available. The separate #190
-agent walkthrough is developer evidence, not a participant study; neither
-that work nor this review establishes the user observations required by the
-go criteria.
+documentation-only branch. The separate #190 agent walkthrough is developer
+evidence, not a participant study; neither that work nor this review
+establishes the user observations required by the go criteria.
