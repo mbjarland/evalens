@@ -282,7 +282,7 @@ test('single-level long iteration output folds, pages Unicode safely and exports
   assert.match(html, /unretained text cannot be expanded/);
   assert.ok(model.streams[0].startsWith('😀 page line\n'.repeat(5000)));
   assert.ok(model.streams[0].includes('characters omitted'));
-  assert.match(html, /Open printed output/);
+  assert.match(html, /Open statement printed output/);
   const clipped = prepared(await captured('for n in range(2):\n'
     + '    if n == 0: print("x" * 70000)\n'));
   assert.match(loopExplorerHtml(clipped, 0), /n = 1[\s\S]*?>No output<\/span>/);
@@ -697,7 +697,7 @@ test('huge per-iteration one-line output uses bounded chunks and truthful captur
   assert.match(html, /More output/);
   assert.match(html, /not fully retained/);
   assert.match(html, /unretained text cannot be expanded/);
-  assert.match(html, /Open captured output/);
+  assert.match(html, /Open statement printed output/);
   assert.equal(model.wire.retained[0], 65536);
 });
 
@@ -773,7 +773,7 @@ test('flat million-character values fold by characters even with no newline', ()
     { expandedLines: new Set([0]) }));
   assert.ok(expanded.length < 19000);
   assert.match(expanded, /984,000 more characters/);
-  assert.match(expanded, /Open in editor/);
+  assert.match(expanded, /Open recorded value/);
 });
 
 test('provider preserves folds across unrelated edits and reanchors only reliable loop sites', async () => {
@@ -889,7 +889,7 @@ test('long flat multiline output keeps capped scrolling and honest expansion cop
     { expandedLines: new Set([0]) }));
   assert.match(expanded, /class="fold-scroll"/);
   assert.match(expanded, />Show less</);
-  assert.match(expanded, />Open in editor</);
+  assert.match(expanded, />Open statement printed output</);
   assert.ok(expanded.length < 19000);
 });
 

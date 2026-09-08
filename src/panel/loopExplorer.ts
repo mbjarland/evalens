@@ -263,7 +263,8 @@ export function loopExplorerHtml(
         ? `<div class="loop-note">Output part ${selected + 1} of ${chunks.length} · `
           + (selected > 0 ? button('Previous output', `text:${gap}:${stream}`, key, selected - 1) + ' · ' : '')
           + (selected < chunks.length - 1 ? button('More output', `text:${gap}:${stream}`, key, selected + 1) + ' · ' : '')
-          + button('Open captured output', 'open', key, stream) + '</div>' : '';
+          + button(stream ? 'Open statement stderr output' : 'Open statement printed output', 'open', key, stream,
+            'title="Opens the whole statement’s available stream in a read-only editor, not only this iteration. Use native Find and copy."') + '</div>' : '';
       pieces.push(`<div class="loop-stream">${label}<span class="loop-output">${e(shown)}</span>${paging}`
         + (clipped ? '<div class="loop-note">Further output was not retained.</div>' : '') + '</div>');
     }
@@ -488,8 +489,10 @@ export function loopExplorerHtml(
   return `<div class="loop-explorer" data-loop-root="${line}">`
     + body + (exhausted ? '<div class="loop-notice">Visible detail limit reached. Collapse a group to explore another.</div>' : '')
     + (clipped ? '<div class="loop-notice">Output capture is incomplete; unretained text cannot be expanded.</div>' : '')
-    + final + `<div class="loop-export">${button('Open printed output', 'open', 0, 0)}`
-    + (model.streams[1] ? ` · ${button('Open stderr output', 'open', 0, 1)}` : '') + '</div></div>';
+    + final + `<div class="loop-export">${button('Open statement printed output', 'open', 0, 0,
+      'title="Opens the available printed output for this whole statement. Use native Find and copy."')}`
+    + (model.streams[1] ? ` · ${button('Open statement stderr output', 'open', 0, 1,
+      'title="Opens the available stderr output for this whole statement. Use native Find and copy."')}` : '') + '</div></div>';
 }
 
 /** At most 65,536 retained code points enter this function. Never split an

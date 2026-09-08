@@ -470,7 +470,7 @@ test('output-only and silent statements do not create an empty value block', () 
   assert.equal((html.match(/class="result-surface /g) ?? []).length, 1);
   assert.doesNotMatch(html, /class="result-values"/);
   assert.match(html, /class="result-surface tone-evaluated"><div class="result-streams">/);
-  assert.equal(fullTextFor(rows[0]!, 'printed'), 'hello');
+  assert.equal(fullTextFor(rows[0]!, 'printed'), 'hello\n');
 });
 
 test('folding a value keeps its original order and separates it from output', () => {
@@ -653,10 +653,12 @@ test('valuesHtml carries no reveal target when none is given ' +
 function foldedFooter(line: number, blockId: string, remaining: number): string {
   const action = (label: string, kind: 'expand' | 'open'): string =>
     `<span class="fold-action" data-fold-action="${kind}" `
-    + `data-fold-line="${line}" data-fold-id="${blockId}">${label}</span>`;
+    + `data-fold-line="${line}" data-fold-id="${blockId}"${kind === 'open'
+      ? ' title="Opens the available recording in a read-only editor. Use native Find and copy; text that was not captured cannot be recovered."' : ''}>${label}</span>`;
   return `<div class="fold-footer">… ${remaining} more `
     + `line${remaining === 1 ? '' : 's'} · ${action('Show all', 'expand')} · `
-    + `${action('Open in editor', 'open')}</div>`;
+    + `${action(blockId.startsWith('value-') ? 'Open recorded value'
+      : blockId === 'stderr' ? 'Open statement stderr output' : 'Open statement printed output', 'open')}</div>`;
 }
 
 test('a stream past the output-lines limit folds to exactly the limit, ' +
@@ -749,7 +751,7 @@ test('expanding a row shows the full stream inside a scrolling container, ' +
     + 'data-fold-action="expand" data-fold-line="0" '
     + 'data-fold-id="printed">Show less</span></div>'));
   assert.doesNotMatch(html, />Show all</);
-  assert.doesNotMatch(html, />Open in editor</,
+  assert.doesNotMatch(html, />Open (?:recorded value|statement printed output)</,
     'nothing is left folded to open once the row is expanded');
 });
 
@@ -1257,7 +1259,7 @@ test('Show more reveals a bounded flat printed stream in full; the state survive
   });
 
 test('the open message opens the full captured text as a focused, ' +
-  'untitled plaintext document', async () => {
+  'read-only recording document', async () => {
   const fake = createFakeVscode();
   const editor = createEditor("print('hello')\n");
   fake.window.activeTextEditor = editor;
@@ -1271,14 +1273,14 @@ test('the open message opens the full captured text as a focused, ' +
     const view = new FakeWebviewView();
     provider.resolveWebviewView(view, {}, {});
 
-    view.webview.fireMessage({ open: 0, stream: 'printed' });
+    view.webview.fireMessage({ open: 0, stream: 'printed', revision: panelRevision(view) });
     // openInEditor is fire-and-forget from onMessage's own point of view,
     // the same as any other webview message handler -- let its two awaits
     // (openTextDocument, then showTextDocument) settle before asserting.
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(fake.openedDocuments.length, 1);
-    assert.equal(fake.openedDocuments[0]!.getText(), 'hello',
+    assert.equal(fake.openedDocuments[0]!.getText(), 'hello\n',
       'the document should hold the exact text the kernel captured');
     assert.equal(fake.openedDocuments[0]!.languageId, 'plaintext');
     assert.equal(fake.shownDocuments.length, 1);
@@ -1305,7 +1307,7 @@ test('an open message for an id the row no longer carries opens nothing',
       const view = new FakeWebviewView();
       provider.resolveWebviewView(view, {}, {});
 
-      view.webview.fireMessage({ open: 0, stream: 'stderr' });
+      view.webview.fireMessage({ open: 0, stream: 'stderr', revision: panelRevision(view) });
       await new Promise((resolve) => setImmediate(resolve));
 
       assert.equal(fake.openedDocuments.length, 0,

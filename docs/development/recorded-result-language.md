@@ -20,8 +20,10 @@ terms where they arise without presenting recorded results as live state.
 | Latest result | The most recently completed result in this document, independent of the editor cursor. |
 | Go to variable change | Reveal the recorded statement that rebound a name. Rebinding assigns a name again; the value may be unchanged. |
 
-Use **Open printed output** and **Open stderr output** for the loop export
-actions. Optional explanations and developer documentation may introduce
+Use **Open statement printed output** and **Open statement stderr output**
+for stream exports, including links inside loops. These always name the whole
+statement; selecting an iteration does not narrow the export. Use **Open
+recorded value** for a saved representation or history summary. Optional explanations and developer documentation may introduce
 `stdout`, `stderr`, and rebinding. Do not rename protocol fields to match UI
 copy. The `evalens.printedLabel` preference still controls inline/flat-row
 stream labels; descriptive headings and actions keep their names.

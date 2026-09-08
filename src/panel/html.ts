@@ -26,7 +26,7 @@ import {
 } from './loopExplorer';
 import {
   Printed, STDERR_LABEL, Segment, SegmentRole, collapseLines, grouped,
-  isStreamGroup, resultGroups,
+  isStreamGroup, paintedSlots, resultGroups,
 } from '../render/format';
 import {
   Marker, markerFor, normalizeSource, staleReasonText, DependencyCause,
@@ -63,6 +63,7 @@ export interface LineSource {
  * belongs, and why a stale one is stale.
  */
 export interface PanelAnnotation extends Announceable {
+  readonly source?: string;
   readonly loopExplorer?: LoopExplorerWire;
   readonly range: {
     readonly start: { readonly line: number };
@@ -119,6 +120,8 @@ export function placeScroll(
 export interface FullStream {
   readonly label: string;
   readonly text: string;
+  /** Original captured stream, including its final newline. */
+  readonly recordedText?: string;
 }
 
 /** One row of the panel's table, already resolved from an annotation and a
@@ -146,6 +149,8 @@ export interface ValuesRow {
    * 200-line `def` cannot dominate the panel.
    */
   readonly codeLines: readonly string[];
+  /** Bounded preview of the source captured with this result, never the edited buffer. */
+  readonly recordedSource?: string;
   /** Set only when `codeLines` left lines out past the cap; the count the
    * CODE cell's own final `… (+N lines)` line reports. */
   readonly codeMoreCount?: number;
@@ -204,10 +209,10 @@ function streamsFor(
 ): readonly FullStream[] {
   const streams: FullStream[] = [];
   if (nonEmpty(printed?.stdout)) {
-    streams.push({ label: printedLabel, text: fullStreamText(printed!.stdout!) });
+    streams.push({ label: printedLabel, text: fullStreamText(printed!.stdout!), recordedText: printed!.stdout! });
   }
   if (nonEmpty(printed?.stderr)) {
-    streams.push({ label: STDERR_LABEL, text: fullStreamText(printed!.stderr!) });
+    streams.push({ label: STDERR_LABEL, text: fullStreamText(printed!.stderr!), recordedText: printed!.stderr! });
   }
   return streams;
 }
@@ -271,6 +276,10 @@ function rowFor(
     sourceLines(document, startLine, endLine);
   const base = {
     line, startLine, endLine, codeLines,
+    ...(annotation.source === undefined ? {} : { recordedSource:
+      annotation.source.length > 2000
+        ? annotation.source.slice(0, 1999).replace(/[\uD800-\uDBFF]$/, '') + '\n…'
+        : annotation.source }),
     ...(annotation.partialFrom === undefined ? {} : { partialFrom: annotation.partialFrom }),
     ...(codeMoreCount === undefined ? {} : { codeMoreCount }),
   };
@@ -323,6 +332,24 @@ function rowFor(
   // group is, never by where it sits in `allGroups` (#152).
   const groups = allGroups.filter(
     (group) => group.length > 0 && !isStreamGroup(group));
+  // The inline formatter collapses repr whitespace and substitutes NBSPs.
+  // Recover raw captured representations by the same slot order; never try
+  // to reverse those lossy substitutions in the recording or ask Python.
+  const slots = paintedSlots(annotation.value ?? null, annotation.display,
+    annotation.loop, annotation.names, annotation.bindings, annotation.printed,
+    annotation.isBinding);
+  let slotIndex = 0;
+  const recordedGroups = groups.map(group => {
+    if (!group.some(segment => segment.role === 'value')) return group;
+    const slot = slots[slotIndex++]!;
+    const history = slot.iterations !== undefined
+      || (annotation.bindings ?? []).some(binding => binding.name === slot.name)
+      || (slot.own && annotation.loop);
+    const raw = history ? slot.value : slot.own ? annotation.value
+      : annotation.names?.find(name => name.name === slot.name)?.value;
+    return group.map(segment => segment.role === 'value' && raw != null
+      ? { ...segment, text: raw } : segment);
+  });
   const streams = streamsFor(annotation.printed, printedLabel);
   const loopExplorer = prepareLoopExplorer(annotation.loopExplorer,
     annotation.printed?.stdout, annotation.printed?.stderr);
@@ -331,7 +358,7 @@ function rowFor(
     ...base,
     state,
     ...staleReason,
-    ...(groups.length > 0 ? { groups } : {}),
+    ...(recordedGroups.length > 0 ? { groups: recordedGroups } : {}),
     ...(streams.length > 0 ? { streams } : {}),
     ...(loopExplorer ? { loopExplorer } : {}),
   };
@@ -360,6 +387,7 @@ export function rowsFor(
  * itself, since an empty `rows` array is also what a Python file with no
  * annotations yet looks like. */
 export interface ValuesPanelData {
+  readonly sourceUri?: string;
   readonly fileName: string | undefined;
   readonly rows: readonly ValuesRow[];
   /** The newest retained completed result in this document, independently
@@ -524,6 +552,14 @@ function groupHtml(group: readonly Segment[]): string {
 // enormous line must not bypass the DOM bound. Expanded previews still cap
 // their text and height; the original captured text opens in an editor.
 
+function openRecordingLabel(blockId: string): string {
+  return blockId.startsWith('value-') ? 'Open recorded value'
+    : blockId === STDERR_LABEL ? 'Open statement stderr output'
+      : 'Open statement printed output';
+}
+const OPEN_RECORDING_HINT = 'Opens the available recording in a read-only editor. '
+  + 'Use native Find and copy; text that was not captured cannot be recovered.';
+
 /** `… 9,980 more lines · Show all · Open in editor`, or `Show less` alone
  * once the row is already expanded -- literally that word and nothing
  * beside it: the row is already showing everything, and `Open in editor`
@@ -544,13 +580,13 @@ function foldFooterHtml(
 ): string {
   const action = (label: string, kind: 'expand' | 'open'): string =>
     `<span class="fold-action" data-fold-action="${kind}" `
-    + `data-fold-line="${line}" data-fold-id="${escapeHtml(blockId)}">${label}</span>`;
+    + `data-fold-line="${line}" data-fold-id="${escapeHtml(blockId)}"${kind === 'open' ? ` title="${OPEN_RECORDING_HINT}"` : ''}>${label}</span>`;
   if (remaining === undefined) {
     return `<div class="fold-footer">${action('Show less', 'expand')}</div>`;
   }
   const more = `… ${grouped(remaining)} more line${remaining === 1 ? '' : 's'}`;
   return `<div class="fold-footer">${escapeHtml(more)} · `
-    + `${action(fullyExpandable ? 'Show all' : 'Show more', 'expand')} · ${action('Open in editor', 'open')}</div>`;
+    + `${action(fullyExpandable ? 'Show all' : 'Show more', 'expand')} · ${action(openRecordingLabel(blockId), 'open')}</div>`;
 }
 
 /**
@@ -589,10 +625,10 @@ function foldedValueHtml(
     if (charBound || expanded) {
       const action = (label: string, kind: 'expand' | 'open') =>
         `<span class="fold-action" data-fold-action="${kind}" data-fold-line="${line}" `
-        + `data-fold-id="${escapeHtml(blockId)}">${label}</span>`;
+        + `data-fold-id="${escapeHtml(blockId)}"${kind === 'open' ? ` title="${OPEN_RECORDING_HINT}"` : ''}>${label}</span>`;
       const footer = `<div class="fold-footer">… ${grouped(text.length - end)} more characters · `
         + action(expanded ? 'Show less' : (text.length > 16000 ? 'Show more' : 'Show all'), 'expand')
-        + ` · ${action('Open in editor', 'open')}</div>`;
+        + ` · ${action(openRecordingLabel(blockId), 'open')}</div>`;
       const preview = `<span class="seg-value">${escapeHtml(shown)}</span>`;
       return { foldable: true,
         html: (expanded ? `<div class="fold-scroll">${preview}</div>` : preview) + footer };
@@ -709,7 +745,7 @@ function foldableGroupHtml(
 export function fullTextFor(row: ValuesRow, blockId: string): string | undefined {
   const stream = (row.streams ?? []).find((each) => each.label === blockId);
   if (stream) {
-    return stream.text;
+    return stream.recordedText ?? stream.text;
   }
   const match = /^value-(\d+)$/.exec(blockId);
   if (!match) {
@@ -1485,7 +1521,8 @@ function script(
       event.stopPropagation();
       var line = Number(foldControl.getAttribute('data-fold-line'));
       if (foldControl.getAttribute('data-fold-action') === 'open') {
-        vscode.postMessage({ open: line, stream: foldControl.getAttribute('data-fold-id') });
+        vscode.postMessage({ open: line, stream: foldControl.getAttribute('data-fold-id'),
+          revision: revision });
       } else {
         vscode.postMessage({ expand: line });
       }
