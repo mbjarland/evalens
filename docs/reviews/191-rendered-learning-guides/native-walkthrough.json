@@ -1,0 +1,117 @@
+{
+  "guides": [
+    {
+      "heading": "Predict a value",
+      "text": "Predict a value\nOpen this exercise. Before running anything, predict the result of 2 + 3 * 4. Which operation happens first?\nPut the cursor on the expression and use Evalens: Evaluate at Cursor. The cursor stays on that line, and its result appears beside the code.\nCommand\tWindows / Linux\tmacOS\nEvalens: Evaluate at Cursor\tCtrl+Enter\tCmd+Enter\n\nThese are default keys, pressed while editing Python. For remapped or conflicting keys, open the Command Palette with Ctrl+Shift+P on Windows/Linux or Cmd+Shift+P on macOS and search for the command name.\n\nCompare with the recorded result\n\nActual Evalens rendering after evaluation. Python multiplies before adding, so this expression produces 14.\n\nChange the expression to (2 + 3) * 4. Predict again, then evaluate it again. Typing alone does not run Python.\n\nThe exercise is an editable Python document; save it only if you want to keep it. Mark the walkthrough checkbox yourself when you have tried the lesson.",
+      "images": [
+        {
+          "src": "https://file+.vscode-resource.vscode-cdn.net/Users/mbjarland/projects/evalens-worktrees/191-rendered-learning-guides/media/learning/screenshots/predict.png",
+          "alt": "The expression 2 + 3 * 4 with Evalens showing the result 14 beside the code.",
+          "naturalWidth": 664,
+          "naturalHeight": 60,
+          "displayWidth": 584,
+          "displayHeight": 53
+        }
+      ]
+    },
+    {
+      "heading": "Follow the next statement",
+      "text": "Follow the next statement\nOpen this exercise and put the cursor on price = 8.\nPredict what that statement will record. Use Evalens: Evaluate and Advance once, then look at the result and the cursor's new position.\nCommand\tWindows / Linux\tmacOS\nEvalens: Evaluate and Advance\tCtrl+Shift+Enter\tCmd+Shift+Enter\n\nThese are default keys, pressed while editing Python. For remapped or conflicting keys, open the Command Palette with Ctrl+Shift+P on Windows/Linux or Cmd+Shift+P on macOS and search for the command name.\n\nAfter one evaluation\n\nActual Evalens rendering after the first keypress. Advancing moves the cursor; it does not evaluate the next statement for you.\n\nPredict what quantity = 3 will record, then evaluate and advance once more. Before the third keypress, predict total = price * quantity.\n\nAfter all three statements\n\nThe earlier results stay beside their statements. The final assignment used the values established by the first two.\n\nTry a different quantity. Evaluate its assignment and then the total again; editing a number alone does not update Python's variables or rerun later code. Mark the walkthrough checkbox yourself when you have tried the lesson.",
+      "images": [
+        {
+          "src": "https://file+.vscode-resource.vscode-cdn.net/Users/mbjarland/projects/evalens-worktrees/191-rendered-learning-guides/media/learning/screenshots/advance-first.png",
+          "alt": "The price assignment has a recorded value of 8; the cursor has advanced to quantity = 3, which has no recorded result yet.",
+          "naturalWidth": 820,
+          "naturalHeight": 180,
+          "displayWidth": 569,
+          "displayHeight": 125
+        },
+        {
+          "src": "https://file+.vscode-resource.vscode-cdn.net/Users/mbjarland/projects/evalens-worktrees/191-rendered-learning-guides/media/learning/screenshots/advance-complete.png",
+          "alt": "The three assignments have recorded results price: 8, quantity: 3, and total: 24 beside their respective lines.",
+          "naturalWidth": 1648,
+          "naturalHeight": 180,
+          "displayWidth": 569,
+          "displayHeight": 62
+        }
+      ]
+    },
+    {
+      "heading": "Two names, one list",
+      "text": "Two names, one list\nOpen this exercise. Start on original = [1, 2, 3] and use Evalens: Evaluate and Advance twice to evaluate the two assignments.\nStop before second.append(4). Predict what the last line, original, will show. Does second = original make another list?\nEvaluate and advance through the remaining two statements.\nCommand\tWindows / Linux\tmacOS\nEvalens: Evaluate and Advance\tCtrl+Shift+Enter\tCmd+Shift+Enter\n\nThese are default keys, pressed while editing Python. For remapped or conflicting keys, open the Command Palette with Ctrl+Shift+P on Windows/Linux or Cmd+Shift+P on macOS and search for the command name.\n\nCompare the first and last results\n\nActual Evalens rendering of all four statements. Both names refer to the same list, so appending through second changes the list read through original.\n\nThe first line still shows [1, 2, 3]: that is what it recorded when it ran. Evalens keeps that earlier result so you can see the change; it is not a live watch of the list.\n\nTo repeat, start from original = [1, 2, 3] and evaluate all four statements in order. Running only second.append(4) again appends another item. Mark the walkthrough checkbox yourself when you have tried the lesson.",
+      "images": [
+        {
+          "src": "https://file+.vscode-resource.vscode-cdn.net/Users/mbjarland/projects/evalens-worktrees/191-rendered-learning-guides/media/learning/screenshots/aliasing.png",
+          "alt": "The original assignment records a three-item list. After second.append(4), the final original expression records a four-item list.",
+          "naturalWidth": 1638,
+          "naturalHeight": 240,
+          "displayWidth": 584,
+          "displayHeight": 86
+        }
+      ]
+    },
+    {
+      "heading": "Fix an accumulator",
+      "text": "Fix an accumulator\nOpen this exercise. Read the loop before running it: does total = score add each score to the total, or replace the total? Predict the final value.\nUse Evalens: Evaluate File. This evaluates the setup, the loop, and the final total expression in order.\nCommand\tWindows / Linux\tmacOS\nEvalens: Evaluate File\tCtrl+Alt+Enter\tCmd+Alt+Enter\n\nThese are default keys, pressed while editing Python. On a Mac keyboard, Alt is Option. For remapped or conflicting keys, open the Command Palette with Ctrl+Shift+P on Windows/Linux or Cmd+Shift+P on macOS and search for the command name.\n\nReplacing the total\n\nActual Evalens rendering with Loop Values enabled, the default. The history beside the loop shows the values recorded across its iterations. Each assignment replaced the previous total, leaving only the last score.\n\nChange total = score to total += score. Before evaluating again, predict the three totals this will produce. Use Evaluate File again so that total = 0 runs before the loop.\n\nAdding to the total\n\nThe first iteration adds 2 to 0; the next adds 4 to 2; the last adds 6 to 6. The final total is 12.\n\nThe history helps compare complete iterations. To inspect each statement inside an iteration as it runs, use Python's debugger. Mark the walkthrough checkbox yourself when you have tried the lesson.",
+      "images": [
+        {
+          "src": "https://file+.vscode-resource.vscode-cdn.net/Users/mbjarland/projects/evalens-worktrees/191-rendered-learning-guides/media/learning/screenshots/accumulator-before.png",
+          "alt": "The loop uses total = score. Evalens records total values 2, 4, 6 at the loop header and a final total of 6.",
+          "naturalWidth": 1600,
+          "naturalHeight": 300,
+          "displayWidth": 569,
+          "displayHeight": 107
+        },
+        {
+          "src": "https://file+.vscode-resource.vscode-cdn.net/Users/mbjarland/projects/evalens-worktrees/191-rendered-learning-guides/media/learning/screenshots/accumulator-after.png",
+          "alt": "The corrected loop uses total += score. Evalens records total values 2, 6, 12 at the loop header and a final total of 12.",
+          "naturalWidth": 1624,
+          "naturalHeight": 300,
+          "displayWidth": 569,
+          "displayHeight": 105
+        }
+      ]
+    },
+    {
+      "heading": "Notice an old answer",
+      "text": "Notice an old answer\nOpen this exercise and evaluate answer = 10 with Evalens: Evaluate at Cursor.\nBefore editing, predict what will happen to that recorded answer when you change the code to answer = 20 without evaluating it.\nMake the edit and inspect the old result. Hover the code to read why the result is marked stale.\nCommand\tWindows / Linux\tmacOS\nEvalens: Evaluate at Cursor\tCtrl+Enter\tCmd+Enter\n\nThese are default keys, pressed while editing Python. For remapped or conflicting keys, open the Command Palette with Ctrl+Shift+P on Windows/Linux or Cmd+Shift+P on macOS and search for the command name.\n\nAfter editing, before evaluating again\n\nActual Evalens rendering after an edit. The old result belongs to the previous code. Typing did not run the new assignment.\n\nNow evaluate that line again.\n\nAfter evaluating the edited line\n\nThe new result matches the statement that just ran. Evalens updates results when you explicitly evaluate, not while you type.\n\nMark the walkthrough checkbox yourself when you have tried the lesson. You can return with Evalens: Open Learning Walkthrough in the Command Palette.",
+      "images": [
+        {
+          "src": "https://file+.vscode-resource.vscode-cdn.net/Users/mbjarland/projects/evalens-worktrees/191-rendered-learning-guides/media/learning/screenshots/stale-before-rerun.png",
+          "alt": "The source now says answer = 20, but Evalens still shows the old recorded value 10 with a stale marker.",
+          "naturalWidth": 832,
+          "naturalHeight": 60,
+          "displayWidth": 569,
+          "displayHeight": 41
+        },
+        {
+          "src": "https://file+.vscode-resource.vscode-cdn.net/Users/mbjarland/projects/evalens-worktrees/191-rendered-learning-guides/media/learning/screenshots/stale-after-rerun.png",
+          "alt": "After evaluating answer = 20, the recorded result is 20 and the stale marker has cleared.",
+          "naturalWidth": 832,
+          "naturalHeight": 60,
+          "displayWidth": 569,
+          "displayHeight": 41
+        }
+      ]
+    }
+  ],
+  "physicalHostPlatform": "macOS",
+  "windowsBindings": "Guide tables and generated exercise comments verified against contributed defaults; no Windows desktop session",
+  "extensions": [
+    {
+      "id": "mbjarland.evalens",
+      "path": "/Users/mbjarland/projects/evalens-worktrees/191-rendered-learning-guides",
+      "active": true
+    },
+    {
+      "id": "local.evalens-review-bridge",
+      "path": "/private/tmp/evalens-learning-images/bridge-extension",
+      "active": true
+    }
+  ],
+  "openExercise": {
+    "editablePython": true,
+    "platformComment": "Cmd+Enter",
+    "line": 6
+  }
+}

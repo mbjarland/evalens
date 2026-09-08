@@ -83,13 +83,33 @@ test('example comment keys match the contributed defaults on all platforms', () 
   try {
     const { learningContent } = require('../learning') as typeof import('../learning');
     for (const platform of ['darwin', 'win32', 'linux']) {
-      const content = learningContent('{{evaluate}} {{advance}} {{file}}', platform).toLowerCase();
+      const content = steps.map(step => learningContent(template(step.id), platform))
+        .join('\n').toLowerCase();
+      assert.doesNotMatch(content, /\{\{/);
       for (const command of ['evaluateAtCursor', 'evaluateAndAdvance', 'evaluateFile']) {
         const binding = manifest.contributes.keybindings.find((b: { command: string }) => b.command === `evalens.${command}`);
         assert.ok(content.includes(platform === 'darwin' ? binding.mac : binding.key));
       }
     }
   } finally { extension.deactivate(); }
+});
+
+test('each learning guide documents its command defaults for Windows/Linux and macOS', () => {
+  for (const step of steps) {
+    const guide = fs.readFileSync(path.join(root, step.media.markdown), 'utf8');
+    assert.match(guide, /\| Command \| Windows \/ Linux \| macOS \|/);
+    const rows = [...guide.matchAll(/^\| (Evalens: [^|]+) \| ([^|]+) \| ([^|]+) \|$/gm)];
+    assert.ok(rows.length > 0, `${step.id} has no command key table`);
+    for (const [, title, windows, mac] of rows) {
+      const command = manifest.contributes.commands.find((c: { title: string }) => c.title === title);
+      assert.ok(command, `${step.id} names an unknown command: ${title}`);
+      const binding = manifest.contributes.keybindings.find((b: { command: string; mac?: string }) =>
+        b.command === command.command && b.mac);
+      assert.ok(binding, `${title} has no platform defaults`);
+      assert.equal(windows.toLowerCase(), binding.key, `${step.id}: Windows/Linux`);
+      assert.equal(mac.toLowerCase(), binding.mac, `${step.id}: macOS`);
+    }
+  }
 });
 
 test('the packaged exercises teach values produced by the real kernel', async (t) => {

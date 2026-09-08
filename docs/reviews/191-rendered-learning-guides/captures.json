@@ -1,0 +1,216 @@
+{
+  "sourceCommit": "3f8627eaa733c028fb11418e3c5d6503fd88ea40",
+  "capture": "Actual VS Code screenshot clips; no redrawn pixels or synthetic decorations",
+  "theme": "Default Dark Modern",
+  "font": "Menlo 20px; 30px line height",
+  "screenshots": [
+    {
+      "file": "media/learning/screenshots/predict.png",
+      "sha256": "09c7393255344c904187f1cbdfa19b816b268344836b9cbbed40453b9e4c5cc2",
+      "source": "# 1. Predict a value\n# Before running: what will this expression produce?\n# With the cursor on the expression, use Evalens: Evaluate at Cursor.\n# Default key: Cmd+Enter. Commands also live in the Command Palette.\n# Look beside the line for the value. Did it match your prediction?\n2 + 3 * 4\n",
+      "visibleLines": [
+        6,
+        6
+      ],
+      "selectedLine": 6,
+      "clip": {
+        "x": 53,
+        "y": 240,
+        "width": 332,
+        "height": 30
+      },
+      "renderedDecorations": [
+        "\"=>\u00a0\"",
+        "\"14\""
+      ]
+    },
+    {
+      "file": "media/learning/screenshots/advance-first.png",
+      "sha256": "ccc1d44cabd077537c59c5e8edf4bacc65626c338982ee58b705d2454c5eb622",
+      "source": "# 2. Follow the next statement\n# Start on price. Use Evalens: Evaluate and Advance three times.\n# Default key: Cmd+Shift+Enter. Predict each next value before pressing it.\n# The cursor moves to the next statement; the earlier answers remain beside code.\n# Expect price: 8, quantity: 3, then total: 24.\nprice = 8\nquantity = 3\ntotal = price * quantity\n",
+      "visibleLines": [
+        6,
+        8
+      ],
+      "selectedLine": 7,
+      "clip": {
+        "x": 53,
+        "y": 240,
+        "width": 410,
+        "height": 90
+      },
+      "renderedDecorations": [
+        "\"price:\u00a0\"",
+        "\"8\""
+      ]
+    },
+    {
+      "file": "media/learning/screenshots/advance-complete.png",
+      "sha256": "1e91e8c113028517edecd8d9ac71d3f29ae0226b38122c7fe802fb4546d4ab1a",
+      "source": "# 2. Follow the next statement\n# Start on price. Use Evalens: Evaluate and Advance three times.\n# Default key: Cmd+Shift+Enter. Predict each next value before pressing it.\n# The cursor moves to the next statement; the earlier answers remain beside code.\n# Expect price: 8, quantity: 3, then total: 24.\nprice = 8\nquantity = 3\ntotal = price * quantity\n",
+      "visibleLines": [
+        6,
+        8
+      ],
+      "selectedLine": 8,
+      "clip": {
+        "x": 53,
+        "y": 240,
+        "width": 824,
+        "height": 90
+      },
+      "renderedDecorations": [
+        "\"price:\u00a0\"",
+        "\"8\"",
+        "\"quantity:\u00a0\"",
+        "\"3\"",
+        "\"total:\u00a0\"",
+        "\"24\"",
+        "\"\u200b\"",
+        "\"\u200b\"",
+        "\"price:\u00a0\"",
+        "\"8\"",
+        "\"\u200b\"",
+        "\"\u200b\"",
+        "\"quantity:\u00a0\"",
+        "\"3\""
+      ]
+    },
+    {
+      "file": "media/learning/screenshots/aliasing.png",
+      "sha256": "02cd685f545919b1214808dfb3b9d8a9fa9b82054d44ed382486dc0dfeacc2ac",
+      "source": "# 3. Two names, one list\n# Start on original; use Evalens: Evaluate and Advance down this file.\n# Default key: Cmd+Shift+Enter. Stop before second.append(4) and predict original.\n# Then continue: the final original should be [1, 2, 3, 4].\n# Both names refer to one list. The earlier [1, 2, 3] is a snapshot from then,\n# not a watch of the list now. To repeat, start from original = [1, 2, 3].\noriginal = [1, 2, 3]\nsecond = original\nsecond.append(4)\noriginal\n",
+      "visibleLines": [
+        7,
+        10
+      ],
+      "selectedLine": 10,
+      "clip": {
+        "x": 53,
+        "y": 270,
+        "width": 819,
+        "height": 120
+      },
+      "renderedDecorations": [
+        "\"original:\u00a0\"",
+        "\"[1,\u00a02,\u00a03]\"",
+        "\"second:\u00a0\"",
+        "\"[1,\u00a02,\u00a03]\"",
+        "\"\u200b\"",
+        "\"\u200b\"",
+        "\"original:\u00a0\"",
+        "\"[1,\u00a02,\u00a03]\"",
+        "\"second:\u00a0\"",
+        "\"[1,\u00a02,\u00a03,\u00a04]\"",
+        "\"original:\u00a0\"",
+        "\"[1,\u00a02,\u00a03,\u00a04]\""
+      ]
+    },
+    {
+      "file": "media/learning/screenshots/accumulator-before.png",
+      "sha256": "eb73531ca6ee4b3d4ec4b787eaae4d7745a8f4d9664fff8a08657a492cbce3ce",
+      "source": "# 4. Fix an accumulator\n# Use Evalens: Evaluate File (Cmd+Alt+Enter).\n# Inspect the total history beside the for score in scores header.\n# With Loop Values on (the default), its history is 2, 4, 6. Final total is 6.\n# Why did the loop keep only the last score instead of adding all three?\n# Change total = score to total += score; explicitly Evaluate File again.\n# Now the history is 2, 6, 12 and the final total is 12.\n# Evaluate File reruns the setup too, so earlier attempts do not add to the sum.\nscores = [2, 4, 6]\ntotal = 0\nfor score in scores:\n    total = score\ntotal\n",
+      "visibleLines": [
+        9,
+        13
+      ],
+      "selectedLine": 1,
+      "clip": {
+        "x": 53,
+        "y": 330,
+        "width": 800,
+        "height": 150
+      },
+      "renderedDecorations": [
+        "\"scores:\u00a0\"",
+        "\"[2,\u00a04,\u00a06]\"",
+        "\"total:\u00a0\"",
+        "\"0\"",
+        "\"\u00d73\"",
+        "\"\u200b\"",
+        "\"\u200b\"",
+        "\"score:\u00a0\"",
+        "\"2,\u00a04,\u00a06\"",
+        "\"\u200b\"",
+        "\"\u200b\"",
+        "\"total:\u00a0\"",
+        "\"2,\u00a04,\u00a06\"",
+        "\"total:\u00a0\"",
+        "\"6\""
+      ]
+    },
+    {
+      "file": "media/learning/screenshots/accumulator-after.png",
+      "sha256": "6a4322f686e3a3ee24adecc12703e6ac6e933435f3af5062050ceee4eeda35f7",
+      "source": "# 4. Fix an accumulator\n# Use Evalens: Evaluate File (Cmd+Alt+Enter).\n# Inspect the total history beside the for score in scores header.\n# With Loop Values on (the default), its history is 2, 4, 6. Final total is 6.\n# Why did the loop keep only the last score instead of adding all three?\n# Change total = score to total += score; explicitly Evaluate File again.\n# Now the history is 2, 6, 12 and the final total is 12.\n# Evaluate File reruns the setup too, so earlier attempts do not add to the sum.\nscores = [2, 4, 6]\ntotal = 0\nfor score in scores:\n    total += score\ntotal\n",
+      "visibleLines": [
+        9,
+        13
+      ],
+      "selectedLine": 1,
+      "clip": {
+        "x": 53,
+        "y": 330,
+        "width": 812,
+        "height": 150
+      },
+      "renderedDecorations": [
+        "\"scores:\u00a0\"",
+        "\"[2,\u00a04,\u00a06]\"",
+        "\"total:\u00a0\"",
+        "\"0\"",
+        "\"\u00d73\"",
+        "\"\u200b\"",
+        "\"\u200b\"",
+        "\"score:\u00a0\"",
+        "\"2,\u00a04,\u00a06\"",
+        "\"\u200b\"",
+        "\"\u200b\"",
+        "\"total:\u00a0\"",
+        "\"2,\u00a06,\u00a012\"",
+        "\"total:\u00a0\"",
+        "\"12\""
+      ]
+    },
+    {
+      "file": "media/learning/screenshots/stale-before-rerun.png",
+      "sha256": "d85b1a886c24f31e5952db4fee9811855e3a3bfe60a4aea57ef404af2482a399",
+      "source": "# 5. Notice an old answer\n# Use Evalens: Evaluate at Cursor (Cmd+Enter) on answer = 10.\n# Change 10 to 20. The old value stays 10 and its marker becomes stale.\n# Hover the code to read the stale explanation: this answer is from before the edit.\n# Typing does not execute Python. Explicitly Evaluate at Cursor again.\n# Now answer is 20 and the stale marker clears.\nanswer = 20\n",
+      "visibleLines": [
+        7,
+        7
+      ],
+      "selectedLine": 7,
+      "clip": {
+        "x": 53,
+        "y": 270,
+        "width": 416,
+        "height": 30
+      },
+      "renderedDecorations": [
+        "\"answer:\u00a0\"",
+        "\"10\""
+      ]
+    },
+    {
+      "file": "media/learning/screenshots/stale-after-rerun.png",
+      "sha256": "e86d0b846711aed63dbe071291ba4bad2acc1be59c7670dff658b28b2dc73676",
+      "source": "# 5. Notice an old answer\n# Use Evalens: Evaluate at Cursor (Cmd+Enter) on answer = 10.\n# Change 10 to 20. The old value stays 10 and its marker becomes stale.\n# Hover the code to read the stale explanation: this answer is from before the edit.\n# Typing does not execute Python. Explicitly Evaluate at Cursor again.\n# Now answer is 20 and the stale marker clears.\nanswer = 20\n",
+      "visibleLines": [
+        7,
+        7
+      ],
+      "selectedLine": 7,
+      "clip": {
+        "x": 53,
+        "y": 270,
+        "width": 416,
+        "height": 30
+      },
+      "renderedDecorations": [
+        "\"answer:\u00a0\"",
+        "\"20\""
+      ]
+    }
+  ]
+}

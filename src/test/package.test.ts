@@ -94,6 +94,22 @@ test('every walkthrough instruction and exercise ships in the VSIX', () => {
       assert.ok(packaged.includes(step.media.markdown), step.media.markdown);
       const exercise = `media/learning/${step.id}.py`;
       assert.ok(packaged.includes(exercise), exercise);
+      const markdown = fs.readFileSync(path.join(root, step.media.markdown), 'utf8');
+      const images = [...markdown.matchAll(/!\[([^\n]*?)\]\(([^)\n]+)\)/g)];
+      assert.ok(images.length > 0, `${step.id} has no rendered example`);
+      for (const [, alt, relative] of images) {
+        assert.ok(alt.trim(), `${relative} needs alternative text`);
+        // VS Code's native walkthrough image rewriting turns an alt containing
+        // Python list brackets into an empty image source (#191 Host review).
+        assert.doesNotMatch(alt, /[\[\]]/, `${relative}: use words for lists in image alt text`);
+        const image = path.posix.join(path.posix.dirname(step.media.markdown), relative);
+        assert.ok(packaged.includes(image), `${image} is missing from the package`);
+        const png = fs.readFileSync(path.join(root, image));
+        assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10], image);
+        assert.equal(png.toString('ascii', 12, 16), 'IHDR', image);
+        assert.ok(png.readUInt32BE(16) > 0 && png.readUInt32BE(20) > 0,
+          `${image} has no drawable image dimensions`);
+      }
     }
   }
   assert.ok(packaged.includes('out/learning.js'));
