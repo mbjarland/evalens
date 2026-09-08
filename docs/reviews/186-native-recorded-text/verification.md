@@ -54,6 +54,10 @@ native text to the source. They inspect compiled Values panel HTML as well as
 the native provider's exact text and source context.
 
 Before integration rebase: 944 extension tests on the parent branch; 952
-extension tests pass after this change. The unchanged kernel suite passes
-718 tests. Root review must still check native Find/copy, readonly behavior,
+extension tests pass after this change. After rebasing onto master `173ef23`,
+which includes recording evidence and session help, 958 extension tests pass
+(parent: 950). The unchanged kernel suite passes 718 tests. Logs are
+`/private/tmp/evalens-186-extension.log` and
+`/private/tmp/evalens-186-kernel.log`. Root review must still check native
+Find/copy, readonly behavior,
 status tooltip legibility, and physical focus return in an actual Host.
