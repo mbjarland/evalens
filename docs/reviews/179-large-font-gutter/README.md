@@ -37,6 +37,11 @@ check covers a six-digit line ID without allocating a million-line file.
 The Chromium measurements prove layout and the renderer's navigation
 message, not VS Code navigation or its live font/theme updates.
 
+After rebasing onto the terminology change at `f24d5ac`, all 937 extension
+tests and 718 kernel tests pass. The original task baseline was 936 and 718;
+the additional extension test belongs to #183. This layout-only fix adds no
+unit tests. Its direct rendering checks above exercise the actual failure.
+
 ## Remaining verification
 
 The root session will check actual source navigation, font/theme changes,
