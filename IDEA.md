@@ -595,10 +595,18 @@ It uses that source site's existing recorder, with an exact aggregate count,
 at most 50 requested leading representations and the final representation.
 Invocation counts stay separate from the bounded explorer entries: exhausting
 the detail budget cannot turn a 10,000-iteration inner loop into the first
-retained sample or its final value. Repeated invocations add **total** to the
-inline count and name the number of contributing loop runs in the hover.
-Zero invocations means **not reached**, distinct from a reached empty loop.
-Names reused at different source sites never merge histories.
+retained sample or its final value. Repeated invocations put values first:
+`y: 0, 1, 2, 3, 4, …, 99 · 100 runs · 10,000 iterations total`.
+The run and iteration counts use label color after the value sequence. Its
+compact elision keeps the same leading and final observations as before;
+hover gives the omitted count and explains that a run executes the `for`
+statement and an iteration passes through its body. Observations remain in
+execution order across all runs, without inferring a range, equal run lengths
+or a repeated pattern. Speech retains the total's scope across loop runs.
+Repeated empty runs keep their run and zero-iteration counts. Zero invocations
+means **not reached**, distinct from a reached empty loop. Single-run text
+retains its existing count and elision grammar. Names reused at different
+source sites never merge histories.
 
 Child chips are views of the enclosing saved annotation, not independent
 results. Pending and dismissal remove them together; disjoint edits shift

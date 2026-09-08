@@ -220,11 +220,16 @@ directly, `v ×5` beside `kept ×2`.
 
 In the editor, each loop's history appears beside its own `for` header. For
 nested `range(100)` loops, the outer line shows `x ×100: 0, 1, …, 99` and the
-inner line shows `y ×10,000 total: 0, 1, …, 99`. **Total** counts every pass
-through that inner loop across all its runs; hover its header to see how many
-runs contributed. Small sequences retain repeats in execution order. A loop
-that was reached but drew nothing says **(no iterations)**; one inside an
-outer loop that never entered says **(not reached)**.
+inner line shows
+`y: 0, 1, 2, 3, 4, …, 99 · 100 runs · 10,000 iterations total`.
+A **run** is one execution of that `for` statement; an **iteration** is one
+pass through its body. Values come first, followed by these counts in the
+quieter label color. The sequence preserves the first recorded values and the
+final observation across all runs, including repeats and irregular values;
+it does not imply a range or identical runs. Hover explains any omitted
+values. A loop that was reached but drew nothing says **(no iterations)**
+and still reports its counts when run more than once; one inside an outer
+loop that never entered says **(not reached)**.
 
 Open **Evalens: Show Values Panel** after evaluating a `for` loop. The
 **Variables** column contains the loop variable at the start of that

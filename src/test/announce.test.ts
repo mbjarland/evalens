@@ -146,6 +146,19 @@ test('a loop is spoken as the sequence the line shows', () => {
   assert.equal(spoken, 'p is 1, 2, 3, 3 iterations');
 });
 
+test('repeated-loop speech qualifies the total across runs, including repeated empty runs', () => {
+  const loop = { values: ['0', '1', '2', '3', '4'], last: '99',
+    count: 10000, invocations: 100 };
+  assert.equal(spokenText({ value: null, display: 'y', loop }),
+    'y is 0, 1, 2, 3, 4, …, 99, 10000 iterations total across 100 loop runs');
+  assert.equal(spokenText({ value: null, display: 'y', loop: {
+    values: [], last: null, count: 0, invocations: 2,
+  } }), 'y is (no iterations), 0 iterations total across 2 loop runs');
+  assert.equal(spokenText({ value: null, display: 'y', loop: {
+    values: [], last: null, count: 0, invocations: 0,
+  } }), 'y is (not reached)');
+});
+
 test("a loop body binding's count is spoken beside the target's", () => {
   const spoken = spokenText({
     value: '3', display: 'v',

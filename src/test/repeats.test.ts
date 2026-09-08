@@ -95,6 +95,17 @@ test('a rebinding shows the value again', () => {
     ['x: 1', null, 'x: 2']);
 });
 
+test('repeated-loop values remain own results and do not suppress a later final reading', () => {
+  const loop = { display: 'y', value: '2', loop: {
+    values: ['1', '2', '1', '2'], last: null, count: 4, invocations: 2,
+  } };
+  assert.deepEqual(walk(loop, loop, reads('print(y)', ['y', '2'])), [
+    'y: 1, 2, 1, 2 · 2 runs · 4 iterations total',
+    'y: 1, 2, 1, 2 · 2 runs · 4 iterations total',
+    'y: 2',
+  ]);
+});
+
 test('a mutated value shows again, because the shown value changed', () => {
   // Identity would say `lst` is the same object it always was. What the
   // reader needs is whether the value on screen changed, which is why the
