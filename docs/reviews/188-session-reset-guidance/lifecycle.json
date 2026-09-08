@@ -1,0 +1,85 @@
+{
+  "kind": "compiled extension with fake VS Code API and real Python subprocess pipes",
+  "observations": [
+    {
+      "name": "two statement evaluations populate one Python session",
+      "requests": [
+        "eval",
+        "eval"
+      ],
+      "prompts": 1
+    },
+    {
+      "name": "clear removes recordings but preserves variables and input replay",
+      "requests": [
+        "eval",
+        "eval"
+      ],
+      "prompts": 1
+    },
+    {
+      "name": "selection evaluation never resets even with resetOnLoad on",
+      "requests": [
+        "eval_file"
+      ],
+      "prompts": 1
+    },
+    {
+      "name": "help reads settings without a Python request or command execution",
+      "requests": [],
+      "prompts": 1
+    },
+    {
+      "name": "whole-file reset off preserves bindings across files and input replay",
+      "requests": [
+        "eval",
+        "eval_file",
+        "eval_file"
+      ],
+      "prompts": 1
+    },
+    {
+      "name": "restart discards variables and replay while recorded answers remain",
+      "requests": [
+        "eval",
+        "eval"
+      ],
+      "prompts": 2
+    },
+    {
+      "name": "clear input answers forgets replay only",
+      "requests": [
+        "eval",
+        "clear_input_replay",
+        "eval",
+        "eval"
+      ],
+      "prompts": 3
+    },
+    {
+      "name": "whole-file reset on discards old bindings and saved answers",
+      "requests": [
+        "reset",
+        "eval_file",
+        "reset",
+        "eval_file"
+      ],
+      "prompts": 4
+    },
+    {
+      "name": "script resets even with setting off and ignores selection",
+      "requests": [
+        "reset",
+        "eval_file"
+      ],
+      "prompts": 5
+    },
+    {
+      "name": "above-cursor resets variables and replay, leaving cursor statement unrun",
+      "requests": [
+        "eval_above"
+      ],
+      "prompts": 6
+    }
+  ]
+}

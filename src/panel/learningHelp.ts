@@ -116,7 +116,7 @@ function sessionHelpHtml(resetOnLoad: boolean): string {
         + 'whole-file run (<code>evalens.resetOnLoad</code> is off).')
     + ' With a selection, it runs the selected whole statements and never resets, '
     + 'regardless of that setting. When a non-resetting whole-file run reports names '
-    + 'left over from an earlier session, the status bar lists them after the run.</dd>'
+    + 'left over from earlier evaluations, the status bar reports them after the run.</dd>'
     + '<dt>Run File as Script</dt><dd>Always clears variables and saved input answers, '
     + 'then runs the whole file with <code>__name__ = "__main__"</code>. It ignores '
     + 'the selection and <code>evalens.resetOnLoad</code>.</dd>'
