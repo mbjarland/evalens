@@ -915,7 +915,7 @@ function rowHtml(
   return `<tr class="row${cursorClass}${loopClass}${latestClass}" data-goto="${row.line}" `
     + `data-start="${row.startLine}" data-end="${row.endLine}" `
     + `tabindex="${isCursor ? 0 : -1}" aria-current="${isCursor}">`
-    + `<td class="line-cell"><span class="navigation-arrow" aria-hidden="true">› </span>`
+    + `<td class="line-cell"><span class="navigation-arrow" aria-hidden="true">›</span>`
     + `<span class="line-num">${row.line + 1}</span></td>`
     + `<td class="code-cell"><div class="source-content">${codeCellHtml(row)}${latestLabel}</div></td>`
     + `<td class="value-cell">`
@@ -976,7 +976,9 @@ table {
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: var(--vscode-editor-font-size, 13px);
 }
-col.col-line { width: 44px; }
+/* Reserve the widest displayed line number plus an arrow, its gap, and
+   cell padding in the code font's metrics. The accent border stays 3px. */
+col.col-line { width: calc(var(--line-number-width) + 2.5ch + 3px); }
 col.col-code { width: 300px; }
 td {
   vertical-align: top;
@@ -990,7 +992,13 @@ tr.row:hover { background: var(--vscode-list-hoverBackground, transparent); }
   white-space: nowrap;
   color: var(--vscode-descriptionForeground, #9d9d9d);
   border-left: 3px solid transparent;
-  padding-left: 3px;
+  padding-left: 0.5ch;
+  padding-right: 0.5ch;
+}
+.line-num {
+  display: inline-block;
+  min-width: var(--line-number-width);
+  font-variant-numeric: tabular-nums;
 }
 .code-cell {
   color: var(--vscode-descriptionForeground, #9d9d9d);
@@ -1017,7 +1025,13 @@ tr.cursor .line-cell {
   border-left-color: var(--vscode-focusBorder, currentColor);
   font-weight: bold;
 }
-.navigation-arrow { visibility: hidden; }
+.navigation-arrow {
+  display: inline-block;
+  width: 1ch;
+  margin-right: 0.5ch;
+  text-align: center;
+  visibility: hidden;
+}
 tr.cursor .navigation-arrow { visibility: visible; }
 tr.latest-result .line-cell { border-left-color: ${cssVar('border')}; }
 .latest-result-label {
@@ -1579,6 +1593,11 @@ export function valuesHtml(
   revealLine?: number, fold?: FoldState, followCursor = true, revision = 0,
   followPanel = true, hideInlineValues = false
 ): string {
+  // Keep every row aligned, including when the cursor makes its gutter
+  // bold. Emit only this numeric metric into the existing nonce style;
+  // inline style attributes would be rejected by the webview's CSP.
+  const lineDigits = data.rows.reduce(
+    (digits, row) => Math.max(digits, String(row.line + 1).length), 2);
   const foldOptions: FoldRenderOptions = {
     resultFolds: fold?.resultFolds,
     loopStates: fold?.loopStates,
@@ -1599,7 +1618,9 @@ export function valuesHtml(
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; `
     + `style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
 <title>Evalens Values</title>
-<style nonce="${nonce}">${STYLE}${LOOP_EXPLORER_STYLE}</style>
+<style nonce="${nonce}">${STYLE}${LOOP_EXPLORER_STYLE}
+table { --line-number-width: ${lineDigits}ch; }
+</style>
 </head>
 <body>
 <div id="navigation-control" class="navigation-control">
