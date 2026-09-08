@@ -245,7 +245,8 @@ export function loopExplorerHtml(
       const shown = raw.replace(/\r?\n$/, '') || (text ? '(blank line)' : '');
       const label = stream ? '<span class="loop-stream-label" '
         + 'title="stderr is a separate output stream, often used for warnings. '
-        + 'Output here does not by itself mean the code failed.">stderr: </span>' : '';
+        + 'Output here does not by itself mean the code failed.">stderr: </span>'
+        : '<span class="loop-stream-label loop-stack-label">Printed output: </span>';
       const paging = chunks.length > 1
         ? `<div class="loop-note">Output part ${selected + 1} of ${chunks.length} · `
           + (selected > 0 ? button('Previous output', `text:${gap}:${stream}`, key, selected - 1) + ' · ' : '')
@@ -330,10 +331,10 @@ export function loopExplorerHtml(
       + (site.omitted_body_names ? ` · ${count(site.omitted_body_names, 'other body variable')} not recorded` : '')
       + '</span></div>';
     const columns = !columnsShown && root
-      ? '<div class="loop-columns"><span>Variables'
-        + (hasBodyValues ? `<span class="loop-value-timing loop-note" title="${e(timingDetail)}">${timing}</span>` : '')
-        + '</span><span title="Python writes ordinary printed output to stdout.">'
-        + 'Printed output</span></div>' : '';
+      ? '<div class="loop-columns"><span>Variables</span>'
+        + '<span title="Python writes ordinary printed output to stdout.">'
+        + 'Printed output</span></div>'
+        + (hasBodyValues ? `<div class="loop-value-timing loop-note" title="${e(timingDetail)}">${timing}</div>` : '') : '';
     if (root) columnsShown = true;
     if (!expanded) return `<section class="loop-invocation" data-loop-invocation="${invocation.id}">`
       + header + '</section>';
@@ -410,7 +411,8 @@ export function loopExplorerHtml(
     const selection = button(valueParts.join(', '), 'select', entry.id, 0,
       `aria-label="${e(`Iteration ${entry.ordinal}, ${label}; reveal loop header`)}"`);
     if (!foldable) return `<div class="loop-data loop-iteration${selected}" data-loop-entry="${entry.id}">`
-      + `<div class="loop-target">${selection}</div><div>${output(entry.start, entry.end, entry.id, 0, true)}</div></div>`;
+      + `<div class="loop-target"><span class="loop-stack-label">Variables</span>${selection}</div>`
+      + `<div>${output(entry.start, entry.end, entry.id, 0, true)}</div></div>`;
     const toggle = button(`<span class="loop-disclosure" aria-hidden="true">${expanded ? '▾' : '▸'}</span> `
       + `Iteration ${entry.ordinal}`, 'toggle', entry.id, 0,
       `aria-expanded="${expanded}" aria-label="${e(`Iteration ${entry.ordinal}, ${label}`)}"`);
@@ -476,10 +478,12 @@ function textChunks(text: string, requestedLines: number): string[] {
   return chunks;
 }
 export const LOOP_EXPLORER_STYLE = `
-.loop-explorer { font-style: normal; font-weight: normal; color: var(--vscode-editor-foreground); white-space: normal; min-width: 0; }
-.loop-explorer button { font-family: inherit; font-size: inherit; font-style: normal; background: none; border: 0; padding: 0; cursor: pointer; color: inherit; text-align: left; }
+.loop-explorer { font-style: normal; font-weight: normal; color: var(--vscode-editor-foreground); white-space: normal; min-width: 0; container-type: inline-size; }
+.loop-explorer button { font-family: inherit; font-size: inherit; font-style: normal; background: none; border: 0; padding: 0; cursor: pointer; color: inherit; text-align: left; max-width: 100%; overflow-wrap: anywhere; }
 .loop-explorer button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
-.loop-columns, .loop-data { display: grid; grid-template-columns: minmax(9ch, 1fr) minmax(12ch, 1.3fr); column-gap: 1.2em; }
+.loop-columns, .loop-data { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); column-gap: 1.2em; }
+.loop-columns > *, .loop-data > * { min-width: 0; }
+.loop-stack-label { display: none; }
 .loop-columns { color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: .45em; margin: .15em 0 .6em; }
 .loop-value-timing { display: block; margin-top: .15em; }
 .loop-source { font-size: .88em; margin: .4em 0 .3em; overflow-wrap: anywhere; }
@@ -505,4 +509,19 @@ export const LOOP_EXPLORER_STYLE = `
 .loop-final { margin-top: 1em; }
 .loop-export { margin-top: .5em; }
 body.vscode-high-contrast .loop-selected, body.vscode-high-contrast-light .loop-selected { outline: 1px solid var(--vscode-contrastActiveBorder); }
+/* Stack each variable/output pair when its actual result area cannot fit
+   two legible columns. Local stream labels keep output distinct from the
+   variables above it; stderr keeps its own existing label. */
+@container (max-width: 28ch) {
+  .loop-columns { display: none; }
+  .loop-data { grid-template-columns: minmax(0, 1fr); row-gap: .2em; padding: .35em 0 .6em; }
+  .loop-direct > :first-child { display: none; }
+  .loop-stack-label {
+    display: block;
+    font-size: .86em;
+  }
+  .loop-target > .loop-stack-label {
+    color: var(--vscode-descriptionForeground);
+  }
+}
 `;

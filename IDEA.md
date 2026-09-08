@@ -547,6 +547,13 @@ off. The panel's checkbox controls this preference separately from
 `evalens.valuesPanel.follow`, which follows newly evaluated results. Neither
 navigation mode evaluates code or opens a hidden panel.
 
+Below 720px the panel places each source excerpt above its result, retaining
+the source gutter and result disclosure. Values use the available width
+instead of losing their column to the fixed source width. When a loop's
+result area cannot fit two readable columns at the selected font size,
+each variable/output pair stacks with explicit local labels. Capture timing
+remains visible in either layout. Wider panels retain the side-by-side view.
+
 The Values panel separately marks the most recently recorded result in each
 document with an amber edge and a **Latest result** label. Completing a result,
 including an error, moves that cue; pending updates and source navigation do
