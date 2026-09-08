@@ -1,0 +1,30 @@
+{
+  "evaluateStay": true,
+  "evaluateAdvance": true,
+  "unlinkedBrowse": true,
+  "escapeHelpKeptResults": true,
+  "tabOpenNative": true,
+  "keyboardSourceReturn": true,
+  "extensions": [
+    {
+      "id": "mbjarland.evalens",
+      "path": "/Users/mbjarland/projects/evalens-worktrees/187-keyboard-recorded-workflow",
+      "active": true
+    },
+    {
+      "id": "local.evalens-review-bridge",
+      "path": "/private/tmp/evalens-learning-live/bridge-extension",
+      "active": true
+    },
+    {
+      "id": "ms-python.debugpy",
+      "path": "/Users/mbjarland/.vscode/extensions/ms-python.debugpy-2026.6.0-darwin-arm64",
+      "active": true
+    },
+    {
+      "id": "ms-python.python",
+      "path": "/Users/mbjarland/.vscode/extensions/ms-python.python-2026.4.0-darwin-arm64",
+      "active": true
+    }
+  ]
+}

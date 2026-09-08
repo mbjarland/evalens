@@ -1,0 +1,19 @@
+{
+  "output": {
+    "uri": "evalens-recording:/10/growth-native.py%20L1%20%E2%80%94%20recorded%20printed%20output%20%C2%B7%20recording%2010.txt",
+    "lines": 150,
+    "exact": true
+  },
+  "readOnly": true,
+  "findLine120": true,
+  "exactNativeCopy": true,
+  "returnKeptPanel": true,
+  "secondUri": "evalens-recording:/11/growth-native.py%20L2%20%E2%80%94%20recorded%20printed%20output%20%C2%B7%20recording%2011.txt",
+  "baselineSurvivedRerun": true,
+  "multilineRepr": {
+    "uri": "evalens-recording:/12/growth-native-repr.py%20L6%20%E2%80%94%20recorded%20value%20value%3A%20%C2%B7%20recording%2012.txt",
+    "exact": true
+  },
+  "wholeNestedStream": true,
+  "status": " 0 \n 0\n Recorded printed output · growth-large.py:1 · whole statement\nEvalens: loaded 1 statement\nPlain Text\nSpaces: 4\nLn 1, Col 1"
+}

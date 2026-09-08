@@ -177,8 +177,8 @@ const report = { kind: 'Developer-led, agent-operated real VS Code Host walkthro
     record('5-paging-and-limits', { outerPage, innerPage, innerPageSurvivedFold: true,
       outerLimit, overflow });
 
-    // Native inspection and final keyboard contract are appended after
-    // #186 and #187 are integrated. Never report their tasks as passed here.
+    // Final tasks 6 and 7 use the coordinating agent's actual Host reports
+    // and final-loop-keys.cjs. This early walkthrough keeps its original scope.
 
     f = await show('review-state-a.py');
     await command('evalens.clearResults');
@@ -211,6 +211,7 @@ const report = { kind: 'Developer-led, agent-operated real VS Code Host walkthro
     await shot('debugger-guidance');
     record('9-debugger-choice', { debuggerHelp,
       humanChoiceObserved: false, debuggerStartedByThisTask: false });
-    record('complete', { tasksSixAndSeven: 'pending integrated #186/#187' });
+    record('complete', { scope: 'Early tasks 1–5 and 8–9',
+      finalEvidence: 'See findings.md for native inspection and keyboard checks.' });
   } finally { await browser.disconnect(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

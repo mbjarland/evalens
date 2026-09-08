@@ -1,0 +1,83 @@
+{
+  "kind": "Agent-operated final keyboard loop integration",
+  "extension": [
+    {
+      "id": "mbjarland.evalens",
+      "path": "/Users/mbjarland/projects/evalens-worktrees/187-keyboard-recorded-workflow",
+      "active": true
+    },
+    {
+      "id": "local.evalens-review-bridge",
+      "path": "/private/tmp/evalens-learning-live/bridge-extension",
+      "active": true
+    },
+    {
+      "id": "ms-python.debugpy",
+      "path": "/Users/mbjarland/.vscode/extensions/ms-python.debugpy-2026.6.0-darwin-arm64",
+      "active": true
+    },
+    {
+      "id": "ms-python.python",
+      "path": "/Users/mbjarland/.vscode/extensions/ms-python.python-2026.4.0-darwin-arm64",
+      "active": true
+    }
+  ],
+  "outerPage": "for x in range(25) · line 1\nIterations 21–25 of 25 · Previous iterations · More iterations",
+  "outerFocus": {
+    "text": "Previous iterations",
+    "disabled": false,
+    "id": "1",
+    "control": "previous",
+    "top": 319.171875,
+    "bottom": 333.171875,
+    "visibleTop": 37,
+    "viewport": 799,
+    "pinnedContexts": 0
+  },
+  "innerPage": "for y in range(25) · line 2 · within Iteration 21, x = 20\nIterations 21–25 of 25 · Previous iterations · More iterations",
+  "innerFocus": {
+    "text": "Previous iterations",
+    "disabled": false,
+    "id": "543",
+    "control": "previous",
+    "top": 405.6171875,
+    "bottom": 419.6171875,
+    "visibleTop": 37,
+    "viewport": 799,
+    "pinnedContexts": 0
+  },
+  "nextTab": {
+    "text": "▸ Iteration 22",
+    "disabled": false,
+    "id": "569",
+    "control": "next",
+    "top": 430.8125,
+    "bottom": 447.3125,
+    "visibleTop": 37,
+    "viewport": 799,
+    "pinnedContexts": 0
+  },
+  "wholeFoldPreservedInnerPage": true,
+  "restoredFocus": {
+    "text": "Previous iterations",
+    "disabled": false,
+    "id": "543",
+    "control": "previous",
+    "top": 405.6171875,
+    "bottom": 419.6171875,
+    "visibleTop": 37,
+    "viewport": 799,
+    "pinnedContexts": 0
+  },
+  "largeFontFocus": {
+    "text": "More iterations",
+    "disabled": false,
+    "id": "543",
+    "control": "next",
+    "top": 767.0703125,
+    "bottom": 795.0703125,
+    "visibleTop": 263.34375,
+    "viewport": 799,
+    "pinnedContexts": 1
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "F9": true,
+  "entry": {
+    "active": {
+      "id": "aa7015e6-16be-4c4a-9467-eb0205cd3dd1",
+      "type": "debugpy",
+      "name": "Evalens review fixture"
+    },
+    "breakpoints": [
+      {
+        "line": 3,
+        "path": "/private/tmp/evalens-learning-live/workspace/growth-debugger.py"
+      }
+    ],
+    "threads": [
+      {
+        "id": 1,
+        "name": "MainThread"
+      }
+    ],
+    "frames": [
+      {
+        "name": "<module>",
+        "line": 1,
+        "path": "/private/tmp/evalens-learning-live/workspace/growth-debugger.py"
+      }
+    ]
+  },
+  "F5": true,
+  "F11": true,
+  "steppedInto": {
+    "active": {
+      "id": "aa7015e6-16be-4c4a-9467-eb0205cd3dd1",
+      "type": "debugpy",
+      "name": "Evalens review fixture"
+    },
+    "breakpoints": [
+      {
+        "line": 3,
+        "path": "/private/tmp/evalens-learning-live/workspace/growth-debugger.py"
+      }
+    ],
+    "threads": [
+      {
+        "id": 1,
+        "name": "MainThread"
+      }
+    ],
+    "frames": [
+      {
+        "name": "double",
+        "line": 2,
+        "path": "/private/tmp/evalens-learning-live/workspace/growth-debugger.py"
+      },
+      {
+        "name": "<module>",
+        "line": 4,
+        "path": "/private/tmp/evalens-learning-live/workspace/growth-debugger.py"
+      }
+    ]
+  },
+  "F10": true,
+  "completed": true
+}

@@ -1,0 +1,9 @@
+{
+  "previewClass": {
+    "classes": "tab tab-actions-right sizing-fit has-icon active selected tab-border-bottom tab-border-top",
+    "font": "italic"
+  },
+  "sameWebviewOnOpen": true,
+  "sameWebviewOnReturn": true,
+  "sourceStillOpen": true
+}
