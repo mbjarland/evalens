@@ -528,6 +528,24 @@ what it now is, and would not be if anything depended on it.
 
 ### Navigating captured results
 
+The Values panel offers one interface throughout the user's development.
+Its short recorded-results introduction is explicitly dismissible, remembered
+in extension UI state, and reopenable through **Help and learning**. That
+entry always remains available, with optional explanations and the existing
+editable exercises. Help content sits in ordinary document flow, so opening
+it does not enlarge the sticky toolbar or cover results. Only the user opens
+it; evaluating or becoming more experienced changes no guidance preference.
+Dismissal affects introductory prose, never essential result evidence.
+
+Evalens deliberately complements the Python debugger. Evaluate and Advance
+runs a statement and moves the cursor; it cannot pause inside that statement
+or step into a call. Execution order, breakpoints, the call stack, and variable
+inspection at a paused point belong to the debugger. Optional help links the
+[official guide](https://code.visualstudio.com/docs/python/debugging), without
+starting a debugger, creating configuration, or implying that its execution
+continues an Evalens recording. Help and exercise navigation send no kernel
+request and do not transfer or reset the Evalens namespace.
+
 The optional Values panel shows the existing trace at full width. Its
 canonical terminology is recorded in
 [`docs/development/recorded-result-language.md`](docs/development/recorded-result-language.md).

@@ -32,6 +32,10 @@ import {
   Marker, markerFor, normalizeSource, staleReasonText, DependencyCause,
 } from '../render/registry';
 import { pendingText } from '../render/status';
+import {
+  LearningHelpState, LEARNING_SCRIPT, LEARNING_STYLE, learningEmptyHtml,
+  learningHelpHtml, learningToggleHtml,
+} from './learningHelp';
 import { ResultFoldState } from './resultFold';
 
 // -- building rows from annotations ------------------------------------------
@@ -442,10 +446,6 @@ function escapeHtml(text: string): string {
     .replace(/'/g, '&#39;');
 }
 
-const NO_EDITOR_MESSAGE = 'Open a Python file.';
-const NO_ANNOTATIONS_MESSAGE =
-  'Evaluate a line with ⌘⏎ (Ctrl+Enter on Windows/Linux) to see '
-  + 'its values here.';
 const FOOTER_TEXT =
   'Values are what each line produced when it ran. Click a row to jump to '
   + 'the line. Use Up/Down or Home/End to browse, Enter or Space to reveal '
@@ -923,10 +923,6 @@ function rowHtml(
     + `</tr>`;
 }
 
-function emptyStateHtml(message: string): string {
-  return `<p class="empty">${escapeHtml(message)}</p>`;
-}
-
 function tableHtml(
   fileName: string, rows: readonly ValuesRow[], cursorLine: number | undefined,
   fold: FoldRenderOptions, latestResultLine?: number
@@ -1311,6 +1307,7 @@ function script(
   var followPanel = ${followPanel};
   var hideInlineValues = ${hideInlineValues};
   var revision = ${revision};
+  ${LEARNING_SCRIPT}
   var saved = vscode.getState() || {};
   var resultControls = Array.prototype.slice.call(document.querySelectorAll('.whole-result'));
   function paintResultFold(result, collapsed) {
@@ -1611,7 +1608,7 @@ function script(
 export function valuesHtml(
   data: ValuesPanelData, cursorLine: number | undefined, nonce: string,
   revealLine?: number, fold?: FoldState, followCursor = true, revision = 0,
-  followPanel = true, hideInlineValues = false
+  followPanel = true, hideInlineValues = false, learning: LearningHelpState = {}
 ): string {
   // Keep every row aligned, including when the cursor makes its gutter
   // bold. Emit only this numeric metric into the existing nonce style;
@@ -1625,9 +1622,9 @@ export function valuesHtml(
     expandedLines: fold?.expandedLines ?? NO_EXPANDED_LINES,
   };
   const body = data.fileName === undefined
-    ? emptyStateHtml(NO_EDITOR_MESSAGE)
+    ? learningEmptyHtml(false, learning.platform ?? process.platform)
     : data.rows.length === 0
-      ? emptyStateHtml(NO_ANNOTATIONS_MESSAGE)
+      ? learningEmptyHtml(true, learning.platform ?? process.platform)
       : tableHtml(data.fileName, data.rows, cursorLine, foldOptions,
         data.latestResultLine);
 
@@ -1638,7 +1635,7 @@ export function valuesHtml(
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; `
     + `style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
 <title>Evalens Values</title>
-<style nonce="${nonce}">${STYLE}${LOOP_EXPLORER_STYLE}
+<style nonce="${nonce}">${STYLE}${LOOP_EXPLORER_STYLE}${LEARNING_STYLE}
 table { --line-number-width: ${lineDigits}ch; }
 </style>
 </head>
@@ -1647,7 +1644,9 @@ table { --line-number-width: ${lineDigits}ch; }
 <label><input id="follow-cursor" type="checkbox" ${followCursor ? 'checked' : ''}> Link code and values</label>
 <label><input id="follow-panel" type="checkbox" ${followPanel ? 'checked' : ''}> Scroll to new results</label>
 <label><input id="hide-inline-values" type="checkbox" ${hideInlineValues ? 'checked' : ''}> Hide inline values while this panel is visible</label>
+${learningToggleHtml(learning)}
 </div>
+${learningHelpHtml(learning)}
 ${body}
 <script nonce="${nonce}">${script(revealLine, followCursor, revision, followPanel, hideInlineValues)}</script>
 </body>
