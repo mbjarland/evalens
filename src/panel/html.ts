@@ -1231,12 +1231,13 @@ tr.loop-row.cursor, .loop-row .result-surface { background: transparent; }
   color: var(--vscode-descriptionForeground, #9d9d9d);
 }
 .fold-action, .fold-label {
-  border: 0; padding: 0; background: transparent; color: inherit; font: inherit;
+  border: 0; padding: 0; background: transparent; font: inherit;
   cursor: pointer;
   text-decoration: underline;
   text-decoration-style: dotted;
   text-underline-offset: 2px;
 }
+.fold-action { color: inherit; }
 .fold-action:focus-visible, .fold-label:focus-visible {
   outline: 1px solid var(--vscode-focusBorder, currentColor); outline-offset: 2px;
 }

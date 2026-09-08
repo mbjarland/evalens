@@ -556,12 +556,19 @@ reveals the matching row, and navigating rows reveals the corresponding source.
 The source carries a short square amber gutter tick and a soft neutral wash
 on the actual cursor line, including nested headers and body lines. The tick
 sits beside any evaluated, stale or error symbol. The panel row retains its
-theme-aware frame and arrow. Finished source statements retain the editor
+theme-aware frame and rightward source arrow, distinct from fold triangles. Finished source statements retain the editor
 background; their result, gutter and scrollbar marks persist. Pending/input
 and brief success or selection-snap feedback still identify their region.
 Keyboard focus stays in the pane being used. Up/Down and Home/End browse rows;
 Enter, Space or a click explicitly reveals source even with cursor following
-off. The panel's checkbox controls this preference separately from
+off. When following is off, keyboard browsing leaves the source marker in
+place and uses ordinary focus indication. Flat output actions are native
+buttons, and control identity keeps focus through page changes and result
+replacement without assigning an old iteration to a new capture. Local
+explanations close with Escape; the next Escape closes Help. Other result
+controls return focus to their row. Native Focus Active Editor Group returns
+to editing, and no debugger keys are captured. The panel's checkbox controls
+this preference separately from
 `evalens.valuesPanel.follow`, which follows newly evaluated results. Neither
 navigation mode evaluates code or opens a hidden panel.
 
