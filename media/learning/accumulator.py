@@ -1,6 +1,6 @@
 # 4. Fix an accumulator
-# Use Evalens: Evaluate File ({{file}}).
-# Inspect the total history beside the for score in scores header.
+# Use Evalens: Evaluate File; inspect total beside the for score in scores line.
+# Defaults: Windows/Linux Ctrl+Alt+Enter; macOS Cmd+Alt+Enter.
 # With Loop Values on (the default), its history is 2, 4, 6. Final total is 6.
 # Why did the loop keep only the last score instead of adding all three?
 # Change total = score to total += score; explicitly Evaluate File again.
