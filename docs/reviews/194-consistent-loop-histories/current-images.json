@@ -1,0 +1,281 @@
+{
+  "extension": "/Users/mbjarland/projects/evalens-worktrees/194-consistent-loop-histories",
+  "capture": "Actual VS Code screenshot clips; no recreated decorations or edited pixels",
+  "screenshots": [
+    {
+      "file": "media/learning/screenshots/accumulator-before.png",
+      "source": [
+        "scores = [2, 4, 6]",
+        "total = 0",
+        "for score in scores:",
+        "    total = score",
+        "total"
+      ],
+      "lines": [
+        9,
+        13
+      ],
+      "pieces": [
+        "scores: ",
+        "[2, 4, 6]",
+        "total: ",
+        "0",
+        "score: ",
+        "2, 4, 6",
+        " · 3 iterations",
+        "​",
+        "​",
+        "total: ",
+        "2, 4, 6",
+        " · 3 iterations",
+        "total: ",
+        "6"
+      ],
+      "clip": {
+        "x": 53,
+        "y": 330,
+        "width": 1120,
+        "height": 150
+      }
+    },
+    {
+      "file": "media/learning/screenshots/accumulator-after.png",
+      "source": [
+        "scores = [2, 4, 6]",
+        "total = 0",
+        "for score in scores:",
+        "    total += score",
+        "total"
+      ],
+      "lines": [
+        9,
+        13
+      ],
+      "pieces": [
+        "scores: ",
+        "[2, 4, 6]",
+        "total: ",
+        "0",
+        "score: ",
+        "2, 4, 6",
+        " · 3 iterations",
+        "​",
+        "​",
+        "total: ",
+        "2, 6, 12",
+        " · 3 iterations",
+        "total: ",
+        "12"
+      ],
+      "clip": {
+        "x": 53,
+        "y": 330,
+        "width": 1132,
+        "height": 150
+      }
+    },
+    {
+      "file": "media/demo/loop.png",
+      "source": [
+        "for n in range(5):",
+        "    squared = n * n",
+        "    print(\"n is\", n)"
+      ],
+      "lines": [
+        1,
+        3
+      ],
+      "pieces": [
+        "n: ",
+        "0, 1, 2, 3, 4",
+        " · 5 iterations",
+        "​",
+        "​",
+        "squared: ",
+        "0, 1, 4, 9, 16",
+        " · 5 iterations",
+        "​",
+        "​",
+        "printed: ",
+        "n is 0 …(5 lines)"
+      ],
+      "clip": {
+        "x": 53,
+        "y": 90,
+        "width": 1558,
+        "height": 90
+      }
+    },
+    {
+      "file": "media/demo/spot-the-bug.png",
+      "source": [
+        "scores = [72, 85, 91, 64]",
+        "total = 0",
+        "for s in scores:",
+        "    total = s",
+        "average = total / len(scores)",
+        "passed = [s for s in scores if s >= 70]",
+        "print(f\"{len(passed)} passed, average {average:.1f}\")"
+      ],
+      "lines": [
+        1,
+        7
+      ],
+      "pieces": [
+        "scores: ",
+        "[72, 85, 91, 64]",
+        "total: ",
+        "0",
+        "s: ",
+        "72, 85, 91, 64",
+        " · 4 iterations",
+        "​",
+        "​",
+        "total: ",
+        "72, 85, 91, 64",
+        " · 4 iterations",
+        "average: ",
+        "16.0",
+        "​",
+        "​",
+        "total: ",
+        "64",
+        "passed: ",
+        "[72, 85, 91]",
+        "​",
+        "​",
+        "s: ",
+        "72, 85, 91, 64",
+        " · 4 iterations",
+        "printed: ",
+        "3 passed, average 16.0"
+      ],
+      "clip": {
+        "x": 53,
+        "y": 90,
+        "width": 1276,
+        "height": 210
+      }
+    },
+    {
+      "file": "media/demo/hero.png",
+      "source": [
+        "scores = [72, 85, 91, 64]",
+        "total = 0",
+        "for s in scores:",
+        "    total += s",
+        "average = total / len(scores)",
+        "passed = [s for s in scores if s >= 70]",
+        "print(f\"{len(passed)} passed, average {average:.1f}\")"
+      ],
+      "lines": [
+        1,
+        7
+      ],
+      "pieces": [
+        "scores: ",
+        "[72, 85, 91, 64]",
+        "total: ",
+        "0",
+        "s: ",
+        "72, 85, 91, 64",
+        " · 4 iterations",
+        "​",
+        "​",
+        "total: ",
+        "72, 157, 248, 312",
+        " · 4 iterations",
+        "average: ",
+        "78.0",
+        "​",
+        "​",
+        "total: ",
+        "312",
+        "passed: ",
+        "[72, 85, 91]",
+        "​",
+        "​",
+        "s: ",
+        "72, 85, 91, 64",
+        " · 4 iterations",
+        "printed: ",
+        "3 passed, average 78.0"
+      ],
+      "clip": {
+        "x": 53,
+        "y": 90,
+        "width": 1276,
+        "height": 210
+      }
+    },
+    {
+      "file": "media/demo/watch.png",
+      "source": [
+        "for x in [1, 2, 3, 4]:",
+        "    total += x"
+      ],
+      "lines": [
+        2,
+        3
+      ],
+      "pieces": [
+        "x: ",
+        "1, 2, 3, 4",
+        " · 4 iterations",
+        "​",
+        "​",
+        "total: ",
+        "1, 3, 6, 10",
+        " · 4 iterations",
+        "​",
+        "​",
+        "total > 5: ",
+        "False, False, True, True",
+        " · 4 iterations"
+      ],
+      "clip": {
+        "x": 53,
+        "y": 120,
+        "width": 1799,
+        "height": 60
+      }
+    },
+    {
+      "file": "media/demo/comprehension.png",
+      "source": [
+        "squares = [n * n for n in range(6)]"
+      ],
+      "lines": [
+        1,
+        1
+      ],
+      "pieces": [
+        "squares: ",
+        "[0, 1, 4, 9, 16, 25]",
+        "​",
+        "​",
+        "n: ",
+        "0, 1, 2, 3, 4, 5",
+        " · 6 iterations"
+      ],
+      "clip": {
+        "x": 53,
+        "y": 90,
+        "width": 1361,
+        "height": 30
+      }
+    }
+  ],
+  "extensions": [
+    {
+      "id": "mbjarland.evalens",
+      "path": "/Users/mbjarland/projects/evalens-worktrees/194-consistent-loop-histories",
+      "active": true
+    },
+    {
+      "id": "local.evalens-review-bridge",
+      "path": "/private/tmp/evalens-learning-images/bridge-extension",
+      "active": true
+    }
+  ]
+}

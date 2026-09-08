@@ -1,0 +1,594 @@
+{
+  "extension": "/Users/mbjarland/projects/evalens-worktrees/194-consistent-loop-histories",
+  "fixtures": [
+    {
+      "name": "body",
+      "rows": [
+        {
+          "source": "for v in [1, 2, 3]:",
+          "text": "v: 1, 2, 3 · 3 iterations​​u: 4, 8, 12 · 3 iterations​​printed: 4 …(3 lines)",
+          "pieces": [
+            {
+              "text": "v: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "1, 2, 3",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 3 iterations",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "​",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "​",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "u: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "4, 8, 12",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 3 iterations",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "​",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "​",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "printed: ",
+              "color": "rgb(92, 127, 166)"
+            },
+            {
+              "text": "4 …(3 lines)",
+              "color": "rgb(209, 163, 92)"
+            }
+          ]
+        },
+        {
+          "source": "    u = 4 * v",
+          "text": "",
+          "pieces": []
+        },
+        {
+          "source": "    print(u)",
+          "text": "",
+          "pieces": []
+        },
+        {
+          "source": "",
+          "text": "",
+          "pieces": []
+        }
+      ],
+      "hover": "```\nv = 1, 2, 3\n3 iterations\nu = 4, 8, 12\nprinted:\n4\n8\n12\n```\n[Show all output](command:evalens.showOutput)"
+    },
+    {
+      "name": "filtered",
+      "rows": [
+        {
+          "source": "for v in range(5):",
+          "text": "v: 0, 1, 2, 3, 4 · 5 iterations​​kept: 4, 12 · 2 iterations",
+          "pieces": [
+            {
+              "text": "v: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "0, 1, 2, 3, 4",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 5 iterations",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "​",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "​",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "kept: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "4, 12",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 2 iterations",
+              "color": "rgb(141, 122, 90)"
+            }
+          ]
+        },
+        {
+          "source": "    if v % 2 == 0:",
+          "text": "",
+          "pieces": []
+        },
+        {
+          "source": "        continue",
+          "text": "",
+          "pieces": []
+        },
+        {
+          "source": "    kept = v * 4",
+          "text": "",
+          "pieces": []
+        },
+        {
+          "source": "",
+          "text": "",
+          "pieces": []
+        }
+      ],
+      "hover": "```\nv = 0, 1, 2, 3, 4\n5 iterations\nkept = 4, 12 (bound on 2 of 5 iterations)\n```"
+    },
+    {
+      "name": "constant",
+      "rows": [
+        {
+          "source": "for v in range(3):",
+          "text": "v: 0, 1, 2 · 3 iterations​​unchanged: 7 · 3 iterations",
+          "pieces": [
+            {
+              "text": "v: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "0, 1, 2",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 3 iterations",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "​",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "​",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "unchanged: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "7",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 3 iterations",
+              "color": "rgb(141, 122, 90)"
+            }
+          ]
+        },
+        {
+          "source": "    unchanged = 7",
+          "text": "",
+          "pieces": []
+        },
+        {
+          "source": "",
+          "text": "",
+          "pieces": []
+        }
+      ],
+      "hover": "```\nv = 0, 1, 2\n3 iterations\nunchanged = 7 (unchanged over 3 iterations)\n```"
+    },
+    {
+      "name": "uniform",
+      "rows": [
+        {
+          "source": "for x in range(100):",
+          "text": "x: 0, 1, 2, 3, 4, …, 99 · 100 iterations​​printed: 0 0 …(10000 lines)",
+          "pieces": [
+            {
+              "text": "x: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "0, 1, 2, 3, 4, …, 99",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 100 iterations",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "​",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "​",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "printed: ",
+              "color": "rgb(92, 127, 166)"
+            },
+            {
+              "text": "0 0 …(10000 lines)",
+              "color": "rgb(209, 163, 92)"
+            }
+          ]
+        },
+        {
+          "source": "    for y in range(100):",
+          "text": "y: 0, 1, 2, 3, 4, …, 99 · 100 runs · 10,000 iterations total",
+          "pieces": [
+            {
+              "text": "y: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "0, 1, 2, 3, 4, …, 99",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 100 runs · 10,000 iterations total",
+              "color": "rgb(141, 122, 90)"
+            }
+          ]
+        },
+        {
+          "source": "        print(x, y)",
+          "text": "",
+          "pieces": []
+        },
+        {
+          "source": "",
+          "text": "",
+          "pieces": []
+        }
+      ],
+      "hover": "```\ny = 0, 1, 2, 3, 4, … (+9,994 more) … 99\n10000 iterations total across 100 loop runs\nA run is one execution of this for statement. An iteration is one pass through its body.\nValues are observations in execution order across all runs, not a range or a pattern assumed to repeat in each run.\nThe inline … skips 9,994 values between the first 5 and final observation.\n```\n[Show all output](command:evalens.showOutput)"
+    },
+    {
+      "name": "uneven",
+      "rows": [
+        {
+          "source": "for x in [1, 3, 0, 2]:",
+          "text": "x: 1, 3, 0, 2 · 4 iterations​​printed: 1 0 …(3 lines)",
+          "pieces": [
+            {
+              "text": "x: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "1, 3, 0, 2",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 4 iterations",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "​",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "​",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "printed: ",
+              "color": "rgb(92, 127, 166)"
+            },
+            {
+              "text": "1 0 …(3 lines)",
+              "color": "rgb(209, 163, 92)"
+            }
+          ]
+        },
+        {
+          "source": "    for y in range(x):",
+          "text": "y: 0, 0, 1, 0, 1 · 4 runs · 5 iterations total",
+          "pieces": [
+            {
+              "text": "y: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "0, 0, 1, 0, 1",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 4 runs · 5 iterations total",
+              "color": "rgb(141, 122, 90)"
+            }
+          ]
+        },
+        {
+          "source": "        if y == 1:",
+          "text": "",
+          "pieces": []
+        },
+        {
+          "source": "            break",
+          "text": "",
+          "pieces": []
+        },
+        {
+          "source": "        print(x, y)",
+          "text": "",
+          "pieces": []
+        },
+        {
+          "source": "",
+          "text": "",
+          "pieces": []
+        }
+      ],
+      "hover": "```\ny = 0, 0, 1, 0, 1\n5 iterations total across 4 loop runs\nA run is one execution of this for statement. An iteration is one pass through its body.\nValues are observations in execution order across all runs, not a range or a pattern assumed to repeat in each run.\n```\n[Show all output](command:evalens.showOutput)"
+    },
+    {
+      "name": "empty",
+      "rows": [
+        {
+          "source": "for x in range(2):",
+          "text": "x: 0, 1 · 2 iterations",
+          "pieces": [
+            {
+              "text": "x: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "0, 1",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 2 iterations",
+              "color": "rgb(141, 122, 90)"
+            }
+          ]
+        },
+        {
+          "source": "    for y in []:",
+          "text": "y: (no iterations) · 2 runs · 0 iterations total",
+          "pieces": [
+            {
+              "text": "y: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "(no iterations)",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 2 runs · 0 iterations total",
+              "color": "rgb(141, 122, 90)"
+            }
+          ]
+        },
+        {
+          "source": "        print(y)",
+          "text": "",
+          "pieces": []
+        },
+        {
+          "source": "",
+          "text": "",
+          "pieces": []
+        }
+      ],
+      "hover": "```\ny = (no iterations)\n0 iterations total across 2 loop runs\nA run is one execution of this for statement. An iteration is one pass through its body.\nValues are observations in execution order across all runs, not a range or a pattern assumed to repeat in each run.\n```"
+    },
+    {
+      "name": "unreached",
+      "rows": [
+        {
+          "source": "for x in []:",
+          "text": "x: (no iterations)",
+          "pieces": [
+            {
+              "text": "x: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "(no iterations)",
+              "color": "rgb(209, 163, 92)"
+            }
+          ]
+        },
+        {
+          "source": "    for y in range(3):",
+          "text": "y: (not reached)",
+          "pieces": [
+            {
+              "text": "y: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "(not reached)",
+              "color": "rgb(209, 163, 92)"
+            }
+          ]
+        },
+        {
+          "source": "        print(y)",
+          "text": "",
+          "pieces": []
+        },
+        {
+          "source": "",
+          "text": "",
+          "pieces": []
+        }
+      ],
+      "hover": "```\ny = (not reached)\nLoop not reached during this evaluation\n```"
+    },
+    {
+      "name": "single",
+      "rows": [
+        {
+          "source": "for x in range(1):",
+          "text": "x: 0 · 1 iteration​​printed: 0 …(3 lines)",
+          "pieces": [
+            {
+              "text": "x: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "0",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 1 iteration",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "​",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "​",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "printed: ",
+              "color": "rgb(92, 127, 166)"
+            },
+            {
+              "text": "0 …(3 lines)",
+              "color": "rgb(209, 163, 92)"
+            }
+          ]
+        },
+        {
+          "source": "    for y in range(3):",
+          "text": "y: 0, 1, 2 · 3 iterations",
+          "pieces": [
+            {
+              "text": "y: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "0, 1, 2",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 3 iterations",
+              "color": "rgb(141, 122, 90)"
+            }
+          ]
+        },
+        {
+          "source": "        print(y)",
+          "text": "",
+          "pieces": []
+        },
+        {
+          "source": "",
+          "text": "",
+          "pieces": []
+        }
+      ],
+      "hover": "```\ny = 0, 1, 2\n3 iterations\n```\n[Show all output](command:evalens.showOutput)"
+    },
+    {
+      "name": "shadowed",
+      "rows": [
+        {
+          "source": "for x in [1, 2]:",
+          "text": "x: 1, 2 · 2 iterations​​printed: 9 …(4 lines)",
+          "pieces": [
+            {
+              "text": "x: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "1, 2",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 2 iterations",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "​",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "​",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "printed: ",
+              "color": "rgb(92, 127, 166)"
+            },
+            {
+              "text": "9 …(4 lines)",
+              "color": "rgb(209, 163, 92)"
+            }
+          ]
+        },
+        {
+          "source": "    for x in [7, 8]:",
+          "text": "x: 7, 8, 7, 8 · 2 runs · 4 iterations total",
+          "pieces": [
+            {
+              "text": "x: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "7, 8, 7, 8",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 2 runs · 4 iterations total",
+              "color": "rgb(141, 122, 90)"
+            }
+          ]
+        },
+        {
+          "source": "        for x in [9]:",
+          "text": "x: 9, 9, 9, 9 · 4 runs · 4 iterations total",
+          "pieces": [
+            {
+              "text": "x: ",
+              "color": "rgb(141, 122, 90)"
+            },
+            {
+              "text": "9, 9, 9, 9",
+              "color": "rgb(209, 163, 92)"
+            },
+            {
+              "text": " · 4 runs · 4 iterations total",
+              "color": "rgb(141, 122, 90)"
+            }
+          ]
+        },
+        {
+          "source": "            print(x)",
+          "text": "",
+          "pieces": []
+        },
+        {
+          "source": "",
+          "text": "",
+          "pieces": []
+        }
+      ],
+      "hover": "```\nx = 7, 8, 7, 8\n4 iterations total across 2 loop runs\nA run is one execution of this for statement. An iteration is one pass through its body.\nValues are observations in execution order across all runs, not a range or a pattern assumed to repeat in each run.\n```\n[Show all output](command:evalens.showOutput)"
+    }
+  ]
+}
