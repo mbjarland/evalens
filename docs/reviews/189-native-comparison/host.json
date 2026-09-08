@@ -1,0 +1,15 @@
+{
+  "kind": "Actual isolated VS Code Host, ready186 e28143b",
+  "earlier": "ada\n\nlin\n",
+  "later": "ada\nlin\n",
+  "exactCapturedTexts": true,
+  "numberedRecordingsBothOpen": true,
+  "nativePaletteDirectCompare": true,
+  "command": "File: Compare Active File With...",
+  "pickerShowsBothRecordings": true,
+  "visibleDiffEditors": 1,
+  "nativeClipboardCompare": false,
+  "clipboardRestriction": "VS Code command accepts filesystem-backed or untitled resources; TextDocumentContentProvider scheme is ignored",
+  "clipboardRestoredAllFormats": true,
+  "humanParticipants": 0
+}
