@@ -146,6 +146,25 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       vscode.workspace.onDidCloseTextDocument((document) => {
         this.latestResults.delete(document);
         this.resultFolds.close(document);
+        if (this.renderedEditor?.document === document) {
+          this.renderedEditor = undefined;
+          this.inspectingRecording = false;
+          this.rebuild();
+        }
+      }),
+      vscode.window.tabGroups.onDidChangeTabs(event => {
+        const source = this.renderedEditor?.document.uri.toString();
+        if (!source) return;
+        const ownsSource = (tab: vscode.Tab): boolean => tab.input instanceof vscode.TabInputText
+          && tab.input.uri.toString() === source;
+        if (event.closed.some(ownsSource)
+          && !vscode.window.tabGroups.all.some(group => group.tabs.some(ownsSource))) {
+          // VS Code can cache a closed TextDocument. A source tab's actual
+          // close is enough to release the borrowed editor context now.
+          this.renderedEditor = undefined;
+          this.inspectingRecording = false;
+          this.rebuild();
+        }
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration('evalens.valuesPanel.followCursor')) {
@@ -177,14 +196,23 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
         if (event.affectsConfiguration('evalens.resetOnLoad')) this.rebuild();
       }),
       vscode.window.onDidChangeActiveTextEditor(() => {
-        const editor = this.editorForPanel();
         const active = vscode.window.activeTextEditor;
+        // Replacing an editor in one group emits undefined before the new
+        // editor exists. Opening/returning from a recording is an explicit
+        // transition, not evidence that the source document was closed.
+        if (!active && this.recordingTransitionSource()) return;
+        const editor = this.editorForPanel();
         const recording = Boolean(active && this.recordings.context(active.document.uri));
-        const returning = this.inspectingRecording && editor === this.renderedEditor;
+        const sameSource = editor && this.renderedEditor
+          && editor.document === this.renderedEditor.document;
+        const returning = this.inspectingRecording && sameSource;
         this.inspectingRecording = recording;
-        // Keep the DOM itself, including focused controls and scroll offset,
-        // while native Find/copy uses this result's read-only document.
-        if ((recording || returning) && editor === this.renderedEditor) return;
+        // A hidden source can return as a new TextEditor object. Keep the
+        // DOM itself, but replace its borrowed editor handle with the new one.
+        if ((recording || returning) && sameSource) {
+          this.renderedEditor = editor;
+          return;
+        }
         this.rebuild(this.cursorRevealLine());
       }),
       // Cursor movement never rebuilds -- it only moves the highlighted row,
@@ -527,11 +555,17 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     });
   }
 
+  private recordingTransitionSource(): vscode.TextEditor | undefined {
+    return (this.recordings.opening || this.inspectingRecording)
+      && this.renderedEditor && !this.renderedEditor.document.isClosed
+      ? this.renderedEditor : undefined;
+  }
+
   /** A recording borrows only its originating Python view. An unrelated
    * non-Python editor still gets the ordinary empty panel. */
   private editorForPanel(): vscode.TextEditor | undefined {
     const active = vscode.window.activeTextEditor;
-    if (!active) return active;
+    if (!active) return this.recordingTransitionSource();
     const context = this.recordings.context(active.document.uri);
     if (!context) return active;
     const source = context.source.toString();

@@ -41,7 +41,7 @@ result gets the existing fresh-result fold behavior.
 
 ## Automated and real-kernel evidence
 
-`src/test/recordedText.test.ts` adds nine checks, including a loaded extension
+`src/test/recordedText.test.ts` adds ten checks, including a loaded extension
 using the real Python subprocess and its request pipe. The request probe sees
 actual evaluations and verifies that stream and repr exports add no request:
 no evaluation, inspection, reset or extra representation call.
@@ -55,7 +55,7 @@ the native provider's exact text and source context.
 
 Before integration rebase: 944 extension tests on the parent branch; 952
 extension tests pass after this change. After rebasing onto master `173ef23`,
-which includes recording evidence and session help, 959 extension tests pass
+which includes recording evidence and session help, 960 extension tests pass
 (parent: 950). The unchanged kernel suite passes 718 tests. Logs are
 `/private/tmp/evalens-186-extension.log` and
 `/private/tmp/evalens-186-kernel.log`. Root review must still check native
@@ -72,3 +72,33 @@ that actual listener extracted from compiled webview HTML, dispatches a click
 through the provider and real-kernel fixture, and checks exact Unicode output,
 no additional Python request, and rejection of a queued old-render click.
 It does not bypass the sender by constructing an already-valid message.
+
+
+## One-group native editor transition
+
+The second root Host pass found that replacing the source editor with its
+recording emitted an active-editor `undefined` event, then the new native
+editor about eight milliseconds later. The old handler treated the
+intermediate event as a missing source and replaced the panel HTML.
+
+Recording opening and return now keep their existing source context through
+that explicit transition. Returning the same document as a new TextEditor
+object also keeps the panel DOM, while updating its editor handle. Actual
+source tab/document closure releases the borrowed context; unrelated editors
+still replace the panel normally. There is no debounce duration to guess.
+
+The new automated regression models a preview source tab, the intermediate
+undefined editor events, a new source editor handle on return, and source
+closure while the immutable native recording stays readable.
+
+The agent then drove the actual isolated VS Code Host with one editor group
+and `growth-native.py`: opening preserved the same webview frame and a DOM
+identity probe, its row text stayed unchanged, and all 150 Unicode/tabbed
+output lines matched exactly. Clicking the row returned to the visible Python
+source, preserving that same frame and row. The screenshot was inspected.
+Evidence: `host-transition.json` and `host-source-return.png`.
+
+This Host check opened the source as a pinned tab through the bridge. A native
+preview source, physical Find/copy and the remaining full export walkthrough
+still belong to root's final review. Both suites pass after this correction:
+960 extension tests and 718 kernel tests.

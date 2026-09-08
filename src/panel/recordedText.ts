@@ -59,6 +59,10 @@ export class RecordedTextDocuments implements vscode.TextDocumentContentProvider
     ];
   }
 
+  get opening(): boolean {
+    return [...this.recordings.values()].some(recording => recording.opening);
+  }
+
   context(uri: vscode.Uri): RecordedTextContext | undefined {
     return this.recordings.get(uri.toString())?.context;
   }

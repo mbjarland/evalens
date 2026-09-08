@@ -1,0 +1,9 @@
+{
+  "sameGroup": true,
+  "exactPayload": true,
+  "recordingUri": "evalens-recording:/1/growth-native.py%20L1%20%E2%80%94%20recorded%20printed%20output%20%C2%B7%20recording%201.txt",
+  "framePreservedOnOpen": true,
+  "framePreservedOnReturn": true,
+  "rowTextPreserved": true,
+  "sourcePath": "/private/tmp/evalens-learning-live/workspace/growth-native.py"
+}

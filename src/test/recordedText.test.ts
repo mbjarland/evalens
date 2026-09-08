@@ -262,3 +262,37 @@ test('the compiled flat Open click dispatch reaches the provider with its render
     assert.equal(f.fake.openedDocuments.length, 1, 'a queued click from the replaced render is rejected');
   } finally { KernelClient.prototype.request = request; f.dispose(); }
 });
+
+
+test('one-group recording transitions keep a preview source through undefined editor events', async () => {
+  const f = fixture('print("preview source")\n');
+  try {
+    await f.fake.executeCommand('evalens.evaluateAtCursor');
+    const sourceTab = { input: new FakeTabInputText(f.editor.document.uri), isPreview: true };
+    f.fake.tabs.all = [{ tabs: [sourceTab] }];
+    const original = f.view.webview.html;
+    f.post({ open: 0, stream: 'printed' });
+    f.fake.window.activeTextEditor = undefined;
+    f.fake.window.visibleTextEditors = [];
+    f.fake.emitters.onDidChangeActiveTextEditor.fire(undefined);
+    assert.equal(f.view.webview.html, original, 'the intermediate empty editor is not a source close');
+    await settled();
+    const reading = new FakeEditor(f.fake.openedDocuments[0]!);
+    f.fake.tabs.all[0]!.tabs.push({ input: new FakeTabInputText(reading.document.uri) });
+    f.activate(reading);
+    assert.equal(f.view.webview.html, original, 'the source preview remains the panel context');
+    f.fake.window.activeTextEditor = undefined;
+    f.fake.emitters.onDidChangeActiveTextEditor.fire(undefined);
+    assert.equal(f.view.webview.html, original, 'the source-return transition keeps the same DOM');
+    const returned = new FakeEditor(f.editor.document);
+    f.activate(returned);
+    assert.equal(f.view.webview.html, original, 'a new editor handle for the same document preserves DOM');
+    f.activate(reading);
+    f.fake.tabs.all = [{ tabs: [{ input: new FakeTabInputText(reading.document.uri) }] }];
+    f.fake.emitters.onDidChangeTabs.fire({ closed: [sourceTab] });
+    assert.match(f.view.webview.html, /<p>Open a Python file\.<\/p>/);
+    assert.doesNotMatch(f.view.webview.html, /<tr class="row/,
+      'closing the source tab releases context even if VS Code caches its document');
+    assert.equal(reading.document.getText(), 'preview source\n', 'the explicit recording remains readable');
+  } finally { f.dispose(); }
+});
