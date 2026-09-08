@@ -2,27 +2,31 @@
 
 Issue #192 corrects the editable Python examples, which previously substituted
 only the host platform's shortcut even though the walkthrough guide showed
-both. The five shipped `.py` files now contain both labeled defaults and are
-opened without substitution. Existing user copies are not rewritten.
+both. The five shipped `.py` files now put the Mac default first with the
+Windows/Linux equivalent in parentheses, and open without substitution.
+Existing user copies are not rewritten.
 
-| Exercise | Command | Windows/Linux | macOS |
-| --- | --- | --- | --- |
-| Predict a value | Evaluate at Cursor | Ctrl+Enter | Cmd+Enter |
-| Follow the next statement | Evaluate and Advance | Ctrl+Shift+Enter | Cmd+Shift+Enter |
-| Two names, one list | Evaluate and Advance | Ctrl+Shift+Enter | Cmd+Shift+Enter |
-| Fix an accumulator | Evaluate File | Ctrl+Alt+Enter | Cmd+Alt+Enter |
-| Notice an old answer | Evaluate at Cursor | Ctrl+Enter | Cmd+Enter |
+| Exercise | Command | Default key |
+| --- | --- | --- |
+| Predict a value | Evaluate at Cursor | Cmd+Enter (Ctrl+Enter on Windows/Linux) |
+| Follow the next statement | Evaluate and Advance | Cmd+Shift+Enter (Ctrl+Shift+Enter on Windows/Linux) |
+| Two names, one list | Evaluate and Advance | Cmd+Shift+Enter (Ctrl+Shift+Enter on Windows/Linux) |
+| Fix an accumulator | Evaluate File | Cmd+Alt+Enter (Ctrl+Alt+Enter on Windows/Linux) |
+| Notice an old answer | Evaluate at Cursor | Cmd+Enter (Ctrl+Enter on Windows/Linux) |
 
 The existing learning test now opens each exercise independently through the
-registered command and checks both labeled defaults against that command's
-manifest binding. It also checks that the opened text equals the packaged
-Python file, instead of comparing a second read of the same file. The existing
+registered command and checks the Mac-first default and parenthesized
+Windows/Linux equivalent against that command's manifest binding. It also
+checks that the opened text equals the packaged Python file, instead of
+comparing a second read of the same file. The existing
 real-kernel exercise checks still verify the expected values and histories.
 
-Validation on the issue branch: 963 extension tests and 718 kernel tests pass,
-unchanged from the provided baseline. The focused learning suite passes all
-eight checks. Python AST comparisons including source locations match the
-base revision for all five examples; executable statements, line numbers and
+Validation before the Mac-first wording refinement: 963 extension tests and
+718 kernel tests pass, unchanged from the provided baseline. After that
+refinement, the focused learning suite passes all eight checks. The main
+session reruns both full suites after merging. Python AST comparisons
+including source locations match the base revision for all five examples;
+executable statements, line numbers and
 the existing screenshot code are unchanged. All example comments fit within
 80 columns, and `git diff --check` passes.
 

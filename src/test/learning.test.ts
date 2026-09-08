@@ -78,7 +78,7 @@ test('exercise picker can be cancelled and rejects arbitrary file paths', async 
   } finally { extension.deactivate(); }
 });
 
-test('each opened example names both platform defaults for its evaluation command', async () => {
+test('each opened example gives its Mac default with Windows/Linux in parentheses', async () => {
   const { fake, extension } = activate();
   const commands: Record<string, string> = {
     predict: 'evaluateAtCursor', advance: 'evaluateAndAdvance',
@@ -94,8 +94,8 @@ test('each opened example names both platform defaults for its evaluation comman
       assert.ok(binding?.key && binding.mac, `${step.id} has no platform defaults`);
       const title = manifest.contributes.commands.find((c: { command: string }) => c.command === command)?.title;
       assert.ok(title && content.includes(title.toLowerCase()), `${step.id} names its evaluation command`);
-      assert.ok(content.includes(`defaults: windows/linux ${binding.key}; macos ${binding.mac}.`),
-        `${step.id} must include both labeled defaults in its opened Python comments`);
+      assert.ok(content.includes(`default key: ${binding.mac} (${binding.key} on windows/linux).`),
+        `${step.id} must put the Mac default first and Windows/Linux in parentheses`);
     }
   } finally { extension.deactivate(); }
 });

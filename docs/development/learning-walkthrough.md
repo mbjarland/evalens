@@ -6,11 +6,11 @@ Open Learning Exercise** opens an individual example. No evaluation command
 is dispatched by either entry.
 
 `media/learning/` is shipped product content. The `.py` files open unchanged
-as ordinary editable untitled Python documents. Every example names both
-Windows/Linux and macOS default keys in its comments, regardless of the host,
-so its instructions remain useful when shared. The guide names the Command
-Palette as the fallback for customized or conflicting bindings. The
-extension selects the first statement so the learner's first evaluation does
+as ordinary editable untitled Python documents. Every example gives the macOS
+default key first, followed by the Windows/Linux equivalent in parentheses,
+regardless of the host, so its instructions remain useful when shared. The
+guide names the Command Palette as the fallback for customized or conflicting
+bindings. The extension selects the first statement so the first evaluation does
 something, and reuses a visible exercise group to avoid accumulating columns.
 It does not overwrite examples on disk or save into the user's project.
 Existing open copies are the user's documents: updating the extension does
@@ -41,9 +41,10 @@ Windows/Linux and macOS defaults in text, with the Command Palette as a fallback
 
 Automated checks verify manifest links against the exercise allowlist, real
 `vsce ls` packaging including every referenced PNG, fresh Python copies, command
-dispatch, group reuse, both labeled platform defaults in each actual opened
-example (compared with its command's manifest binding) and guide tables,
-and exercise results through the real kernel pipe. The accumulator check
+dispatch, group reuse, Mac-first defaults with Windows/Linux in parentheses
+in each actual opened example (compared with its command's manifest binding),
+both platform defaults in guide tables, and exercise results through the real
+kernel pipe. The accumulator check
 includes both recorded histories, not only the final sum. These checks do not
 verify pixels, focus behavior, or physical keyboard handling.
 
