@@ -1,0 +1,17 @@
+{
+  "extension": [
+    {
+      "id": "mbjarland.evalens",
+      "path": "/Users/mbjarland/projects/evalens-worktrees/183-recorded-result-language",
+      "active": true
+    }
+  ],
+  "summary": "growth-timing.py · 1 recorded result",
+  "controls": [
+    "Link code and values",
+    "Scroll to new results",
+    "Hide inline values while this panel is visible"
+  ],
+  "loop": "for v in [1, 2, 3] · 3 iterations\nVariables\nLoop variable at start · body values at end\nPrinted output\nv = 1, u = 99\n4\nv = 2, u = 99\n8\nv = 3, u = 99\n12\nFinal values after this loop: v = 3, u = 99\nOpen printed output",
+  "checkboxRoundTrip": true
+}
