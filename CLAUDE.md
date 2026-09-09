@@ -56,22 +56,34 @@ with one is off-strategy even when it is convenient.
 
 ## Status
 
-**The extension is built, tested and installable.** It is not published —
-there is no marketplace listing — and nothing it paints has been signed off by
-a human watching the editor do it.
+**The extension is built, tested and installable.** A
+[Marketplace listing](https://marketplace.visualstudio.com/items?itemName=mbjarland.evalens)
+exists; use it for the current public version and channel, and
+[`CHANGELOG.md`](CHANGELOG.md) for release notes. Publication of the first
+stable version is tracked in
+[#195-stable-marketplace-release](https://github.com/mbjarland/evalens/issues/195).
+
+The baseline at `a2a41c7` passes **968 extension tests and 718 kernel tests**.
+Actual macOS VS Code rendering and installed-package checks are recorded in
+[`docs/reviews/194-consistent-loop-histories/verification.md`](docs/reviews/194-consistent-loop-histories/verification.md).
+Those checks are not a learner study. Physical Windows keybindings and a
+human screen-reader session have not been verified.
 
 ```
-src/                    the extension: 21 TypeScript modules, ~6,000 lines
-kernel/                 kernel, resolver and loop recorders — ~3,500 lines,
-                        stdlib only, no ZeroMQ, no runtime dependencies
-src/test/, kernel/test_*.py   396 + 395 tests, both green on e76b68d
-examples/tour.py        732 lines: the manual fixture and the demo script
+src/                    the extension, renderer, values panel and learning UI
+kernel/                 kernel, resolver and loop recorders; stdlib only,
+                        no ZeroMQ, no runtime dependencies
+src/test/, kernel/test_*.py   extension and kernel regression suites
+examples/tour.py        the manual fixture and the demo script
+media/learning/         editable exercises and actual rendered guide images
 media/gutter/           evaluated / stale / error markers, light and dark
 IDEA.md                 what this is, what already does part of it, and what
                         would kill it
 README.md               the user-facing doc — commands, keys, settings.
                         src/test/readme.test.ts checks it against the code
-docs/ai/, docs/development/   AI operating docs, issue tracking, worktrees
+docs/ai/, docs/development/   AI operating docs, issue tracking, worktrees,
+                        release procedure
+docs/reviews/           reproducible review evidence and validation limits
 prototype/form_at_cursor.py   history — the 48-line proof that
                         kernel/resolver.py superseded
 bin/hooks/, bin/install-hooks.sh   the commit gate
@@ -85,7 +97,7 @@ The earlier plan to scaffold with `yo code` was not followed. Raise a decision
 ticket to change any of this:
 
 - **Extension**: TypeScript, compiled by `tsc -p .`, tested with
-  `node --test`. Four devDependencies, no runtime dependencies, no bundler.
+  `node --test`. Five devDependencies, no runtime dependencies, no bundler.
 - **Kernel**: a persistent Python subprocess holding a namespace dict,
   speaking newline-delimited JSON over **two** pipes — requests on fd 0/1;
   interrupts, prompts and everything user code prints on fd 3/4, because the
@@ -131,21 +143,22 @@ reverse-engineering session. `IDEA.md` records where Evalens departs and why.
 
 ## Commands
 
-Every one of these was run in a worktree on `e76b68d` before being written
-here:
+Run these from the issue worktree. The scratch npm cache avoids the default
+cache's local permissions problem:
 
 ```bash
 bin/install-hooks.sh     # wire the commit gate (once per clone)
-npm ci                   # once per worktree — a fresh checkout has no
-                         # node_modules and no build output
-npm run compile          # tsc -p .
-npm run watch            # the same, watching
-npm test                 # 396 tests; pretest compiles first
-npm run test:kernel      # 395 tests, python3 -m unittest
-npm run package          # evalens-<version>.vsix, 35 files
+npm --cache /private/tmp/evalens-npm-cache ci
+npm --cache /private/tmp/evalens-npm-cache run compile
+npm --cache /private/tmp/evalens-npm-cache run watch
+npm --cache /private/tmp/evalens-npm-cache test
+npm --cache /private/tmp/evalens-npm-cache run test:kernel
+npm --cache /private/tmp/evalens-npm-cache run package
 gh issue list            # the tracker
 python3 prototype/form_at_cursor.py FILE LINE…   # the superseded AST proof
 ```
 
 Both suites pass before anything merges, and a clean rebase is not evidence
 that both sides survived — design rule 10.
+For a Marketplace release, follow
+[`docs/development/releasing.md`](docs/development/releasing.md).
