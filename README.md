@@ -115,10 +115,20 @@ does not run the program again.
 
 ## A loop tells you what happened
 
+For each value of `x`, this code steps through `y`, stores their sum in `v`,
+and prints the pair:
+
+```python
+for x in range(2):
+    for y in range(3):
+        v = x + y
+        print(x, y)
+```
+
 Each loop keeps its own value history beside its `for` header. In the panel,
-expand an outer iteration to see what happened inside it. **Variables** and
-**Printed output** share one pair of column headings, so you can follow both
-down the page.
+expand an outer iteration to see what happened inside it. **Variables**
+includes the sum, `v`; **Printed output** shows the pairs from `print(x, y)`.
+They share one pair of column headings, so you can follow both down the page.
 
 <img src="media/demo/nested-loops.png" width="711" alt="Nested loop explorer with an expanded outer iteration and shared columns for variables and printed output">
 
