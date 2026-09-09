@@ -14,6 +14,9 @@ First stable release, following the 0.0.1 pre-release.
   loops retain their hierarchy; simple loops use compact rows. Optional
   **About these values** explains capture timing; missing readings and final
   values stay explicit. Iterations and long output page or fold at every level.
+- Follow nested loops with light tree guides, aligned iteration and source
+  labels, and indented inner readings. Expanded outer iterations show saved
+  body values above the inner loop; folded summaries retain those values.
 - Read consistent values-first histories beside each loop's own header,
   including inner loops, body variables, watches, and comprehensions.
 - Discover five editable learning exercises through the optional walkthrough
@@ -22,9 +25,10 @@ First stable release, following the 0.0.1 pre-release.
 - Understand the difference between clearing results, restarting Python,
   and evaluating a file. Open recorded values or output in read-only editor
   tabs for native Find, selection, and copy without reevaluating code.
-- Refresh the Marketplace introduction with readable native VS Code images
-  of inline results, the Values panel, nested loops, and learning. Move the
-  complete command, shortcut, and settings reference into the linked user guide.
+- Refresh the eval·lens Marketplace introduction and learning guides with
+  readable native VS Code images. Show matching Python source before the
+  nested-loop view, including work done before the inner loop. Keep the
+  complete command, shortcut, and settings reference in the linked user guide.
 - Fix Evaluate at Cursor keybinding conflicts, cursor-follow scrolling,
   output-only blank rows, folded-loop output leakage, redundant inner-loop
   expanders, and missing body-variable readings.
