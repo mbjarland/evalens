@@ -1,0 +1,111 @@
+{
+  "baseline": "436634b50f1a1b8005ed936c2b6f5d099773287c",
+  "changed": [
+    "media/demo/nested-loop-code.png",
+    "media/demo/nested-loops.png"
+  ],
+  "unchangedCount": 18,
+  "reviewedDraftPixelsMatchFinal": true,
+  "assets": [
+    {
+      "file": "media/demo/aliasing.png",
+      "sha256": "9a388eafc3878c9d4ff2ead75efb2bfb57beb676bbfe7b90039209596425cf56",
+      "changed": false
+    },
+    {
+      "file": "media/demo/comprehension.png",
+      "sha256": "026579a113b4adb90c003cc7b58d5fd529a9c95ae8d0cc2bc632d6727109ea45",
+      "changed": false
+    },
+    {
+      "file": "media/demo/error.png",
+      "sha256": "f208bd95d62c44b1d51ce2303bb05807da2d8228bd0c58ead3aaed078ac9a413",
+      "changed": false
+    },
+    {
+      "file": "media/demo/hero.png",
+      "sha256": "79ca55ebe76f4862df12c5004e4d672f250ab62d5f2d4f5c6cd1870a50614914",
+      "changed": false
+    },
+    {
+      "file": "media/demo/learning.png",
+      "sha256": "b878e93badcda351c27d7e3467e2497ce8547326ebb75aa313fb58391b6e6d94",
+      "changed": false
+    },
+    {
+      "file": "media/demo/loop.png",
+      "sha256": "79a73a55ed567e32bc992d7b7f35107f2a643d5ef0d001c81394e7d5d14c857e",
+      "changed": false
+    },
+    {
+      "file": "media/demo/nested-loop-code.png",
+      "sha256": "c9c8fcf7452f7d6f643fd62ec32f787a5c61c16ee245055ccd0c0cfef3649360",
+      "changed": true
+    },
+    {
+      "file": "media/demo/nested-loops.png",
+      "sha256": "c1a554fcca6daa5574a87f6c5c8093d015c26dbdce8e45429a6321aa1f734f6f",
+      "changed": true
+    },
+    {
+      "file": "media/demo/panel.png",
+      "sha256": "d46119d698f83738b22b62be12291297d012f3dd3d8b3a9449203572f98a6bc0",
+      "changed": false
+    },
+    {
+      "file": "media/demo/print.png",
+      "sha256": "e01b5bdca8c24d2dab4dfc3bc62f6f90c91ab655d9b4ddc5930b555fd98cb6ad",
+      "changed": false
+    },
+    {
+      "file": "media/demo/spot-the-bug.png",
+      "sha256": "890b55fa6f0f6dd567e8d8d2de8220bb0a5f280b6db5c259c36fbe4e8642214d",
+      "changed": false
+    },
+    {
+      "file": "media/demo/watch.png",
+      "sha256": "d8d3a318ea9a18da833184165d68f311e168995bd0559a362b56aee3ee68d441",
+      "changed": false
+    },
+    {
+      "file": "media/learning/screenshots/accumulator-after.png",
+      "sha256": "05e519c2bc53226d7e15ee6ff7f8849f61305376386b6e1c9abcbef726420639",
+      "changed": false
+    },
+    {
+      "file": "media/learning/screenshots/accumulator-before.png",
+      "sha256": "1aec1b0c15a94cd2f0d5eb0744c985df10e36172a627780500f5a35469ae8f1b",
+      "changed": false
+    },
+    {
+      "file": "media/learning/screenshots/advance-complete.png",
+      "sha256": "1e91e8c113028517edecd8d9ac71d3f29ae0226b38122c7fe802fb4546d4ab1a",
+      "changed": false
+    },
+    {
+      "file": "media/learning/screenshots/advance-first.png",
+      "sha256": "ccc1d44cabd077537c59c5e8edf4bacc65626c338982ee58b705d2454c5eb622",
+      "changed": false
+    },
+    {
+      "file": "media/learning/screenshots/aliasing.png",
+      "sha256": "02cd685f545919b1214808dfb3b9d8a9fa9b82054d44ed382486dc0dfeacc2ac",
+      "changed": false
+    },
+    {
+      "file": "media/learning/screenshots/predict.png",
+      "sha256": "09c7393255344c904187f1cbdfa19b816b268344836b9cbbed40453b9e4c5cc2",
+      "changed": false
+    },
+    {
+      "file": "media/learning/screenshots/stale-after-rerun.png",
+      "sha256": "e86d0b846711aed63dbe071291ba4bad2acc1be59c7670dff658b28b2dc73676",
+      "changed": false
+    },
+    {
+      "file": "media/learning/screenshots/stale-before-rerun.png",
+      "sha256": "d85b1a886c24f31e5952db4fee9811855e3a3bfe60a4aea57ef404af2482a399",
+      "changed": false
+    }
+  ]
+}

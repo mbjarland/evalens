@@ -3,7 +3,7 @@
 > Status: Current
 > Audience: Product contributors and the maintainer
 > Source of truth for: Values panel terminology
-> Last verified: 2026-09-08
+> Last verified: 2026-09-09
 
 Use concise, professional terms in the main interface. Explain unfamiliar
 terms where they arise without presenting recorded results as live state.
@@ -11,7 +11,7 @@ terms where they arise without presenting recorded results as live state.
 | Term | Meaning |
 | --- | --- |
 | Recorded result | One completed statement's recorded values, output or error. A nested loop is one result. Pending evaluations count separately as running. |
-| Variables | Loop target at iteration start and selected body variables at normal body end. Name the recorded variables in the timing note beside each invocation heading. |
+| Variables | Loop target at iteration start and selected body variables at normal body end. Use one shared column heading across nested loops; explain capture timing in the single About these values disclosure. |
 | Printed output | Ordinary output written to stdout. Keep it separate from variable readings. |
 | stderr output | A separate stream often used for warnings or diagnostics. Its presence alone does not establish failure. |
 | Final values after this loop | The bounded snapshot after the completed loop, separate from any selected iteration. |
@@ -39,3 +39,9 @@ distinction between recorded detail and live debugger inspection. Recorded
 result evidence names start/end timing and distinguishes folded text, saved
 pages and unavailable recordings. Optional teaching help is separate; hiding
 it must never hide stale, error or incomplete-recording facts.
+
+Do not add repeated timing notes or parent-context lines beside each nested
+loop heading. The short guides show which outer iteration owns an inner loop;
+they do not mark additional recording points. Moving an outer body reading
+above the inner loop changes its display position, not its capture time.
+Keep **Why?** beside missing readings and retain visible capture-limit notices.

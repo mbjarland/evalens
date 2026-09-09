@@ -1,0 +1,188 @@
+{
+  "method": "native-vscode",
+  "workspace": [
+    "/private/tmp/evalens-206/workspace"
+  ],
+  "ports": {
+    "cdp": 9434,
+    "bridge": 9435
+  },
+  "captures": [
+    {
+      "image": "media/demo/nested-loop-code.png",
+      "sha256": "c9c8fcf7452f7d6f643fd62ec32f787a5c61c16ee245055ccd0c0cfef3649360",
+      "width": 1422,
+      "height": 384,
+      "fixture": "fixtures/nested-loops-base.py",
+      "description": "Actual native Python source for the nested-loop example: set and print base before the inner loop, compute v = base + y, and print x, y. Copyable source precedes the result in README and the user guide.",
+      "source": [
+        "for x in range(2):",
+        "    base = x * 10",
+        "    print(\"base:\", base)",
+        "    for y in range(3):",
+        "        v = base + y",
+        "        print(x, y)"
+      ],
+      "fontSize": "18px",
+      "fontFamily": "Menlo, Menlo, Monaco, \"Courier New\", monospace",
+      "backgroundColor": "rgb(31, 31, 31)",
+      "syntaxColors": [
+        "rgb(204, 204, 204)",
+        "rgb(197, 134, 192)",
+        "rgb(220, 220, 170)",
+        "rgb(255, 215, 0)",
+        "rgb(181, 206, 168)",
+        "rgb(212, 212, 212)",
+        "rgb(206, 145, 120)"
+      ],
+      "clip": {
+        "x": 124,
+        "y": 98,
+        "width": 711,
+        "height": 192
+      },
+      "evaluated": false,
+      "deviceScaleFactor": 2,
+      "extensionPath": "/Users/mbjarland/projects/evalens-worktrees/205-aligned-loop-guides",
+      "captureRevision": "e81ff994c4db747cf8088f34538de9f4a6374abf",
+      "theme": "Default Dark Modern"
+    },
+    {
+      "image": "media/demo/nested-loops.png",
+      "sha256": "c1a554fcca6daa5574a87f6c5c8093d015c26dbdce8e45429a6321aa1f734f6f",
+      "width": 1424,
+      "height": 606,
+      "fixture": "fixtures/nested-loops-base.py",
+      "description": "Actual aligned nested-loop explorer: Iteration 1 is folded with base = 0; Iteration 2 is expanded with a separate base = 10 reading and base: 10 output, a short guide to its inner loop, and indented y/v readings under one pair of headings.",
+      "text": "for x in range(2) · 2 iterations\nAbout these values\nVariables\nPrinted output\n▸\nIteration 1 · x = 0, base = 0 · printed 4 lines\n▾\nIteration 2 · x = 1 · printed 4 lines\nbase = 10\nbase: 10\nfor y in range(3) · 3 iterations · line 4\ny = 0, v = 10\n1 0\ny = 1, v = 11\n1 1\ny = 2, v = 12\n1 2\nFinal values after this loop: x = 1, y = 2, base = 10, v = 12\nOpen statement printed output",
+      "columnHeadingCount": 1,
+      "aboutCount": 1,
+      "parentReadings": [
+        {
+          "text": "base = 10\nbase: 10",
+          "x": 426.84375,
+          "y": 227.875,
+          "width": 641.15625,
+          "height": 22.828125
+        }
+      ],
+      "guideCount": 1,
+      "guideMarkup": [
+        "<svg class=\"loop-guides\" aria-hidden=\"true\"><path d=\"M -32.8046875 22.2984375 V 113.875\" data-loop-guide=\"iterations\" data-guide-owner=\"1\" data-guide-target=\"1\"></path><path d=\"M -32.8046875 82.078125 H -12.6015625\" data-loop-guide=\"iteration\" data-guide-owner=\"1\" data-guide-target=\"2\"></path><path d=\"M -32.8046875 113.875 H -12.6015625\" data-loop-guide=\"iteration\" data-guide-owner=\"1\" data-guide-target=\"7\"></path><path d=\"M 2.3984375 124.275 V 164.078125 H 9.796875\" data-loop-guide=\"child\" data-guide-owner=\"7\" data-guide-target=\"8\"></path></svg>"
+      ],
+      "groups": [
+        {
+          "text": "▸\nIteration 1 · x = 0, base = 0 · printed 4 lines",
+          "expanded": "false"
+        },
+        {
+          "text": "▾\nIteration 2 · x = 1 · printed 4 lines",
+          "expanded": "true"
+        }
+      ],
+      "captions": [
+        {
+          "text": "Iteration 1",
+          "x": 443.640625,
+          "y": 173.078125,
+          "width": 105.9609375,
+          "height": 19
+        },
+        {
+          "text": "Iteration 2",
+          "x": 443.640625,
+          "y": 204.875,
+          "width": 105.9609375,
+          "height": 19
+        }
+      ],
+      "geometry": [
+        {
+          "className": "loop-source loop-root-source",
+          "text": "for x in range(2) · 2 iterations",
+          "x": 426.84375,
+          "y": 105.296875,
+          "width": 464.2109375,
+          "height": 19
+        },
+        {
+          "className": "",
+          "text": "Variables",
+          "x": 426.84375,
+          "y": 136.2890625,
+          "width": 270.4140625,
+          "height": 19
+        },
+        {
+          "className": "",
+          "text": "Printed output",
+          "x": 716.453125,
+          "y": 136.2890625,
+          "width": 351.546875,
+          "height": 19
+        },
+        {
+          "className": "loop-data loop-parent-reading",
+          "text": "base = 10\nbase: 10",
+          "x": 426.84375,
+          "y": 227.875,
+          "width": 641.15625,
+          "height": 22.828125
+        },
+        {
+          "className": "loop-target",
+          "text": "base = 10",
+          "x": 426.84375,
+          "y": 229.7890625,
+          "width": 270.4140625,
+          "height": 19
+        },
+        {
+          "className": "loop-source",
+          "text": "for y in range(3) · 3 iterations · line 4",
+          "x": 443.640625,
+          "y": 256.328125,
+          "width": 624.359375,
+          "height": 16.5
+        },
+        {
+          "className": "loop-target",
+          "text": "y = 0, v = 10",
+          "x": 426.84375,
+          "y": 278.9609375,
+          "width": 270.4140625,
+          "height": 19
+        },
+        {
+          "className": "loop-target",
+          "text": "y = 1, v = 11",
+          "x": 426.84375,
+          "y": 301.7890625,
+          "width": 270.4140625,
+          "height": 19
+        },
+        {
+          "className": "loop-target",
+          "text": "y = 2, v = 12",
+          "x": 426.84375,
+          "y": 324.6171875,
+          "width": 270.4140625,
+          "height": 19
+        }
+      ],
+      "fontSize": "16px",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "clip": {
+        "x": 416.84375,
+        "y": 165.5,
+        "height": 303.6640625,
+        "width": 712.15625
+      },
+      "evaluated": true,
+      "deviceScaleFactor": 2,
+      "extensionPath": "/Users/mbjarland/projects/evalens-worktrees/205-aligned-loop-guides",
+      "captureRevision": "e81ff994c4db747cf8088f34538de9f4a6374abf",
+      "theme": "Default Dark Modern"
+    }
+  ]
+}

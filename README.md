@@ -115,29 +115,33 @@ does not run the program again.
 
 ## A loop tells you what happened
 
-For each value of `x`, this code steps through `y`, stores their sum in `v`,
-and prints the pair:
+Each pass through the outer loop sets `base` to ten times `x` and prints it.
+The inner loop adds each `y` to `base`, stores the result in `v`, and prints
+the pair `x, y`:
 
-<img src="media/demo/nested-loop-code.png" width="711" alt="Python source in the editor: an outer loop over x, an inner loop over y, v = x + y, and print(x, y)">
+<img src="media/demo/nested-loop-code.png" width="711" alt="Python source in the editor: the outer loop sets and prints base; the inner loop computes v = base + y and prints x, y">
 
 <details>
 <summary>Copy this example</summary>
 
 ```python
 for x in range(2):
+    base = x * 10
+    print("base:", base)
     for y in range(3):
-        v = x + y
+        v = base + y
         print(x, y)
 ```
 
 </details>
 
-Each loop keeps its own value history beside its `for` header. In the panel,
-expand an outer iteration to see what happened inside it. **Variables**
-includes the sum, `v`; **Printed output** shows the pairs from `print(x, y)`.
-They share one pair of column headings, so you can follow both down the page.
+Each loop keeps its own value history beside its `for` header. Here in the
+panel, **Iteration 1** is folded and **Iteration 2** is open: `x` is `1`,
+`base` is `10`, and the inner loop records `v` as `10, 11, 12`. The short
+guide leads to that inner loop. **Variables** and **Printed output** share
+one pair of headings, so you can follow both down the page.
 
-<img src="media/demo/nested-loops.png" width="711" alt="Nested loop explorer with an expanded outer iteration and shared columns for variables and printed output">
+<img src="media/demo/nested-loops.png" width="711" alt="Nested loop explorer with Iteration 1 folded and Iteration 2 open: base is 10 above the guided inner loop, where y and v readings align beside their printed pairs">
 
 Short loops stay compact. Longer histories and output fold or page, with
 the same navigation at each level. If details were not saved, the panel

@@ -119,8 +119,34 @@ values. A loop that was reached but drew nothing says **(no iterations)**
 and still reports its counts when run more than once; one inside an outer
 loop that never entered says **(not reached)**.
 
-Open **Evalens: Show Values Panel** after evaluating a `for` loop. The
-**Variables** column contains the loop variable at the start of that
+Try this example with **Evalens: Evaluate File** — **Cmd+Alt+Enter**
+(**Ctrl+Alt+Enter** on Windows/Linux). The outer loop sets and prints `base`;
+the inner loop adds each `y` to that base and prints the pair `x, y`.
+
+<img src="../media/demo/nested-loop-code.png" width="711" alt="Python source for nested loops: base = x * 10 and its print come before the inner loop, which computes v = base + y and prints x, y">
+
+<details>
+<summary>Copy this example</summary>
+
+```python
+for x in range(2):
+    base = x * 10
+    print("base:", base)
+    for y in range(3):
+        v = base + y
+        print(x, y)
+```
+
+</details>
+
+Open **Evalens: Show Values Panel**, fold **Iteration 1**, and expand
+**Iteration 2**. Its `base = 10` reading sits above the inner loop, beside
+the printed `base: 10`. Below it, `y` takes `0, 1, 2` while `v` takes
+`10, 11, 12`; the printed pairs are `1 0`, `1 1`, and `1 2`.
+
+<img src="../media/demo/nested-loops.png" width="711" alt="Actual Values panel: the first outer iteration is folded; the second shows base = 10 and a short guide to its inner loop, with y and v beside printed output">
+
+The **Variables** column contains the loop variable at the start of that
 pass and selected body values captured at the normal end of its body;
 **Printed output** contains the text it produced. For example,
 `for n in range(3): print(n * n)` shows three compact rows pairing `n = 0`,
@@ -148,8 +174,14 @@ final snapshot, not a claim about any selected iteration or a live watch.
 
 The explorer uses the panel's neutral background with an orange leading bar.
 Filled emphasis stays on the selected iteration, keeping large traces quiet.
-One **Variables | Printed output** heading aligns the columns across nested
-loops. While scrolling, the shared heading stays visible. Its title shows a
+One pair of **Variables** and **Printed output** headings aligns the columns
+across nested loops. Outer iteration captions, their body readings, and the
+inner `for` header share the Variables edge. Arrows and short guides sit in
+a separate gutter; inner iteration readings sit one level inward. A body
+reading such as `base = 10` appears once in the expanded group and returns to its summary
+when folded. Its display position does not change when it was recorded:
+body variables still describe the normal end of their own loop body.
+While scrolling, the shared heading stays visible. Its title shows a
 compact iteration and source reminder only after the corresponding headings
 leave view; visible headings do not gain a repeated context line. Opening
 **About these values** returns its explanation to ordinary scrolling;
