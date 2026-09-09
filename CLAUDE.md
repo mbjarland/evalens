@@ -79,7 +79,8 @@ media/learning/         editable exercises and actual rendered guide images
 media/gutter/           evaluated / stale / error markers, light and dark
 IDEA.md                 what this is, what already does part of it, and what
                         would kill it
-README.md               the user-facing doc — commands, keys, settings.
+README.md               the Marketplace introduction and feature tour
+docs/user-guide.md      the user reference — commands, keys, settings;
                         src/test/readme.test.ts checks it against the code
 docs/ai/, docs/development/   AI operating docs, issue tracking, worktrees,
                         release procedure

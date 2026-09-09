@@ -2,98 +2,112 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { createHash } from 'node:crypto';
 
 /**
- * README stills are generated, never drawn -- #113. These tests exist so
- * that a broken or forgotten regeneration fails `npm test` rather than
- * shipping: a missing `<img>` target is a broken listing on the
- * marketplace, and a spec edited without re-running `npm run stills` is a
- * picture that no longer matches the code it claims to show.
- *
- * `specHash` comes from `bin/stills-hash.js` rather than being reimplemented
- * here, on the same reasoning `readme.test.ts` already applies to
- * `keybindingSnippet`: two copies of the same check drift, and the one
- * inside the test is the one that silently stops meaning anything.
- * `bin/render-stills.js` itself cannot be required for this -- see that
- * file's own header -- so the hash lives in a module with no side effects
- * that both it and this test can share.
+ * Public screenshots are captured from the extension in native VS Code.
+ * Their review manifest keeps each PNG tied to its fixture and recorded
+ * dimensions. These checks catch broken links and replaced assets; a hash
+ * does not prove a native capture or readable text. The release procedure
+ * separately requires actual VS Code and Marketplace-width inspection.
  */
-const stillsHash = require('../../bin/stills-hash.js') as {
-  specHash: (spec: Record<string, unknown>) => string;
-};
-
 const root = path.resolve(__dirname, '..', '..');
-const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
-const stillsDir = path.join(root, 'docs', 'stills');
-const specFiles = fs.readdirSync(stillsDir).filter((f) => f.endsWith('.json'));
+const reviewDir = path.join(root, 'docs/reviews/196-marketplace-page-refresh');
+const manifestPath = path.join(reviewDir, 'captures.json');
+const documents = ['README.md', 'docs/user-guide.md'].map((file) => ({
+  file,
+  text: fs.readFileSync(path.join(root, file), 'utf8'),
+}));
 
-/** Every `<img src="media/...">` the README references, in document order. */
-function readmeImages(): string[] {
-  const found: string[] = [];
-  const re = /<img\s[^>]*src="(media\/[^"]+)"/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(readme)) !== null) {
-    found.push(m[1]!);
-  }
-  return found;
+interface Capture {
+  image: string;
+  sha256: string;
+  width: number;
+  height: number;
+  fixture: string;
+  description: string;
 }
 
-test('every README image exists in the repo', () => {
-  // The marketplace inlines README images from GitHub raw; one that 404s is
-  // a broken listing, not a broken link a reader can shrug off.
-  const images = readmeImages();
-  assert.ok(images.length > 0, 'no <img src="media/..."> found in the README');
-  for (const src of images) {
-    assert.ok(fs.existsSync(path.join(root, src)),
-      `README references "${src}", which does not exist in the repo`);
+function manifest(): { captureMethod: string; captures: Capture[] } {
+  return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+}
+
+/** Resolve an image from the document that references it, not the cwd. */
+function publicImages(): Set<string> {
+  const images = new Set<string>();
+  for (const { file, text } of documents) {
+    const sources = [
+      ...Array.from(text.matchAll(/<img\s[^>]*src="([^"]+)"/g), (m) => m[1]!),
+      ...Array.from(text.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g), (m) => m[1]!),
+    ];
+    for (const source of sources) {
+      assert.doesNotMatch(source, /^(?:https?:|data:|\/)/,
+        `${file}: public images must have a reviewed repository asset`);
+      images.add(path.relative(root,
+        path.resolve(root, path.dirname(file), source)).split(path.sep).join('/'));
+    }
+  }
+  return images;
+}
+
+test('public documentation images and local links resolve in the repo', () => {
+  const images = publicImages();
+  assert.ok(images.size > 0, 'public documentation references no images');
+  for (const image of images) {
+    assert.ok(fs.existsSync(path.join(root, image)), `missing image: ${image}`);
+  }
+  for (const { file, text } of documents) {
+    for (const match of text.matchAll(/(?<!!)\[[^\]]+\]\(([^)]+)\)/g)) {
+      const target = match[1]!;
+      if (/^(?:https?:|#)/.test(target)) continue;
+      const pathname = target.split('#')[0]!;
+      assert.ok(fs.existsSync(path.resolve(root, path.dirname(file), pathname)),
+        `${file}: missing local link target ${target}`);
+    }
+    // vsce rewrites Markdown links but leaves raw HTML hrefs relative to
+    // the Marketplace host. That produced three broken example links.
+    if (file === 'README.md') {
+      for (const match of text.matchAll(/<a\s[^>]*href="([^"]+)"/g)) {
+        assert.match(match[1]!, /^(?:https?:\/\/|#)/,
+          'README raw HTML links must be absolute or in-page anchors');
+      }
+    }
   }
 });
 
-test('docs/stills/ has at least one spec', () => {
-  assert.ok(specFiles.length > 0, 'no specs found under docs/stills/');
-});
-
-test('every still spec has been rendered, and matches what it rendered', () => {
-  // `render-stills.js` stamps a spec with the hash of its own content the
-  // moment it renders it. A stamped hash that no longer matches the spec's
-  // current content means the spec changed and nobody ran `npm run stills`
-  // afterwards -- the forgotten regeneration this test exists to catch. It
-  // reads content rather than mtimes on purpose: a fresh checkout can hand
-  // every file the same mtime, or one derived from checkout order rather
-  // than commit order, so mtime is not a bound CI can trust the way a hash
-  // computed from the file's own bytes is.
-  for (const file of specFiles) {
-    const specPath = path.join(stillsDir, file);
-    const spec = JSON.parse(fs.readFileSync(specPath, 'utf8')) as Record<string, unknown>;
-
-    assert.equal(typeof spec.hash, 'string',
-      `docs/stills/${file} has never been rendered -- run "npm run stills"`);
-    assert.equal(stillsHash.specHash(spec), spec.hash,
-      `docs/stills/${file} has changed since it was last rendered -- `
-        + 'run "npm run stills"');
-
-    assert.equal(typeof spec.output, 'string',
-      `docs/stills/${file} has no "output" field`);
-    const output = spec.output as string;
-    assert.match(output, /\.png$/,
-      `docs/stills/${file} must render to a .png -- the marketplace refuses `
-        + 'SVG (vsce package.js:652)');
-    assert.ok(fs.existsSync(path.join(root, output)),
-      `docs/stills/${file} says it renders to "${output}", which does not `
-        + 'exist -- run "npm run stills"');
+test('each native screenshot records an existing fixture and description', () => {
+  const recorded = manifest();
+  assert.equal(recorded.captureMethod, 'native-vscode');
+  assert.ok(recorded.captures.length > 0, 'capture manifest is empty');
+  const images = new Set<string>();
+  for (const capture of recorded.captures) {
+    assert.match(capture.image, /^media\/demo\/[a-z-]+\.png$/);
+    assert.ok(!images.has(capture.image), `duplicate capture: ${capture.image}`);
+    images.add(capture.image);
+    assert.ok(capture.description.trim(), `${capture.image}: missing description`);
+    assert.match(capture.fixture, /^fixtures\/[a-z0-9-]+\.py$/);
+    assert.ok(fs.existsSync(path.join(reviewDir, capture.fixture)),
+      `${capture.image}: missing fixture ${capture.fixture}`);
   }
 });
 
-test('every rendered still is referenced by the README it illustrates', () => {
-  // The inverse of the two checks above: a spec whose PNG nothing in the
-  // README links to is a generator nobody has a reason to keep running,
-  // quietly bit-rotting under docs/stills/ instead of failing loudly.
-  const images = new Set(readmeImages());
-  for (const file of specFiles) {
-    const spec = JSON.parse(
-      fs.readFileSync(path.join(stillsDir, file), 'utf8')) as { output?: string };
-    assert.ok(spec.output && images.has(spec.output),
-      `docs/stills/${file} renders to "${spec.output}", which no README `
-        + '<img> references');
+test('public screenshot bytes and dimensions match the reviewed capture', () => {
+  for (const capture of manifest().captures) {
+    const png = fs.readFileSync(path.join(root, capture.image));
+    assert.equal(png.subarray(0, 8).toString('hex'), '89504e470d0a1a0a',
+      `${capture.image}: not a PNG`);
+    assert.equal(png.subarray(12, 16).toString('ascii'), 'IHDR');
+    assert.ok(capture.width > 0 && capture.height > 0);
+    assert.equal(png.readUInt32BE(16), capture.width, `${capture.image}: width`);
+    assert.equal(png.readUInt32BE(20), capture.height, `${capture.image}: height`);
+    assert.equal(createHash('sha256').update(png).digest('hex'), capture.sha256,
+      `${capture.image}: image changed after its capture was recorded`);
   }
+});
+
+test('every public demo image has capture evidence and a documentation use', () => {
+  const images = new Set([...publicImages()].filter((p) => p.startsWith('media/demo/')));
+  const captured = new Set(manifest().captures.map((capture) => capture.image));
+  assert.deepEqual([...captured].sort(), [...images].sort(),
+    'public demo references and native capture manifest must cover the same assets');
 });
