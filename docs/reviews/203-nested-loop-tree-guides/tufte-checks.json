@@ -1,0 +1,523 @@
+{
+  "kind": "unimplemented interactive design concepts",
+  "fixture": "docs/reviews/196-marketplace-page-refresh/fixtures/nested-loops.py",
+  "fixtureSha256": "cb02a1dd045e8e202a2e3b84f0f4ad3ac51ce025339fc46a51060ffbbcfdd538",
+  "kernelRequests": 1,
+  "rendererSource": "H/M use compiled production markup; I/J/K/L use standalone concept layouts with the same recorded model.",
+  "screenshot": {
+    "file": "tufte-loop-explorations.png",
+    "sha256": "71dbde986d8a92877fc566212a3a15bb53b83363f57fd851cf0f2a33c3b4dd58",
+    "width": 3920,
+    "height": 5650,
+    "deviceScaleFactor": 2
+  },
+  "capturedGroups": [
+    {
+      "id": 2,
+      "ordinal": 1,
+      "x": "0",
+      "source": "for y in range(3)",
+      "count": 3,
+      "readings": [
+        {
+          "y": "0",
+          "v": "0",
+          "output": "0 0"
+        },
+        {
+          "y": "1",
+          "v": "1",
+          "output": "0 1"
+        },
+        {
+          "y": "2",
+          "v": "2",
+          "output": "0 2"
+        }
+      ],
+      "outputLines": 3
+    },
+    {
+      "id": 7,
+      "ordinal": 2,
+      "x": "1",
+      "source": "for y in range(3)",
+      "count": 3,
+      "readings": [
+        {
+          "y": "0",
+          "v": "1",
+          "output": "1 0"
+        },
+        {
+          "y": "1",
+          "v": "2",
+          "output": "1 1"
+        },
+        {
+          "y": "2",
+          "v": "3",
+          "output": "1 2"
+        }
+      ],
+      "outputLines": 3
+    }
+  ],
+  "referenceChecks": [
+    {
+      "option": "CURRENT",
+      "output": [
+        "1 0",
+        "1 1",
+        "1 2"
+      ],
+      "expanded": [
+        "false",
+        "true"
+      ],
+      "sharedHeadings": 1,
+      "guides": 0
+    },
+    {
+      "option": "F",
+      "output": [
+        "0 0",
+        "0 1",
+        "0 2",
+        "1 0",
+        "1 1",
+        "1 2"
+      ],
+      "expanded": [
+        "true",
+        "true"
+      ],
+      "sharedHeadings": 1,
+      "guides": 1
+    }
+  ],
+  "checks": [
+    {
+      "option": "H",
+      "columnPairs": 1,
+      "helpControls": 1,
+      "expanded": [
+        false,
+        true
+      ],
+      "output": [
+        "1 0",
+        "1 1",
+        "1 2"
+      ],
+      "values": [
+        "y = 0, v = 1",
+        "y = 1, v = 2",
+        "y = 2, v = 3"
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, v = 3",
+      "endpoints": [
+        "inner-source",
+        "folded-caption"
+      ],
+      "overflow": false,
+      "sourceMap": null
+    },
+    {
+      "option": "I",
+      "columnPairs": 1,
+      "helpControls": 1,
+      "expanded": [
+        false,
+        true
+      ],
+      "output": [
+        "1 0",
+        "1 1",
+        "1 2"
+      ],
+      "values": [
+        "y = 0, v = 1",
+        "y = 1, v = 2",
+        "y = 2, v = 3"
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, v = 3",
+      "endpoints": [],
+      "overflow": false,
+      "sourceMap": null
+    },
+    {
+      "option": "J",
+      "columnPairs": 1,
+      "helpControls": 1,
+      "expanded": [
+        false,
+        true
+      ],
+      "output": [
+        "1 0",
+        "1 1",
+        "1 2"
+      ],
+      "values": [
+        "y = 0, v = 1",
+        "y = 1, v = 2",
+        "y = 2, v = 3"
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, v = 3",
+      "endpoints": [],
+      "overflow": false,
+      "sourceMap": "for y in range(3) · 3 iterations each"
+    },
+    {
+      "option": "K",
+      "columnPairs": 1,
+      "helpControls": 1,
+      "expanded": [
+        false,
+        true
+      ],
+      "output": [
+        "1 0",
+        "1 1",
+        "1 2"
+      ],
+      "values": [
+        "y = 0, v = 1",
+        "y = 1, v = 2",
+        "y = 2, v = 3"
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, v = 3",
+      "endpoints": [],
+      "overflow": false,
+      "sourceMap": "for y in range(3) · 3 iterations each"
+    },
+    {
+      "option": "L",
+      "columnPairs": 1,
+      "helpControls": 1,
+      "expanded": [
+        false,
+        true
+      ],
+      "output": [
+        "1 0",
+        "1 1",
+        "1 2"
+      ],
+      "values": [
+        "y = 0, v = 1",
+        "y = 1, v = 2",
+        "y = 2, v = 3"
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, v = 3",
+      "endpoints": [],
+      "overflow": false,
+      "sourceMap": "for y in range(3) · 3 iterations each"
+    },
+    {
+      "option": "M",
+      "columnPairs": 1,
+      "helpControls": 1,
+      "expanded": [
+        false,
+        true
+      ],
+      "output": [
+        "1 0",
+        "1 1",
+        "1 2"
+      ],
+      "values": [
+        "y = 0, v = 1",
+        "y = 1, v = 2",
+        "y = 2, v = 3"
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, v = 3",
+      "endpoints": [
+        "inner-source",
+        "folded-caption",
+        "inner-source"
+      ],
+      "overflow": false,
+      "sourceMap": null
+    }
+  ],
+  "interactions": [
+    {
+      "option": "H",
+      "allOpen": [
+        "0 0",
+        "0 1",
+        "0 2",
+        "1 0",
+        "1 1",
+        "1 2"
+      ],
+      "allClosed": [],
+      "restored": [
+        "1 0",
+        "1 1",
+        "1 2"
+      ]
+    },
+    {
+      "option": "I",
+      "allOpen": [
+        "0 0",
+        "0 1",
+        "0 2",
+        "1 0",
+        "1 1",
+        "1 2"
+      ],
+      "allClosed": [],
+      "restored": [
+        "1 0",
+        "1 1",
+        "1 2"
+      ]
+    },
+    {
+      "option": "J",
+      "allOpen": [
+        "0 0",
+        "0 1",
+        "0 2",
+        "1 0",
+        "1 1",
+        "1 2"
+      ],
+      "allClosed": [],
+      "restored": [
+        "1 0",
+        "1 1",
+        "1 2"
+      ]
+    },
+    {
+      "option": "K",
+      "allOpen": [
+        "0 0",
+        "0 1",
+        "0 2",
+        "1 0",
+        "1 1",
+        "1 2"
+      ],
+      "allClosed": [],
+      "restored": [
+        "1 0",
+        "1 1",
+        "1 2"
+      ]
+    },
+    {
+      "option": "L",
+      "allOpen": [
+        "0 0",
+        "0 1",
+        "0 2",
+        "1 0",
+        "1 1",
+        "1 2"
+      ],
+      "allClosed": [],
+      "restored": [
+        "1 0",
+        "1 1",
+        "1 2"
+      ]
+    },
+    {
+      "option": "M",
+      "allOpen": [
+        "0 0",
+        "0 1",
+        "0 2",
+        "1 0",
+        "1 1",
+        "1 2"
+      ],
+      "allClosed": [],
+      "restored": [
+        "1 0",
+        "1 1",
+        "1 2"
+      ]
+    }
+  ],
+  "focusChecks": {
+    "first": "folded-caption",
+    "second": "inner-source"
+  },
+  "narrow": {
+    "width": 900,
+    "lefts": [
+      18,
+      18,
+      18,
+      18,
+      18,
+      18
+    ],
+    "sourceFontSizes": [
+      "20px",
+      "20px",
+      "20px",
+      "20px",
+      "20px",
+      "20px"
+    ],
+    "pageOverflow": false,
+    "checks": [
+      {
+        "option": "H",
+        "columnPairs": 1,
+        "helpControls": 1,
+        "expanded": [
+          false,
+          true
+        ],
+        "output": [
+          "1 0",
+          "1 1",
+          "1 2"
+        ],
+        "values": [
+          "y = 0, v = 1",
+          "y = 1, v = 2",
+          "y = 2, v = 3"
+        ],
+        "final": "Final values after this loop: x = 1, y = 2, v = 3",
+        "endpoints": [
+          "inner-source",
+          "folded-caption"
+        ],
+        "overflow": false,
+        "sourceMap": null
+      },
+      {
+        "option": "I",
+        "columnPairs": 1,
+        "helpControls": 1,
+        "expanded": [
+          false,
+          true
+        ],
+        "output": [
+          "1 0",
+          "1 1",
+          "1 2"
+        ],
+        "values": [
+          "y = 0, v = 1",
+          "y = 1, v = 2",
+          "y = 2, v = 3"
+        ],
+        "final": "Final values after this loop: x = 1, y = 2, v = 3",
+        "endpoints": [],
+        "overflow": false,
+        "sourceMap": null
+      },
+      {
+        "option": "J",
+        "columnPairs": 1,
+        "helpControls": 1,
+        "expanded": [
+          false,
+          true
+        ],
+        "output": [
+          "1 0",
+          "1 1",
+          "1 2"
+        ],
+        "values": [
+          "y = 0, v = 1",
+          "y = 1, v = 2",
+          "y = 2, v = 3"
+        ],
+        "final": "Final values after this loop: x = 1, y = 2, v = 3",
+        "endpoints": [],
+        "overflow": false,
+        "sourceMap": "for y in range(3) · 3 iterations each"
+      },
+      {
+        "option": "K",
+        "columnPairs": 1,
+        "helpControls": 1,
+        "expanded": [
+          false,
+          true
+        ],
+        "output": [
+          "1 0",
+          "1 1",
+          "1 2"
+        ],
+        "values": [
+          "y = 0, v = 1",
+          "y = 1, v = 2",
+          "y = 2, v = 3"
+        ],
+        "final": "Final values after this loop: x = 1, y = 2, v = 3",
+        "endpoints": [],
+        "overflow": false,
+        "sourceMap": "for y in range(3) · 3 iterations each"
+      },
+      {
+        "option": "L",
+        "columnPairs": 1,
+        "helpControls": 1,
+        "expanded": [
+          false,
+          true
+        ],
+        "output": [
+          "1 0",
+          "1 1",
+          "1 2"
+        ],
+        "values": [
+          "y = 0, v = 1",
+          "y = 1, v = 2",
+          "y = 2, v = 3"
+        ],
+        "final": "Final values after this loop: x = 1, y = 2, v = 3",
+        "endpoints": [],
+        "overflow": false,
+        "sourceMap": "for y in range(3) · 3 iterations each"
+      },
+      {
+        "option": "M",
+        "columnPairs": 1,
+        "helpControls": 1,
+        "expanded": [
+          false,
+          true
+        ],
+        "output": [
+          "1 0",
+          "1 1",
+          "1 2"
+        ],
+        "values": [
+          "y = 0, v = 1",
+          "y = 1, v = 2",
+          "y = 2, v = 3"
+        ],
+        "final": "Final values after this loop: x = 1, y = 2, v = 3",
+        "endpoints": [
+          "inner-source",
+          "folded-caption",
+          "inner-source"
+        ],
+        "overflow": false,
+        "sourceMap": null
+      }
+    ]
+  },
+  "browserErrors": [],
+  "limitations": "Concept HTML only. Folding is local, with no evaluation or VS Code connection. No runtime changes or selected implementation."
+}

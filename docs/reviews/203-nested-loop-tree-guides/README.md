@@ -1,113 +1,100 @@
-# Nested loop tree guides: concepts A–D
+# Approved nested-loop layout: Aligned N
 
-These are **unimplemented design concepts** for
-[#203-nested-loop-tree-guides](https://github.com/mbjarland/evalens/issues/203).
-They compare guide treatments before a user choice or runtime change.
+The maintainer chose the **right-hand Aligned N** in
+[the final comparison image](n-alignment-comparison.png) and
+[interactive comparison](n-alignment-comparison.html).
+[The recorded approval](https://github.com/mbjarland/evalens/issues/203#issuecomment-5602378580)
+settles the design decision in #203. Runtime implementation is
+[#205](https://github.com/mbjarland/evalens/issues/205); refreshed public
+screenshots and copy are [#206](https://github.com/mbjarland/evalens/issues/206).
 
-[Open the comparison](comparison.html) · [View the image](comparison.png)
+![Previous N on the left; the approved Aligned N on the right](n-alignment-comparison.png)
 
-![Four concepts for a guide from the outer loop through an iteration to its inner loop](comparison.png)
+The comparison is preserved exactly as reviewed, including its draft
+labels. This README records the final choice. These are design artifacts;
+they do not establish that the extension already implements the layout.
 
-## Recommendation and choices
+## Chosen geometry
 
-**Recommend A: neutral elbows.** It makes both ownership levels explicit,
-including the collapsed sibling, while leaving orange for result emphasis.
-The recommendation is advisory; the user's choice is still pending.
+- Variables, the text of both Iteration captions, expanded outer-body
+  values such as `base = 10`, and the inner `for y` header share one left
+  edge. Disclosure triangles occupy a separate gutter to their left.
+- Inner y/v readings indent one level below that edge: 19px in the
+  reviewed 20px-font example. Printed output and every printed reading
+  share a separate fixed left edge, including output before the inner loop.
+- The neutral root guide connects the iteration captions. An expanded
+  iteration's short child guide ends before its inner `for` header.
+  No line continues alongside the values. A sole inner loop gains no
+  additional fold control.
+- Keep one Variables / Printed output heading pair, one About these
+  values disclosure, the square orange result bar, neutral background,
+  warm iteration captions, and blue fold triangles.
 
-| Option | Connection | Tradeoff |
-| --- | --- | --- |
-| A: Neutral elbows | Root loop to both outer iterations; expanded iteration to its inner loop | Continuous, visible structure with restrained color; a long rail remains beside the values. |
-| B: Amber elbows | The same full tree | Stronger emphasis, but it competes with the result bar and gold iteration headings. |
-| C: Dotted tree | The same full tree | A lighter texture, but the path is less continuous and may become harder to follow at smaller sizes. |
-| D: Expanded path | Root loop through the expanded iteration to its inner loop | Less linework; the collapsed sibling's ownership still depends on indentation. |
+The approved comparison measured 0px difference for every shared text
+edge at widths 1960, 1300, and 980px. Inner readings were +19px, arrow
+glyphs ended about 12px before labels, and the child connector ended 7px
+before source text. These measurements describe the reviewed prototype;
+runtime checks must preserve the hierarchy at other fonts and themes.
 
-The connections describe **recorded execution ownership**. The inner loop
-shown here belongs to Iteration 1, where `x = 0`. Another instance belongs
-inside Iteration 2. This is more specific than connecting the two `for`
-statements in a static picture of their source code.
+## Fold and body-value behavior
 
-A–C expose the shared parent of both iterations. D exposes only the open
-path. None adds connectors to the individual `y` values, repeats the column
-headings, or restores the removed timing/context rows.
-
-## Common content and layout
-
-All four use the same code, actual recorded data, fold state, and geometry:
+The [six-line fixture](before-inner-fixture.py) contains work before the
+inner loop:
 
 ```python
 for x in range(2):
+    base = x * 10
+    print("base:", base)
     for y in range(3):
-        v = x + y
+        v = base + y
         print(x, y)
 ```
 
-Iteration 1 is expanded; Iteration 2 is collapsed. The visible variable
-readings are `y = 0, v = 0`, `y = 1, v = 1`, and `y = 2, v = 2`. Their
-printed output is `0 0`, `0 1`, and `0 2`. The final values after the entire
-loop are `x = 1, y = 2, v = 3`; that footer includes the collapsed second
-iteration's execution.
+When Iteration 2 is expanded, its caption shows `x = 1` and the count
+`printed 4 lines`. Directly below it, `base = 10` appears beside printed
+`base: 10`, above `for y`. The inner rows show y values 0, 1, 2 and v
+values 10, 11, 12 beside printed `1 0`, `1 1`, `1 2`.
 
-The comparison preserves the square orange result bar, neutral loop
-background, warm iteration headings, blue disclosure triangles, one shared
-`Variables` / `Printed output` header, and one `About these values` control.
-Every option reserves the same extra left gutter for the proposed guide.
-The inner source header receives the same additional indentation in all
-four. Variable and output columns keep their shared alignment.
+Folding puts base back in the iteration summary and hides its body values
+and output. Expanded headings do not duplicate their body readings. There
+is no trailing base row or visible timing label on the new parent row.
 
-These layouts do not replace the actual public screenshot at
-[media/demo/nested-loops.png](../../../media/demo/nested-loops.png).
-The comparison page's outer frame and labels are presentation material,
-not proposed extension chrome. Fold/export controls show a fixed state;
-they do not connect to VS Code. The native HTML help disclosure can open.
+Capture semantics remain unchanged: base is the saved end-of-outer-iteration
+reading, not an assignment-time snapshot. This fixture does not change
+base inside the inner loop. About these values retains the timing
+explanation. Printed output keeps its recorded order and ownership.
 
-## How the image was produced
+Implementation must retain capture limits, paging, selection, source
+following, and local folding without evaluation. Check deeper and sibling
+loops, empty or long parent output, output after a child loop, and narrow
+layouts. The populated parent row must survive stacked columns; it can no
+longer use the output-only class that hides an empty Variables cell.
 
-`render.cjs` runs the existing
-[nested-loop fixture](../196-marketplace-page-refresh/fixtures/nested-loops.py)
-once through the real Python kernel. It passes that response through the
-compiled production `present`, `rowsFor`, and `loopExplorerHtml` functions.
-`LOOP_EXPLORER_STYLE` supplies the actual loop styling. `template.html` adds
-a common comparison frame, the uniform guide gutter, and measured SVG paths.
-Headless Chrome captures the resulting standalone `comparison.html` directly.
-No existing screenshot pixels were edited or used as a background.
+## Preserved comparison history
 
-The capture was produced from baseline `30cd293`, using the main checkout's
-compiled modules and dependencies. The helper verifies that its relevant
-runtime source files match the issue worktree before rendering.
+Earlier recommendations and pending-choice wording record their review
+stage; they are superseded by the choice above.
 
-To reproduce from a checkout with dependencies and compiled output:
-
-```sh
-npm --cache /private/tmp/evalens-npm-cache ci
-npm --cache /private/tmp/evalens-npm-cache run compile
-node docs/reviews/203-nested-loop-tree-guides/render.cjs
-```
-
-An issue worktree can reuse a matching built checkout by setting
-`EVALENS_RUNTIME_ROOT` to that checkout's absolute path. An alternate Chrome
-binary can be supplied with `EVALENS_CHROME_PATH`.
+| Stage | Visual evidence | Notes |
+| --- | --- | --- |
+| A–D: initial guides | [Image](comparison.png) · [HTML](comparison.html) | [Initial notes](initial-comparison-notes.md) |
+| E–G: tree structures | [Image](loop-tree-structures.png) · [HTML](loop-tree-structures.html) | [Notes](loop-tree-structures.md) |
+| H–M: different organizations | [Image](tufte-loop-explorations.png) · [HTML](tufte-loop-explorations.html) | [Notes](tufte-loop-explorations.md) |
+| N–P: work before the inner loop | [Image](before-inner-comparison.png) · [HTML](before-inner-comparison.html) | [Notes](before-inner-notes.md) |
+| N: visible body value, shorter guide | [Image](n-body-values-comparison.png) · [HTML](n-body-values-comparison.html) | [Notes](n-body-values-notes.md) |
+| N: base before the inner loop | [Image](n-base-position-comparison.png) · [HTML](n-base-position-comparison.html) | [Notes](n-base-position-notes.md) |
+| **Aligned N: approved right-hand panel** | [Image](n-alignment-comparison.png) · [HTML](n-alignment-comparison.html) | [Geometry and reproduction](n-alignment-notes.md) |
 
 ## Verification and limits
 
-[checks.json](checks.json) records the source hash, image hash/dimensions,
-and measured comparison geometry. The capture is 3920 × 2956 pixels at
-device scale factor 2.
+[The final geometry report](n-alignment-checks.json) records image and
+fixture hashes, actual text-range measurements, both fold states, exact
+value/output pairs, and stacked-layout visibility. The comparison reuses
+real kernel recordings; opening its HTML does not evaluate code or connect
+to VS Code.
 
-The helper verified all four variants have the same source, values, output,
-final snapshot, dimensions, and aligned columns. Each has one column header
-and one help disclosure, no repeated visible timing labels, an expanded
-first iteration, and a collapsed second iteration. It checked the expected
-three guide paths for A–C and two paths for D. Chrome reported no script
-errors. The complete image was also inspected visually.
-
-This lane changed only files in this review directory. Product test suites
-were not rerun because runtime code is unchanged; the root integration
-session owns the normal repository checks. No native VS Code session was
-opened or controlled. This is not native acceptance evidence, a learner
-study, or a screen-reader review.
-
-Before implementing a chosen guide, verify deeper nesting, sibling loops,
-folding and paging, scrolling context, narrow panels, large fonts, and light
-and high-contrast themes. A guide must preserve ownership when visible
-content changes; adding repeated explanatory rows is not part of this
-proposal. No option has been selected for implementation.
+Both suites passed before and after this decision update: 969 extension
+tests and 718 kernel tests. No runtime files or public images changed in this
+commit. Native rendering, theme/accessibility checks, and replacement
+public captures belong to #205 and #206; this design review is not native
+acceptance or a learner study.
