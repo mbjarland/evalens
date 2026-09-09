@@ -1,7 +1,7 @@
 {
   "name": "evalens",
   "displayName": "Evalens — Inline Python Values",
-  "description": "See what a line of Python produced, painted beside the code — on demand, never as you type. No print(), no debugger, no notebook.",
+  "description": "See what your Python produced, beside the code. Evaluate on demand, explore values and loops, and learn through guided exercises.",
   "version": "0.2.0",
   "publisher": "mbjarland",
   "license": "MIT",
@@ -18,22 +18,19 @@
     "vscode": "^1.90.0"
   },
   "categories": [
-    "Debuggers",
+    "Education",
     "Visualization",
     "Programming Languages"
   ],
   "keywords": [
-    "evalens",
     "python",
-    "repl",
+    "learning",
+    "education",
     "inline",
-    "live",
     "values",
-    "evaluate",
-    "calva",
-    "nrepl",
-    "arepl",
-    "print debugging"
+    "loops",
+    "repl",
+    "evaluate"
   ],
   "activationEvents": [
     "onLanguage:python"
@@ -544,9 +541,7 @@
     "package": "vsce package",
     "pretest": "npm run compile",
     "test": "node --test out/test/",
-    "test:kernel": "python3 -m unittest discover -s kernel -t kernel",
-    "prestills": "npm run compile",
-    "stills": "node bin/render-stills.js"
+    "test:kernel": "python3 -m unittest discover -s kernel -t kernel"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

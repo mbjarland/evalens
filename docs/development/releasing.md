@@ -11,7 +11,7 @@ their issue branches and report. No PR is required for this workflow.
 1. Check the [Marketplace listing](https://marketplace.visualstudio.com/items?itemName=mbjarland.evalens)
    for the current versions and channels. Pick a higher version in
    `package.json` and both root-version fields in `package-lock.json`.
-   Update `CHANGELOG.md` and the README's versioned VSIX examples.
+   Update `CHANGELOG.md` and the user guide's versioned VSIX examples.
 2. Run both suites in the issue worktree. Commit the release changes with
    `refs #N`; the ticket stays open until publication has been verified.
 3. Merge into `master`, rerun both suites, push, and check CI. Start packaging
@@ -24,11 +24,14 @@ npm --cache /private/tmp/evalens-npm-cache run test:kernel
 ```
 
 Package the committed version into a location outside the checkout, using
-the repository's actual default branch for relative README image links:
+the release commit for relative README image and documentation links. A
+branch such as `master` moves after publication; it can silently replace a
+published release's images with pictures of newer behavior:
 
 ```bash
+release_commit=$(git rev-parse HEAD)
 npm --cache /private/tmp/evalens-npm-cache run package -- \
-  --githubBranch master --out /private/tmp/evalens-0.2.0.vsix
+  --githubBranch "$release_commit" --out /private/tmp/evalens-0.2.0.vsix
 ```
 
 Replace `0.2.0` with the committed version. For a stable release, omit
@@ -40,7 +43,25 @@ kernel, icon, README, changelog, learning resources and images. Confirm its
 manifest does not mark it as a pre-release. `.vscodeignore` excludes source,
 tests and internal docs; it deliberately includes `CHANGELOG.md`. Compare
 packaged files to the committed checkout, allowing only documented generated
-metadata and rewritten README links.
+metadata and rewritten README links. Inspect the packaged README's links,
+including raw HTML attributes: image URLs must use that release commit,
+documentation must resolve to GitHub, and no example may resolve relative to
+the Marketplace host. The full user guide is linked on GitHub; it is not
+bundled into the extension because `docs/**` is excluded.
+
+Review the page at the Marketplace's approximately 711px content width and
+at a narrower width. A loaded image is not enough: its values and labels
+must be readable at the displayed size. Public screenshots must show the
+actual extension running in VS Code. Keep source fixtures, capture method,
+image dimensions and hashes together in a review manifest; the current set
+is documented in `docs/reviews/196-marketplace-page-refresh/captures.json`.
+Start a later asset refresh from the
+[native capture instructions](../reviews/196-marketplace-page-refresh/README.md)
+and helpers, using disposable source fixtures and an isolated VS Code profile. The former `npm run stills` simulated-editor generator has
+been removed; it must not overwrite native screenshots.
+Tests check asset integrity and link coverage, while actual native and page
+inspection establishes what the pictures show. Do not replace real captures
+with a simulated editor or generated illustration.
 
 Install the VSIX and verify the loaded extension path and version in a real
 VS Code window. Exercise evaluation, advance, panel navigation, loop folds

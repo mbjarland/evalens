@@ -11,17 +11,18 @@ const root = path.resolve(__dirname, '..', '..');
 const manifest = JSON.parse(
   fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+const guide = fs.readFileSync(path.join(root, 'docs/user-guide.md'), 'utf8');
 
 /** The text under one `## ` heading, up to the next one. */
-function section(heading: string): string {
-  const start = readme.indexOf(`## ${heading}\n`);
-  assert.notEqual(start, -1, `README has no "## ${heading}" section`);
-  const rest = readme.slice(start + heading.length + 4);
+function section(heading: string, document = guide): string {
+  const start = document.indexOf(`## ${heading}\n`);
+  assert.notEqual(start, -1, `documentation has no "## ${heading}" section`);
+  const rest = document.slice(start + heading.length + 4);
   const end = rest.indexOf('\n## ');
   return end === -1 ? rest : rest.slice(0, end);
 }
 
-test('every contributed command is in the README', () => {
+test('every contributed command is in the linked user guide', () => {
   // A command nobody can find is a command that does not exist, and the
   // palette is the fallback for a user whose keybinding was stolen.
   const titles: string[] =
@@ -29,51 +30,34 @@ test('every contributed command is in the README', () => {
   assert.ok(titles.length > 0, 'no commands contributed');
 
   for (const title of titles) {
-    assert.ok(readme.includes(title), `${title} is not in the README`);
+    assert.ok(guide.includes(title), `${title} is not in the user guide`);
   }
 });
 
-test('the README says every command is in the Command Palette', () => {
+test('the Marketplace page links the reference and names the Command Palette', () => {
   assert.match(readme, /Command Palette/);
+  assert.match(readme, /\[User guide\]\(docs\/user-guide\.md\)/);
 });
 
-test('no bare Ctrl+ chord above Keybindings: every one names Cmd too', () => {
-  // #117 stopped the README teaching a bare Cmd+Enter with a "read Ctrl for
-  // Cmd" footnote a beginner never reaches. #133 flips which platform leads
-  // -- the maintainer teaches on a Mac and reads the README as a Mac user --
-  // but the every-chord-named guarantee is the thing #117 will not give
-  // back: a Windows or Linux reader must still see their own key on every
-  // line, now as the named aside instead of the head. Table rows pair by
-  // column instead of by wording, so they are excluded.
-  const idx = readme.indexOf('## Keybindings');
-  assert.notEqual(idx, -1, 'README has no "## Keybindings" heading');
-  const prose = readme
-    .slice(0, idx)
-    .split('\n')
-    .filter((line) => !line.trim().startsWith('|'))
-    .join('\n')
-    // Bold markers and line-wrap whitespace are layout, not content: a key
-    // bolded for emphasis or a phrase reflowed onto two lines is still
-    // paired, so both are normalised away before the check below.
-    .replace(/\*\*/g, '');
-
-  const everyMac = prose.match(/`Cmd\+[A-Za-z+]+`/g) ?? [];
-  const paired = prose.match(
-    /`Cmd\+([A-Za-z+]+)`\s*\(`Ctrl\+\1`\s+on\s+Windows\/Linux\)/g) ?? [];
-  assert.equal(everyMac.length, paired.length,
-    'expected every `Cmd+...` above Keybindings to read `Cmd+X` ' +
-    '(`Ctrl+X` on Windows/Linux); found ' + everyMac.length +
-    ` Cmd+ chord(s) but only ${paired.length} paired that way`);
-
-  // The pairing check above only proves every Cmd+ chord is paired; it says
-  // nothing about a Ctrl+ chord that sneaks in unpaired -- the exact defect
-  // #117 fixed, just on the other platform now that Cmd+ leads.
-  const unpaired = prose.replace(
-    /`Cmd\+[A-Za-z+]+`\s*\(`Ctrl\+[A-Za-z+]+`\s+on\s+Windows\/Linux\)/g, '');
-  const bareCtrl = unpaired.match(/`Ctrl\+[A-Za-z+]+`/g) ?? [];
-  assert.equal(bareCtrl.length, 0,
-    'expected no bare `Ctrl+...` above Keybindings outside the ' +
-    `Windows/Linux aside or a table row; found: ${bareCtrl.join(', ')}`);
+test('introductory prose pairs every macOS shortcut with Windows/Linux', () => {
+  // Keep local key references useful on both platforms even when moving
+  // the full reference out of the Marketplace introduction.
+  for (const [name, document] of [['README', readme], ['guide', guide]] as const) {
+    const index = document.indexOf('## Keybindings');
+    const introduction = index < 0 ? document : document.slice(0, index);
+    const prose = introduction.split('\n')
+      .filter((line) => !line.trim().startsWith('|'))
+      .join('\n').replace(/\*\*/g, '');
+    const everyMac = prose.match(/`Cmd\+[A-Za-z+]+`/g) ?? [];
+    const paired = prose.match(
+      /`Cmd\+([A-Za-z+]+)`\s*\(`Ctrl\+\1`\s+on\s+Windows\/Linux\)/g) ?? [];
+    assert.equal(everyMac.length, paired.length,
+      `${name}: every Cmd chord must name its Windows/Linux equivalent`);
+    const unpaired = prose.replace(
+      /`Cmd\+[A-Za-z+]+`\s*\(`Ctrl\+[A-Za-z+]+`\s+on\s+Windows\/Linux\)/g, '');
+    assert.deepEqual(unpaired.match(/`Ctrl\+[A-Za-z+]+`/g) ?? [], [],
+      `${name}: a Ctrl chord appears without its macOS equivalent`);
+  }
 });
 
 test('the four-key table teaches macOS keys first', () => {
@@ -86,7 +70,7 @@ test('the four-key table teaches macOS keys first', () => {
   // with no `mac` override still applies on macOS, as the Keybindings
   // section below says of Jupyter's own binding -- so both cells offer it
   // (#117 correction, unchanged by this flip), not just one.
-  const fourKeys = section('Learn it in four keys');
+  const fourKeys = section('Your first evaluation', readme);
   assert.ok(
     fourKeys.indexOf('macOS') < fourKeys.indexOf('Windows / Linux'),
     'the four-key table should list macOS before Windows / Linux');
@@ -109,16 +93,16 @@ test('the keybinding conflict is stated next to the table, not footnoted', () =>
   assert.match(keybindings, /load order/);
 });
 
-test('the README shows the fix the extension hands out, verbatim', () => {
-  // Two copies of a JSON snippet drift, and the one in the README is the copy
+test('the user guide shows the fix the extension hands out, verbatim', () => {
+  // Two copies of a JSON snippet drift, and the one in the guide is the copy
   // people paste. This fails the build instead.
   const snippet = keybindingSnippet(
     'mac', detectConflicts((id) => id === 'almenon.arepl', 'mac'));
-  assert.ok(readme.includes(snippet),
-    'the README keybinding block is not what keybindingSnippet produces');
+  assert.ok(guide.includes(snippet),
+    'the user guide keybinding block is not what keybindingSnippet produces');
 });
 
-test('the README documents the key the manifest actually binds', () => {
+test('the user guide documents the key the manifest actually binds', () => {
   const keybindings = section('Keybindings');
   assert.match(keybindings, /Cmd\+Enter/);
   assert.match(keybindings, /Ctrl\+Enter/);
@@ -126,7 +110,7 @@ test('the README documents the key the manifest actually binds', () => {
   assert.match(keybindings, /Ctrl\+Shift\+Enter/);
 });
 
-test('the README says why the advance key is not shift+enter', () => {
+test('the user guide says why the advance key is not shift+enter', () => {
   // The convention says shift+enter, so a reader who knows the neighbourhood
   // will assume we simply got it wrong. The four commands already sitting
   // there are the answer, and they belong beside the table rather than in a
@@ -142,7 +126,7 @@ test('the README says why the advance key is not shift+enter', () => {
   }
 });
 
-test('the README shows the user binding that settles the advance key', () => {
+test('the user guide shows the user binding that settles the advance key', () => {
   // Windows and Linux get what #45 gave AREPL: the fix stated where the
   // conflict is, in a form that can be pasted. Built from the same constants
   // the manifest is checked against, so the block cannot drift from the key,
@@ -150,8 +134,8 @@ test('the README shows the user binding that settles the advance key', () => {
   for (const entry of advanceEntries('other')) {
     const json = JSON.stringify(entry, null, 2)
       .split('\n').map((line) => `  ${line}`).join('\n');
-    assert.ok(readme.includes(json),
-      `the README does not show this entry verbatim:\n${json}`);
+    assert.ok(guide.includes(json),
+      `the user guide does not show this entry verbatim:\n${json}`);
   }
 });
 
@@ -164,7 +148,7 @@ test('the keybinding section says an install revokes an isDevelopment scope', ()
   // which is why it has to be said next to the conflict rather than found.
   const keybindings = section('Keybindings');
   assert.match(keybindings, /isDevelopment/);
-  assert.match(keybindings, /not to install AREPL/);
+  assert.match(keybindings, /assign distinct user shortcuts/);
 });
 
 test('the requirement is one interpreter, said before the install steps', () => {
@@ -173,7 +157,7 @@ test('the requirement is one interpreter, said before the install steps', () => 
   // settings table it is a footnote.
   const requirements = section('Requirements');
   assert.match(requirements, /Python 3\.9 or later/);
-  assert.ok(readme.indexOf('## Requirements') < readme.indexOf('## Install'),
+  assert.ok(guide.indexOf('## Requirements') < guide.indexOf('## Install'),
     'the requirement is stated after the install steps it governs');
 });
 
@@ -183,9 +167,8 @@ test('the install section hands over a command that installs', () => {
   assert.match(install, /code --install-extension/);
 });
 
-test('every setting is in the README with its default', () => {
-  // The settings UI is the primary place to read these and the README is the
-  // one someone browsing the repository finds first. A setting in one and not
+test('every setting is in the user guide with its default', () => {
+  // The settings UI and linked user guide must agree. A setting in one and not
   // the other is a setting half the audience does not know exists.
   const settings = section('Settings');
   const properties = manifest.contributes?.configuration?.properties ?? {};
@@ -193,10 +176,10 @@ test('every setting is in the README with its default', () => {
 
   for (const [id, setting] of Object.entries(properties)) {
     assert.ok(settings.includes(`\`${id}\``),
-      `${id} is not in the README settings table`);
+      `${id} is not in the user guide settings table`);
     const shown = JSON.stringify((setting as { default: unknown }).default);
     assert.ok(settings.includes(`\`${shown}\``),
-      `${id}'s default (${shown}) is not shown in the README`);
+      `${id}'s default (${shown}) is not shown in the user guide`);
   }
 });
 
@@ -215,14 +198,14 @@ test('every theme colour is documented as overridable', () => {
   }
 });
 
-test('the README says the keybindings are not a setting', () => {
+test('the user guide says the keybindings are not a setting', () => {
   // The audit's first deliberate omission, recorded where a reader looking for
   // it will be -- otherwise its absence reads as an oversight and the next
   // person adds it.
   assert.match(section('Settings'), /no setting for the keybindings/i);
 });
 
-test('the README says what else was considered and declined', () => {
+test('the user guide says what else was considered and declined', () => {
   // An audit is only worth as much as its declines, and those rot fastest:
   // this one was written before printed output, Evaluate and Advance and the
   // partial-parse fallback landed, and each of them added something a reader

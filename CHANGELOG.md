@@ -22,6 +22,9 @@ First stable release, following the 0.0.1 pre-release.
 - Understand the difference between clearing results, restarting Python,
   and evaluating a file. Open recorded values or output in read-only editor
   tabs for native Find, selection, and copy without reevaluating code.
+- Refresh the Marketplace introduction with readable native VS Code images
+  of inline results, the Values panel, nested loops, and learning. Move the
+  complete command, shortcut, and settings reference into the linked user guide.
 - Fix Evaluate at Cursor keybinding conflicts, cursor-follow scrolling,
   output-only blank rows, folded-loop output leakage, redundant inner-loop
   expanders, and missing body-variable readings.
