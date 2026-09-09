@@ -1,0 +1,292 @@
+{
+  "captureMethod": "native-vscode",
+  "extensionVersion": "0.2.0",
+  "extensionPath": "/Users/mbjarland/projects/evalens-worktrees/196-marketplace-page-refresh",
+  "captureNotes": "Actual VS Code Extension Development Host screenshots. Source and result pixels were captured together; no recreated chrome or edited pixels.",
+  "captures": [
+    {
+      "image": "media/demo/hero.png",
+      "sha256": "79ca55ebe76f4862df12c5004e4d672f250ab62d5f2d4f5c6cd1870a50614914",
+      "width": 1240,
+      "height": 208,
+      "fixture": "fixtures/hero.py",
+      "description": "Four explicit evaluations show a computed total and its printed output.",
+      "source": [
+        "price = 8",
+        "quantity = 3",
+        "total = price * quantity",
+        "print(total)"
+      ],
+      "pieces": [
+        "price: ",
+        "8",
+        "quantity: ",
+        "3",
+        "total: ",
+        "24",
+        "printed: ",
+        "24"
+      ],
+      "fontSize": "16px",
+      "clip": {
+        "x": 53,
+        "y": 90,
+        "width": 620,
+        "height": 104
+      },
+      "deviceScaleFactor": 2
+    },
+    {
+      "image": "media/demo/aliasing.png",
+      "sha256": "9a388eafc3878c9d4ff2ead75efb2bfb57beb676bbfe7b90039209596425cf56",
+      "width": 1240,
+      "height": 208,
+      "fixture": "fixtures/aliasing.py",
+      "description": "Recorded earlier list values remain beside code after a mutation through an alias.",
+      "source": [
+        "a = [1, 2]",
+        "b = a",
+        "b.append(3)",
+        "a"
+      ],
+      "pieces": [
+        "a: ",
+        "[1, 2]",
+        "b: ",
+        "[1, 2]",
+        "b: ",
+        "[1, 2, 3]",
+        "a: ",
+        "[1, 2, 3]"
+      ],
+      "fontSize": "16px",
+      "clip": {
+        "x": 53,
+        "y": 90,
+        "width": 620,
+        "height": 104
+      },
+      "deviceScaleFactor": 2
+    },
+    {
+      "image": "media/demo/print.png",
+      "sha256": "e01b5bdca8c24d2dab4dfc3bc62f6f90c91ab655d9b4ddc5930b555fd98cb6ad",
+      "width": 1240,
+      "height": 104,
+      "fixture": "fixtures/print.py",
+      "description": "A print-only result appears directly beside the print statement.",
+      "source": [
+        "total = 6",
+        "print(\"total:\", total)"
+      ],
+      "pieces": [
+        "total: ",
+        "6",
+        "printed: ",
+        "total: 6"
+      ],
+      "fontSize": "16px",
+      "clip": {
+        "x": 53,
+        "y": 90,
+        "width": 620,
+        "height": 52
+      },
+      "deviceScaleFactor": 2
+    },
+    {
+      "image": "media/demo/error.png",
+      "sha256": "f208bd95d62c44b1d51ce2303bb05807da2d8228bd0c58ead3aaed078ac9a413",
+      "width": 1544,
+      "height": 52,
+      "fixture": "fixtures/error.py",
+      "description": "A Python ValueError appears beside the failing expression.",
+      "source": [
+        "int(\"x\")"
+      ],
+      "pieces": [
+        "=> ValueError: invalid literal for int() with base 10: 'x'"
+      ],
+      "fontSize": "16px",
+      "clip": {
+        "x": 53,
+        "y": 90,
+        "width": 772,
+        "height": 26
+      },
+      "deviceScaleFactor": 2
+    },
+    {
+      "image": "media/demo/loop.png",
+      "sha256": "79a73a55ed567e32bc992d7b7f35107f2a643d5ef0d001c81394e7d5d14c857e",
+      "width": 1712,
+      "height": 104,
+      "fixture": "fixtures/loop.py",
+      "description": "The loop records its target and the square computed in each complete iteration.",
+      "source": [
+        "for n in range(3):",
+        "    square = n * n"
+      ],
+      "pieces": [
+        "n: ",
+        "0, 1, 2",
+        " · 3 iterations",
+        "​",
+        "​",
+        "square: ",
+        "0, 1, 4",
+        " · 3 iterations"
+      ],
+      "fontSize": "16px",
+      "clip": {
+        "x": 53,
+        "y": 90,
+        "width": 856,
+        "height": 52
+      },
+      "deviceScaleFactor": 2
+    },
+    {
+      "image": "media/demo/comprehension.png",
+      "sha256": "026579a113b4adb90c003cc7b58d5fd529a9c95ae8d0cc2bc632d6727109ea45",
+      "width": 1654,
+      "height": 52,
+      "fixture": "fixtures/comprehension.py",
+      "description": "A comprehension shows its result and its loop variable observations.",
+      "source": [
+        "nums = [n*2 for n in range(3)]"
+      ],
+      "pieces": [
+        "nums: ",
+        "[0, 2, 4]",
+        "​",
+        "​",
+        "n: ",
+        "0, 1, 2",
+        " · 3 iterations"
+      ],
+      "fontSize": "16px",
+      "clip": {
+        "x": 53,
+        "y": 90,
+        "width": 827,
+        "height": 26
+      },
+      "deviceScaleFactor": 2
+    },
+    {
+      "image": "media/demo/spot-the-bug.png",
+      "sha256": "890b55fa6f0f6dd567e8d8d2de8220bb0a5f280b6db5c259c36fbe4e8642214d",
+      "width": 1712,
+      "height": 208,
+      "fixture": "fixtures/spot-the-bug.py",
+      "description": "A mistaken accumulator replaces total with each number instead of adding.",
+      "source": [
+        "total = 0",
+        "for n in [2, 4, 6]:",
+        "    total = n",
+        "total"
+      ],
+      "pieces": [
+        "total: ",
+        "0",
+        "n: ",
+        "2, 4, 6",
+        " · 3 iterations",
+        "​",
+        "​",
+        "total: ",
+        "2, 4, 6",
+        " · 3 iterations",
+        "total: ",
+        "6"
+      ],
+      "fontSize": "16px",
+      "clip": {
+        "x": 53,
+        "y": 90,
+        "width": 856,
+        "height": 104
+      },
+      "deviceScaleFactor": 2
+    },
+    {
+      "image": "media/demo/watch.png",
+      "sha256": "d8d3a318ea9a18da833184165d68f311e168995bd0559a362b56aee3ee68d441",
+      "width": 1692,
+      "height": 104,
+      "fixture": "fixtures/watch.py",
+      "description": "An explicit inline watch records n * 2 without adding the expression to source.",
+      "source": [
+        "for n in range(3):",
+        "    pass"
+      ],
+      "pieces": [
+        "n: ",
+        "0, 1, 2",
+        " · 3 iterations",
+        "​",
+        "​",
+        "n * 2: ",
+        "0, 2, 4",
+        " · 3 iterations"
+      ],
+      "fontSize": "16px",
+      "clip": {
+        "x": 53,
+        "y": 90,
+        "width": 846,
+        "height": 52
+      },
+      "deviceScaleFactor": 2
+    },
+    {
+      "image": "media/demo/learning.png",
+      "sha256": "b878e93badcda351c27d7e3467e2497ce8547326ebb75aa313fb58391b6e6d94",
+      "width": 1048,
+      "height": 994,
+      "fixture": "fixtures/learning.py",
+      "description": "The actual native VS Code learning walkthrough shows all five optional exercises and the Open exercise action. Opening this view did not evaluate Python.",
+      "text": "Predict a value\n\nPredict the answer, then evaluate one expression.\n\nOpen exercise\nFollow the next statement\nTwo names, one list\nFix an accumulator\nNotice an old answer\nMark Done",
+      "clip": {
+        "x": 162,
+        "y": 102,
+        "width": 524,
+        "height": 497
+      },
+      "deviceScaleFactor": 2
+    },
+    {
+      "image": "media/demo/panel.png",
+      "sha256": "d46119d698f83738b22b62be12291297d012f3dd3d8b3a9449203572f98a6bc0",
+      "width": 1484,
+      "height": 710,
+      "fixture": "fixtures/panel.py",
+      "description": "Recorded list values and printed output in the actual Values panel, including cursor and latest-result markers.",
+      "text": "Link code and values\nScroll to new results\nHide inline values while this panel is visible\nHelp and learning\nResults are recorded when you run code. Browsing this panel does not run Python. Dismiss\npanel.py · 3 recorded results\n1\t\nx = [1, 2]\n\t\nx: [1, 2]\n\n→2\t\nx.append(3)\n\t\nx: [1, 2, 3]\n\n3\t\nprint(\"Now:\", x)\nLatest result\n\t\nprinted: Now: [1, 2, 3]\n\nValues are what each line produced when it ran. Click a row to jump to the line. Use Up/Down or Home/End to browse, Enter or Space to reveal source. Use Focus Active Editor Group to return to editing. Nothing here is re-evaluated.",
+      "clip": {
+        "x": 53,
+        "y": 32,
+        "width": 742,
+        "height": 355
+      },
+      "deviceScaleFactor": 2
+    },
+    {
+      "image": "media/demo/nested-loops.png",
+      "sha256": "a36f8e17a71dece26e0f6a2eba78bf92ae167b4a3417462938478837de34aed7",
+      "width": 1426,
+      "height": 772,
+      "fixture": "fixtures/nested-loops.py",
+      "description": "The actual nested loop explorer distinguishes loop and body variables from printed output.",
+      "text": "Link code and values\nScroll to new results\nHide inline values while this panel is visible\nHelp and learning\nResults are recorded when you run code. Browsing this panel does not run Python. Dismiss\nnested-loops.py · 1 recorded result\n1\t\nfor x in range(2):\n    for y in range(3):\n        v = x + y\n        print(x, y)\nLatest result\n\t\n▾\nfor x in range(2) · 2 iterations\nVariables\nPrinted output\nx at iteration start \nRecording details\n▾ Iteration 1 · x = 0 · printed 3 lines\nfor y in range(3) · 3 iterations · line 2\nwithin Iteration 1, x = 0\nVariables\nPrinted output\ny at iteration start; v at iteration end \nRecording details\ny = 0, v = 0\n0 0\ny = 1, v = 1\n0 1\ny = 2, v = 2\n0 2\n▸ Iteration 2 · x = 1 · printed 3 lines\nFinal values after this loop: x = 1, y = 2, v = 3\nOpen statement printed output\n\nValues are what each line produced when it ran. Click a row to jump to the line. Use Up/Down or Home/End to browse, Enter or Space to reveal source. Use Focus Active Editor Group to return to editing. Nothing here is re-evaluated.",
+      "clip": {
+        "x": 416,
+        "y": 165,
+        "width": 713,
+        "height": 386
+      },
+      "deviceScaleFactor": 2
+    }
+  ]
+}

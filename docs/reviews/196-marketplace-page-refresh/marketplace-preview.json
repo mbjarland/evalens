@@ -1,0 +1,81 @@
+{
+  "method": "Unpublished README rendered locally inside the public Marketplace page using its actual CSS; images loaded from reviewed local assets. No server content was changed.",
+  "records": [
+    {
+      "viewport": 1360,
+      "width": 710.546875,
+      "scrollWidth": 711,
+      "images": [
+        {
+          "alt": "Evalens logo",
+          "width": 96,
+          "height": 96,
+          "naturalWidth": 512
+        },
+        {
+          "alt": "Python code in VS Code with recorded values and printed output beside the statements that produced them",
+          "width": 711,
+          "height": 119,
+          "naturalWidth": 1240
+        },
+        {
+          "alt": "Evalens Values panel showing source beside recorded variables and printed output",
+          "width": 711,
+          "height": 340,
+          "naturalWidth": 1484
+        },
+        {
+          "alt": "Nested loop explorer with an expanded outer iteration and separate columns for variables and printed output",
+          "width": 711,
+          "height": 385,
+          "naturalWidth": 1426
+        },
+        {
+          "alt": "Evalens learning walkthrough in VS Code showing its five exercises and the Open exercise button",
+          "width": 711,
+          "height": 674,
+          "naturalWidth": 1048
+        }
+      ],
+      "broken": 0
+    },
+    {
+      "viewport": 900,
+      "width": 487.671875,
+      "scrollWidth": 488,
+      "images": [
+        {
+          "alt": "Evalens logo",
+          "width": 96,
+          "height": 96,
+          "naturalWidth": 512
+        },
+        {
+          "alt": "Python code in VS Code with recorded values and printed output beside the statements that produced them",
+          "width": 488,
+          "height": 82,
+          "naturalWidth": 1240
+        },
+        {
+          "alt": "Evalens Values panel showing source beside recorded variables and printed output",
+          "width": 488,
+          "height": 233,
+          "naturalWidth": 1484
+        },
+        {
+          "alt": "Nested loop explorer with an expanded outer iteration and separate columns for variables and printed output",
+          "width": 488,
+          "height": 264,
+          "naturalWidth": 1426
+        },
+        {
+          "alt": "Evalens learning walkthrough in VS Code showing its five exercises and the Open exercise button",
+          "width": 488,
+          "height": 463,
+          "naturalWidth": 1048
+        }
+      ],
+      "broken": 0
+    }
+  ]
+}
