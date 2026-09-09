@@ -118,12 +118,19 @@ does not run the program again.
 For each value of `x`, this code steps through `y`, stores their sum in `v`,
 and prints the pair:
 
+<img src="media/demo/nested-loop-code.png" width="711" alt="Python source in the editor: an outer loop over x, an inner loop over y, v = x + y, and print(x, y)">
+
+<details>
+<summary>Copy this example</summary>
+
 ```python
 for x in range(2):
     for y in range(3):
         v = x + y
         print(x, y)
 ```
+
+</details>
 
 Each loop keeps its own value history beside its `for` header. In the panel,
 expand an outer iteration to see what happened inside it. **Variables**

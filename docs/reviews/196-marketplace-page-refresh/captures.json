@@ -2,7 +2,7 @@
   "captureMethod": "native-vscode",
   "extensionVersion": "0.2.0",
   "extensionPath": "/Users/mbjarland/projects/evalens-worktrees/196-marketplace-page-refresh",
-  "captureNotes": "Actual VS Code Extension Development Host screenshots. Source and result pixels were captured together; no recreated chrome or edited pixels. The nested-loops image was refreshed for #198 from its dedicated native Extension Development Host; other captures retain their original provenance.",
+  "captureNotes": "Actual VS Code Extension Development Host screenshots. Source and result pixels were captured together; no recreated chrome or edited pixels. The nested-loops image was refreshed for #198 from its dedicated native Extension Development Host; other captures retain their original provenance. The source-only nested-loop-code image was added for #202 from a dedicated native VS Code window; it was not evaluated and existing result captures were unchanged.",
   "captures": [
     {
       "image": "media/demo/hero.png",
@@ -291,6 +291,42 @@
       "captureRevision": "8003abf4b746d42ea7296eae230444c0e088fe71",
       "theme": "Default Dark Modern",
       "editorFontSize": 16
+    },
+    {
+      "image": "media/demo/nested-loop-code.png",
+      "sha256": "42015c8d575b434134cc4d0c20daf3d81dd0ffc1d45b7b94973972464978f7da",
+      "width": 1422,
+      "height": 272,
+      "fixture": "fixtures/nested-loops.py",
+      "description": "Actual unevaluated Python source for the nested-loop example, with native syntax colors and dark editor background. The README keeps the exact source copyable below this capture.",
+      "source": [
+        "for x in range(2):",
+        "    for y in range(3):",
+        "        v = x + y",
+        "        print(x, y)"
+      ],
+      "fontSize": "18px",
+      "fontFamily": "Menlo, Menlo, Monaco, \"Courier New\", monospace",
+      "backgroundColor": "rgb(31, 31, 31)",
+      "syntaxColors": [
+        "rgb(204, 204, 204)",
+        "rgb(197, 134, 192)",
+        "rgb(220, 220, 170)",
+        "rgb(255, 215, 0)",
+        "rgb(181, 206, 168)",
+        "rgb(212, 212, 212)"
+      ],
+      "clip": {
+        "x": 124,
+        "y": 98,
+        "width": 711,
+        "height": 136
+      },
+      "deviceScaleFactor": 2,
+      "extensionPath": "/private/tmp/evalens-198/extensions/mbjarland.evalens-0.2.0",
+      "captureRevision": "30cd2937fbe920d1e3c0e05e30b12e7e966ce5a2",
+      "theme": "Default Dark Modern",
+      "evaluated": false
     }
   ]
 }
