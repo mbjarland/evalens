@@ -5,13 +5,12 @@
 2. Click in the Python editor and use **Evalens: Evaluate File**. This evaluates
    the setup, the loop, and the final `total` expression in order.
 
-| Command | Windows / Linux | macOS |
-| --- | --- | --- |
-| Evalens: Evaluate File | Ctrl+Alt+Enter | Cmd+Alt+Enter |
+**Evalens: Evaluate File** — **Cmd+Alt+Enter**
+(**Ctrl+Alt+Enter** on Windows/Linux).
 
 These are default keys, pressed while editing Python. On a Mac keyboard,
 **Alt** is **Option**. For remapped or conflicting keys, open the **Command
-Palette** with **Ctrl+Shift+P** on Windows/Linux or **Cmd+Shift+P** on macOS and
+Palette** with **Cmd+Shift+P** (**Ctrl+Shift+P** on Windows/Linux) and
 search for the command name.
 
 ## Replacing the total

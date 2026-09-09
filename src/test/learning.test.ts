@@ -100,21 +100,28 @@ test('each opened example gives its Mac default with Windows/Linux in parenthese
   } finally { extension.deactivate(); }
 });
 
-test('each learning guide documents its command defaults for Windows/Linux and macOS', () => {
+test('each learning guide gives its Mac defaults with Windows/Linux in parentheses', () => {
   for (const step of steps) {
     const guide = fs.readFileSync(path.join(root, step.media.markdown), 'utf8');
-    assert.match(guide, /\| Command \| Windows \/ Linux \| macOS \|/);
-    const rows = [...guide.matchAll(/^\| (Evalens: [^|]+) \| ([^|]+) \| ([^|]+) \|$/gm)];
-    assert.ok(rows.length > 0, `${step.id} has no command key table`);
-    for (const [, title, windows, mac] of rows) {
+    const defaults = [...guide.matchAll(
+      /\*\*(Evalens: [^*]+)\*\* — \*\*([^*]+)\*\*\s+\(\*\*([^*]+)\*\* on Windows\/Linux\)/g,
+    )];
+    assert.ok(defaults.length > 0, `${step.id} must give Mac-first command defaults`);
+    for (const [, title, mac, windows] of defaults) {
       const command = manifest.contributes.commands.find((c: { title: string }) => c.title === title);
       assert.ok(command, `${step.id} names an unknown command: ${title}`);
+      assert.ok(template(step.id).includes(title), `${step.id}: guide and exercise command must agree`);
       const binding = manifest.contributes.keybindings.find((b: { command: string; mac?: string }) =>
         b.command === command.command && b.mac);
       assert.ok(binding, `${title} has no platform defaults`);
-      assert.equal(windows.toLowerCase(), binding.key, `${step.id}: Windows/Linux`);
       assert.equal(mac.toLowerCase(), binding.mac, `${step.id}: macOS`);
+      assert.equal(windows.toLowerCase(), binding.key, `${step.id}: Windows/Linux`);
+      if (binding.mac.includes('alt')) {
+        assert.match(guide, /\*\*Alt\*\* is \*\*Option\*\*/);
+      }
     }
+    assert.match(guide, /\*\*Cmd\+Shift\+P\*\*\s+\(\*\*Ctrl\+Shift\+P\*\* on Windows\/Linux\)/,
+      `${step.id}: the Command Palette fallback must also use the Mac-first convention`);
   }
 });
 

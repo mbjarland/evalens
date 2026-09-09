@@ -5,13 +5,12 @@
 2. Put the cursor on the expression and use **Evalens: Evaluate at Cursor**.
    The cursor stays on that line, and its result appears beside the code.
 
-| Command | Windows / Linux | macOS |
-| --- | --- | --- |
-| Evalens: Evaluate at Cursor | Ctrl+Enter | Cmd+Enter |
+**Evalens: Evaluate at Cursor** — **Cmd+Enter**
+(**Ctrl+Enter** on Windows/Linux).
 
 These are default keys, pressed while editing Python. For remapped or
-conflicting keys, open the **Command Palette** with **Ctrl+Shift+P** on
-Windows/Linux or **Cmd+Shift+P** on macOS and search for the command name.
+conflicting keys, open the **Command Palette** with **Cmd+Shift+P**
+(**Ctrl+Shift+P** on Windows/Linux) and search for the command name.
 
 ## Compare with the recorded result
 
