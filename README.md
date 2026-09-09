@@ -26,6 +26,17 @@ Earlier readings stay beside their statements: `a = [1, 2]` still shows
 `[1, 2]`, while the final `a` shows `[1, 2, 3]`. You can see what changed,
 and where. Four lines make an abstract idea concrete.
 
+## Who it's for
+
+For students and anyone learning Python, Evalens makes it easier to connect
+the code you write with the values it produces. Predict an answer, run a
+statement, and compare. Teachers and mentors can use the same view to explain
+a tricky idea.
+
+As you gain experience, use it to try expressions, inspect data, and explore
+unfamiliar code. Keep the debugger for breakpoints and stepping through
+function calls.
+
 ## A total that keeps starting over
 
 Suppose you want to add `2`, `4`, and `6`. You expect `12`, but this program
