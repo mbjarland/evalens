@@ -1,0 +1,2348 @@
+{
+  "kernelRequests": 4,
+  "browserErrors": [],
+  "results": [
+    {
+      "name": "base",
+      "width": 480,
+      "font": 28,
+      "stacked": true,
+      "guides": [
+        {
+          "kind": "iterations",
+          "x": 66.59375,
+          "top": 332.88750076293945,
+          "bottom": 567.8593788146973
+        },
+        {
+          "kind": "child",
+          "x": 122.203125,
+          "top": 586.0593872070312,
+          "bottom": 835.890625
+        }
+      ],
+      "readings": [
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 147.390625,
+              "right": 364.859375,
+              "top": 733.75,
+              "bottom": 761.75
+            }
+          ],
+          "variableLeft": 147.390625,
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "text",
+          "text": "base: 10",
+          "rects": [
+            {
+              "left": 147.390625,
+              "right": 282.25,
+              "top": 761.75,
+              "bottom": 794.75
+            }
+          ],
+          "variableLeft": 147.390625,
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 174,
+              "right": 391.46875,
+              "top": 963.171875,
+              "bottom": 991.171875
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 0",
+          "rects": [
+            {
+              "left": 174,
+              "right": 224.578125,
+              "top": 991.171875,
+              "bottom": 1024.171875
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 174,
+              "right": 391.46875,
+              "top": 1117.359375,
+              "bottom": 1145.359375
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 1",
+          "rects": [
+            {
+              "left": 174,
+              "right": 224.578125,
+              "top": 1145.359375,
+              "bottom": 1178.359375
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 174,
+              "right": 391.46875,
+              "top": 1271.546875,
+              "bottom": 1299.546875
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 2",
+          "rects": [
+            {
+              "left": 174,
+              "right": 224.578125,
+              "top": 1299.546875,
+              "bottom": 1332.546875
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        }
+      ],
+      "overflow": false,
+      "parentText": "Variables\nbase = 10\nPrinted output:\nbase: 10",
+      "output": [
+        "base: 10",
+        "1 0",
+        "1 1",
+        "1 2"
+      ]
+    },
+    {
+      "name": "base",
+      "width": 560,
+      "font": 28,
+      "stacked": true,
+      "guides": [
+        {
+          "kind": "iterations",
+          "x": 66.59375,
+          "top": 332.88750076293945,
+          "bottom": 567.8593788146973
+        },
+        {
+          "kind": "child",
+          "x": 122.203125,
+          "top": 586.0593872070312,
+          "bottom": 802.890625
+        }
+      ],
+      "readings": [
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 147.390625,
+              "right": 364.859375,
+              "top": 700.75,
+              "bottom": 728.75
+            }
+          ],
+          "variableLeft": 147.390625,
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "text",
+          "text": "base: 10",
+          "rects": [
+            {
+              "left": 147.390625,
+              "right": 282.25,
+              "top": 728.75,
+              "bottom": 761.75
+            }
+          ],
+          "variableLeft": 147.390625,
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 174,
+              "right": 391.46875,
+              "top": 930.171875,
+              "bottom": 958.171875
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 0",
+          "rects": [
+            {
+              "left": 174,
+              "right": 224.578125,
+              "top": 958.171875,
+              "bottom": 991.171875
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 174,
+              "right": 391.46875,
+              "top": 1084.359375,
+              "bottom": 1112.359375
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 1",
+          "rects": [
+            {
+              "left": 174,
+              "right": 224.578125,
+              "top": 1112.359375,
+              "bottom": 1145.359375
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 174,
+              "right": 391.46875,
+              "top": 1238.546875,
+              "bottom": 1266.546875
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 2",
+          "rects": [
+            {
+              "left": 174,
+              "right": 224.578125,
+              "top": 1266.546875,
+              "bottom": 1299.546875
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        }
+      ],
+      "overflow": false,
+      "parentText": "Variables\nbase = 10\nPrinted output:\nbase: 10",
+      "output": [
+        "base: 10",
+        "1 0",
+        "1 1",
+        "1 2"
+      ]
+    },
+    {
+      "name": "base",
+      "width": 480,
+      "font": 16,
+      "stacked": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "x": 46.1875,
+          "top": 232.29062461853027,
+          "bottom": 358.84374809265137
+        },
+        {
+          "kind": "child",
+          "x": 81.40625,
+          "top": 369.2437438964844,
+          "bottom": 408.78125
+        }
+      ],
+      "readings": [
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "text",
+          "text": "base: 10",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 330.8125,
+              "top": 374.25,
+              "bottom": 393.25
+            }
+          ],
+          "variableLeft": 95.796875,
+          "clearance": [
+            172.34375
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 0",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 282.65625,
+              "top": 422.90625,
+              "bottom": 441.90625
+            }
+          ],
+          "variableLeft": 111,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 1",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 282.65625,
+              "top": 464.71875,
+              "bottom": 483.71875
+            }
+          ],
+          "variableLeft": 111,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 2",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 282.65625,
+              "top": 506.53125,
+              "bottom": 525.53125
+            }
+          ],
+          "variableLeft": 111,
+          "clearance": []
+        }
+      ],
+      "widePrintedLeft": 253.75,
+      "overflow": false,
+      "parentText": "base = 10\nbase: 10",
+      "output": [
+        "base: 10",
+        "1 0",
+        "1 1",
+        "1 2"
+      ]
+    },
+    {
+      "name": "base",
+      "width": 1400,
+      "font": 20,
+      "stacked": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "x": 411.671875,
+          "top": 97,
+          "bottom": 212
+        },
+        {
+          "kind": "child",
+          "x": 453.671875,
+          "top": 225,
+          "bottom": 274.8125
+        }
+      ],
+      "readings": [
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "text",
+          "text": "base: 10",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 962.875,
+              "top": 231.390625,
+              "bottom": 255.390625
+            }
+          ],
+          "variableLeft": 471.671875,
+          "clearance": [
+            412.875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 0",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 902.671875,
+              "top": 292.46875,
+              "bottom": 316.46875
+            }
+          ],
+          "variableLeft": 490.671875,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 1",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 902.671875,
+              "top": 321.25,
+              "bottom": 345.25
+            }
+          ],
+          "variableLeft": 490.671875,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 2",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 902.671875,
+              "top": 350.03125,
+              "bottom": 374.03125
+            }
+          ],
+          "variableLeft": 490.671875,
+          "clearance": []
+        }
+      ],
+      "widePrintedLeft": 866.546875,
+      "overflow": false,
+      "parentText": "base = 10\nbase: 10",
+      "output": [
+        "base: 10",
+        "1 0",
+        "1 1",
+        "1 2"
+      ]
+    },
+    {
+      "name": "missing",
+      "width": 480,
+      "font": 28,
+      "stacked": true,
+      "guides": [
+        {
+          "kind": "iterations",
+          "x": 66.59375,
+          "top": 332.88750076293945,
+          "bottom": 446.46875381469727
+        },
+        {
+          "kind": "child",
+          "x": 122.203125,
+          "top": 464.6687469482422,
+          "bottom": 747.4999847412109
+        }
+      ],
+      "readings": [
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 147.390625,
+              "right": 364.859375,
+              "top": 645.359375,
+              "bottom": 673.359375
+            }
+          ],
+          "variableLeft": 147.390625,
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "text",
+          "text": "base: 10",
+          "rects": [
+            {
+              "left": 147.390625,
+              "right": 282.25,
+              "top": 673.359375,
+              "bottom": 706.359375
+            }
+          ],
+          "variableLeft": 147.390625,
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 174,
+              "right": 391.46875,
+              "top": 874.78125,
+              "bottom": 902.78125
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 0",
+          "rects": [
+            {
+              "left": 174,
+              "right": 224.578125,
+              "top": 902.78125,
+              "bottom": 935.78125
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 174,
+              "right": 391.46875,
+              "top": 1028.96875,
+              "bottom": 1056.96875
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 1",
+          "rects": [
+            {
+              "left": 174,
+              "right": 224.578125,
+              "top": 1056.96875,
+              "bottom": 1089.96875
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        }
+      ],
+      "overflow": false,
+      "parentText": "Variables\nbase: not recorded\nWhy?\nPrinted output:\nbase: 10",
+      "output": [
+        "base: 10",
+        "1 0",
+        "1 1"
+      ]
+    },
+    {
+      "name": "missing",
+      "width": 560,
+      "font": 28,
+      "stacked": true,
+      "guides": [
+        {
+          "kind": "iterations",
+          "x": 66.59375,
+          "top": 332.88750076293945,
+          "bottom": 413.46875381469727
+        },
+        {
+          "kind": "child",
+          "x": 122.203125,
+          "top": 431.6687469482422,
+          "bottom": 648.5
+        }
+      ],
+      "readings": [
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 147.390625,
+              "right": 364.859375,
+              "top": 546.359375,
+              "bottom": 574.359375
+            }
+          ],
+          "variableLeft": 147.390625,
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "text",
+          "text": "base: 10",
+          "rects": [
+            {
+              "left": 147.390625,
+              "right": 282.25,
+              "top": 574.359375,
+              "bottom": 607.359375
+            }
+          ],
+          "variableLeft": 147.390625,
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 174,
+              "right": 391.46875,
+              "top": 775.78125,
+              "bottom": 803.78125
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 0",
+          "rects": [
+            {
+              "left": 174,
+              "right": 224.578125,
+              "top": 803.78125,
+              "bottom": 836.78125
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 174,
+              "right": 391.46875,
+              "top": 929.96875,
+              "bottom": 957.96875
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 1",
+          "rects": [
+            {
+              "left": 174,
+              "right": 224.578125,
+              "top": 957.96875,
+              "bottom": 990.96875
+            }
+          ],
+          "variableLeft": 174,
+          "clearance": []
+        }
+      ],
+      "overflow": false,
+      "parentText": "Variables\nbase: not recorded\nWhy?\nPrinted output:\nbase: 10",
+      "output": [
+        "base: 10",
+        "1 0",
+        "1 1"
+      ]
+    },
+    {
+      "name": "missing",
+      "width": 480,
+      "font": 16,
+      "stacked": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "x": 46.1875,
+          "top": 232.29062461853027,
+          "bottom": 308.04687309265137
+        },
+        {
+          "kind": "child",
+          "x": 81.40625,
+          "top": 318.4468765258789,
+          "bottom": 395.984375
+        }
+      ],
+      "readings": [
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "text",
+          "text": "base: 10",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 330.8125,
+              "top": 323.453125,
+              "bottom": 342.453125
+            }
+          ],
+          "variableLeft": 95.796875,
+          "clearance": [
+            172.34375
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 0",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 282.65625,
+              "top": 410.109375,
+              "bottom": 429.109375
+            }
+          ],
+          "variableLeft": 111,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 1",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 282.65625,
+              "top": 432.921875,
+              "bottom": 451.921875
+            }
+          ],
+          "variableLeft": 111,
+          "clearance": []
+        }
+      ],
+      "widePrintedLeft": 253.75,
+      "overflow": false,
+      "parentText": "base: not recorded\nWhy?\nbase: 10",
+      "output": [
+        "base: 10",
+        "1 0",
+        "1 1"
+      ]
+    },
+    {
+      "name": "missing",
+      "width": 1400,
+      "font": 20,
+      "stacked": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "x": 411.671875,
+          "top": 97,
+          "bottom": 172
+        },
+        {
+          "kind": "child",
+          "x": 453.671875,
+          "top": 185,
+          "bottom": 234.8125
+        }
+      ],
+      "readings": [
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "text",
+          "text": "base: 10",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 962.875,
+              "top": 191.390625,
+              "bottom": 215.390625
+            }
+          ],
+          "variableLeft": 471.671875,
+          "clearance": [
+            412.875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 0",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 902.671875,
+              "top": 252.46875,
+              "bottom": 276.46875
+            }
+          ],
+          "variableLeft": 490.671875,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 1,
+          "role": "text",
+          "text": "1 1",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 902.671875,
+              "top": 281.25,
+              "bottom": 305.25
+            }
+          ],
+          "variableLeft": 490.671875,
+          "clearance": []
+        }
+      ],
+      "widePrintedLeft": 866.546875,
+      "overflow": false,
+      "parentText": "base: not recorded\nWhy?\nbase: 10",
+      "output": [
+        "base: 10",
+        "1 0",
+        "1 1"
+      ]
+    },
+    {
+      "name": "deep",
+      "width": 480,
+      "font": 28,
+      "stacked": true,
+      "guides": [
+        {
+          "kind": "iterations",
+          "x": 66.59375,
+          "top": 431.88750076293945,
+          "bottom": 545.4687538146973
+        },
+        {
+          "kind": "child",
+          "x": 122.203125,
+          "top": 563.6687469482422,
+          "bottom": 813.5
+        },
+        {
+          "kind": "iterations",
+          "x": 122.19062519073486,
+          "top": 831.7000122070312,
+          "bottom": 1585.484375
+        },
+        {
+          "kind": "child",
+          "x": 181,
+          "top": 908.4968872070312,
+          "bottom": 1158.328125
+        },
+        {
+          "kind": "child",
+          "x": 181,
+          "top": 1603.684326171875,
+          "bottom": 1853.515625
+        }
+      ],
+      "readings": [
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 147.390625,
+              "right": 364.859375,
+              "top": 711.359375,
+              "bottom": 739.359375
+            }
+          ],
+          "variableLeft": 147.390625,
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "text",
+          "text": "base: 10",
+          "rects": [
+            {
+              "left": 147.390625,
+              "right": 282.25,
+              "top": 739.359375,
+              "bottom": 772.359375
+            }
+          ],
+          "variableLeft": 147.390625,
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 1,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 206.1875,
+              "right": 423.65625,
+              "top": 1056.1875,
+              "bottom": 1084.1875
+            }
+          ],
+          "variableLeft": 206.1875,
+          "clearance": [
+            83.99687480926514,
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 1,
+          "role": "text",
+          "text": "middle: 10",
+          "rects": [
+            {
+              "left": 206.1875,
+              "right": 374.765625,
+              "top": 1084.1875,
+              "bottom": 1117.1875
+            }
+          ],
+          "variableLeft": 206.1875,
+          "clearance": [
+            83.99687480926514,
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 450.265625,
+              "top": 1314.609375,
+              "bottom": 1342.609375
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": [
+            110.60624980926514
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 0 0",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 317.09375,
+              "top": 1342.609375,
+              "bottom": 1375.609375
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": [
+            110.60624980926514
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 450.265625,
+              "top": 1468.796875,
+              "bottom": 1496.796875
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": [
+            110.60624980926514
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 0 1",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 317.09375,
+              "top": 1496.796875,
+              "bottom": 1529.796875
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": [
+            110.60624980926514
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 1,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 206.1875,
+              "right": 423.65625,
+              "top": 1751.375,
+              "bottom": 1779.375
+            }
+          ],
+          "variableLeft": 206.1875,
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 1,
+          "role": "text",
+          "text": "middle: 11",
+          "rects": [
+            {
+              "left": 206.1875,
+              "right": 374.765625,
+              "top": 1779.375,
+              "bottom": 1812.375
+            }
+          ],
+          "variableLeft": 206.1875,
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 450.265625,
+              "top": 2009.796875,
+              "bottom": 2037.796875
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 1 0",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 317.09375,
+              "top": 2037.796875,
+              "bottom": 2070.796875
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 450.265625,
+              "top": 2163.984375,
+              "bottom": 2191.984375
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 1 1",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 317.09375,
+              "top": 2191.984375,
+              "bottom": 2224.984375
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": []
+        }
+      ],
+      "overflow": false,
+      "parentText": "Variables\nbase = 10\nPrinted output:\nbase: 10",
+      "output": [
+        "base: 10",
+        "middle: 10",
+        "1 0 0",
+        "1 0 1",
+        "middle: 11",
+        "1 1 0",
+        "1 1 1"
+      ]
+    },
+    {
+      "name": "deep",
+      "width": 560,
+      "font": 28,
+      "stacked": true,
+      "guides": [
+        {
+          "kind": "iterations",
+          "x": 66.59375,
+          "top": 431.88750076293945,
+          "bottom": 512.4687538146973
+        },
+        {
+          "kind": "child",
+          "x": 122.203125,
+          "top": 530.6687469482422,
+          "bottom": 747.5
+        },
+        {
+          "kind": "iterations",
+          "x": 122.19062519073486,
+          "top": 765.7000122070312,
+          "bottom": 1457.484375
+        },
+        {
+          "kind": "child",
+          "x": 181,
+          "top": 842.4968872070312,
+          "bottom": 1059.328125
+        },
+        {
+          "kind": "child",
+          "x": 181,
+          "top": 1475.684326171875,
+          "bottom": 1692.515625
+        }
+      ],
+      "readings": [
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 147.390625,
+              "right": 364.859375,
+              "top": 645.359375,
+              "bottom": 673.359375
+            }
+          ],
+          "variableLeft": 147.390625,
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "text",
+          "text": "base: 10",
+          "rects": [
+            {
+              "left": 147.390625,
+              "right": 282.25,
+              "top": 673.359375,
+              "bottom": 706.359375
+            }
+          ],
+          "variableLeft": 147.390625,
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 1,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 206.1875,
+              "right": 423.65625,
+              "top": 957.1875,
+              "bottom": 985.1875
+            }
+          ],
+          "variableLeft": 206.1875,
+          "clearance": [
+            83.99687480926514,
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 1,
+          "role": "text",
+          "text": "middle: 10",
+          "rects": [
+            {
+              "left": 206.1875,
+              "right": 374.765625,
+              "top": 985.1875,
+              "bottom": 1018.1875
+            }
+          ],
+          "variableLeft": 206.1875,
+          "clearance": [
+            83.99687480926514,
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 450.265625,
+              "top": 1186.609375,
+              "bottom": 1214.609375
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": [
+            110.60624980926514
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 0 0",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 317.09375,
+              "top": 1214.609375,
+              "bottom": 1247.609375
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": [
+            110.60624980926514
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 450.265625,
+              "top": 1340.796875,
+              "bottom": 1368.796875
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": [
+            110.60624980926514
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 0 1",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 317.09375,
+              "top": 1368.796875,
+              "bottom": 1401.796875
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": [
+            110.60624980926514
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 1,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 206.1875,
+              "right": 423.65625,
+              "top": 1590.375,
+              "bottom": 1618.375
+            }
+          ],
+          "variableLeft": 206.1875,
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 1,
+          "role": "text",
+          "text": "middle: 11",
+          "rects": [
+            {
+              "left": 206.1875,
+              "right": 374.765625,
+              "top": 1618.375,
+              "bottom": 1651.375
+            }
+          ],
+          "variableLeft": 206.1875,
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 450.265625,
+              "top": 1819.796875,
+              "bottom": 1847.796875
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 1 0",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 317.09375,
+              "top": 1847.796875,
+              "bottom": 1880.796875
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 450.265625,
+              "top": 1973.984375,
+              "bottom": 2001.984375
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 1 1",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 317.09375,
+              "top": 2001.984375,
+              "bottom": 2034.984375
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": []
+        }
+      ],
+      "overflow": false,
+      "parentText": "Variables\nbase = 10\nPrinted output:\nbase: 10",
+      "output": [
+        "base: 10",
+        "middle: 10",
+        "1 0 0",
+        "1 0 1",
+        "middle: 11",
+        "1 1 0",
+        "1 1 1"
+      ]
+    },
+    {
+      "name": "deep",
+      "width": 480,
+      "font": 16,
+      "stacked": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "x": 46.1875,
+          "top": 289.2906246185303,
+          "bottom": 365.04687309265137
+        },
+        {
+          "kind": "child",
+          "x": 81.40625,
+          "top": 375.4468765258789,
+          "bottom": 414.984375
+        },
+        {
+          "kind": "iterations",
+          "x": 81.39687490463257,
+          "top": 425.3843688964844,
+          "bottom": 648.15625
+        },
+        {
+          "kind": "child",
+          "x": 115,
+          "top": 452.4781188964844,
+          "bottom": 530.015625
+        },
+        {
+          "kind": "child",
+          "x": 115,
+          "top": 658.5562438964844,
+          "bottom": 736.09375
+        }
+      ],
+      "readings": [
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "text",
+          "text": "base: 10",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 330.8125,
+              "top": 380.453125,
+              "bottom": 399.453125
+            }
+          ],
+          "variableLeft": 95.796875,
+          "clearance": [
+            172.34375
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 1,
+          "role": "text",
+          "text": "middle: 10",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 350.078125,
+              "top": 476.484375,
+              "bottom": 495.484375
+            }
+          ],
+          "variableLeft": 129.390625,
+          "clearance": [
+            172.35312509536743,
+            138.75
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 0 0",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 301.921875,
+              "top": 544.140625,
+              "bottom": 563.140625
+            }
+          ],
+          "variableLeft": 144.59375,
+          "clearance": [
+            172.35312509536743
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 0 1",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 301.921875,
+              "top": 585.953125,
+              "bottom": 604.953125
+            }
+          ],
+          "variableLeft": 144.59375,
+          "clearance": [
+            172.35312509536743
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 1,
+          "role": "text",
+          "text": "middle: 11",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 350.078125,
+              "top": 682.5625,
+              "bottom": 701.5625
+            }
+          ],
+          "variableLeft": 129.390625,
+          "clearance": [
+            138.75
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 1 0",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 301.921875,
+              "top": 750.21875,
+              "bottom": 769.21875
+            }
+          ],
+          "variableLeft": 144.59375,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 1 1",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 301.921875,
+              "top": 792.03125,
+              "bottom": 811.03125
+            }
+          ],
+          "variableLeft": 144.59375,
+          "clearance": []
+        }
+      ],
+      "widePrintedLeft": 253.75,
+      "overflow": false,
+      "parentText": "base = 10\nbase: 10",
+      "output": [
+        "base: 10",
+        "middle: 10",
+        "1 0 0",
+        "1 0 1",
+        "middle: 11",
+        "1 1 0",
+        "1 1 1"
+      ]
+    },
+    {
+      "name": "deep",
+      "width": 1400,
+      "font": 20,
+      "stacked": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "x": 411.671875,
+          "top": 97,
+          "bottom": 172
+        },
+        {
+          "kind": "child",
+          "x": 453.671875,
+          "top": 185,
+          "bottom": 234.8125
+        },
+        {
+          "kind": "iterations",
+          "x": 453.671875,
+          "top": 247.8125,
+          "bottom": 432.453125
+        },
+        {
+          "kind": "child",
+          "x": 495.671875,
+          "top": 281.8125,
+          "bottom": 331.625
+        },
+        {
+          "kind": "child",
+          "x": 495.671875,
+          "top": 445.453125,
+          "bottom": 495.265625
+        }
+      ],
+      "readings": [
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 0,
+          "role": "text",
+          "text": "base: 10",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 962.875,
+              "top": 191.390625,
+              "bottom": 215.390625
+            }
+          ],
+          "variableLeft": 471.671875,
+          "clearance": [
+            412.875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 1,
+          "role": "text",
+          "text": "middle: 10",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 986.96875,
+              "top": 288.203125,
+              "bottom": 312.203125
+            }
+          ],
+          "variableLeft": 513.671875,
+          "clearance": [
+            412.875,
+            370.875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 0 0",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 926.765625,
+              "top": 349.28125,
+              "bottom": 373.28125
+            }
+          ],
+          "variableLeft": 532.671875,
+          "clearance": [
+            412.875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 0 1",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 926.765625,
+              "top": 378.0625,
+              "bottom": 402.0625
+            }
+          ],
+          "variableLeft": 532.671875,
+          "clearance": [
+            412.875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-parent-reading",
+          "depth": 1,
+          "role": "text",
+          "text": "middle: 11",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 986.96875,
+              "top": 451.84375,
+              "bottom": 475.84375
+            }
+          ],
+          "variableLeft": 513.671875,
+          "clearance": [
+            370.875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 1 0",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 926.765625,
+              "top": 512.921875,
+              "bottom": 536.921875
+            }
+          ],
+          "variableLeft": 532.671875,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 1 1",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 926.765625,
+              "top": 541.703125,
+              "bottom": 565.703125
+            }
+          ],
+          "variableLeft": 532.671875,
+          "clearance": []
+        }
+      ],
+      "widePrintedLeft": 866.546875,
+      "overflow": false,
+      "parentText": "base = 10\nbase: 10",
+      "output": [
+        "base: 10",
+        "middle: 10",
+        "1 0 0",
+        "1 0 1",
+        "middle: 11",
+        "1 1 0",
+        "1 1 1"
+      ]
+    },
+    {
+      "name": "gaps",
+      "width": 480,
+      "font": 28,
+      "stacked": true,
+      "guides": [
+        {
+          "kind": "iterations",
+          "x": 66.59375,
+          "top": 332.88750076293945,
+          "bottom": 446.46875381469727
+        },
+        {
+          "kind": "child",
+          "x": 122.203125,
+          "top": 464.6687469482422,
+          "bottom": 647.90625
+        },
+        {
+          "kind": "iterations",
+          "x": 122.19062519073486,
+          "top": 666.1062622070312,
+          "bottom": 724.703125
+        },
+        {
+          "kind": "child",
+          "x": 181,
+          "top": 742.9031372070312,
+          "bottom": 926.140625
+        }
+      ],
+      "readings": [
+        {
+          "rowClass": "loop-data loop-direct",
+          "depth": 0,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 147.390625,
+              "right": 364.859375,
+              "top": 545.765625,
+              "bottom": 573.765625
+            }
+          ],
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-direct",
+          "depth": 0,
+          "role": "text",
+          "text": "outer: 1",
+          "rects": [
+            {
+              "left": 147.390625,
+              "right": 282.25,
+              "top": 573.765625,
+              "bottom": 606.765625
+            }
+          ],
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-direct",
+          "depth": 1,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 206.1875,
+              "right": 423.65625,
+              "top": 824,
+              "bottom": 852
+            }
+          ],
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-direct",
+          "depth": 1,
+          "role": "text",
+          "text": "middle: 2",
+          "rects": [
+            {
+              "left": 206.1875,
+              "right": 357.90625,
+              "top": 852,
+              "bottom": 885
+            }
+          ],
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 450.265625,
+              "top": 1053.421875,
+              "bottom": 1081.421875
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 2 3",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 317.09375,
+              "top": 1081.421875,
+              "bottom": 1114.421875
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": []
+        }
+      ],
+      "overflow": false,
+      "output": [
+        "outer: 1",
+        "middle: 2",
+        "1 2 3"
+      ]
+    },
+    {
+      "name": "gaps",
+      "width": 560,
+      "font": 28,
+      "stacked": true,
+      "guides": [
+        {
+          "kind": "iterations",
+          "x": 66.59375,
+          "top": 332.88750076293945,
+          "bottom": 413.46875381469727
+        },
+        {
+          "kind": "child",
+          "x": 122.203125,
+          "top": 431.6687469482422,
+          "bottom": 581.90625
+        },
+        {
+          "kind": "iterations",
+          "x": 122.19062519073486,
+          "top": 600.1062622070312,
+          "bottom": 658.703125
+        },
+        {
+          "kind": "child",
+          "x": 181,
+          "top": 676.9031372070312,
+          "bottom": 827.140625
+        }
+      ],
+      "readings": [
+        {
+          "rowClass": "loop-data loop-direct",
+          "depth": 0,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 147.390625,
+              "right": 364.859375,
+              "top": 479.765625,
+              "bottom": 507.765625
+            }
+          ],
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-direct",
+          "depth": 0,
+          "role": "text",
+          "text": "outer: 1",
+          "rects": [
+            {
+              "left": 147.390625,
+              "right": 282.25,
+              "top": 507.765625,
+              "bottom": 540.765625
+            }
+          ],
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-direct",
+          "depth": 1,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 206.1875,
+              "right": 423.65625,
+              "top": 725,
+              "bottom": 753
+            }
+          ],
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-direct",
+          "depth": 1,
+          "role": "text",
+          "text": "middle: 2",
+          "rects": [
+            {
+              "left": 206.1875,
+              "right": 357.90625,
+              "top": 753,
+              "bottom": 786
+            }
+          ],
+          "clearance": [
+            25.1875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "label",
+          "text": "Printed output: ",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 450.265625,
+              "top": 954.421875,
+              "bottom": 982.421875
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": []
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 2 3",
+          "rects": [
+            {
+              "left": 232.796875,
+              "right": 317.09375,
+              "top": 982.421875,
+              "bottom": 1015.421875
+            }
+          ],
+          "variableLeft": 232.796875,
+          "clearance": []
+        }
+      ],
+      "overflow": false,
+      "output": [
+        "outer: 1",
+        "middle: 2",
+        "1 2 3"
+      ]
+    },
+    {
+      "name": "gaps",
+      "width": 480,
+      "font": 16,
+      "stacked": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "x": 46.1875,
+          "top": 232.29062461853027,
+          "bottom": 308.04687309265137
+        },
+        {
+          "kind": "child",
+          "x": 81.40625,
+          "top": 318.4468765258789,
+          "bottom": 357.984375
+        },
+        {
+          "kind": "iterations",
+          "x": 81.39687490463257,
+          "top": 368.3843688964844,
+          "bottom": 385.078125
+        },
+        {
+          "kind": "child",
+          "x": 115,
+          "top": 395.4781188964844,
+          "bottom": 454.015625
+        }
+      ],
+      "readings": [
+        {
+          "rowClass": "loop-data loop-direct",
+          "depth": 0,
+          "role": "text",
+          "text": "outer: 1",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 330.8125,
+              "top": 323.453125,
+              "bottom": 342.453125
+            }
+          ],
+          "clearance": [
+            172.34375
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-direct",
+          "depth": 1,
+          "role": "text",
+          "text": "middle: 2",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 340.453125,
+              "top": 419.484375,
+              "bottom": 438.484375
+            }
+          ],
+          "clearance": [
+            138.75
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 2 3",
+          "rects": [
+            {
+              "left": 253.75,
+              "right": 301.921875,
+              "top": 468.140625,
+              "bottom": 487.140625
+            }
+          ],
+          "variableLeft": 144.59375,
+          "clearance": []
+        }
+      ],
+      "widePrintedLeft": 253.75,
+      "overflow": false,
+      "output": [
+        "outer: 1",
+        "middle: 2",
+        "1 2 3"
+      ]
+    },
+    {
+      "name": "gaps",
+      "width": 1400,
+      "font": 20,
+      "stacked": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "x": 411.671875,
+          "top": 97,
+          "bottom": 172
+        },
+        {
+          "kind": "child",
+          "x": 453.671875,
+          "top": 185,
+          "bottom": 234.8125
+        },
+        {
+          "kind": "iterations",
+          "x": 453.671875,
+          "top": 247.8125,
+          "bottom": 268.8125
+        },
+        {
+          "kind": "child",
+          "x": 495.671875,
+          "top": 281.8125,
+          "bottom": 331.625
+        }
+      ],
+      "readings": [
+        {
+          "rowClass": "loop-data loop-direct",
+          "depth": 0,
+          "role": "text",
+          "text": "outer: 1",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 962.875,
+              "top": 191.390625,
+              "bottom": 215.390625
+            }
+          ],
+          "clearance": [
+            412.875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-direct",
+          "depth": 1,
+          "role": "text",
+          "text": "middle: 2",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 974.921875,
+              "top": 288.203125,
+              "bottom": 312.203125
+            }
+          ],
+          "clearance": [
+            370.875
+          ]
+        },
+        {
+          "rowClass": "loop-data loop-iteration",
+          "depth": 2,
+          "role": "text",
+          "text": "1 2 3",
+          "rects": [
+            {
+              "left": 866.546875,
+              "right": 926.765625,
+              "top": 349.28125,
+              "bottom": 373.28125
+            }
+          ],
+          "variableLeft": 532.671875,
+          "clearance": []
+        }
+      ],
+      "widePrintedLeft": 866.546875,
+      "overflow": false,
+      "output": [
+        "outer: 1",
+        "middle: 2",
+        "1 2 3"
+      ]
+    }
+  ]
+}

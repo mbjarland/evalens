@@ -608,6 +608,12 @@ body.vscode-high-contrast .loop-guides path, body.vscode-high-contrast-light .lo
 @container (max-width: 28ch) {
   .loop-columns { display: none; }
   .loop-data { grid-template-columns: minmax(0, 1fr); row-gap: .2em; padding: .35em 0 .6em; }
+  /* Stacked output shares the reading gutter; a child guide must never
+     cross its label or text. Direct parent output belongs at the parent
+     level even when that row has no Variables cell to display. */
+  .loop-tree .loop-data > :nth-child(2) { padding-left: calc(var(--loop-common-indent) + max(0, var(--loop-depth, 0) - 1) * var(--loop-branch-indent) + min(1, var(--loop-depth, 0)) * var(--loop-reading-indent)); }
+  .loop-tree .loop-parent-reading > :nth-child(2),
+  .loop-tree .loop-body > .loop-direct > :nth-child(2) { padding-left: calc(var(--loop-common-indent) + var(--loop-depth, 0) * var(--loop-branch-indent)); }
   .loop-direct > :first-child { display: none; }
   .loop-stack-label {
     display: block;
