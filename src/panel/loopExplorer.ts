@@ -206,20 +206,25 @@ export function loopExplorerHtml(
   let exhausted = false;
   const timingFor = (site: LoopSite): string => `${site.target} at iteration start`
     + (site.body_names?.length ? `; ${site.body_names.join(', ')} at iteration end` : '');
-  const recordingDetails = (site: LoopSite): string =>
+  const recordingDetails = (): string =>
     '<details class="loop-recording-details" data-local-disclosure>'
-    + '<summary>Recording details</summary><div class="loop-explanation">'
-    + 'These are readings saved during evaluation, not live values. '
-    + 'The loop variable is recorded when an iteration starts. '
-    + (site.body_names?.length ? 'Selected body variables are recorded only when the normal end '
-      + 'of the body is reached. A value can carry over from an earlier iteration; '
-      + 'it need not have been assigned during this one. Printed output can therefore '
-      + 'differ from the value recorded at the end. ' : '')
-    + (site.omitted_body_names ? 'At most three body variable names are selected per loop. '
-      + 'Names too long for this view can also be omitted. ' : '')
-    + 'Folding hides saved detail; More iterations opens another saved page. '
-    + 'Detail that was not saved cannot be expanded. '
-    + 'A missing stale warning does not prove that every dependency is unchanged.'
+    + '<summary>About these values</summary><div class="loop-explanation">'
+    + '<p>These values were saved when you evaluated the code. They are not live values. '
+    + 'The variable after <code>for</code> shows its value at the start of each iteration. '
+    + 'Other variables show their values when the body reaches its end.</p>'
+    + '<p>Printed output shows what the program printed at that moment. '
+    + 'If it prints <code>u</code> while <code>u = 4</code>, then sets '
+    + '<code>u = 99</code>, the row shows <code>u = 99</code> beside printed '
+    + '<code>4</code>. A value can carry over from an earlier iteration when '
+    + 'the code does not assign it again.</p>'
+    + '<p><strong>Not recorded</strong> means there is no saved reading; it does not '
+    + 'mean the variable was empty or the assignment did not run. Use <strong>Why?</strong> '
+    + 'beside a missing value for its explanation. Evalens saves up to three body '
+    + 'variable names per loop; the loop heading reports names left out.</p>'
+    + '<p>Folding and paging browse saved results without running the code again. '
+    + 'A loop reports when later iteration details or output were not saved. '
+    + 'Those missing details cannot be expanded. An old result can also depend on '
+    + 'changes Evalens could not detect; no warning is not a guarantee that it is current.</p>'
     + '</div></details>';
   const number = (n: number): string => n.toLocaleString('en-US');
   const sourceContext = (invocation: LoopInvocation): string => {
@@ -321,6 +326,14 @@ export function loopExplorerHtml(
     const content = output(start, end, id, gap);
     return content ? `<div class="loop-data loop-direct"><span></span><div>${content}</div></div>` : '';
   };
+  const sourceHeader = (invocation: LoopInvocation, source: string, root: boolean): string => {
+    const site = model.sites.get(invocation.site)!;
+    return `<div class="loop-source${root ? ' loop-root-source' : ''}">${source}`
+      + ` <span class="loop-note">· ${count(invocation.count, 'iteration')}`
+      + (root ? '' : ` · line ${line + site.line - model.wire.statement_line + 1}`)
+      + (site.omitted_body_names ? ` · ${count(site.omitted_body_names, 'other body variable')} not recorded` : '')
+      + '</span></div>';
+  };
   const invocationHtml = (invocation: LoopInvocation, depth: number,
     root = false, singleChild = false): string => {
     if (remaining-- <= 0) { exhausted = true; return ''; }
@@ -348,28 +361,14 @@ export function loopExplorerHtml(
       + '. Later iteration details were not saved.</div>'
       : invocation.incomplete ? '<div class="loop-note loop-capture-limit">'
         + 'Some nested loop detail was not saved.</div>' : '';
-    const owner = invocation.parent === null ? undefined : model.entries.get(invocation.parent);
-    const ownerContext = owner?.kind === 'iteration'
-      ? ` · within Iteration ${number(owner.ordinal)}, `
-        + `${model.sites.get((model.entries.get(owner.invocation) as LoopInvocation).site)!.target} = ${owner.value}`
-      : '';
-    const header = `<div class="loop-source${root ? ' loop-root-source' : ''}">${source}`
-      + ` <span class="loop-note">· ${count(invocation.count, 'iteration')}`
-      + (root ? '' : ` · line ${line + site.line - model.wire.statement_line + 1}`)
-      + (site.omitted_body_names ? ` · ${count(site.omitted_body_names, 'other body variable')} not recorded` : '')
-      + '</span></div>';
-    const columns = '<div class="loop-columns"><span>Variables</span>'
-      + '<span title="Python writes ordinary printed output to stdout.">Printed output</span></div>'
-      + `<div class="loop-value-timing loop-note">${e(timingFor(site))} `
-      + recordingDetails(site) + '</div>';
-    // Each invocation owns its timing and source context. A nested header
-    // covers its ancestor while it is being read; neither repeats per row.
-    const context = `<div class="loop-context" data-loop-context="${invocation.id}" `
-      + `data-loop-depth="${depth}">`
-      + (recordingState ? `<div class="loop-note loop-recording-state">${e(recordingState)}</div>` : '') + header
-      + (ownerContext ? `<div class="loop-note loop-owner">${e(ownerContext.slice(3))}</div>` : '')
-      + saved + (expanded ? columns : '') + '</div>';
-    if (!expanded) return `<section class="loop-invocation" data-loop-invocation="${invocation.id}">`
+    // One shared heading owns the columns and help. Inner sources remain in
+    // the normal flow; a short context cue is supplied only after scrolling
+    // hides the group that owns the visible rows.
+    const firstRoot = root && invocation.id === model.roots[0]?.id;
+    const context = (firstRoot ? '' : sourceHeader(invocation, source, root)) + saved;
+    const section = `<section class="loop-invocation" data-loop-invocation="${invocation.id}" `
+      + `data-loop-depth="${depth}">`;
+    if (!expanded) return section
       + context + '</section>';
     let body = '';
     const shown: Entry[] = [];
@@ -410,7 +409,7 @@ export function loopExplorerHtml(
       + (mixed ? '<div class="loop-note">Rows also include nested loops outside the iterations.</div>' : '')
       + (limited ? '<div class="loop-note">Collapse an expanded group to show the remaining rows on this page.</div>' : '')
       + '</div>' : '';
-    return `<section class="loop-invocation" data-loop-invocation="${invocation.id}">`
+    return section
       + context + `<div class="loop-entries">${body}</div>` + paging + tail + '</section>';
   };
   const iterationHtml = (entry: LoopIteration, site: LoopSite, depth: number): string => {
@@ -486,8 +485,16 @@ export function loopExplorerHtml(
     ? '<div class="loop-final">Final values after this loop: '
       + model.wire.final_values.map((v) => `${e(v.name)} = ${e(v.value)}`).join(', ') + '</div>' : '';
   const clipped = model.wire.totals.some((n, i) => n > model.wire.retained[i]!);
+  const root = model.roots[0]!;
+  const heading = '<div class="loop-context">'
+    + (recordingState ? `<div class="loop-note loop-recording-state">${e(recordingState)}</div>` : '')
+    + '<div class="loop-overview"><div class="loop-title">'
+    + sourceHeader(root, e(model.sites.get(root.site)!.source), true)
+    + '<div class="loop-scroll-owner" hidden></div></div>' + recordingDetails() + '</div>'
+    + '<div class="loop-columns"><span>Variables</span>'
+    + '<span title="Python writes ordinary printed output to stdout.">Printed output</span></div></div>';
   return `<div class="loop-explorer" data-loop-root="${line}">`
-    + body + (exhausted ? '<div class="loop-notice">Visible detail limit reached. Collapse a group to explore another.</div>' : '')
+    + heading + body + (exhausted ? '<div class="loop-notice">Visible detail limit reached. Collapse a group to explore another.</div>' : '')
     + (clipped ? '<div class="loop-notice">Output capture is incomplete; unretained text cannot be expanded.</div>' : '')
     + final + `<div class="loop-export">${button('Open statement printed output', 'open', 0, 0,
       'title="Opens the available printed output for this whole statement. Use native Find and copy."')}`
@@ -520,19 +527,23 @@ export const LOOP_EXPLORER_STYLE = `
 .loop-columns, .loop-data { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); column-gap: 1.2em; }
 .loop-columns > *, .loop-data > * { min-width: 0; }
 .loop-stack-label { display: none; }
-.loop-columns { color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: .45em; margin: .15em 0 .6em; }
-.loop-value-timing { margin: .15em 0 .5em; overflow-wrap: anywhere; }
-.loop-context { position: sticky; top: var(--loop-context-top, 0px); z-index: calc(2 + var(--loop-depth)); background: var(--vscode-panel-background, #1e1e1e); padding-top: .15em; }
+.loop-columns { color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); padding: 0 .35em .45em; margin: .15em 0 .6em; }
+.loop-context { position: sticky; top: var(--loop-context-top, 0px); z-index: 2; background: var(--vscode-panel-background, #1e1e1e); padding-top: .15em; }
 .loop-context-unpinned { position: static; }
 .loop-context-covered { visibility: hidden; }
-.loop-owner { overflow-wrap: anywhere; margin-bottom: .25em; }
+.loop-overview { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 1em; }
+.loop-title { position: relative; min-width: 0; flex: 1; }
+.loop-scroll-owner { position: absolute; inset: .15em 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.loop-context-has-owner .loop-root-source { visibility: hidden; }
 .loop-recording-details, .loop-missing-why { color: var(--vscode-descriptionForeground); }
-.loop-recording-details, .loop-missing-why { display: inline-block; vertical-align: top; margin-left: .6em; }
-.loop-recording-details[open], .loop-missing-why[open] { display: block; margin: .35em 0; }
-.loop-missing-why { font-size: .86em; }
+.loop-recording-details { font-size: .86em; }
+.loop-recording-details[open] { flex-basis: 100%; }
+.loop-missing-why { display: inline-block; vertical-align: top; margin-left: .6em; font-size: .86em; }
+.loop-missing-why[open] { display: block; margin: .35em 0; }
 .loop-recording-details > summary, .loop-missing-why > summary { cursor: pointer; color: var(--vscode-textLink-foreground); width: fit-content; list-style-position: inside; }
 .loop-recording-details > summary:focus-visible, .loop-missing-why > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
 .loop-explanation { max-width: 75ch; white-space: normal; overflow-wrap: anywhere; padding: .4em 0; }
+.loop-explanation p { margin: .4em 0; }
 .loop-capture-limit { margin: .2em 0; }
 .loop-recording-state { font-weight: 600; margin-bottom: .25em; }
 .loop-source { font-size: .88em; margin: .4em 0 .3em; overflow-wrap: anywhere; }
@@ -542,7 +553,7 @@ export const LOOP_EXPLORER_STYLE = `
 .loop-disclosure { color: var(--vscode-evalens-outputLabelForeground); }
 .loop-data { padding: .12em .35em; }
 .loop-body { margin-top: .25em; }
-.loop-body .loop-invocation { margin-left: .6em; }
+.loop-invocation > .loop-source { margin-left: min(2.4em, calc(var(--loop-depth, 0) * .6em)); }
 .loop-target { overflow-wrap: anywhere; }
 .loop-output { white-space: pre-wrap; overflow-wrap: anywhere; }
 .loop-note, .loop-final, .loop-export, .loop-notice { color: var(--vscode-descriptionForeground); font-size: .86em; }

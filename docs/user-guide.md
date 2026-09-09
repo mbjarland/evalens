@@ -7,6 +7,23 @@ Evalens runs the Python statements you explicitly evaluate and records their
 results beside the code. This guide covers the details: loop recording,
 inspection, output, session state, keyboard controls, and display settings.
 
+## Your first evaluation
+
+```python
+price = 8
+quantity = 3
+total = price * quantity
+print(total)
+```
+
+Put the cursor on `price` and press **Cmd+Shift+Enter** (Windows/Linux:
+**Ctrl+Shift+Enter**) to evaluate the statement and move to the next one.
+Repeat for the remaining statements. The results stay beside their code:
+`price: 8`, `quantity: 3`, `total: 24`, and `printed: 24`. **Cmd+Enter**
+(Windows/Linux: **Ctrl+Enter**) evaluates without advancing the cursor.
+
+<img src="../media/demo/hero.png" width="711" alt="Actual VS Code rendering of price 8 times quantity 3 producing total 24 and printed output 24">
+
 ## Read a sequence of results
 
 ```python
@@ -118,8 +135,8 @@ from an earlier pass. A `continue` or `break` that skips this capture point
 shows **u: not recorded**. Unbound names and names that cannot yet be
 distinguished from pre-loop state also say **not recorded**. Up to three body
 names are captured; the loop heading reports any additional omitted names.
-Each loop names its timing, for example **v at iteration start; u at iteration
-end**. **Recording details** explains that timing and conditional carry-over;
+One **About these values** control explains when loop variables and body
+variables are read, and how values can carry over between iterations.
 **Why?** beside a missing reading explains what Evalens could record. A missing
 reading does not establish that an assignment was skipped or that the Python
 variable had no value. For `u = 4; print(u); u = 99`, the end reading is `u = 99`
@@ -131,11 +148,14 @@ final snapshot, not a claim about any selected iteration or a live watch.
 
 The explorer uses the panel's neutral background with an orange leading bar.
 Filled emphasis stays on the selected iteration, keeping large traces quiet.
-The current loop's heading, timing and outer-iteration context remain visible
-while scrolling through its rows. Nested headings replace the outer sticky
-context instead of stacking over the results. Opening **Recording details**
-returns its explanation to ordinary scrolling; oversized headings also stay
-in the normal flow so that results remain reachable in a short panel.
+One **Variables | Printed output** heading aligns the columns across nested
+loops. While scrolling, the shared heading stays visible. Its title shows a
+compact iteration and source reminder only after the corresponding headings
+leave view; visible headings do not gain a repeated context line. Opening
+**About these values** returns its explanation to ordinary scrolling;
+oversized headings also stay in the normal flow so that results remain
+reachable in a short panel. Narrow panels stack values and output with local
+labels, keeping the two kinds of information distinct.
 
 Short nested runs show neighboring outer iterations together. Long output
 starts folded even in a single-level loop. Use the disclosure arrows for

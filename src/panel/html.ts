@@ -1373,38 +1373,54 @@ function script(
   });
   var navigationControl = document.getElementById('navigation-control');
   var loopContexts = Array.prototype.slice.call(document.querySelectorAll('.loop-context'));
-  loopContexts.forEach(function (context) {
-    context.style.setProperty('--loop-depth', context.dataset.loopDepth);
+  document.querySelectorAll('[data-loop-depth]').forEach(function (invocation) {
+    invocation.style.setProperty('--loop-depth', invocation.dataset.loopDepth);
   });
   var contextQueued = false;
   function measureLoopContexts() {
     var top = navigationControl.getBoundingClientRect().bottom;
     document.documentElement.style.setProperty('--loop-context-top', top + 'px');
-    var unpinnedExplorers = new Set();
     loopContexts.forEach(function (context) {
       var explorer = context.closest('.loop-explorer');
       var openHelp = explorer.querySelector('.loop-recording-details[open]');
       var tall = context.getBoundingClientRect().height > (window.innerHeight - top) / 2;
-      if (openHelp || tall) unpinnedExplorers.add(explorer);
-    });
-    loopContexts.forEach(function (context) {
-      context.classList.toggle('loop-context-unpinned',
-        unpinnedExplorers.has(context.closest('.loop-explorer')));
-    });
-    var stuck = loopContexts.filter(function (context) {
-      return !context.classList.contains('loop-context-unpinned')
-        && context.getBoundingClientRect().top <= top + 1
-        && context.closest('.loop-invocation').getBoundingClientRect().bottom > top;
-    });
-    // Keep only the innermost current context visible in the sticky slot.
-    // Hidden ancestor headers retain their flow height, so scrolling never
-    // shifts the result; source, parent iteration and timing travel together.
-    var active = stuck.filter(function (context) {
-      return context.closest('.loop-invocation').getBoundingClientRect().bottom
-        >= top + context.getBoundingClientRect().height;
-    }).at(-1);
-    loopContexts.forEach(function (context) {
-      context.classList.toggle('loop-context-covered', stuck.includes(context) && context !== active);
+      var unpinned = Boolean(openHelp || tall);
+      context.classList.toggle('loop-context-unpinned', unpinned);
+      var rect = context.getBoundingClientRect();
+      var covered = !unpinned && explorer.getBoundingClientRect().bottom < top + rect.height;
+      context.classList.toggle('loop-context-covered', covered);
+      var labels = [];
+      if (!unpinned && !covered && rect.top <= top + 1) {
+        var edge = rect.bottom;
+        // Use ownership only when its actual heading has left the reading
+        // area. All remaining source and iteration headings stay in flow.
+        // Replacing the title occupies the same space, avoiding scroll jumps
+        // and an extra explanation row above every nested loop.
+        explorer.querySelectorAll('.loop-group').forEach(function (group) {
+          var heading = group.querySelector(':scope > .loop-iteration-header');
+          if (heading.getBoundingClientRect().bottom <= edge
+            && group.getBoundingClientRect().bottom > edge) {
+            var iteration = heading.querySelector('[data-loop-action="toggle"]').textContent
+              .replace(/^[▸▾]\\s*/, '');
+            var values = heading.querySelector('[data-loop-action="select"]').textContent;
+            labels.push(iteration + ' · ' + values);
+          }
+        });
+        var source = Array.prototype.slice.call(explorer.querySelectorAll('.loop-invocation'))
+          .filter(function (invocation) {
+            var heading = invocation.querySelector(':scope > .loop-source');
+            return heading && heading.getBoundingClientRect().bottom <= edge
+              && invocation.getBoundingClientRect().bottom > edge;
+          }).at(-1);
+        if (source) labels.push(source.querySelector(':scope > .loop-source').textContent
+          .replace(/^[▸▾]\\s*/, ''));
+      }
+      var owner = context.querySelector('.loop-scroll-owner');
+      var text = labels.join(' › ');
+      owner.textContent = text;
+      owner.title = text;
+      owner.hidden = !text;
+      context.classList.toggle('loop-context-has-owner', Boolean(text));
     });
   }
   function queueLoopContexts() {

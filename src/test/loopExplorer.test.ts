@@ -91,7 +91,7 @@ test('early exits show missing body capture and conditional carry-over stays exp
   assert.doesNotMatch(html, />v = 3, u = 12<\/button>/);
 });
 
-test('timing explains print-before-reassignment using the actual recorded names', async () => {
+test('one optional help explains print-before-reassignment without extra timing rows', async () => {
   const model = prepared(await captured('for v in [1]:\n'
     + '    u = 4\n    print(u)\n    u = 99\n'));
   const before = JSON.stringify(model.wire);
@@ -99,8 +99,10 @@ test('timing explains print-before-reassignment using the actual recorded names'
   assert.match(html, /v at iteration start; u at iteration end/);
   assert.match(html, />v = 1, u = 99<\/button>/);
   assert.match(html, /class="loop-output">4<\/span>/);
-  assert.match(html, /<details class="loop-recording-details" data-local-disclosure><summary>Recording details<\/summary>/);
-  assert.match(html, /Printed output can therefore differ from the value recorded at the end/);
+  assert.match(html, /<details class="loop-recording-details" data-local-disclosure><summary>About these values<\/summary>/);
+  assert.equal((html.match(/<summary>About these values<\/summary>/g) ?? []).length, 1);
+  assert.match(html, /then sets <code>u = 99<\/code>, the row shows <code>u = 99<\/code> beside printed <code>4<\/code>/);
+  assert.doesNotMatch(html, /loop-value-timing|<summary>Recording details<\/summary>/);
   assert.match(html, /not live values/);
   assert.equal(JSON.stringify(model.wire), before, 'reading evidence must not change capture metadata');
   assert.doesNotMatch(html, / style=/, 'CSP forbids inline style attributes, even for numeric depth');
@@ -134,15 +136,33 @@ test('missing-body Why distinguishes unavailable frames, unproven names and old 
   }
 });
 
-test('nested context names its own values and owning outer iteration', async () => {
+test('expanded nested loops share one column header and help without repeated context', async () => {
   const model = prepared(await captured('for x in [0, 1]:\n    outer = x + 10\n'
     + '    for y in [2, 3]:\n        inner = y + 20\n'));
   const html = loopExplorerHtml(model, 0);
-  assert.equal((html.match(/class="loop-value-timing loop-note">x at iteration start; outer at iteration end/g) ?? []).length, 1);
-  assert.equal((html.match(/class="loop-value-timing loop-note">y at iteration start; inner at iteration end/g) ?? []).length, 2);
-  assert.match(html, /class="loop-note loop-owner">within Iteration 1, x = 0/);
-  assert.match(html, /class="loop-note loop-owner">within Iteration 2, x = 1/);
+  assert.equal((html.match(/class="loop-columns"/g) ?? []).length, 1);
+  assert.equal((html.match(/class="loop-context"/g) ?? []).length, 1);
+  assert.equal((html.match(/<summary>About these values<\/summary>/g) ?? []).length, 1);
+  assert.equal((html.match(/>for y in \[2, 3\]/g) ?? []).length, 2);
+  assert.match(html, /Iteration 1, x = 0, outer = 10/);
+  assert.match(html, /Iteration 2, x = 1, outer = 11/);
+  assert.match(html, /class="loop-scroll-owner" hidden><\/div>/);
+  assert.doesNotMatch(html, /loop-value-timing|within Iteration|class="loop-note loop-owner"/);
   assert.doesNotMatch(html, /x at iteration start; inner at iteration end/);
+});
+
+test('three nested levels and sibling loops keep one set of shared headings', async () => {
+  const model = prepared(await captured('for x in [0, 1]:\n'
+    + '    for y in [2, 3]:\n        for z in [4, 5]:\n            print(x, y, z)\n'
+    + '    for sibling in [6, 7]:\n        print(x, sibling)\n'));
+  const html = loopExplorerHtml(model, 0);
+  assert.equal((html.match(/class="loop-columns"/g) ?? []).length, 1);
+  assert.equal((html.match(/<summary>About these values<\/summary>/g) ?? []).length, 1);
+  assert.equal((html.match(/>for z in \[4, 5\] <span class="loop-note">· 2 iterations · line 3/g) ?? []).length, 4);
+  assert.equal((html.match(/>for sibling in \[6, 7\] <span class="loop-note">· 2 iterations · line 5/g) ?? []).length, 2);
+  assert.match(html, /class="loop-output">1 3 5<\/span>/);
+  assert.match(html, /class="loop-output">1 7<\/span>/);
+  assert.doesNotMatch(html, /loop-value-timing|within Iteration/);
 });
 
 test('nested and reused loop names render only their own captured body snapshots', async () => {
@@ -390,8 +410,8 @@ test('real nested output becomes X5 with Unicode slices and separate final snaps
   const rows = rowsFor({ lineAt: (line) => ({ text: source.split('\n')[line] ?? '' }) }, [presentation], 'printed');
   assert.ok(rows[0]?.loopExplorer);
   const html = contents(valuesHtml({ fileName: 'example.py', rows }, 0, 'test'));
-  assert.equal((html.match(/<span>Variables<\/span>/g) ?? []).length, 3);
-  assert.equal((html.match(/>Printed output<\/span>/g) ?? []).length, 3);
+  assert.equal((html.match(/<span>Variables<\/span>/g) ?? []).length, 1);
+  assert.equal((html.match(/>Printed output<\/span>/g) ?? []).length, 1);
   assert.equal((html.match(/printed 4 lines/g) ?? []).length, 2);
   assert.equal((html.match(/No output/g) ?? []).length, 2);
   assert.match(html, /Final values after this loop: x = 1, y = 3/);
