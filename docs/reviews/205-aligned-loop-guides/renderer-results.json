@@ -1,0 +1,2045 @@
+{
+  "kernelRequests": 5,
+  "geometry": [
+    {
+      "width": 980,
+      "font": 16,
+      "wide": true,
+      "columnPairs": 1,
+      "help": 1,
+      "variable": 443.640625,
+      "printed": 667.75,
+      "captions": [
+        {
+          "left": 443.640625,
+          "right": 530.34375,
+          "cy": 151.046875,
+          "top": 141.546875,
+          "bottom": 160.546875
+        },
+        {
+          "left": 443.640625,
+          "right": 530.34375,
+          "cy": 182.84375,
+          "top": 173.34375,
+          "bottom": 192.34375
+        }
+      ],
+      "summaries": [
+        "x = 0, base = 0",
+        "x = 1"
+      ],
+      "base": {
+        "left": 443.640625,
+        "right": 530.34375,
+        "cy": 207.75,
+        "top": 198.25,
+        "bottom": 217.25
+      },
+      "source": {
+        "left": 443.640625,
+        "right": 596.234375,
+        "cy": 232.78125,
+        "top": 224.78125,
+        "bottom": 240.78125
+      },
+      "innerValues": [
+        {
+          "left": 458.84375,
+          "right": 584.078125,
+          "cy": 256.40625,
+          "top": 246.90625,
+          "bottom": 265.90625
+        },
+        {
+          "left": 458.84375,
+          "right": 584.078125,
+          "cy": 279.21875,
+          "top": 269.71875,
+          "bottom": 288.71875
+        },
+        {
+          "left": 458.84375,
+          "right": 584.078125,
+          "cy": 302.03125,
+          "top": 292.53125,
+          "bottom": 311.53125
+        }
+      ],
+      "output": [
+        {
+          "text": "base: 10",
+          "left": 667.75,
+          "right": 744.8125,
+          "cy": 207.75,
+          "top": 198.25,
+          "bottom": 217.25
+        },
+        {
+          "text": "1 0",
+          "left": 667.75,
+          "right": 696.65625,
+          "cy": 256.40625,
+          "top": 246.90625,
+          "bottom": 265.90625
+        },
+        {
+          "text": "1 1",
+          "left": 667.75,
+          "right": 696.65625,
+          "cy": 279.21875,
+          "top": 269.71875,
+          "bottom": 288.71875
+        },
+        {
+          "text": "1 2",
+          "left": 667.75,
+          "right": 696.65625,
+          "cy": 302.03125,
+          "top": 292.53125,
+          "bottom": 311.53125
+        }
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, base = 10, v = 12",
+      "parentClass": "loop-data loop-parent-reading",
+      "parentText": "base = 10\nbase: 10",
+      "parentOutputTop": 198.25,
+      "parentValueBottom": 217.25,
+      "overflow": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "target": "1",
+          "left": 394.03125,
+          "right": 394.03125,
+          "top": 91.29062461853027,
+          "bottom": 182.84374809265137,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "2",
+          "left": 394.03125,
+          "right": 414.25,
+          "top": 151.046875,
+          "bottom": 151.046875,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "7",
+          "left": 394.03125,
+          "right": 414.25,
+          "top": 182.84375,
+          "bottom": 182.84375,
+          "targetText": null
+        },
+        {
+          "kind": "child",
+          "target": "8",
+          "left": 429.25,
+          "right": 436.640625,
+          "top": 193.2437515258789,
+          "bottom": 232.78125,
+          "targetText": {
+            "left": 443.640625,
+            "right": 596.234375,
+            "cy": 232.78125,
+            "top": 224.78125,
+            "bottom": 240.78125
+          }
+        }
+      ]
+    },
+    {
+      "width": 980,
+      "font": 20,
+      "wide": true,
+      "columnPairs": 1,
+      "help": 1,
+      "variable": 471.671875,
+      "printed": 683.9375,
+      "captions": [
+        {
+          "left": 471.671875,
+          "right": 580.046875,
+          "cy": 192,
+          "top": 180,
+          "bottom": 204
+        },
+        {
+          "left": 471.671875,
+          "right": 580.046875,
+          "cy": 256,
+          "top": 244,
+          "bottom": 268
+        }
+      ],
+      "summaries": [
+        "x = 0, base = 0",
+        "x = 1"
+      ],
+      "base": {
+        "left": 471.671875,
+        "right": 580.046875,
+        "cy": 287.390625,
+        "top": 275.390625,
+        "bottom": 299.390625
+      },
+      "source": {
+        "left": 471.671875,
+        "right": 662.40625,
+        "cy": 318.8125,
+        "top": 308.8125,
+        "bottom": 328.8125
+      },
+      "innerValues": [
+        {
+          "left": 490.671875,
+          "right": 647.21875,
+          "cy": 348.46875,
+          "top": 336.46875,
+          "bottom": 360.46875
+        },
+        {
+          "left": 490.671875,
+          "right": 647.21875,
+          "cy": 377.25,
+          "top": 365.25,
+          "bottom": 389.25
+        },
+        {
+          "left": 490.671875,
+          "right": 647.21875,
+          "cy": 406.03125,
+          "top": 394.03125,
+          "bottom": 418.03125
+        }
+      ],
+      "output": [
+        {
+          "text": "base: 10",
+          "left": 683.9375,
+          "right": 780.265625,
+          "cy": 287.390625,
+          "top": 275.390625,
+          "bottom": 299.390625
+        },
+        {
+          "text": "1 0",
+          "left": 683.9375,
+          "right": 720.0625,
+          "cy": 348.46875,
+          "top": 336.46875,
+          "bottom": 360.46875
+        },
+        {
+          "text": "1 1",
+          "left": 683.9375,
+          "right": 720.0625,
+          "cy": 377.25,
+          "top": 365.25,
+          "bottom": 389.25
+        },
+        {
+          "text": "1 2",
+          "left": 683.9375,
+          "right": 720.0625,
+          "cy": 406.03125,
+          "top": 394.03125,
+          "bottom": 418.03125
+        }
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, base = 10, v = 12",
+      "parentClass": "loop-data loop-parent-reading",
+      "parentText": "base = 10\nbase: 10",
+      "parentOutputTop": 275.390625,
+      "parentValueBottom": 299.390625,
+      "overflow": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "target": "1",
+          "left": 411.671875,
+          "right": 411.671875,
+          "top": 97,
+          "bottom": 256,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "2",
+          "left": 411.671875,
+          "right": 436.671875,
+          "top": 192,
+          "bottom": 192,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "7",
+          "left": 411.671875,
+          "right": 436.671875,
+          "top": 256,
+          "bottom": 256,
+          "targetText": null
+        },
+        {
+          "kind": "child",
+          "target": "8",
+          "left": 453.671875,
+          "right": 464.671875,
+          "top": 269,
+          "bottom": 318.8125,
+          "targetText": {
+            "left": 471.671875,
+            "right": 662.40625,
+            "cy": 318.8125,
+            "top": 308.8125,
+            "bottom": 328.8125
+          }
+        }
+      ]
+    },
+    {
+      "width": 980,
+      "font": 28,
+      "wide": false,
+      "columnPairs": 1,
+      "help": 1,
+      "captions": [
+        {
+          "left": 527.734375,
+          "right": 679.453125,
+          "cy": 221.46875,
+          "top": 204.96875,
+          "bottom": 237.96875
+        },
+        {
+          "left": 527.734375,
+          "right": 679.453125,
+          "cy": 342.859375,
+          "top": 326.359375,
+          "bottom": 359.359375
+        }
+      ],
+      "summaries": [
+        "x = 0, base = 0",
+        "x = 1"
+      ],
+      "base": {
+        "left": 527.734375,
+        "right": 679.453125,
+        "cy": 453.65625,
+        "top": 437.15625,
+        "bottom": 470.15625
+      },
+      "source": {
+        "left": 527.734375,
+        "right": 794.765625,
+        "cy": 577.890625,
+        "top": 563.390625,
+        "bottom": 592.390625
+      },
+      "innerValues": [
+        {
+          "left": 554.34375,
+          "right": 773.5,
+          "cy": 683.078125,
+          "top": 666.578125,
+          "bottom": 699.578125
+        },
+        {
+          "left": 554.34375,
+          "right": 773.5,
+          "cy": 837.265625,
+          "top": 820.765625,
+          "bottom": 853.765625
+        },
+        {
+          "left": 554.34375,
+          "right": 773.5,
+          "cy": 991.453125,
+          "top": 974.953125,
+          "bottom": 1007.953125
+        }
+      ],
+      "output": [
+        {
+          "text": "base: 10",
+          "left": 498.34375,
+          "right": 633.203125,
+          "cy": 520.25,
+          "top": 503.75,
+          "bottom": 536.75
+        },
+        {
+          "text": "1 0",
+          "left": 498.34375,
+          "right": 548.921875,
+          "cy": 749.671875,
+          "top": 733.171875,
+          "bottom": 766.171875
+        },
+        {
+          "text": "1 1",
+          "left": 498.34375,
+          "right": 548.921875,
+          "cy": 903.859375,
+          "top": 887.359375,
+          "bottom": 920.359375
+        },
+        {
+          "text": "1 2",
+          "left": 498.34375,
+          "right": 548.921875,
+          "cy": 1058.046875,
+          "top": 1041.546875,
+          "bottom": 1074.546875
+        }
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, base = 10, v = 12",
+      "parentClass": "loop-data loop-parent-reading",
+      "parentText": "Variables\nbase = 10\nPrinted output:\nbase: 10",
+      "parentOutputTop": 475.75,
+      "parentValueBottom": 470.15625,
+      "overflow": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "target": "1",
+          "left": 446.9375,
+          "right": 446.9375,
+          "top": 107.88750076293945,
+          "bottom": 342.85937881469727,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "2",
+          "left": 446.9375,
+          "right": 481.546875,
+          "top": 221.46875,
+          "bottom": 221.46875,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "7",
+          "left": 446.9375,
+          "right": 481.546875,
+          "top": 342.859375,
+          "bottom": 342.859375,
+          "targetText": null
+        },
+        {
+          "kind": "child",
+          "target": "8",
+          "left": 502.546875,
+          "right": 520.734375,
+          "top": 361.05938720703125,
+          "bottom": 577.890625,
+          "targetText": {
+            "left": 527.734375,
+            "right": 794.765625,
+            "cy": 577.890625,
+            "top": 563.390625,
+            "bottom": 592.390625
+          }
+        }
+      ]
+    },
+    {
+      "width": 1400,
+      "font": 16,
+      "wide": true,
+      "columnPairs": 1,
+      "help": 1,
+      "variable": 443.640625,
+      "printed": 850.359375,
+      "captions": [
+        {
+          "left": 443.640625,
+          "right": 530.34375,
+          "cy": 151.046875,
+          "top": 141.546875,
+          "bottom": 160.546875
+        },
+        {
+          "left": 443.640625,
+          "right": 530.34375,
+          "cy": 182.84375,
+          "top": 173.34375,
+          "bottom": 192.34375
+        }
+      ],
+      "summaries": [
+        "x = 0, base = 0",
+        "x = 1"
+      ],
+      "base": {
+        "left": 443.640625,
+        "right": 530.34375,
+        "cy": 207.75,
+        "top": 198.25,
+        "bottom": 217.25
+      },
+      "source": {
+        "left": 443.640625,
+        "right": 596.234375,
+        "cy": 232.78125,
+        "top": 224.78125,
+        "bottom": 240.78125
+      },
+      "innerValues": [
+        {
+          "left": 458.84375,
+          "right": 584.078125,
+          "cy": 256.40625,
+          "top": 246.90625,
+          "bottom": 265.90625
+        },
+        {
+          "left": 458.84375,
+          "right": 584.078125,
+          "cy": 279.21875,
+          "top": 269.71875,
+          "bottom": 288.71875
+        },
+        {
+          "left": 458.84375,
+          "right": 584.078125,
+          "cy": 302.03125,
+          "top": 292.53125,
+          "bottom": 311.53125
+        }
+      ],
+      "output": [
+        {
+          "text": "base: 10",
+          "left": 850.359375,
+          "right": 927.421875,
+          "cy": 207.75,
+          "top": 198.25,
+          "bottom": 217.25
+        },
+        {
+          "text": "1 0",
+          "left": 850.359375,
+          "right": 879.265625,
+          "cy": 256.40625,
+          "top": 246.90625,
+          "bottom": 265.90625
+        },
+        {
+          "text": "1 1",
+          "left": 850.359375,
+          "right": 879.265625,
+          "cy": 279.21875,
+          "top": 269.71875,
+          "bottom": 288.71875
+        },
+        {
+          "text": "1 2",
+          "left": 850.359375,
+          "right": 879.265625,
+          "cy": 302.03125,
+          "top": 292.53125,
+          "bottom": 311.53125
+        }
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, base = 10, v = 12",
+      "parentClass": "loop-data loop-parent-reading",
+      "parentText": "base = 10\nbase: 10",
+      "parentOutputTop": 198.25,
+      "parentValueBottom": 217.25,
+      "overflow": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "target": "1",
+          "left": 394.03125,
+          "right": 394.03125,
+          "top": 91.29062461853027,
+          "bottom": 182.84374809265137,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "2",
+          "left": 394.03125,
+          "right": 414.25,
+          "top": 151.046875,
+          "bottom": 151.046875,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "7",
+          "left": 394.03125,
+          "right": 414.25,
+          "top": 182.84375,
+          "bottom": 182.84375,
+          "targetText": null
+        },
+        {
+          "kind": "child",
+          "target": "8",
+          "left": 429.25,
+          "right": 436.640625,
+          "top": 193.2437515258789,
+          "bottom": 232.78125,
+          "targetText": {
+            "left": 443.640625,
+            "right": 596.234375,
+            "cy": 232.78125,
+            "top": 224.78125,
+            "bottom": 240.78125
+          }
+        }
+      ]
+    },
+    {
+      "width": 1400,
+      "font": 20,
+      "wide": true,
+      "columnPairs": 1,
+      "help": 1,
+      "variable": 471.671875,
+      "printed": 866.546875,
+      "captions": [
+        {
+          "left": 471.671875,
+          "right": 580.046875,
+          "cy": 172,
+          "top": 160,
+          "bottom": 184
+        },
+        {
+          "left": 471.671875,
+          "right": 580.046875,
+          "cy": 212,
+          "top": 200,
+          "bottom": 224
+        }
+      ],
+      "summaries": [
+        "x = 0, base = 0",
+        "x = 1"
+      ],
+      "base": {
+        "left": 471.671875,
+        "right": 580.046875,
+        "cy": 243.390625,
+        "top": 231.390625,
+        "bottom": 255.390625
+      },
+      "source": {
+        "left": 471.671875,
+        "right": 662.40625,
+        "cy": 274.8125,
+        "top": 264.8125,
+        "bottom": 284.8125
+      },
+      "innerValues": [
+        {
+          "left": 490.671875,
+          "right": 647.21875,
+          "cy": 304.46875,
+          "top": 292.46875,
+          "bottom": 316.46875
+        },
+        {
+          "left": 490.671875,
+          "right": 647.21875,
+          "cy": 333.25,
+          "top": 321.25,
+          "bottom": 345.25
+        },
+        {
+          "left": 490.671875,
+          "right": 647.21875,
+          "cy": 362.03125,
+          "top": 350.03125,
+          "bottom": 374.03125
+        }
+      ],
+      "output": [
+        {
+          "text": "base: 10",
+          "left": 866.546875,
+          "right": 962.875,
+          "cy": 243.390625,
+          "top": 231.390625,
+          "bottom": 255.390625
+        },
+        {
+          "text": "1 0",
+          "left": 866.546875,
+          "right": 902.671875,
+          "cy": 304.46875,
+          "top": 292.46875,
+          "bottom": 316.46875
+        },
+        {
+          "text": "1 1",
+          "left": 866.546875,
+          "right": 902.671875,
+          "cy": 333.25,
+          "top": 321.25,
+          "bottom": 345.25
+        },
+        {
+          "text": "1 2",
+          "left": 866.546875,
+          "right": 902.671875,
+          "cy": 362.03125,
+          "top": 350.03125,
+          "bottom": 374.03125
+        }
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, base = 10, v = 12",
+      "parentClass": "loop-data loop-parent-reading",
+      "parentText": "base = 10\nbase: 10",
+      "parentOutputTop": 231.390625,
+      "parentValueBottom": 255.390625,
+      "overflow": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "target": "1",
+          "left": 411.671875,
+          "right": 411.671875,
+          "top": 97,
+          "bottom": 212,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "2",
+          "left": 411.671875,
+          "right": 436.671875,
+          "top": 172,
+          "bottom": 172,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "7",
+          "left": 411.671875,
+          "right": 436.671875,
+          "top": 212,
+          "bottom": 212,
+          "targetText": null
+        },
+        {
+          "kind": "child",
+          "target": "8",
+          "left": 453.671875,
+          "right": 464.671875,
+          "top": 225,
+          "bottom": 274.8125,
+          "targetText": {
+            "left": 471.671875,
+            "right": 662.40625,
+            "cy": 274.8125,
+            "top": 264.8125,
+            "bottom": 284.8125
+          }
+        }
+      ]
+    },
+    {
+      "width": 1400,
+      "font": 28,
+      "wide": true,
+      "columnPairs": 1,
+      "help": 1,
+      "variable": 527.734375,
+      "printed": 898.90625,
+      "captions": [
+        {
+          "left": 527.734375,
+          "right": 679.453125,
+          "cy": 211.25,
+          "top": 194.75,
+          "bottom": 227.75
+        },
+        {
+          "left": 527.734375,
+          "right": 679.453125,
+          "cy": 266.640625,
+          "top": 250.140625,
+          "bottom": 283.140625
+        }
+      ],
+      "summaries": [
+        "x = 0, base = 0",
+        "x = 1"
+      ],
+      "base": {
+        "left": 527.734375,
+        "right": 679.453125,
+        "cy": 310,
+        "top": 293.5,
+        "bottom": 326.5
+      },
+      "source": {
+        "left": 527.734375,
+        "right": 794.765625,
+        "cy": 354.203125,
+        "top": 339.703125,
+        "bottom": 368.703125
+      },
+      "innerValues": [
+        {
+          "left": 554.34375,
+          "right": 773.5,
+          "cy": 395.953125,
+          "top": 379.453125,
+          "bottom": 412.453125
+        },
+        {
+          "left": 554.34375,
+          "right": 773.5,
+          "cy": 435.671875,
+          "top": 419.171875,
+          "bottom": 452.171875
+        },
+        {
+          "left": 554.34375,
+          "right": 773.5,
+          "cy": 475.390625,
+          "top": 458.890625,
+          "bottom": 491.890625
+        }
+      ],
+      "output": [
+        {
+          "text": "base: 10",
+          "left": 898.90625,
+          "right": 1033.765625,
+          "cy": 310,
+          "top": 293.5,
+          "bottom": 326.5
+        },
+        {
+          "text": "1 0",
+          "left": 898.90625,
+          "right": 949.484375,
+          "cy": 395.953125,
+          "top": 379.453125,
+          "bottom": 412.453125
+        },
+        {
+          "text": "1 1",
+          "left": 898.90625,
+          "right": 949.484375,
+          "cy": 435.671875,
+          "top": 419.171875,
+          "bottom": 452.171875
+        },
+        {
+          "text": "1 2",
+          "left": 898.90625,
+          "right": 949.484375,
+          "cy": 475.390625,
+          "top": 458.890625,
+          "bottom": 491.890625
+        }
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, base = 10, v = 12",
+      "parentClass": "loop-data loop-parent-reading",
+      "parentText": "base = 10\nbase: 10",
+      "parentOutputTop": 293.5,
+      "parentValueBottom": 326.5,
+      "overflow": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "target": "1",
+          "left": 446.9375,
+          "right": 446.9375,
+          "top": 107.88750076293945,
+          "bottom": 266.64062881469727,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "2",
+          "left": 446.9375,
+          "right": 481.546875,
+          "top": 211.25,
+          "bottom": 211.25,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "7",
+          "left": 446.9375,
+          "right": 481.546875,
+          "top": 266.640625,
+          "bottom": 266.640625,
+          "targetText": null
+        },
+        {
+          "kind": "child",
+          "target": "8",
+          "left": 502.546875,
+          "right": 520.734375,
+          "top": 284.8406219482422,
+          "bottom": 354.203125,
+          "targetText": {
+            "left": 527.734375,
+            "right": 794.765625,
+            "cy": 354.203125,
+            "top": 339.703125,
+            "bottom": 368.703125
+          }
+        }
+      ]
+    }
+  ],
+  "variants": [
+    {
+      "name": "siblings",
+      "wide": true,
+      "columnPairs": 1,
+      "help": 1,
+      "variable": 471.671875,
+      "printed": 866.546875,
+      "captions": [
+        {
+          "left": 471.671875,
+          "right": 580.046875,
+          "cy": 172,
+          "top": 160,
+          "bottom": 184
+        }
+      ],
+      "summaries": [
+        "x = 1"
+      ],
+      "base": {
+        "left": 471.671875,
+        "right": 580.046875,
+        "cy": 203.390625,
+        "top": 191.390625,
+        "bottom": 215.390625
+      },
+      "source": {
+        "left": 471.671875,
+        "right": 662.40625,
+        "cy": 234.8125,
+        "top": 224.8125,
+        "bottom": 244.8125
+      },
+      "innerValues": [
+        {
+          "left": 490.671875,
+          "right": 550.890625,
+          "cy": 264.46875,
+          "top": 252.46875,
+          "bottom": 276.46875
+        },
+        {
+          "left": 490.671875,
+          "right": 550.890625,
+          "cy": 293.25,
+          "top": 281.25,
+          "bottom": 305.25
+        },
+        {
+          "left": 490.671875,
+          "right": 550.890625,
+          "cy": 354.328125,
+          "top": 342.328125,
+          "bottom": 366.328125
+        },
+        {
+          "left": 490.671875,
+          "right": 550.890625,
+          "cy": 383.109375,
+          "top": 371.109375,
+          "bottom": 395.109375
+        }
+      ],
+      "output": [
+        {
+          "text": "base: 10",
+          "left": 866.546875,
+          "right": 962.875,
+          "cy": 203.390625,
+          "top": 191.390625,
+          "bottom": 215.390625
+        },
+        {
+          "text": "1 0",
+          "left": 866.546875,
+          "right": 902.671875,
+          "cy": 264.46875,
+          "top": 252.46875,
+          "bottom": 276.46875
+        },
+        {
+          "text": "1 1",
+          "left": 866.546875,
+          "right": 902.671875,
+          "cy": 293.25,
+          "top": 281.25,
+          "bottom": 305.25
+        },
+        {
+          "text": "1 0",
+          "left": 866.546875,
+          "right": 902.671875,
+          "cy": 354.328125,
+          "top": 342.328125,
+          "bottom": 366.328125
+        },
+        {
+          "text": "1 1",
+          "left": 866.546875,
+          "right": 902.671875,
+          "cy": 383.109375,
+          "top": 371.109375,
+          "bottom": 395.109375
+        }
+      ],
+      "final": "Final values after this loop: x = 1, y = 1, z = 1, base = 10",
+      "parentClass": "loop-data loop-parent-reading",
+      "parentText": "base = 10\nbase: 10",
+      "parentOutputTop": 191.390625,
+      "parentValueBottom": 215.390625,
+      "overflow": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "target": "1",
+          "left": 411.671875,
+          "right": 411.671875,
+          "top": 97,
+          "bottom": 172,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "2",
+          "left": 411.671875,
+          "right": 436.671875,
+          "top": 172,
+          "bottom": 172,
+          "targetText": null
+        },
+        {
+          "kind": "child",
+          "target": "3",
+          "left": 453.671875,
+          "right": 464.671875,
+          "top": 185,
+          "bottom": 234.8125,
+          "targetText": {
+            "left": 471.671875,
+            "right": 662.40625,
+            "cy": 234.8125,
+            "top": 224.8125,
+            "bottom": 244.8125
+          }
+        },
+        {
+          "kind": "child",
+          "target": "6",
+          "left": 453.671875,
+          "right": 464.671875,
+          "top": 308.671875,
+          "bottom": 324.671875,
+          "targetText": {
+            "left": 471.671875,
+            "right": 662.40625,
+            "cy": 324.671875,
+            "top": 314.671875,
+            "bottom": 334.671875
+          }
+        }
+      ]
+    },
+    {
+      "name": "deep",
+      "wide": true,
+      "columnPairs": 1,
+      "help": 1,
+      "variable": 471.671875,
+      "printed": 866.546875,
+      "captions": [
+        {
+          "left": 471.671875,
+          "right": 580.046875,
+          "cy": 172,
+          "top": 160,
+          "bottom": 184
+        }
+      ],
+      "summaries": [
+        "x = 1"
+      ],
+      "base": {
+        "left": 471.671875,
+        "right": 580.046875,
+        "cy": 203.390625,
+        "top": 191.390625,
+        "bottom": 215.390625
+      },
+      "source": {
+        "left": 471.671875,
+        "right": 662.40625,
+        "cy": 234.8125,
+        "top": 224.8125,
+        "bottom": 244.8125
+      },
+      "innerValues": [],
+      "output": [
+        {
+          "text": "1 0 0",
+          "left": 866.546875,
+          "right": 926.765625,
+          "cy": 361.28125,
+          "top": 349.28125,
+          "bottom": 373.28125
+        },
+        {
+          "text": "1 0 1",
+          "left": 866.546875,
+          "right": 926.765625,
+          "cy": 390.0625,
+          "top": 378.0625,
+          "bottom": 402.0625
+        },
+        {
+          "text": "1 1 0",
+          "left": 866.546875,
+          "right": 926.765625,
+          "cy": 524.921875,
+          "top": 512.921875,
+          "bottom": 536.921875
+        },
+        {
+          "text": "1 1 1",
+          "left": 866.546875,
+          "right": 926.765625,
+          "cy": 553.703125,
+          "top": 541.703125,
+          "bottom": 565.703125
+        }
+      ],
+      "final": "Final values after this loop: x = 1, y = 1, z = 1, base = 10, middle = 11, v = 12",
+      "parentClass": "loop-data loop-parent-reading",
+      "parentText": "base = 10",
+      "parentOutputTop": 191.390625,
+      "parentValueBottom": 215.390625,
+      "overflow": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "target": "1",
+          "left": 411.671875,
+          "right": 411.671875,
+          "top": 97,
+          "bottom": 172,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "2",
+          "left": 411.671875,
+          "right": 436.671875,
+          "top": 172,
+          "bottom": 172,
+          "targetText": null
+        },
+        {
+          "kind": "child",
+          "target": "3",
+          "left": 453.671875,
+          "right": 464.671875,
+          "top": 185,
+          "bottom": 234.8125,
+          "targetText": {
+            "left": 471.671875,
+            "right": 662.40625,
+            "cy": 234.8125,
+            "top": 224.8125,
+            "bottom": 244.8125
+          }
+        },
+        {
+          "kind": "iterations",
+          "target": "3",
+          "left": 453.671875,
+          "right": 453.671875,
+          "top": 247.8125,
+          "bottom": 432.453125,
+          "targetText": {
+            "left": 471.671875,
+            "right": 662.40625,
+            "cy": 234.8125,
+            "top": 224.8125,
+            "bottom": 244.8125
+          }
+        },
+        {
+          "kind": "iteration",
+          "target": "4",
+          "left": 453.671875,
+          "right": 478.671875,
+          "top": 268.8125,
+          "bottom": 268.8125,
+          "targetText": null
+        },
+        {
+          "kind": "child",
+          "target": "5",
+          "left": 495.671875,
+          "right": 506.671875,
+          "top": 281.8125,
+          "bottom": 331.625,
+          "targetText": {
+            "left": 513.671875,
+            "right": 704.40625,
+            "cy": 331.625,
+            "top": 321.625,
+            "bottom": 341.625
+          }
+        },
+        {
+          "kind": "iteration",
+          "target": "8",
+          "left": 453.671875,
+          "right": 478.671875,
+          "top": 432.453125,
+          "bottom": 432.453125,
+          "targetText": null
+        },
+        {
+          "kind": "child",
+          "target": "9",
+          "left": 495.671875,
+          "right": 506.671875,
+          "top": 445.453125,
+          "bottom": 495.265625,
+          "targetText": {
+            "left": 513.671875,
+            "right": 704.40625,
+            "cy": 495.265625,
+            "top": 485.265625,
+            "bottom": 505.265625
+          }
+        }
+      ]
+    },
+    {
+      "name": "changed",
+      "wide": true,
+      "columnPairs": 1,
+      "help": 1,
+      "variable": 471.671875,
+      "printed": 866.546875,
+      "captions": [
+        {
+          "left": 471.671875,
+          "right": 580.046875,
+          "cy": 172,
+          "top": 160,
+          "bottom": 184
+        }
+      ],
+      "summaries": [
+        "x = 1"
+      ],
+      "base": {
+        "left": 471.671875,
+        "right": 580.046875,
+        "cy": 203.390625,
+        "top": 191.390625,
+        "bottom": 215.390625
+      },
+      "source": {
+        "left": 471.671875,
+        "right": 609.421875,
+        "cy": 234.8125,
+        "top": 224.8125,
+        "bottom": 244.8125
+      },
+      "innerValues": [
+        {
+          "left": 490.671875,
+          "right": 550.890625,
+          "cy": 264.46875,
+          "top": 252.46875,
+          "bottom": 276.46875
+        }
+      ],
+      "output": [
+        {
+          "text": "4",
+          "left": 866.546875,
+          "right": 878.59375,
+          "cy": 203.390625,
+          "top": 191.390625,
+          "bottom": 215.390625
+        },
+        {
+          "text": "0",
+          "left": 866.546875,
+          "right": 878.59375,
+          "cy": 264.46875,
+          "top": 252.46875,
+          "bottom": 276.46875
+        }
+      ],
+      "final": "Final values after this loop: x = 1, y = 0, base = 99",
+      "parentClass": "loop-data loop-parent-reading",
+      "parentText": "base = 99\n4",
+      "parentOutputTop": 191.390625,
+      "parentValueBottom": 215.390625,
+      "overflow": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "target": "1",
+          "left": 411.671875,
+          "right": 411.671875,
+          "top": 97,
+          "bottom": 172,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "2",
+          "left": 411.671875,
+          "right": 436.671875,
+          "top": 172,
+          "bottom": 172,
+          "targetText": null
+        },
+        {
+          "kind": "child",
+          "target": "3",
+          "left": 453.671875,
+          "right": 464.671875,
+          "top": 185,
+          "bottom": 234.8125,
+          "targetText": {
+            "left": 471.671875,
+            "right": 609.421875,
+            "cy": 234.8125,
+            "top": 224.8125,
+            "bottom": 244.8125
+          }
+        }
+      ]
+    },
+    {
+      "name": "missing",
+      "wide": true,
+      "columnPairs": 1,
+      "help": 1,
+      "variable": 471.671875,
+      "printed": 866.546875,
+      "captions": [
+        {
+          "left": 471.671875,
+          "right": 580.046875,
+          "cy": 172,
+          "top": 160,
+          "bottom": 184
+        }
+      ],
+      "summaries": [
+        "x = 1"
+      ],
+      "base": {
+        "left": 471.671875,
+        "right": 658.078125,
+        "cy": 204.390625,
+        "top": 194.390625,
+        "bottom": 214.390625
+      },
+      "source": {
+        "left": 471.671875,
+        "right": 609.421875,
+        "cy": 234.8125,
+        "top": 224.8125,
+        "bottom": 244.8125
+      },
+      "innerValues": [
+        {
+          "left": 490.671875,
+          "right": 550.890625,
+          "cy": 264.46875,
+          "top": 252.46875,
+          "bottom": 276.46875
+        }
+      ],
+      "output": [
+        {
+          "text": "4",
+          "left": 866.546875,
+          "right": 878.59375,
+          "cy": 203.390625,
+          "top": 191.390625,
+          "bottom": 215.390625
+        },
+        {
+          "text": "0",
+          "left": 866.546875,
+          "right": 878.59375,
+          "cy": 264.46875,
+          "top": 252.46875,
+          "bottom": 276.46875
+        }
+      ],
+      "final": "Final values after this loop: x = 1, y = 0, base = 4",
+      "parentClass": "loop-data loop-parent-reading",
+      "parentText": "base: not recorded\nWhy?\n4",
+      "parentOutputTop": 191.390625,
+      "parentValueBottom": 215.390625,
+      "overflow": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "target": "1",
+          "left": 411.671875,
+          "right": 411.671875,
+          "top": 97,
+          "bottom": 172,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "2",
+          "left": 411.671875,
+          "right": 436.671875,
+          "top": 172,
+          "bottom": 172,
+          "targetText": null
+        },
+        {
+          "kind": "child",
+          "target": "3",
+          "left": 453.671875,
+          "right": 464.671875,
+          "top": 185,
+          "bottom": 234.8125,
+          "targetText": {
+            "left": 471.671875,
+            "right": 609.421875,
+            "cy": 234.8125,
+            "top": 224.8125,
+            "bottom": 244.8125
+          }
+        }
+      ]
+    }
+  ],
+  "narrow": [
+    {
+      "width": 300,
+      "font": 16,
+      "wide": false,
+      "columnPairs": 1,
+      "help": 1,
+      "captions": [
+        {
+          "left": 95.796875,
+          "right": 182.5,
+          "cy": 335.46875,
+          "top": 325.96875,
+          "bottom": 344.96875
+        },
+        {
+          "left": 95.796875,
+          "right": 182.5,
+          "cy": 405.265625,
+          "top": 395.765625,
+          "bottom": 414.765625
+        }
+      ],
+      "summaries": [
+        "x = 0, base = 0",
+        "x = 1"
+      ],
+      "base": {
+        "left": 95.796875,
+        "right": 182.5,
+        "cy": 487.859375,
+        "top": 478.359375,
+        "bottom": 497.359375
+      },
+      "source": {
+        "left": 95.796875,
+        "right": 248.390625,
+        "cy": 558.765625,
+        "top": 550.765625,
+        "bottom": 566.765625
+      },
+      "innerValues": [
+        {
+          "left": 111,
+          "right": 236.234375,
+          "cy": 618.078125,
+          "top": 608.578125,
+          "bottom": 627.578125
+        },
+        {
+          "left": 111,
+          "right": 236.234375,
+          "cy": 706.453125,
+          "top": 696.953125,
+          "bottom": 715.953125
+        },
+        {
+          "left": 111,
+          "right": 236.234375,
+          "cy": 794.828125,
+          "top": 785.328125,
+          "bottom": 804.328125
+        }
+      ],
+      "output": [
+        {
+          "text": "base: 10",
+          "left": 79,
+          "right": 156.0625,
+          "cy": 526.046875,
+          "top": 516.546875,
+          "bottom": 535.546875
+        },
+        {
+          "text": "1 0",
+          "left": 79,
+          "right": 107.90625,
+          "cy": 656.265625,
+          "top": 646.765625,
+          "bottom": 665.765625
+        },
+        {
+          "text": "1 1",
+          "left": 79,
+          "right": 107.90625,
+          "cy": 744.640625,
+          "top": 735.140625,
+          "bottom": 754.140625
+        },
+        {
+          "text": "1 2",
+          "left": 79,
+          "right": 107.90625,
+          "cy": 833.015625,
+          "top": 823.515625,
+          "bottom": 842.515625
+        }
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, base = 10, v = 12",
+      "parentClass": "loop-data loop-parent-reading",
+      "parentText": "Variables\nbase = 10\nPrinted output:\nbase: 10",
+      "parentOutputTop": 500.546875,
+      "parentValueBottom": 497.359375,
+      "overflow": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "target": "1",
+          "left": 46.1875,
+          "right": 46.1875,
+          "top": 270.2906246185303,
+          "bottom": 405.2656307220459,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "2",
+          "left": 46.1875,
+          "right": 66.40625,
+          "top": 335.46875,
+          "bottom": 335.46875,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "7",
+          "left": 46.1875,
+          "right": 66.40625,
+          "top": 405.265625,
+          "bottom": 405.265625,
+          "targetText": null
+        },
+        {
+          "kind": "child",
+          "target": "8",
+          "left": 81.40625,
+          "right": 88.796875,
+          "top": 415.6656188964844,
+          "bottom": 558.765625,
+          "targetText": {
+            "left": 95.796875,
+            "right": 248.390625,
+            "cy": 558.765625,
+            "top": 550.765625,
+            "bottom": 566.765625
+          }
+        }
+      ]
+    },
+    {
+      "width": 300,
+      "font": 28,
+      "wide": false,
+      "columnPairs": 1,
+      "help": 1,
+      "captions": [
+        {
+          "left": 147.390625,
+          "right": 265.40625,
+          "cy": 606.46875,
+          "top": 589.96875,
+          "bottom": 622.96875
+        },
+        {
+          "left": 147.390625,
+          "right": 265.40625,
+          "cy": 925.859375,
+          "top": 909.359375,
+          "bottom": 942.359375
+        }
+      ],
+      "summaries": [
+        "x = 0, base = 0",
+        "x = 1"
+      ],
+      "base": {
+        "left": 147.390625,
+        "right": 248.546875,
+        "cy": 1196.65625,
+        "top": 1180.15625,
+        "bottom": 1213.15625
+      },
+      "source": {
+        "left": 147.390625,
+        "right": 266.078125,
+        "cy": 1381.890625,
+        "top": 1367.390625,
+        "bottom": 1396.390625
+      },
+      "innerValues": [
+        {
+          "left": 174,
+          "right": 275.15625,
+          "cy": 1602.078125,
+          "top": 1585.578125,
+          "bottom": 1618.578125
+        },
+        {
+          "left": 174,
+          "right": 275.15625,
+          "cy": 1845.265625,
+          "top": 1828.765625,
+          "bottom": 1861.765625
+        },
+        {
+          "left": 174,
+          "right": 275.15625,
+          "cy": 2088.453125,
+          "top": 2071.953125,
+          "bottom": 2104.953125
+        }
+      ],
+      "output": [
+        {
+          "text": "base: 10",
+          "left": 118,
+          "right": 252.859375,
+          "cy": 1324.25,
+          "top": 1307.75,
+          "bottom": 1340.75
+        },
+        {
+          "text": "1 0",
+          "left": 118,
+          "right": 168.578125,
+          "cy": 1729.671875,
+          "top": 1713.171875,
+          "bottom": 1746.171875
+        },
+        {
+          "text": "1 1",
+          "left": 118,
+          "right": 168.578125,
+          "cy": 1972.859375,
+          "top": 1956.359375,
+          "bottom": 1989.359375
+        },
+        {
+          "text": "1 2",
+          "left": 118,
+          "right": 168.578125,
+          "cy": 2216.046875,
+          "top": 2199.546875,
+          "bottom": 2232.546875
+        }
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, base = 10, v = 12",
+      "parentClass": "loop-data loop-parent-reading",
+      "parentText": "Variables\nbase = 10\nPrinted output:\nbase: 10",
+      "parentOutputTop": 1251.75,
+      "parentValueBottom": 1246.15625,
+      "overflow": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "target": "1",
+          "left": 66.59375,
+          "right": 66.59375,
+          "top": 370.88750076293945,
+          "bottom": 925.8593635559082,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "2",
+          "left": 66.59375,
+          "right": 101.203125,
+          "top": 606.46875,
+          "bottom": 606.46875,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "7",
+          "left": 66.59375,
+          "right": 101.203125,
+          "top": 925.859375,
+          "bottom": 925.859375,
+          "targetText": null
+        },
+        {
+          "kind": "child",
+          "target": "8",
+          "left": 122.203125,
+          "right": 140.390625,
+          "top": 944.0593872070312,
+          "bottom": 1381.890625,
+          "targetText": {
+            "left": 147.390625,
+            "right": 266.078125,
+            "cy": 1381.890625,
+            "top": 1367.390625,
+            "bottom": 1396.390625
+          }
+        }
+      ]
+    },
+    {
+      "width": 560,
+      "font": 16,
+      "wide": true,
+      "columnPairs": 1,
+      "help": 1,
+      "variable": 95.796875,
+      "printed": 288.53125,
+      "captions": [
+        {
+          "left": 95.796875,
+          "right": 182.5,
+          "cy": 311.046875,
+          "top": 301.546875,
+          "bottom": 320.546875
+        },
+        {
+          "left": 95.796875,
+          "right": 182.5,
+          "cy": 342.84375,
+          "top": 333.34375,
+          "bottom": 352.34375
+        }
+      ],
+      "summaries": [
+        "x = 0, base = 0",
+        "x = 1"
+      ],
+      "base": {
+        "left": 95.796875,
+        "right": 182.5,
+        "cy": 367.75,
+        "top": 358.25,
+        "bottom": 377.25
+      },
+      "source": {
+        "left": 95.796875,
+        "right": 248.390625,
+        "cy": 392.78125,
+        "top": 384.78125,
+        "bottom": 400.78125
+      },
+      "innerValues": [
+        {
+          "left": 111,
+          "right": 236.234375,
+          "cy": 416.40625,
+          "top": 406.90625,
+          "bottom": 425.90625
+        },
+        {
+          "left": 111,
+          "right": 236.234375,
+          "cy": 439.21875,
+          "top": 429.71875,
+          "bottom": 448.71875
+        },
+        {
+          "left": 111,
+          "right": 236.234375,
+          "cy": 462.03125,
+          "top": 452.53125,
+          "bottom": 471.53125
+        }
+      ],
+      "output": [
+        {
+          "text": "base: 10",
+          "left": 288.53125,
+          "right": 365.59375,
+          "cy": 367.75,
+          "top": 358.25,
+          "bottom": 377.25
+        },
+        {
+          "text": "1 0",
+          "left": 288.53125,
+          "right": 317.4375,
+          "cy": 416.40625,
+          "top": 406.90625,
+          "bottom": 425.90625
+        },
+        {
+          "text": "1 1",
+          "left": 288.53125,
+          "right": 317.4375,
+          "cy": 439.21875,
+          "top": 429.71875,
+          "bottom": 448.71875
+        },
+        {
+          "text": "1 2",
+          "left": 288.53125,
+          "right": 317.4375,
+          "cy": 462.03125,
+          "top": 452.53125,
+          "bottom": 471.53125
+        }
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, base = 10, v = 12",
+      "parentClass": "loop-data loop-parent-reading",
+      "parentText": "base = 10\nbase: 10",
+      "parentOutputTop": 358.25,
+      "parentValueBottom": 377.25,
+      "overflow": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "target": "1",
+          "left": 46.1875,
+          "right": 46.1875,
+          "top": 232.29062461853027,
+          "bottom": 342.84374809265137,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "2",
+          "left": 46.1875,
+          "right": 66.40625,
+          "top": 311.046875,
+          "bottom": 311.046875,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "7",
+          "left": 46.1875,
+          "right": 66.40625,
+          "top": 342.84375,
+          "bottom": 342.84375,
+          "targetText": null
+        },
+        {
+          "kind": "child",
+          "target": "8",
+          "left": 81.40625,
+          "right": 88.796875,
+          "top": 353.2437438964844,
+          "bottom": 392.78125,
+          "targetText": {
+            "left": 95.796875,
+            "right": 248.390625,
+            "cy": 392.78125,
+            "top": 384.78125,
+            "bottom": 400.78125
+          }
+        }
+      ]
+    },
+    {
+      "width": 560,
+      "font": 28,
+      "wide": false,
+      "columnPairs": 1,
+      "help": 1,
+      "captions": [
+        {
+          "left": 147.390625,
+          "right": 299.109375,
+          "cy": 446.46875,
+          "top": 429.96875,
+          "bottom": 462.96875
+        },
+        {
+          "left": 147.390625,
+          "right": 299.109375,
+          "cy": 567.859375,
+          "top": 551.359375,
+          "bottom": 584.359375
+        }
+      ],
+      "summaries": [
+        "x = 0, base = 0",
+        "x = 1"
+      ],
+      "base": {
+        "left": 147.390625,
+        "right": 299.109375,
+        "cy": 678.65625,
+        "top": 662.15625,
+        "bottom": 695.15625
+      },
+      "source": {
+        "left": 147.390625,
+        "right": 414.421875,
+        "cy": 802.890625,
+        "top": 788.390625,
+        "bottom": 817.390625
+      },
+      "innerValues": [
+        {
+          "left": 174,
+          "right": 393.15625,
+          "cy": 908.078125,
+          "top": 891.578125,
+          "bottom": 924.578125
+        },
+        {
+          "left": 174,
+          "right": 393.15625,
+          "cy": 1062.265625,
+          "top": 1045.765625,
+          "bottom": 1078.765625
+        },
+        {
+          "left": 174,
+          "right": 393.15625,
+          "cy": 1216.453125,
+          "top": 1199.953125,
+          "bottom": 1232.953125
+        }
+      ],
+      "output": [
+        {
+          "text": "base: 10",
+          "left": 118,
+          "right": 252.859375,
+          "cy": 745.25,
+          "top": 728.75,
+          "bottom": 761.75
+        },
+        {
+          "text": "1 0",
+          "left": 118,
+          "right": 168.578125,
+          "cy": 974.671875,
+          "top": 958.171875,
+          "bottom": 991.171875
+        },
+        {
+          "text": "1 1",
+          "left": 118,
+          "right": 168.578125,
+          "cy": 1128.859375,
+          "top": 1112.359375,
+          "bottom": 1145.359375
+        },
+        {
+          "text": "1 2",
+          "left": 118,
+          "right": 168.578125,
+          "cy": 1283.046875,
+          "top": 1266.546875,
+          "bottom": 1299.546875
+        }
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, base = 10, v = 12",
+      "parentClass": "loop-data loop-parent-reading",
+      "parentText": "Variables\nbase = 10\nPrinted output:\nbase: 10",
+      "parentOutputTop": 700.75,
+      "parentValueBottom": 695.15625,
+      "overflow": false,
+      "guides": [
+        {
+          "kind": "iterations",
+          "target": "1",
+          "left": 66.59375,
+          "right": 66.59375,
+          "top": 332.88750076293945,
+          "bottom": 567.8593788146973,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "2",
+          "left": 66.59375,
+          "right": 101.203125,
+          "top": 446.46875,
+          "bottom": 446.46875,
+          "targetText": null
+        },
+        {
+          "kind": "iteration",
+          "target": "7",
+          "left": 66.59375,
+          "right": 101.203125,
+          "top": 567.859375,
+          "bottom": 567.859375,
+          "targetText": null
+        },
+        {
+          "kind": "child",
+          "target": "8",
+          "left": 122.203125,
+          "right": 140.390625,
+          "top": 586.0593872070312,
+          "bottom": 802.890625,
+          "targetText": {
+            "left": 147.390625,
+            "right": 414.421875,
+            "cy": 802.890625,
+            "top": 788.390625,
+            "bottom": 817.390625
+          }
+        }
+      ]
+    }
+  ],
+  "bodyKey": "loop/205/7/select/body",
+  "targetKey": "loop/205/7/select/next",
+  "wholeResultFoldRestoresGuides": true,
+  "browserErrors": [],
+  "limitation": "Actual kernel and compiled Chromium renderer; native VS Code review is separate."
+}

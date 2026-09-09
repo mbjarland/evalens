@@ -204,6 +204,7 @@ export function loopExplorerHtml(
 ): string {
   let remaining = LOOP_VISIBLE_LIMIT;
   let exhausted = false;
+  const tree = model.sites.size > 1;
   const timingFor = (site: LoopSite): string => `${site.target} at iteration start`
     + (site.body_names?.length ? `; ${site.body_names.join(', ')} at iteration end` : '');
   const recordingDetails = (): string =>
@@ -239,10 +240,10 @@ export function loopExplorerHtml(
     return context;
   };
   const button = (label: string, action: string, id: number, value = 0,
-    extra = ''): string => `<button type="button" class="loop-action" `
+    extra = '', control = label.startsWith('Previous') ? 'previous' : 'next'): string => `<button type="button" class="loop-action" `
     + `data-loop-action="${action}" data-loop-line="${line}" `
     + `data-loop-token="${state?.identity ?? 0}" `
-    + `data-loop-control="${label.startsWith('Previous') ? 'previous' : 'next'}" `
+    + `data-loop-control="${control}" `
     + `data-loop-id="${id}" data-loop-value="${value}" ${extra}>${label}</button>`;
   const output = (start: LoopOffsets, end: LoopOffsets, key: number,
     gap: number, empty = false): string => {
@@ -351,8 +352,8 @@ export function loopExplorerHtml(
       && model.wire.iterations > SMALL_RUN;
     const expanded = !foldable || invocationExpanded(model, invocation, state);
     const source = foldable
-      ? button(`<span class="loop-disclosure" aria-hidden="true">${expanded ? '▾' : '▸'}</span> `
-        + e(site.source), 'toggle-invocation', invocation.id, 0,
+      ? button(`<span class="loop-disclosure" aria-hidden="true">${expanded ? '▾' : '▸'}</span>`
+        + `<span class="loop-source-label">${e(site.source)}</span>`, 'toggle-invocation', invocation.id, 0,
         `aria-expanded="${expanded}"`) : e(site.source);
     const missing = iterationCount < invocation.count;
     const saved = missing ? `<div class="loop-note loop-capture-limit">`
@@ -417,6 +418,7 @@ export function loopExplorerHtml(
     const children = model.children.get(entry.id) ?? [];
     const foldable = canFold(model, entry);
     const expanded = loopExpanded(model, entry, state);
+    const separateBody = expanded && children.length > 0 && remaining > 0 && Boolean(site.body_names?.length);
     const selected = state?.selected === entry.id ? ' loop-selected' : '';
     const missingReason = entry.body?.status === 'not-reached'
       ? 'The normal end-of-body recording point was not reached. This does not tell us whether the assignment ran or the variable had a value.'
@@ -440,15 +442,23 @@ export function loopExplorerHtml(
       valueParts.push(value === undefined
         ? `<span class="loop-body-missing loop-note">${e(text)}</span>` : e(text));
     }
-    const label = labels.join(', ');
-    const selection = button(valueParts.join(', '), 'select', entry.id, 0,
-      `aria-label="${e(`Iteration ${entry.ordinal}, ${label}; ${timingFor(site)}; reveal loop header`)}"`);
+    const label = (separateBody ? labels.slice(0, 1) : labels).join(', ');
+    const timing = separateBody ? `${site.target} at iteration start` : timingFor(site);
+    const selection = button((separateBody ? valueParts.slice(0, 1) : valueParts).join(', '), 'select', entry.id, 0,
+      `aria-label="${e(`Iteration ${entry.ordinal}, ${label}; ${timing}; reveal loop header`)}"`);
     if (!foldable) return `<div class="loop-data loop-iteration${selected}" data-loop-entry="${entry.id}">`
       + `<div class="loop-target"><span class="loop-stack-label">Variables</span>${selection}${why}</div>`
       + `<div>${output(entry.start, entry.end, entry.id, 0, true)}</div></div>`;
-    const toggle = button(`<span class="loop-disclosure" aria-hidden="true">${expanded ? '▾' : '▸'}</span> `
-      + `Iteration ${entry.ordinal}`, 'toggle', entry.id, 0,
+    const toggle = button(`<span class="loop-disclosure" aria-hidden="true">${expanded ? '▾' : '▸'}</span>`
+      + `${tree ? '' : ' '}Iteration ${entry.ordinal}`, 'toggle', entry.id, 0,
       `aria-expanded="${expanded}" aria-label="${e(`Iteration ${entry.ordinal}, ${label}`)}"`);
+    const bodyReading = (printed = ''): string => {
+      const reading = button(valueParts.slice(1).join(', '), 'select', entry.id, 0,
+        `aria-label="${e(`Iteration ${entry.ordinal}, ${labels.slice(1).join(', ')}; at iteration end; reveal loop header`)}"`, 'body');
+      return '<div class="loop-data loop-parent-reading">'
+        + '<div class="loop-target"><span class="loop-stack-label">Variables</span>'
+        + reading + why + `</div><div>${printed}</div></div>`;
+    };
     let body = '';
     if (expanded) {
       const page = Math.max(0, Math.min(state?.pages.get(entry.id) ?? 0,
@@ -456,9 +466,15 @@ export function loopExplorerHtml(
       const from = page * LOOP_PAGE_SIZE;
       const end = Math.min(from + LOOP_PAGE_SIZE, children.length);
       let cursor = from === 0 ? entry.start : children[from - 1]!.end;
+      // These remain end-of-iteration snapshots. Showing them before the
+      // child loop is a layout choice, never a new observation at that point.
+      // Only the first page pairs them with original pre-child output.
+      if (separateBody && from > 0) body += bodyReading();
       children.slice(from, end).forEach((child, index) => {
         if (remaining <= 0) { exhausted = true; return; }
-        body += gapHtml(cursor, child.start, entry.id, from + index);
+        body += separateBody && from === 0 && index === 0
+          ? bodyReading(output(cursor, child.start, entry.id, 0))
+          : gapHtml(cursor, child.start, entry.id, from + index);
         body += invocationHtml(child as LoopInvocation, depth + 1, false, children.length === 1);
         cursor = child.end;
       });
@@ -471,7 +487,7 @@ export function loopExplorerHtml(
     }
     return `<section class="loop-iteration loop-group${selected}" data-loop-entry="${entry.id}">`
       + `<div class="loop-iteration-header">${toggle} <span class="loop-note">·</span> ${selection} `
-      + `<span class="loop-note">· ${e(outputCount(entry))}</span>${why}</div>`
+      + `<span class="loop-note">· ${e(outputCount(entry))}</span>${separateBody ? '' : why}</div>`
       + (expanded ? `<div class="loop-body">${body}</div>` : '') + '</section>';
   };
   let cursor: LoopOffsets = [0, 0];
@@ -493,7 +509,8 @@ export function loopExplorerHtml(
     + '<div class="loop-scroll-owner" hidden></div></div>' + recordingDetails() + '</div>'
     + '<div class="loop-columns"><span>Variables</span>'
     + '<span title="Python writes ordinary printed output to stdout.">Printed output</span></div></div>';
-  return `<div class="loop-explorer" data-loop-root="${line}">`
+  return `<div class="loop-explorer${tree ? ' loop-tree' : ''}" data-loop-root="${line}">`
+    + (tree ? '<svg class="loop-guides" aria-hidden="true"></svg>' : '')
     + heading + body + (exhausted ? '<div class="loop-notice">Visible detail limit reached. Collapse a group to explore another.</div>' : '')
     + (clipped ? '<div class="loop-notice">Output capture is incomplete; unretained text cannot be expanded.</div>' : '')
     + final + `<div class="loop-export">${button('Open statement printed output', 'open', 0, 0,
@@ -569,6 +586,22 @@ export const LOOP_EXPLORER_STYLE = `
 .loop-final { margin-top: 1em; }
 .loop-export { margin-top: .5em; }
 body.vscode-high-contrast .loop-selected, body.vscode-high-contrast-light .loop-selected { outline: 1px solid var(--vscode-contrastActiveBorder); }
+/* All tree offsets use the table's font size, including smaller source
+   labels. An em on .loop-source would resolve at 88% and break alignment. */
+.loop-tree { position: relative; --loop-unit: var(--vscode-editor-font-size, 13px); --loop-common-indent: calc(var(--loop-unit) * 1.05); --loop-reading-indent: calc(var(--loop-unit) * .95); --loop-branch-indent: calc(var(--loop-unit) * 2.1); }
+.loop-tree-result .result-detail > .result-surface { padding-left: calc(8px + 3.25em); }
+.loop-tree-result:not(.result-collapsed) .result-disclosure { left: calc(3px + 1.2em); }
+.loop-tree .loop-columns, .loop-tree .loop-data { padding-left: 0; padding-right: 0; }
+.loop-tree .loop-columns > :first-child { padding-left: var(--loop-common-indent); }
+.loop-tree .loop-data > :first-child { padding-left: calc(var(--loop-common-indent) + max(0, var(--loop-depth, 0) - 1) * var(--loop-branch-indent) + min(1, var(--loop-depth, 0)) * var(--loop-reading-indent)); }
+.loop-tree .loop-parent-reading > :first-child { padding-left: calc(var(--loop-common-indent) + var(--loop-depth, 0) * var(--loop-branch-indent)); }
+.loop-tree .loop-iteration-header { padding-left: calc(var(--loop-common-indent) + var(--loop-depth, 0) * var(--loop-branch-indent)); }
+.loop-tree .loop-invocation > .loop-source { margin-left: calc(var(--loop-common-indent) + max(0, var(--loop-depth, 0) - 1) * var(--loop-branch-indent)); }
+.loop-tree .loop-iteration-header > [data-loop-action="toggle"], .loop-tree .loop-source > [data-loop-action="toggle-invocation"] { position: relative; }
+.loop-tree .loop-iteration-header .loop-disclosure, .loop-tree .loop-source .loop-disclosure { position: absolute; left: calc(var(--loop-unit) * -1.4); top: 0; width: var(--loop-unit); text-align: center; }
+.loop-guides { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.loop-guides path { fill: none; stroke: var(--vscode-tree-indentGuidesStroke, #899399); stroke-width: 1.5; stroke-linejoin: miter; stroke-linecap: butt; }
+body.vscode-high-contrast .loop-guides path, body.vscode-high-contrast-light .loop-guides path { stroke: var(--vscode-contrastActiveBorder, currentColor); }
 /* Stack each variable/output pair when its actual result area cannot fit
    two legible columns. Local stream labels keep output distinct from the
    variables above it; stderr keeps its own existing label. */

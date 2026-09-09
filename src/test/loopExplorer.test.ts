@@ -58,7 +58,7 @@ test('single-level square-print loop uses three compact target/output rows', asy
   assert.equal((html.match(/>Printed output<\/span>/g) ?? []).length, 1);
   assert.equal((html.match(/class="loop-stack-label">Variables/g) ?? []).length, 3);
   assert.equal((html.match(/class="loop-stream-label loop-stack-label">Printed output:/g) ?? []).length, 3);
-  assert.doesNotMatch(html, /data-loop-action="toggle|loop-iteration-header/);
+  assert.doesNotMatch(html, /data-loop-action="toggle|loop-iteration-header|loop-guides|loop-parent-reading/);
 });
 
 test('body values share their own iteration cell while printed output stays separate', async () => {
@@ -144,11 +144,103 @@ test('expanded nested loops share one column header and help without repeated co
   assert.equal((html.match(/class="loop-context"/g) ?? []).length, 1);
   assert.equal((html.match(/<summary>About these values<\/summary>/g) ?? []).length, 1);
   assert.equal((html.match(/>for y in \[2, 3\]/g) ?? []).length, 2);
-  assert.match(html, /Iteration 1, x = 0, outer = 10/);
-  assert.match(html, /Iteration 2, x = 1, outer = 11/);
+  assert.match(html, /Iteration 1, x = 0/);
+  assert.match(html, /Iteration 2, x = 1/);
+  assert.match(html, />outer = 10<\/button>/);
+  assert.match(html, />outer = 11<\/button>/);
   assert.match(html, /class="loop-scroll-owner" hidden><\/div>/);
   assert.doesNotMatch(html, /loop-value-timing|within Iteration|class="loop-note loop-owner"/);
   assert.doesNotMatch(html, /x at iteration start; inner at iteration end/);
+});
+
+test('nested body readings move from folded captions to a row above the inner loop', async () => {
+  const model = prepared(await captured('for x in range(2):\n'
+    + '    base = x * 10\n    print("base:", base)\n'
+    + '    for y in range(3):\n        v = base + y\n        print(x, y)\n'));
+  const before = JSON.stringify(model.wire);
+  const [first, second] = model.children.get(model.roots[0]!.id)!;
+  const state = newLoopViewState();
+  state.expanded.set(first!.id, false);
+  state.expanded.set(second!.id, true);
+  let html = loopExplorerHtml(model, 0, state);
+  assert.match(html, /class="loop-explorer loop-tree"/);
+  assert.match(html, /<svg class="loop-guides" aria-hidden="true"><\/svg>/);
+  assert.match(html, /aria-label="Iteration 1, x = 0, base = 0"/);
+  assert.match(html, /aria-label="Iteration 2, x = 1"/);
+  assert.doesNotMatch(html, /aria-label="Iteration 2, x = 1, base = 10"/);
+  assert.equal((html.match(/class="loop-data loop-parent-reading"/g) ?? []).length, 1);
+  const parent = /class="loop-data loop-parent-reading">([\s\S]*?)<\/div><\/div><\/div>/.exec(html)?.[1];
+  assert.ok(parent);
+  assert.match(parent, /data-loop-control="body"[^>]*>base = 10<\/button>/);
+  assert.match(parent, /Iteration 2, base = 10; at iteration end; reveal loop header/);
+  assert.match(parent, /class="loop-output">base: 10<\/span>/);
+  assert.doesNotMatch(parent, /loop-direct|x = 1/);
+  assert.ok(html.indexOf('loop-parent-reading') < html.indexOf('>for y in range(3)'));
+  assert.deepEqual([...html.matchAll(/class="loop-output">([^<]*)/g)].map((m) => m[1]),
+    ['base: 10', '1 0', '1 1', '1 2']);
+  for (const [y, v] of [[0, 10], [1, 11], [2, 12]])
+    assert.match(html, new RegExp(`>y = ${y}, v = ${v}</button>`));
+
+  state.expanded.set(first!.id, true);
+  html = loopExplorerHtml(model, 0, state);
+  assert.deepEqual([...html.matchAll(/class="loop-output">([^<]*)/g)].map((m) => m[1]),
+    ['base: 0', '0 0', '0 1', '0 2', 'base: 10', '1 0', '1 1', '1 2']);
+  state.expanded.set(first!.id, false);
+  state.expanded.set(second!.id, false);
+  html = loopExplorerHtml(model, 0, state);
+  assert.match(html, /aria-label="Iteration 2, x = 1, base = 10"/);
+  assert.doesNotMatch(html, /loop-parent-reading|class="loop-output"/);
+  assert.equal(JSON.stringify(model.wire), before, 'folding only rearranges saved readings');
+});
+
+test('a parent row keeps saved end values and local missing-reading help', async () => {
+  for (const tail of ['    base = 99\n', '    continue\n']) {
+    const model = prepared(await captured('for x in [1]:\n'
+      + '    base = 4\n    print(base)\n    for y in [0]:\n        print(y)\n' + tail));
+    const before = JSON.stringify(model.wire);
+    const state = newLoopViewState();
+    const iteration = model.children.get(model.roots[0]!.id)![0]!;
+    state.expanded.set(iteration.id, true);
+    const html = loopExplorerHtml(model, 0, state);
+    const body = html.slice(html.indexOf('class="loop-data loop-parent-reading"'));
+    assert.match(body, /class="loop-output">4<\/span>/);
+    assert.match(body, /at iteration end; reveal loop header/);
+    assert.doesNotMatch(html, /base = 4<\/button>|loop-value-timing/);
+    if (tail.includes('99')) {
+      assert.match(body, />base = 99<\/button>/);
+      assert.doesNotMatch(body, /loop-missing-why/);
+    } else {
+      assert.match(body, /base: not recorded/);
+      assert.match(body, /Why base was not recorded in Iteration 1/);
+      assert.match(body, /This does not tell us whether the assignment ran/);
+      assert.equal((html.match(/class="loop-missing-why"/g) ?? []).length, 1);
+      state.expanded.set(iteration.id, false);
+      assert.match(loopExplorerHtml(model, 0, state), /aria-label="Iteration 1, x = 1, base: not recorded"/);
+    }
+    assert.equal(JSON.stringify(model.wire), before);
+  }
+});
+
+test('paging sibling invocations keeps the parent reading without repeating earlier output', async () => {
+  const siblings = Array.from({ length: 21 }, (_, n) =>
+    `    for y${n} in [${n}]:\n        print(y${n})\n`).join('');
+  const model = prepared(await captured('for x in [1]:\n'
+    + '    base = 10\n    print("base:", base)\n' + siblings));
+  const iteration = model.children.get(model.roots[0]!.id)![0]!;
+  const state = newLoopViewState();
+  state.expanded.set(iteration.id, true);
+  let html = loopExplorerHtml(model, 0, state);
+  assert.match(html, /loop-parent-reading/);
+  assert.match(html, /class="loop-output">base: 10<\/span>/);
+  assert.match(html, /Nested loops 1–20 of 21 retained/);
+  state.pages.set(iteration.id, 1);
+  html = loopExplorerHtml(model, 0, state);
+  assert.match(html, /loop-parent-reading/);
+  assert.match(html, />base = 10<\/button>/);
+  assert.doesNotMatch(html, /class="loop-output">base: 10<\/span>/);
+  assert.match(html, /Nested loops 21–21 of 21 retained/);
+  assert.ok((html.match(/data-loop-(?:entry|invocation)=/g) ?? []).length <= LOOP_VISIBLE_LIMIT);
+  assert.equal(model.streams[0], 'base: 10\n' + Array.from({ length: 21 }, (_, n) => `${n}\n`).join(''));
 });
 
 test('three nested levels and sibling loops keep one set of shared headings', async () => {
@@ -169,8 +261,10 @@ test('nested and reused loop names render only their own captured body snapshots
   const model = prepared(await captured('for v in [10, 20]:\n'
     + '    outer = v\n    for v in [1, 2]:\n        u = 10 * v\n'));
   const html = loopExplorerHtml(model, 0);
-  assert.match(html, />v = 10, outer = 10<\/button>/);
-  assert.match(html, />v = 20, outer = 20<\/button>/);
+  assert.match(html, />v = 10<\/button>/);
+  assert.match(html, />v = 20<\/button>/);
+  assert.match(html, />outer = 10<\/button>/);
+  assert.match(html, />outer = 20<\/button>/);
   assert.equal((html.match(/>v = 1, u = 10<\/button>/g) ?? []).length, 2);
   assert.equal((html.match(/>v = 2, u = 20<\/button>/g) ?? []).length, 2);
   assert.doesNotMatch(html, />v = (?:10|20), u =/);
