@@ -36,9 +36,9 @@ lst = [9, 9]
 other
 
 # --------------------------------------------------------------- 4. a loop
-# A loop reports every value its target took, and everything its body bound,
-# side by side. `x5` is the iteration count, so a history never reads as a
-# list that happens to have five things in it.
+# A loop reports its target history and up to three selected body-name
+# histories side by side. Each puts its values first, then `5 iterations`,
+# so a history does not read as a list that happens to have five items.
 
 for n in range(5):
     squared = n * n

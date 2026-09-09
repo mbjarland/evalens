@@ -396,9 +396,9 @@ budget += 25
 
 # ------------------------------------------------ statement kinds that bind --
 
-# 18. A `for` shows its target, which after the loop holds the last value it
-#     took.  That is the most informative thing a loop leaves behind, and it
-#     is why a `for` annotates at all.
+# 18. A `for` shows the values its target took, followed by the count:
+#     `index: 0, 1, 2 · 3 iterations`. With Loop Values disabled, it instead
+#     shows the last value left in index after the loop.
 for index in range(3):
     pass
 
@@ -413,8 +413,8 @@ for v in inputs:
     u = 4 * v
 
 # 18b. The same thing with a `continue`, where the two sequences are
-#      deliberately NOT the same length: five iterations, two results, because
-#      an iteration that skipped out early computed nothing to report.
+#      deliberately NOT the same length: five iterations, two readings,
+#      because continue skips the normal end-of-body recording point.
 #      Padding `kept` out to five entries would be inventing observations, so
 #      the annotation says `n: 1, 2, 3, 4, 5   kept: 4, 8`.
 for n in [1, 2, 3, 4, 5]:
