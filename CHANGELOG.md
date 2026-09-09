@@ -10,10 +10,10 @@ First stable release, following the 0.0.1 pre-release.
 - Browse results in the Values panel with linked source navigation, a
   distinct latest-result marker, keyboard controls, and whole-result folds.
   Orange square bars and quiet source markers keep the code readable.
-- Explore loops with separate Variables and Printed output columns. Nested
-  loops retain their hierarchy; simple loops use compact rows. Body values,
-  capture timing, missing readings, and final values are explained in place.
-  Iterations and long output page or fold at every nesting level.
+- Explore loops with one shared Variables and Printed output heading. Nested
+  loops retain their hierarchy; simple loops use compact rows. Optional
+  **About these values** explains capture timing; missing readings and final
+  values stay explicit. Iterations and long output page or fold at every level.
 - Read consistent values-first histories beside each loop's own header,
   including inner loops, body variables, watches, and comprehensions.
 - Discover five editable learning exercises through the optional walkthrough
