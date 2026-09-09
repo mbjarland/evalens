@@ -4,13 +4,12 @@
 2. Predict what that statement will record. Use **Evalens: Evaluate and
    Advance** once, then look at the result and the cursor's new position.
 
-| Command | Windows / Linux | macOS |
-| --- | --- | --- |
-| Evalens: Evaluate and Advance | Ctrl+Shift+Enter | Cmd+Shift+Enter |
+**Evalens: Evaluate and Advance** — **Cmd+Shift+Enter**
+(**Ctrl+Shift+Enter** on Windows/Linux).
 
 These are default keys, pressed while editing Python. For remapped or
-conflicting keys, open the **Command Palette** with **Ctrl+Shift+P** on
-Windows/Linux or **Cmd+Shift+P** on macOS and search for the command name.
+conflicting keys, open the **Command Palette** with **Cmd+Shift+P**
+(**Ctrl+Shift+P** on Windows/Linux) and search for the command name.
 
 ## After one evaluation
 
