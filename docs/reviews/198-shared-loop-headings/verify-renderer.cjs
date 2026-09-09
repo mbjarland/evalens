@@ -79,12 +79,26 @@ async function main() {
       const header = document.querySelector('.loop-columns');
       const columns = getComputedStyle(header).display !== 'none';
       const lefts = node => [...node.children].map(child => child.getBoundingClientRect().left);
+      const overview = document.querySelector('.loop-overview').getBoundingClientRect();
+      const title = document.querySelector('.loop-title').getBoundingClientRect();
+      const source = document.querySelector('.loop-root-source');
+      const sourceRect = source.getBoundingClientRect();
+      const help = document.querySelector('.loop-recording-details').getBoundingClientRect();
+      // Compare the actual title with its natural wrapping at the full
+      // result width. No-overflow alone misses a title crushed to 5ch.
+      const reference = source.cloneNode(true);
+      reference.style.cssText = `position: fixed; visibility: hidden; width: ${overview.width}px; font: ${getComputedStyle(source).font}`;
+      document.body.append(reference);
+      const fullWidthHeight = reference.getBoundingClientRect().height;
+      reference.remove();
       return {
         width: innerWidth, scrollWidth: document.documentElement.scrollWidth,
         headings: document.querySelectorAll('.loop-columns').length,
         help: document.querySelectorAll('.loop-recording-details').length,
         timingRows: document.querySelectorAll('.loop-value-timing, .loop-owner').length,
         columns, headerLefts: lefts(header),
+        title: { width: title.width, availableWidth: overview.width,
+          height: sourceRect.height, fullWidthHeight, helpBelow: help.top >= sourceRect.bottom - 1 },
         rows: [...document.querySelectorAll('.loop-data')].map(row => ({
           lefts: lefts(row), output: row.children[1].innerText,
           variableLabel: row.querySelector('.loop-stack-label')?.getClientRects().length > 0,
@@ -100,7 +114,7 @@ async function main() {
   }
   try {
     for (const name of ['nested', 'deep']) {
-      for (const width of [300, 900, 1400]) {
+      for (const width of [300, 560, 900, 1400]) {
         for (const fontSize of [14, 28]) {
           for (const theme of ['dark', 'light', 'high-contrast', 'high-contrast-light']) {
             await render(name, width, fontSize, theme);
@@ -109,6 +123,14 @@ async function main() {
             assert.equal(result.help, 1);
             assert.equal(result.timingRows, 0);
             assert.ok(result.scrollWidth <= width + 1, JSON.stringify(result));
+            assert.ok(result.title.width >= Math.min(result.title.availableWidth, fontSize * .55 * 24) - 1,
+              JSON.stringify({ name, width, fontSize, title: result.title }));
+            if (width <= 560 && fontSize === 28) {
+              assert.ok(result.title.helpBelow, 'help should wrap below a narrow, large-font title');
+              assert.ok(Math.abs(result.title.width - result.title.availableWidth) < 1);
+              assert.ok(Math.abs(result.title.height - result.title.fullWidthHeight) < 1,
+                'help must not force the title onto extra lines');
+            }
             for (const row of result.rows) {
               if (result.columns) {
                 for (let i = 0; i < 2; i++) assert.ok(Math.abs(row.lefts[i] - result.headerLefts[i]) < 1,
@@ -121,7 +143,13 @@ async function main() {
             for (const control of result.controls) assert.ok(control.left >= 0 && control.right <= width + 1,
               JSON.stringify({ width, fontSize, control }));
             measurements.push({ name, width, fontSize, theme, columns: result.columns,
-              rows: result.rows.length, headings: result.headings, help: result.help });
+              rows: result.rows.length, headings: result.headings, help: result.help, title: result.title });
+            if (name === 'nested' && width === 560 && fontSize === 28 && theme === 'dark'
+              && process.env.EVALENS_198_SCREENSHOT) {
+              await page.$eval('.loop-overview', node => node.scrollIntoView({ block: 'start' }));
+              await pause();
+              await page.screenshot({ path: process.env.EVALENS_198_SCREENSHOT });
+            }
           }
         }
       }

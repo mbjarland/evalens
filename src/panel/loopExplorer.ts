@@ -532,7 +532,7 @@ export const LOOP_EXPLORER_STYLE = `
 .loop-context-unpinned { position: static; }
 .loop-context-covered { visibility: hidden; }
 .loop-overview { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 1em; }
-.loop-title { position: relative; min-width: 0; flex: 1; }
+.loop-title { position: relative; min-width: 0; flex: 1 1 24ch; }
 .loop-scroll-owner { position: absolute; inset: .15em 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .loop-context-has-owner .loop-root-source { visibility: hidden; }
 .loop-recording-details, .loop-missing-why { color: var(--vscode-descriptionForeground); }

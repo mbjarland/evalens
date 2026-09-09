@@ -38,12 +38,23 @@ npm --cache /private/tmp/evalens-npm-cache run compile
 node docs/reviews/198-shared-loop-headings/verify-renderer.cjs
 ```
 
-The report in `renderer-results.json` records **48 layout cases**: two-level
-and three-level/sibling fixtures, widths 300, 900 and 1400, editor fonts 14
+The report in `renderer-results.json` records **64 layout cases**: two-level
+and three-level/sibling fixtures, widths 300, 560, 900 and 1400, editor fonts 14
 and 28, and dark/light/high-contrast theme variables. Every wide row aligns
 with the one shared heading. Narrow rows keep visible variable/output
 labels, and visible controls stay within the viewport without horizontal
 document overflow.
+
+The root session's native Host review found that avoiding overflow was not
+enough: at a narrow width and large editor font, the help control squeezed
+the title into a column only a few characters wide. The title now has a
+24ch preferred width, letting the help wrap below when both do not fit. The
+added regression failed against the old CSS: at width 300 and font 14, the
+title was 70.8px wide and 80px tall instead of the natural 32px height. It now
+uses the full result width. At width 560 and font 28, the source title uses
+467px and two lines, with help below; the wide layout keeps help beside it.
+The rendered narrow result was inspected after this fix. The report records
+actual/natural title heights and available widths for all 64 cases.
 
 Additional Chromium checks cover native Enter on About these values and
 Space on a missing-value Why disclosure; neither sends a provider message.
