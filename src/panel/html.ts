@@ -24,6 +24,7 @@ import {
   LoopExplorer, LoopViewState, LOOP_EXPLORER_STYLE, loopExplorerHtml,
   prepareLoopExplorer,
 } from './loopExplorer';
+import { LOOP_GUIDE_SCRIPT } from './loopGuides';
 import {
   Printed, STDERR_LABEL, Segment, SegmentRole, collapseLines, grouped,
   isStreamGroup, paintedSlots, resultGroups,
@@ -896,7 +897,8 @@ function valueCellHtml(
   const title = `${description}${row.state === 'stale' ? '. '
     + staleReasonText(row.staleReason, row.staleCause) : ''}`;
   const tone: Tone = row.state === 'stale' ? 'stale' : row.errorText ? 'error' : 'evaluated';
-  return `<div class="whole-result${collapsed ? ' result-collapsed' : ''}" `
+  const tree = row.loopExplorer && row.loopExplorer.sites.size > 1;
+  return `<div class="whole-result${tree ? ' loop-tree-result' : ''}${collapsed ? ' result-collapsed' : ''}" `
     + `data-result-line="${row.line}" data-result-token="${state?.identity ?? row.line}">`
     + `<button type="button" class="result-disclosure" hidden `
     + `aria-expanded="${!collapsed}" aria-controls="result-detail-${row.line}" `
@@ -1501,6 +1503,7 @@ function script(
     });
     button.addEventListener('keydown', function (event) { event.stopPropagation(); });
   });
+  ${LOOP_GUIDE_SCRIPT}
   var rows = Array.prototype.slice.call(document.querySelectorAll('tr.row'));
   var control = document.getElementById('follow-cursor');
   control.addEventListener('change', function () {

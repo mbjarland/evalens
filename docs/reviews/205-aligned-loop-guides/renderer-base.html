@@ -1,0 +1,1052 @@
+<!DOCTYPE html><html style="--loop-context-top: 37px;"><head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-review'; script-src 'nonce-review';">
+<title>Evalens Values</title>
+<style nonce="review">:root {
+      --vscode-editor-font-family: Menlo, monospace; --vscode-editor-font-size: 20px;
+      --vscode-font-size: 13px; --vscode-panel-background: #181818;
+      --vscode-editor-foreground: #cccccc;
+      --vscode-foreground: #cccccc;
+      --vscode-descriptionForeground: #aaaaaa;
+      --vscode-evalens-resultForeground: #d1a35c;
+      --vscode-evalens-outputLabelForeground: #5c7fa6;
+      --vscode-panel-border: #333333;
+      --vscode-textLink-foreground: #64a9de;
+      --vscode-focusBorder: #007fd4;
+    }
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 6px 10px 10px;
+  background: var(--vscode-panel-background, #1e1e1e);
+  color: var(--vscode-foreground, #cccccc);
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+}
+.empty, .summary, .footer {
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+}
+.empty { padding: 8px 2px; }
+.summary {
+  padding: 2px 2px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.footer { font-style: italic; padding: 6px 2px 2px; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 13px);
+}
+/* Reserve the widest displayed line number plus an arrow, its gap, and
+   cell padding in the code font's metrics. The accent border stays 3px. */
+col.col-line { width: calc(var(--line-number-width) + 2.5ch + 3px); }
+col.col-code { width: 300px; }
+td {
+  vertical-align: top;
+  padding: 6px;
+  border-bottom: 1px solid var(--vscode-panel-border, currentColor);
+}
+tr.row { cursor: pointer; }
+tr.row:hover { background: var(--vscode-list-hoverBackground, transparent); }
+.line-cell {
+  text-align: right;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+  border-left: 3px solid transparent;
+  padding-left: 0.5ch;
+  padding-right: 0.5ch;
+}
+.line-num {
+  display: inline-block;
+  min-width: var(--line-number-width);
+  font-variant-numeric: tabular-nums;
+}
+.code-cell {
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+}
+/* One line of a (possibly multi-line) statement's own source (#153): its
+   own block, not the cell's whole text, so a too-wide line ellipsises on
+   its own rather than the CODE cell doing it once across every line
+   flattened together. white-space: pre, not nowrap, because indentation is
+   exactly what makes a multi-line statement's body legible here, and
+   nowrap collapses the very runs of leading spaces that carry it. */
+.code-line {
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.code-line.code-more { font-style: italic; }
+.value-cell { overflow-wrap: anywhere; }
+tr.cursor {
+  background: var(--vscode-list-inactiveSelectionBackground);
+  outline: 2px solid var(--vscode-focusBorder, currentColor);
+  outline-offset: -2px;
+}
+tr.cursor .line-cell {
+  border-left-color: var(--vscode-focusBorder, currentColor);
+  font-weight: bold;
+}
+.navigation-arrow {
+  display: inline-block;
+  width: 1ch;
+  margin-right: 0.5ch;
+  text-align: center;
+  visibility: hidden;
+}
+tr.cursor .navigation-arrow { visibility: visible; }
+tr.latest-result .line-cell { border-left-color: var(--vscode-evalens-annotationBorder, #e6ad45); }
+.latest-result-label {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--vscode-evalens-annotationBorder, #e6ad45);
+}
+tr.row:focus-visible {
+  outline: 2px dashed var(--vscode-focusBorder, currentColor);
+  outline-offset: -2px;
+}
+.navigation-control {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 16px;
+  row-gap: 2px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 4px 0 8px;
+  background: var(--vscode-panel-background, #1e1e1e);
+}
+.navigation-control label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 100%;
+}
+.navigation-control input { flex: none; }
+.result-surface {
+  padding: 3px 8px;
+  border-left: 3px solid var(--vscode-evalens-annotationBorder, #e6ad45);
+  border-radius: 0;
+  font-style: italic;
+  background: var(--vscode-evalens-annotationTint, #d1a35c1a);
+}
+.result-surface.tone-stale {
+  background: var(--vscode-evalens-staleTint, #8c8c8c0d);
+  border-left-color: var(--vscode-evalens-staleBorder, #8c8c8c);
+}
+.result-surface.tone-error { border-left-color: var(--vscode-evalens-errorForeground, #f14c4c); }
+.result-surface.tone-pending { border-left-color: var(--vscode-evalens-pendingForeground, #8c8c8c); }
+/* Long traces share the panel background. Keep the statement frame and its
+   status bar, reserving filled emphasis for the selected iteration. */
+tr.loop-row.cursor, .loop-row .result-surface { background: transparent; }
+.whole-result { position: relative; }
+.result-disclosure {
+  position: absolute;
+  top: 3px;
+  left: calc(3px + .4em);
+  z-index: 1;
+  border: 0;
+  padding: 0;
+  width: 1em;
+  background: transparent;
+  color: var(--vscode-textLink-foreground, currentColor);
+  font: inherit;
+  font-style: normal;
+  line-height: inherit;
+  cursor: pointer;
+}
+.loop-row .result-disclosure { top: calc(3px + .15em); }
+.result-disclosure:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, currentColor);
+  outline-offset: 1px;
+}
+.result-foldable .result-detail > .result-surface { padding-left: calc(8px + 1.5em); }
+.result-summary {
+  height: var(--source-height);
+  max-height: var(--source-height);
+  padding: 0 8px 0 calc(8px + 1.5em);
+  overflow: hidden;
+  font-style: normal;
+}
+.result-summary-line { display: flex; gap: .6em; white-space: nowrap; }
+.result-summary-status { flex: 0 0 auto; font-weight: 600; }
+.result-summary-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.result-collapsed .result-disclosure { top: 0; }
+.result-disclosure[hidden], .result-summary[hidden],
+.result-detail[hidden] { display: none; }
+/* Measure the existing bounded detail at its real available width, without
+   letting it enlarge a closed row or creating an extra copy of the output. */
+.result-measuring .result-detail {
+  display: block;
+  position: absolute;
+  width: 100%;
+  top: 0;
+  visibility: hidden;
+}
+.result-measuring .result-detail > .result-surface { padding-left: 8px; }
+.result-group { white-space: pre-wrap; }
+.result-group.block {
+  display: block;
+  white-space: pre-wrap;
+  max-width: 100%;
+}
+.result-group.block + .result-group,
+.result-group + .result-group.block { margin-top: 4px; }
+/* The internal rule shares the theme's statement-boundary colour, but is
+   quieter and only spans the result's usable width. Source-row boundaries
+   run across all three cells at full contrast; spacing reinforces that
+   hierarchy without adding another frame around each result. */
+.result-values + .result-streams::before {
+  content: '';
+  display: block;
+  border-top: 1px solid var(--vscode-panel-border, currentColor);
+  opacity: .6;
+  margin: 5px 0;
+}
+.vscode-high-contrast td,
+.vscode-high-contrast-light td {
+  border-bottom-width: 2px;
+}
+.seg-value { color: var(--vscode-evalens-resultForeground, #d1a35c); }
+.seg-nameLabel { color: var(--vscode-evalens-labelForeground, #8d7a5a); }
+.seg-streamLabel { color: var(--vscode-evalens-outputLabelForeground, #5c7fa6); }
+.error-text { color: var(--vscode-evalens-errorForeground, #f14c4c); }
+.pending-text { color: var(--vscode-evalens-pendingForeground, #8c8c8c); }
+/* The stale reason (#116 review): dimmed italic prose in the UI font,
+   after the chips with a margin -- never monospace value-coloured text
+   inside the chip flow, which is what a plain inline span here used to be. */
+.stale-reason {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+  font-style: italic;
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+}
+.stale-reason button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--vscode-textLink-foreground);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.stale-reason button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+/* Folding a long block (#155): the footer names how much was left out and
+   carries the two actions, in the UI font like the stale reason above --
+   it is Evalens' own remark about the block, not part of what the program
+   produced. */
+.fold-footer {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+  font-style: italic;
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+}
+.fold-action, .fold-label {
+  border: 0; padding: 0; background: transparent; font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+.fold-action { color: inherit; }
+.fold-action:focus-visible, .fold-label:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, currentColor); outline-offset: 2px;
+}
+/* An expanded block's full text (#155): capped at roughly fourteen lines of
+   the panel's own line-height and scrollable past that, so opening one very
+   long block cannot push every other row on the panel out of view -- the
+   same reason the CODE cell's own sourceLines caps it instead of growing
+   it. */
+.fold-scroll {
+  display: block;
+  max-height: 19.6em;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+/* Keep the source/result pair together when there is no useful room for
+   the ordinary 300px source column. The source gutter retains its font
+   metrics; results use the whole width below it rather than disappearing
+   into the fixed table's remainder. Navigation still targets this row. */
+@media (max-width: 720px) {
+  table, tbody { display: block; }
+  colgroup { display: none; }
+  tr.row {
+    display: grid;
+    grid-template-columns: calc(var(--line-number-width) + 2.5ch + 3px) minmax(0, 1fr);
+    border-bottom: 1px solid var(--vscode-panel-border, currentColor);
+  }
+  td { display: block; min-width: 0; border-bottom: 0; }
+  .value-cell { grid-column: 1 / -1; padding-top: 0; }
+  .vscode-high-contrast tr.row,
+  .vscode-high-contrast-light tr.row { border-bottom-width: 2px; }
+  .vscode-high-contrast td,
+  .vscode-high-contrast-light td { border-bottom-width: 0; }
+}
+
+.loop-explorer { font-style: normal; font-weight: normal; color: var(--vscode-editor-foreground); white-space: normal; min-width: 0; container-type: inline-size; }
+.loop-explorer button { font-family: inherit; font-size: inherit; font-style: normal; background: none; border: 0; padding: 0; cursor: pointer; color: inherit; text-align: left; max-width: 100%; overflow-wrap: anywhere; }
+.loop-explorer button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.loop-columns, .loop-data { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); column-gap: 1.2em; }
+.loop-columns > *, .loop-data > * { min-width: 0; }
+.loop-stack-label { display: none; }
+.loop-columns { color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); padding: 0 .35em .45em; margin: .15em 0 .6em; }
+.loop-context { position: sticky; top: var(--loop-context-top, 0px); z-index: 2; background: var(--vscode-panel-background, #1e1e1e); padding-top: .15em; }
+.loop-context-unpinned { position: static; }
+.loop-context-covered { visibility: hidden; }
+.loop-overview { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 1em; }
+.loop-title { position: relative; min-width: 0; flex: 1 1 24ch; }
+.loop-scroll-owner { position: absolute; inset: .15em 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.loop-context-has-owner .loop-root-source { visibility: hidden; }
+.loop-recording-details, .loop-missing-why { color: var(--vscode-descriptionForeground); }
+.loop-recording-details { font-size: .86em; }
+.loop-recording-details[open] { flex-basis: 100%; }
+.loop-missing-why { display: inline-block; vertical-align: top; margin-left: .6em; font-size: .86em; }
+.loop-missing-why[open] { display: block; margin: .35em 0; }
+.loop-recording-details > summary, .loop-missing-why > summary { cursor: pointer; color: var(--vscode-textLink-foreground); width: fit-content; list-style-position: inside; }
+.loop-recording-details > summary:focus-visible, .loop-missing-why > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.loop-explanation { max-width: 75ch; white-space: normal; overflow-wrap: anywhere; padding: .4em 0; }
+.loop-explanation p { margin: .4em 0; }
+.loop-capture-limit { margin: .2em 0; }
+.loop-recording-state { font-weight: 600; margin-bottom: .25em; }
+.loop-source { font-size: .88em; margin: .4em 0 .3em; overflow-wrap: anywhere; }
+.loop-root-source { font-size: 1em; margin: .15em 0 .6em; }
+.loop-group { margin: .6em 0 .8em; }
+.loop-iteration-header { color: var(--vscode-evalens-resultForeground); overflow-wrap: anywhere; }
+.loop-disclosure { color: var(--vscode-evalens-outputLabelForeground); }
+.loop-data { padding: .12em .35em; }
+.loop-body { margin-top: .25em; }
+.loop-invocation > .loop-source { margin-left: min(2.4em, calc(var(--loop-depth, 0) * .6em)); }
+.loop-target { overflow-wrap: anywhere; }
+.loop-output { white-space: pre-wrap; overflow-wrap: anywhere; }
+.loop-note, .loop-final, .loop-export, .loop-notice { color: var(--vscode-descriptionForeground); font-size: .86em; }
+.loop-stream-label { color: var(--vscode-evalens-outputLabelForeground); }
+.loop-selected > .loop-iteration-header, .loop-data.loop-selected { background: var(--vscode-editor-rangeHighlightBackground); outline: 1px solid var(--vscode-focusBorder); }
+.loop-notice, .loop-paging { margin: .5em 0; }
+.loop-navigation, .loop-overflow { margin: .8em 0; padding-top: .5em; border-top: 1px solid var(--vscode-panel-border); }
+.loop-page-scope, .loop-overflow-scope { overflow-wrap: anywhere; }
+.loop-overflow-heading { font-size: .9em; }
+.loop-overflow-scope { margin: .3em 0 .5em; }
+.loop-note .loop-action, .loop-export .loop-action { color: var(--vscode-textLink-foreground); }
+.loop-explorer button:disabled { color: var(--vscode-disabledForeground); cursor: default; }
+.loop-final { margin-top: 1em; }
+.loop-export { margin-top: .5em; }
+body.vscode-high-contrast .loop-selected, body.vscode-high-contrast-light .loop-selected { outline: 1px solid var(--vscode-contrastActiveBorder); }
+/* All tree offsets use the table's font size, including smaller source
+   labels. An em on .loop-source would resolve at 88% and break alignment. */
+.loop-tree { position: relative; --loop-unit: var(--vscode-editor-font-size, 13px); --loop-common-indent: calc(var(--loop-unit) * 1.05); --loop-reading-indent: calc(var(--loop-unit) * .95); --loop-branch-indent: calc(var(--loop-unit) * 2.1); }
+.loop-tree-result .result-detail > .result-surface { padding-left: calc(8px + 3.25em); }
+.loop-tree-result:not(.result-collapsed) .result-disclosure { left: calc(3px + 1.2em); }
+.loop-tree .loop-columns, .loop-tree .loop-data { padding-left: 0; padding-right: 0; }
+.loop-tree .loop-columns > :first-child { padding-left: var(--loop-common-indent); }
+.loop-tree .loop-data > :first-child { padding-left: calc(var(--loop-common-indent) + max(0, var(--loop-depth, 0) - 1) * var(--loop-branch-indent) + min(1, var(--loop-depth, 0)) * var(--loop-reading-indent)); }
+.loop-tree .loop-parent-reading > :first-child { padding-left: calc(var(--loop-common-indent) + var(--loop-depth, 0) * var(--loop-branch-indent)); }
+.loop-tree .loop-iteration-header { padding-left: calc(var(--loop-common-indent) + var(--loop-depth, 0) * var(--loop-branch-indent)); }
+.loop-tree .loop-invocation > .loop-source { margin-left: calc(var(--loop-common-indent) + max(0, var(--loop-depth, 0) - 1) * var(--loop-branch-indent)); }
+.loop-tree .loop-iteration-header > [data-loop-action="toggle"], .loop-tree .loop-source > [data-loop-action="toggle-invocation"] { position: relative; }
+.loop-tree .loop-iteration-header .loop-disclosure, .loop-tree .loop-source .loop-disclosure { position: absolute; left: calc(var(--loop-unit) * -1.4); top: 0; width: var(--loop-unit); text-align: center; }
+.loop-guides { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.loop-guides path { fill: none; stroke: var(--vscode-tree-indentGuidesStroke, #899399); stroke-width: 1.5; stroke-linejoin: miter; stroke-linecap: butt; }
+body.vscode-high-contrast .loop-guides path, body.vscode-high-contrast-light .loop-guides path { stroke: var(--vscode-contrastActiveBorder, currentColor); }
+/* Stack each variable/output pair when its actual result area cannot fit
+   two legible columns. Local stream labels keep output distinct from the
+   variables above it; stderr keeps its own existing label. */
+@container (max-width: 28ch) {
+  .loop-columns { display: none; }
+  .loop-data { grid-template-columns: minmax(0, 1fr); row-gap: .2em; padding: .35em 0 .6em; }
+  .loop-direct > :first-child { display: none; }
+  .loop-stack-label {
+    display: block;
+    font-size: .86em;
+  }
+  .loop-target > .loop-stack-label {
+    color: var(--vscode-descriptionForeground);
+  }
+}
+
+.learning-action {
+  border: 0; padding: 0; background: transparent;
+  color: var(--vscode-textLink-foreground, #3794ff);
+  font: inherit; text-align: left; cursor: pointer;
+}
+.learning-action:hover, .learning-help a:hover { text-decoration: underline; }
+.learning-action:focus-visible, .learning-help summary:focus-visible,
+.learning-help a:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, currentColor); outline-offset: 2px;
+}
+.learning-intro, .learning-help { padding: 6px 2px; line-height: 1.5; }
+.session-notice { margin: 6px 2px; line-height: 1.5; }
+.learning-intro, .learning-note { color: var(--vscode-descriptionForeground, #9d9d9d); }
+.learning-help { max-width: 80ch; overflow-wrap: anywhere; }
+.learning-help summary { cursor: pointer; }
+.learning-help details { margin-bottom: 6px; }
+.learning-help p, .empty p { margin: 0 0 8px; }
+.learning-help dt { font-weight: 600; }
+.learning-help dd { margin: 0 0 8px 1em; }
+.learning-help a { color: var(--vscode-textLink-foreground, #3794ff); }
+.learning-help kbd, .empty kbd { font-family: var(--vscode-editor-font-family, monospace); }
+
+table { --line-number-width: 2ch; }
+</style>
+</head>
+<body data-source-uri="base.py">
+<div id="navigation-control" class="navigation-control">
+<label><input id="follow-cursor" type="checkbox" checked="" data-focus-key="id/follow-cursor"> Link code and values</label>
+<label><input id="follow-panel" type="checkbox" checked="" data-focus-key="id/follow-panel"> Scroll to new results</label>
+<label><input id="hide-inline-values" type="checkbox" data-focus-key="id/hide-inline-values"> Hide inline values while this panel is visible</label>
+<button type="button" class="learning-action" data-learning-toggle="" aria-controls="learning-help" aria-expanded="false" data-focus-key="learning/help">Help and learning</button>
+</div>
+<div id="learning-intro" class="learning-intro" hidden=""><span>Results are recorded when you run code. Browsing this panel does not run Python.</span> <button type="button" class="learning-action" data-learning-action="dismiss-intro" aria-label="Dismiss introduction" data-focus-key="learning/dismiss-intro">Dismiss</button></div><section id="learning-help" class="learning-help" aria-label="Help and learning" hidden=""><details data-learning-topic="evaluate"><summary data-focus-key="topic/evaluate">Evaluate code</summary><p>In the Python editor, <kbd>Cmd+Enter</kbd> evaluates the current statement. <kbd>Cmd+Shift+Enter</kbd> evaluates it and moves to the next statement.</p><p class="learning-note">These are the default shortcuts; the same Evalens commands are available in the Command Palette.</p><p>Evaluate and Advance runs the entire statement before moving the cursor. It does not pause inside a loop or step into a function.</p><p>Use <strong>Evalens: Show Values Panel</strong> to enter the panel. Arrow keys browse result rows; Tab reaches folds, pages, explanations and recorded-text actions. Enter or Space activates a control. Escape closes the explanation you are reading, or returns from a result control to its row. Use the native <strong>Focus Active Editor Group</strong> command to resume editing.</p></details><details data-learning-topic="results"><summary data-focus-key="topic/results">Understand recorded results</summary><dl><dt>Variables and printed output</dt><dd>Variables are recorded readings. Printed output is the text your code wrote, for example with <code>print()</code>.</dd><dt>Old results</dt><dd>An edit or a later evaluation can make a recorded result out of date. Its marker explains the known reason; reading it does not refresh it.</dd><dt>Loop values</dt><dd>The loop variable is read at iteration start; body values are read at normal iteration end. Printed output may come from an earlier moment in the iteration.</dd><dt>Not recorded</dt><dd>Evalens did not save that reading. This does not mean the variable had no value in Python. The result explains the known reason.</dd><dt>Long results</dt><dd>Folding and paging reveal saved content. A capture-limit notice means some detail was never saved; expanding cannot recover it.</dd></dl></details><details data-learning-topic="session"><summary data-focus-key="topic/session">Session and reset actions</summary><p>Evalens keeps one Python session for statement evaluations in this VS Code window. Files share its variables. Switching files or editing code does not reset it.</p><p>Recorded results describe earlier evaluations; they are not a list of variables currently in Python. Moving the cursor or selecting an iteration does not move Python execution to that point. A normal Python debugging session is separate.</p><dl><dt>Clear Inline Results</dt><dd>Removes recorded results from the editor and Values panel for all files. Variables and saved input answers stay in Python. It does not stop running code.</dd><dt>Restart Kernel</dt><dd>Stops Evalens’s Python process and discards its variables and saved input answers. The next evaluation starts a fresh process. Existing recorded results remain visible; they do not describe the new session.</dd><dt>Evaluate at Cursor / Evaluate and Advance</dt><dd>Runs the statement at the cursor using the existing variables, without resetting. Repeating an evaluation runs it again, including any side effects.</dd><dt>Evaluate File</dt><dd>Currently set to clear variables and saved input answers before a whole-file run (<code>evalens.resetOnLoad</code> is on, the default). With a selection, it runs the selected whole statements and never resets, regardless of that setting. When a non-resetting whole-file run reports names left over from earlier evaluations, the status bar reports them after the run.</dd><dt>Run File as Script</dt><dd>Always clears variables and saved input answers, then runs the whole file with <code>__name__ = "__main__"</code>. It ignores the selection and <code>evalens.resetOnLoad</code>.</dd><dt>Evaluate Above Cursor</dt><dd>Clears variables and saved input answers, then runs complete top-level statements above the cursor, stopping at the first error. The statement containing the cursor stays unrun. This reset cannot be turned off.</dd><dt>Clear Input Answers</dt><dd>Forgets saved answers for <code>input()</code> without clearing variables. Otherwise a repeated prompting statement can reuse its saved answers until the statement changes or the session resets. Answers supplied by a <code># evalens:</code> comment remain part of the source.</dd></dl><p class="learning-note">Find these Evalens commands in the Command Palette. Reading this help does not run code, clear results, or reset Python.</p></details><details data-learning-topic="exercises"><summary data-focus-key="topic/exercises">Practice with guided examples</summary><p>Five editable examples cover prediction, advancing, shared lists, accumulators, and old results. Opening an example does not run it or reset your session.</p><p><button type="button" class="learning-action" data-learning-action="walkthrough" data-focus-key="learning/walkthrough">Open learning walkthrough</button> · <button type="button" class="learning-action" data-learning-action="exercise" data-focus-key="learning/exercise">Choose an exercise</button></p></details><details data-learning-topic="debugger"><summary data-focus-key="topic/debugger">When to use the Python debugger</summary><p>Use Evalens to evaluate a chosen statement and inspect its recorded result. Use the Python debugger to follow execution order, stop at breakpoints, step into function calls, inspect the call stack, or read variables at a paused point.</p><p>Starting a normal Python debugging session runs your program separately. It does not resume an Evalens recording or carry over its variables.</p><p><a href="https://code.visualstudio.com/docs/python/debugging" data-focus-key="link/https://code.visualstudio.com/docs/python/debugging">Python debugging in VS Code</a> (official guide)</p></details><button type="button" class="learning-action" data-learning-action="show-intro" data-focus-key="learning/show-intro">Show introduction</button></section>
+<div class="summary">base.py · 1 recorded result</div>
+<table><colgroup><col class="col-line"><col class="col-code"><col class="col-value"></colgroup><tbody>
+<tr class="row cursor loop-row" data-goto="0" data-start="0" data-end="5" tabindex="0" aria-current="true" aria-label="Line 1; matches the editor cursor" aria-description="Enter or Space reveals this source line. Arrow keys browse results." data-focus-key="row/0"><td class="line-cell"><span class="navigation-arrow" aria-hidden="true" title="Matches the editor cursor">→</span><span class="line-num">1</span></td><td class="code-cell"><div class="source-content"><div class="code-line">for x in range(2):</div><div class="code-line">    base = x * 10</div><div class="code-line">    print("base:", base)</div><div class="code-line">    for y in range(3):</div><div class="code-line">        v = base + y</div><div class="code-line">        print(x, y)</div></div></td><td class="value-cell"><div class="whole-result loop-tree-result result-foldable" data-result-line="0" data-result-token="0" data-result-closed="false" style="--source-height: 144px;"><button type="button" class="result-disclosure" aria-expanded="true" aria-controls="result-detail-0" aria-label="Collapse values for line 1; for x in range(2) · 2 iterations · 8 printed lines" data-result-description="for x in range(2) · 2 iterations · 8 printed lines" aria-description="for x in range(2) · 2 iterations · 8 printed lines. Recorded during evaluation; not live state." title="Collapse values" data-focus-key="result/0"><span aria-hidden="true">▾</span></button><div class="result-summary result-surface tone-evaluated" hidden="" title="for x in range(2) · 2 iterations · 8 printed lines"><div class="result-summary-line"><span class="result-summary-text">for x in range(2) · 2 iterations · 8 printed lines</span></div></div><div class="result-detail" id="result-detail-0"><div class="result-surface tone-evaluated"><div class="loop-explorer loop-tree" data-loop-root="0"><svg class="loop-guides" aria-hidden="true"><path d="M -39 28 V 143" data-loop-guide="iterations" data-guide-owner="1" data-guide-target="1"></path><path d="M -39 103 H -14" data-loop-guide="iteration" data-guide-owner="1" data-guide-target="2"></path><path d="M -39 143 H -14" data-loop-guide="iteration" data-guide-owner="1" data-guide-target="7"></path><path d="M 3 156 V 205.8125 H 14" data-loop-guide="child" data-guide-owner="7" data-guide-target="8"></path></svg><div class="loop-context"><div class="loop-overview"><div class="loop-title"><div class="loop-source loop-root-source">for x in range(2) <span class="loop-note">· 2 iterations</span></div><div class="loop-scroll-owner" hidden="" title=""></div></div><details class="loop-recording-details" data-local-disclosure=""><summary data-focus-key="details/0//loop-recording-details">About these values</summary><div class="loop-explanation"><p>These values were saved when you evaluated the code. They are not live values. The variable after <code>for</code> shows its value at the start of each iteration. Other variables show their values when the body reaches its end.</p><p>Printed output shows what the program printed at that moment. If it prints <code>u</code> while <code>u = 4</code>, then sets <code>u = 99</code>, the row shows <code>u = 99</code> beside printed <code>4</code>. A value can carry over from an earlier iteration when the code does not assign it again.</p><p><strong>Not recorded</strong> means there is no saved reading; it does not mean the variable was empty or the assignment did not run. Use <strong>Why?</strong> beside a missing value for its explanation. Evalens saves up to three body variable names per loop; the loop heading reports names left out.</p><p>Folding and paging browse saved results without running the code again. A loop reports when later iteration details or output were not saved. Those missing details cannot be expanded. An old result can also depend on changes Evalens could not detect; no warning is not a guarantee that it is current.</p></div></details></div><div class="loop-columns"><span>Variables</span><span title="Python writes ordinary printed output to stdout.">Printed output</span></div></div><section class="loop-invocation" data-loop-invocation="1" data-loop-depth="0" style="--loop-depth: 0;"><div class="loop-entries"><section class="loop-iteration loop-group" data-loop-entry="2"><div class="loop-iteration-header"><button type="button" class="loop-action" data-loop-action="toggle" data-loop-line="0" data-loop-token="205" data-loop-control="next" data-loop-id="2" data-loop-value="0" aria-expanded="false" aria-label="Iteration 1, x = 0, base = 0" data-focus-key="loop/205/2/toggle/next"><span class="loop-disclosure" aria-hidden="true">▸</span>Iteration 1</button> <span class="loop-note">·</span> <button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="205" data-loop-control="next" data-loop-id="2" data-loop-value="0" aria-label="Iteration 1, x = 0, base = 0; x at iteration start; base at iteration end; reveal loop header" data-focus-key="loop/205/2/select/next">x = 0, base = 0</button> <span class="loop-note">· printed 4 lines</span></div></section><section class="loop-iteration loop-group" data-loop-entry="7"><div class="loop-iteration-header"><button type="button" class="loop-action" data-loop-action="toggle" data-loop-line="0" data-loop-token="205" data-loop-control="next" data-loop-id="7" data-loop-value="0" aria-expanded="true" aria-label="Iteration 2, x = 1" data-focus-key="loop/205/7/toggle/next"><span class="loop-disclosure" aria-hidden="true">▾</span>Iteration 2</button> <span class="loop-note">·</span> <button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="205" data-loop-control="next" data-loop-id="7" data-loop-value="0" aria-label="Iteration 2, x = 1; x at iteration start; reveal loop header" data-focus-key="loop/205/7/select/next">x = 1</button> <span class="loop-note">· printed 4 lines</span></div><div class="loop-body"><div class="loop-data loop-parent-reading"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="205" data-loop-control="body" data-loop-id="7" data-loop-value="0" aria-label="Iteration 2, base = 10; at iteration end; reveal loop header" data-focus-key="loop/205/7/select/body">base = 10</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">base: 10</span></div></div></div><section class="loop-invocation" data-loop-invocation="8" data-loop-depth="1" style="--loop-depth: 1;"><div class="loop-source">for y in range(3) <span class="loop-note">· 3 iterations · line 4</span></div><div class="loop-entries"><div class="loop-data loop-iteration" data-loop-entry="9"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="205" data-loop-control="next" data-loop-id="9" data-loop-value="0" aria-label="Iteration 1, y = 0, v = 10; y at iteration start; v at iteration end; reveal loop header" data-focus-key="loop/205/9/select/next">y = 0, v = 10</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">1 0</span></div></div></div><div class="loop-data loop-iteration" data-loop-entry="10"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="205" data-loop-control="next" data-loop-id="10" data-loop-value="0" aria-label="Iteration 2, y = 1, v = 11; y at iteration start; v at iteration end; reveal loop header" data-focus-key="loop/205/10/select/next">y = 1, v = 11</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">1 1</span></div></div></div><div class="loop-data loop-iteration" data-loop-entry="11"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="205" data-loop-control="next" data-loop-id="11" data-loop-value="0" aria-label="Iteration 3, y = 2, v = 12; y at iteration start; v at iteration end; reveal loop header" data-focus-key="loop/205/11/select/next">y = 2, v = 12</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">1 2</span></div></div></div></div></section></div></section></div></section><div class="loop-final">Final values after this loop: x = 1, y = 2, base = 10, v = 12</div><div class="loop-export"><button type="button" class="loop-action" data-loop-action="open" data-loop-line="0" data-loop-token="205" data-loop-control="next" data-loop-id="0" data-loop-value="0" title="Opens the available printed output for this whole statement. Use native Find and copy." data-focus-key="loop/205/0/open/next">Open statement printed output</button></div></div></div></div></div></td></tr>
+</tbody></table>
+<p class="footer">Values are what each line produced when it ran. Click a row to jump to the line. Use Up/Down or Home/End to browse, Enter or Space to reveal source. Use Focus Active Editor Group to return to editing. Nothing here is re-evaluated.</p>
+<script nonce="review">
+(function () {
+  var vscode = acquireVsCodeApi();
+  var followCursor = true;
+  var followPanel = true;
+  var hideInlineValues = false;
+  var revision = 1;
+  
+  function revealLearning(element) {
+    var toolbar = document.getElementById('navigation-control').getBoundingClientRect();
+    window.scrollTo({ top: Math.max(0, window.scrollY
+      + element.getBoundingClientRect().top - toolbar.height - 8) });
+  }
+  document.querySelectorAll('[data-learning-toggle]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var help = document.getElementById('learning-help');
+      help.hidden = !help.hidden;
+      button.setAttribute('aria-expanded', String(!help.hidden));
+      if (!help.hidden) revealLearning(help);
+      vscode.postMessage({ learningTopic: 'help', learningOpen: !help.hidden, revision: revision });
+    });
+  });
+  document.querySelectorAll('[data-learning-topic]').forEach(function (topic) {
+    topic.addEventListener('toggle', function () {
+      vscode.postMessage({ learningTopic: topic.dataset.learningTopic,
+        learningOpen: topic.open, revision: revision });
+    });
+  });
+  document.querySelectorAll('[data-learning-session]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var help = document.getElementById('learning-help');
+      var topic = document.querySelector('[data-learning-topic="session"]');
+      help.hidden = false;
+      topic.open = true;
+      document.querySelector('[data-learning-toggle]').setAttribute('aria-expanded', 'true');
+      topic.querySelector('summary').focus({ preventScroll: true });
+      revealLearning(topic);
+      vscode.postMessage({ learningTopic: 'help', learningOpen: true, revision: revision });
+      vscode.postMessage({ learningTopic: 'session', learningOpen: true, revision: revision });
+    });
+  });
+  document.querySelectorAll('[data-learning-action]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var action = button.dataset.learningAction;
+      if (action === 'dismiss-intro' || action === 'show-intro') {
+        var dismissed = action === 'dismiss-intro';
+        document.getElementById('learning-intro').hidden = dismissed;
+        document.querySelector('[data-learning-action="show-intro"]').hidden = !dismissed;
+        document.querySelector('[data-learning-toggle]').focus({ preventScroll: true });
+        if (!dismissed) revealLearning(document.getElementById('learning-intro'));
+      }
+      vscode.postMessage({ learningAction: action, revision: revision });
+    });
+  });
+
+  // Local evidence disclosures are native controls: reading them never
+  // navigates source or posts an evaluation/provider message.
+  document.querySelectorAll('[data-local-disclosure]').forEach(function (details) {
+    details.addEventListener('click', function (event) {
+      event.stopPropagation();
+      if (!details.classList.contains('loop-recording-details')
+        || !event.target.closest('summary')) return;
+      var summary = details.querySelector('summary');
+      var before = summary.getBoundingClientRect().top;
+      // Opening help restores ordinary document scrolling. Keep the control
+      // at the point the reader chose when its sticky offset is removed.
+      requestAnimationFrame(function () {
+        measureLoopContexts();
+        window.scrollBy({ top: summary.getBoundingClientRect().top - before,
+          behavior: 'instant' });
+      });
+    });
+    details.addEventListener('keydown', function (event) { event.stopPropagation(); });
+  });
+  var navigationControl = document.getElementById('navigation-control');
+  var loopContexts = Array.prototype.slice.call(document.querySelectorAll('.loop-context'));
+  document.querySelectorAll('[data-loop-depth]').forEach(function (invocation) {
+    invocation.style.setProperty('--loop-depth', invocation.dataset.loopDepth);
+  });
+  var contextQueued = false;
+  function measureLoopContexts() {
+    var top = navigationControl.getBoundingClientRect().bottom;
+    document.documentElement.style.setProperty('--loop-context-top', top + 'px');
+    loopContexts.forEach(function (context) {
+      var explorer = context.closest('.loop-explorer');
+      var openHelp = explorer.querySelector('.loop-recording-details[open]');
+      var tall = context.getBoundingClientRect().height > (window.innerHeight - top) / 2;
+      var unpinned = Boolean(openHelp || tall);
+      context.classList.toggle('loop-context-unpinned', unpinned);
+      var rect = context.getBoundingClientRect();
+      var covered = !unpinned && explorer.getBoundingClientRect().bottom < top + rect.height;
+      context.classList.toggle('loop-context-covered', covered);
+      var labels = [];
+      if (!unpinned && !covered && rect.top <= top + 1) {
+        var edge = rect.bottom;
+        // Use ownership only when its actual heading has left the reading
+        // area. All remaining source and iteration headings stay in flow.
+        // Replacing the title occupies the same space, avoiding scroll jumps
+        // and an extra explanation row above every nested loop.
+        explorer.querySelectorAll('.loop-group').forEach(function (group) {
+          var heading = group.querySelector(':scope > .loop-iteration-header');
+          if (heading.getBoundingClientRect().bottom <= edge
+            && group.getBoundingClientRect().bottom > edge) {
+            var iteration = heading.querySelector('[data-loop-action="toggle"]').textContent
+              .replace(/^[▸▾]\s*/, '');
+            var values = heading.querySelector('[data-loop-action="select"]').textContent;
+            labels.push(iteration + ' · ' + values);
+          }
+        });
+        var source = Array.prototype.slice.call(explorer.querySelectorAll('.loop-invocation'))
+          .filter(function (invocation) {
+            var heading = invocation.querySelector(':scope > .loop-source');
+            return heading && heading.getBoundingClientRect().bottom <= edge
+              && invocation.getBoundingClientRect().bottom > edge;
+          }).at(-1);
+        if (source) labels.push(source.querySelector(':scope > .loop-source').textContent
+          .replace(/^[▸▾]\s*/, ''));
+      }
+      var owner = context.querySelector('.loop-scroll-owner');
+      var text = labels.join(' › ');
+      owner.textContent = text;
+      owner.title = text;
+      owner.hidden = !text;
+      context.classList.toggle('loop-context-has-owner', Boolean(text));
+    });
+  }
+  function queueLoopContexts() {
+    if (contextQueued) return;
+    contextQueued = true;
+    requestAnimationFrame(function () { contextQueued = false; measureLoopContexts(); });
+  }
+  if (loopContexts.length) {
+    measureLoopContexts();
+    window.addEventListener('scroll', queueLoopContexts, { passive: true });
+    window.addEventListener('resize', queueLoopContexts);
+    var contextObserver = new ResizeObserver(queueLoopContexts);
+    contextObserver.observe(navigationControl);
+    loopContexts.forEach(function (context) { contextObserver.observe(context); });
+  }
+  var resultControls = Array.prototype.slice.call(document.querySelectorAll('.whole-result'));
+  function paintResultFold(result, collapsed) {
+    var button = result.querySelector('.result-disclosure');
+    result.classList.toggle('result-collapsed', collapsed);
+    result.querySelector('.result-detail').hidden = collapsed;
+    result.querySelector('.result-summary').hidden = !collapsed;
+    button.setAttribute('aria-expanded', String(!collapsed));
+    button.firstElementChild.textContent = collapsed ? '▸' : '▾';
+    var action = collapsed ? 'Show values' : 'Collapse values';
+    button.title = action;
+    button.setAttribute('aria-label', action + ' for line '
+      + (Number(result.dataset.resultLine) + 1) + '; ' + button.dataset.resultDescription);
+  }
+  function measureResultFold(result) {
+    var source = result.closest('tr.row').querySelector('.source-content');
+    var sourceHeight = source.getBoundingClientRect().height;
+    var lineHeight = source.querySelector('.code-line').getBoundingClientRect().height;
+    result.style.setProperty('--source-height', sourceHeight + 'px');
+    result.classList.add('result-measuring');
+    var detailHeight = result.querySelector('.result-detail').getBoundingClientRect().height;
+    result.classList.remove('result-measuring');
+    // Padding alone must not turn a trivial one-line value into a fold.
+    var foldable = detailHeight > sourceHeight + Math.max(8, lineHeight / 2);
+    result.classList.toggle('result-foldable', foldable);
+    result.querySelector('.result-disclosure').hidden = !foldable;
+    paintResultFold(result, foldable && result.dataset.resultClosed === 'true');
+  }
+  resultControls.forEach(function (result) {
+    result.dataset.resultClosed = String(result.classList.contains('result-collapsed'));
+    var button = result.querySelector('.result-disclosure');
+    button.addEventListener('keydown', function (event) { event.stopPropagation(); });
+    button.addEventListener('click', function (event) {
+      event.stopPropagation();
+      var collapsed = result.dataset.resultClosed !== 'true';
+      result.dataset.resultClosed = String(collapsed);
+      paintResultFold(result, collapsed);
+      vscode.postMessage({ resultFold: Number(result.dataset.resultLine),
+        collapsed: collapsed, token: Number(result.dataset.resultToken), revision: revision });
+    });
+    measureResultFold(result);
+  });
+  if (resultControls.length) {
+    var measureQueued = false;
+    var resultObserver = new ResizeObserver(function () {
+      if (measureQueued) return;
+      measureQueued = true;
+      requestAnimationFrame(function () {
+        measureQueued = false;
+        resultControls.forEach(measureResultFold);
+      });
+    });
+    resultControls.forEach(function (result) {
+      resultObserver.observe(result);
+      resultObserver.observe(result.closest('tr.row').querySelector('.source-content'));
+    });
+  }
+  document.querySelectorAll('[data-loop-action]').forEach(function (button) {
+    button.addEventListener('click', function (event) {
+      event.stopPropagation();
+      vscode.postMessage({ loop: Number(button.dataset.loopLine),
+        action: button.dataset.loopAction, node: Number(button.dataset.loopId),
+        value: Number(button.dataset.loopValue), revision: revision });
+    });
+    button.addEventListener('keydown', function (event) { event.stopPropagation(); });
+  });
+  
+  var loopTrees = Array.prototype.slice.call(document.querySelectorAll('.loop-tree'));
+  var loopGuidesQueued = false;
+  function drawLoopGuides() {
+    loopTrees.forEach(function (explorer) {
+      var svg = explorer.querySelector('.loop-guides');
+      if (!explorer.getClientRects().length) { svg.replaceChildren(); return; }
+      var origin = svg.getBoundingClientRect();
+      var unit = parseFloat(getComputedStyle(explorer).fontSize);
+      var paths = [];
+      function box(node, text) {
+        if (!node || !node.getClientRects().length) return;
+        var rect = node.getBoundingClientRect();
+        if (text) {
+          var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT), current;
+          while ((current = walker.nextNode())) {
+            if (!current.textContent.trim() || current.parentElement.closest('.loop-disclosure')) continue;
+            var range = document.createRange(); range.selectNodeContents(current);
+            var first = Array.prototype.slice.call(range.getClientRects()).find(function (r) { return r.width > 0; });
+            if (first) { rect = first; break; }
+          }
+        }
+        return { left: rect.left - origin.left, right: rect.right - origin.left,
+          top: rect.top - origin.top, bottom: rect.bottom - origin.top,
+          cy: rect.top + rect.height / 2 - origin.top, width: rect.width };
+      }
+      function add(d, kind, owner, target) {
+        var path = document.createElementNS(svg.namespaceURI, 'path');
+        path.setAttribute('d', d);
+        path.dataset.loopGuide = kind;
+        path.dataset.guideOwner = owner;
+        path.dataset.guideTarget = target;
+        paths.push(path);
+      }
+      explorer.querySelectorAll('.loop-invocation').forEach(function (invocation) {
+        var groups = Array.prototype.slice.call(invocation.querySelectorAll(':scope > .loop-entries > .loop-group'));
+        if (!groups.length) return;
+        var source = invocation.querySelector(':scope > .loop-source');
+        var firstRoot = !source && invocation.dataset.loopDepth === '0';
+        if (firstRoot) source = explorer.querySelector('.loop-root-source');
+        var heading = box(source, true);
+        if (!heading) return;
+        var rootButton = firstRoot ? explorer.closest('.whole-result').querySelector('.result-disclosure')
+          : source.querySelector('.loop-disclosure');
+        var rootArrow = box(rootButton);
+        var rootX = rootArrow ? rootArrow.left + rootArrow.width / 2
+          : heading.left - (firstRoot ? 2 : .9) * unit;
+        // The shared title can pin while the guide remains in document flow.
+        var start = rootArrow ? rootArrow.cy + .65 * unit : heading.cy + .65 * unit;
+        var targets = groups.map(function (group) {
+          return { group: group, arrow: box(group.querySelector(':scope > .loop-iteration-header .loop-disclosure')) };
+        }).filter(function (item) { return item.arrow; });
+        if (!targets.length) return;
+        var last = targets[targets.length - 1].arrow;
+        if (last.cy >= start) add('M ' + rootX + ' ' + start + ' V ' + last.cy,
+          'iterations', invocation.dataset.loopInvocation, invocation.dataset.loopInvocation);
+        targets.forEach(function (item) {
+          var arrow = item.arrow;
+          add('M ' + rootX + ' ' + arrow.cy + ' H ' + (arrow.left - 7),
+            'iteration', invocation.dataset.loopInvocation, item.group.dataset.loopEntry);
+          var children = Array.prototype.slice.call(item.group.querySelectorAll(':scope > .loop-body > .loop-invocation'));
+          children.forEach(function (child, index) {
+            var label = box(child.querySelector(':scope > .loop-source'), true);
+            if (!label) return;
+            var x = arrow.left + arrow.width / 2;
+            // A later sibling gets a local elbow: continuing a trunk through
+            // the earlier child's readings would imply another ownership.
+            var y = index === 0 ? arrow.cy + .65 * unit : label.top - .3 * unit;
+            add('M ' + x + ' ' + Math.min(y, label.cy) + ' V ' + label.cy
+              + ' H ' + (label.left - 7), 'child', item.group.dataset.loopEntry,
+              child.dataset.loopInvocation);
+          });
+        });
+      });
+      svg.replaceChildren.apply(svg, paths);
+    });
+  }
+  function queueLoopGuides() {
+    if (loopGuidesQueued) return;
+    loopGuidesQueued = true;
+    requestAnimationFrame(function () { loopGuidesQueued = false; drawLoopGuides(); });
+  }
+  if (loopTrees.length) {
+    var guideObserver = new ResizeObserver(queueLoopGuides);
+    loopTrees.forEach(function (explorer) {
+      guideObserver.observe(explorer);
+      explorer.querySelectorAll('.loop-source, .loop-iteration-header').forEach(function (heading) {
+        guideObserver.observe(heading);
+      });
+    });
+    window.addEventListener('resize', queueLoopGuides);
+    document.addEventListener('toggle', queueLoopGuides, true);
+    document.fonts.ready.then(queueLoopGuides);
+    queueLoopGuides();
+  }
+
+  var rows = Array.prototype.slice.call(document.querySelectorAll('tr.row'));
+  var control = document.getElementById('follow-cursor');
+  control.addEventListener('change', function () {
+    followCursor = control.checked;
+    vscode.postMessage({ followCursor: followCursor, revision: revision });
+  });
+  var followPanelControl = document.getElementById('follow-panel');
+  followPanelControl.addEventListener('change', function () {
+    followPanel = followPanelControl.checked;
+    vscode.postMessage({ followPanel: followPanel, revision: revision });
+  });
+  var hideInlineValuesControl = document.getElementById('hide-inline-values');
+  hideInlineValuesControl.addEventListener('change', function () {
+    hideInlineValues = hideInlineValuesControl.checked;
+    vscode.postMessage({ hideInlineValues: hideInlineValues, revision: revision });
+  });
+  var foldControls = Array.prototype.slice.call(
+    document.querySelectorAll('[data-fold-action]'));
+  foldControls.forEach(function (foldControl) {
+    foldControl.addEventListener('keydown', function (event) { event.stopPropagation(); });
+    foldControl.addEventListener('click', function (event) {
+      event.stopPropagation();
+      var line = Number(foldControl.getAttribute('data-fold-line'));
+      if (foldControl.getAttribute('data-fold-action') === 'open') {
+        vscode.postMessage({ open: line, stream: foldControl.getAttribute('data-fold-id'),
+          revision: revision });
+      } else {
+        vscode.postMessage({ expand: line });
+      }
+    });
+  });
+  document.querySelectorAll('[data-stale-cause]').forEach(function (button) {
+    button.addEventListener('click', function (event) {
+      event.stopPropagation();
+      vscode.postMessage({ cause: Number(button.getAttribute('data-stale-cause')),
+        revision: revision });
+    });
+    button.addEventListener('keydown', function (event) { event.stopPropagation(); });
+  });
+  function matching(line) {
+    return rows.find(function (row) { return Number(row.dataset.goto) === line; })
+      || rows.filter(function (row) {
+      return line >= Number(row.getAttribute('data-start'))
+        && line <= Number(row.getAttribute('data-end'));
+    }).sort(function (a, b) {
+      return (Number(a.dataset.end) - Number(a.dataset.start))
+        - (Number(b.dataset.end) - Number(b.dataset.start));
+    })[0];
+  }
+  function placeScroll(rectTop, rectHeight, scrollY, viewTop, viewBottom, maxScroll) {
+    const viewSpan = viewBottom - viewTop;
+    const margin = 8;
+    const target = rectHeight <= 0.8 * viewSpan
+        ? scrollY + rectTop + rectHeight / 2 - (viewTop + viewSpan / 2)
+        : scrollY + rectTop - (viewTop + margin);
+    return Math.max(0, Math.min(maxScroll, target));
+}
+  // Keyboard browsing inside the panel (Up/Down/Home/End) keeps this
+  // pre-#169 nearest-edge behaviour untouched: the reader is scrolling the
+  // list themselves, not being navigated to a target.
+  function revealEdge(row) {
+    if (!row) return;
+    var rect = row.getBoundingClientRect();
+    var top = document.getElementById('navigation-control').getBoundingClientRect().bottom;
+    var bottom = window.innerHeight;
+    if ((rect.top >= top && rect.bottom <= bottom)
+      || (rect.top <= top && rect.bottom >= bottom)) return;
+    // Reveal only the nearest edge, allowing for the sticky setting. A tall
+    // off-screen row starts at its beginning; one spanning the view stays put.
+    var delta = rect.top < top || rect.bottom - rect.top > bottom - top
+      ? rect.top - top : rect.bottom - bottom;
+    window.scrollBy({ top: delta, behavior: 'instant' });
+  }
+  // Every *navigation* -- the editor's cursor message and the on-load
+  // revealLine -- centres the target (#169), and never re-reveals the same
+  // row a second time running.
+  var lastRevealedKey = null;
+  function revealCentred(row) {
+    if (!row) return;
+    var key = row.dataset.goto;
+    if (key === lastRevealedKey) return;
+    lastRevealedKey = key;
+    var rect = row.getBoundingClientRect();
+    var viewTop = document.getElementById('navigation-control').getBoundingClientRect().bottom;
+    var viewBottom = window.innerHeight;
+    var scrollY = window.pageYOffset || window.scrollY || 0;
+    var maxScroll = Math.max(
+      0, document.documentElement.scrollHeight - window.innerHeight);
+    var target = placeScroll(
+      rect.top, rect.bottom - rect.top, scrollY, viewTop, viewBottom, maxScroll);
+    window.scrollTo({ top: target, behavior: 'instant' });
+  }
+  function mark(target) {
+    rows.forEach(function (row) {
+      var active = row === target;
+      row.classList.toggle('cursor', active);
+      row.setAttribute('aria-current', String(active));
+      row.setAttribute('aria-label', 'Line ' + (Number(row.dataset.goto) + 1)
+        + (active ? '; matches the editor cursor' : '')
+        + (row.classList.contains('latest-result') ? '; latest recorded result' : ''));
+      row.tabIndex = active ? 0 : -1;
+    });
+    if (!target && rows[0]) rows[0].tabIndex = 0;
+  }
+  function activate(row, explicit) {
+    if (followCursor || explicit) {
+      mark(row);
+      vscode.postMessage({ goto: Number(row.dataset.goto), revision: revision,
+        explicit: explicit });
+    }
+  }
+  rows.forEach(function (row, index) {
+    row.addEventListener('click', function () {
+      row.focus({ preventScroll: true });
+      activate(row, true);
+    });
+    row.addEventListener('keydown', function (event) {
+      if ((event.target && event.target !== row)
+        || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      var target;
+      if (event.key === 'ArrowDown') target = rows[Math.min(index + 1, rows.length - 1)];
+      else if (event.key === 'ArrowUp') target = rows[Math.max(index - 1, 0)];
+      else if (event.key === 'Home') target = rows[0];
+      else if (event.key === 'End') target = rows[rows.length - 1];
+      else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        activate(row, true);
+        return;
+      } else return;
+      event.preventDefault();
+      target.focus({ preventScroll: true });
+      revealEdge(target);
+      activate(target, false);
+    });
+  });
+  if (!rows.some(function (row) { return row.tabIndex === 0; }) && rows[0]) {
+    rows[0].tabIndex = 0;
+  }
+  window.addEventListener('message', function (event) {
+    var message = event.data;
+    if (!message) return;
+    if (typeof message.followCursor === 'boolean') {
+      followCursor = message.followCursor;
+      control.checked = followCursor;
+    }
+    if (typeof message.followPanel === 'boolean') {
+      followPanel = message.followPanel;
+      followPanelControl.checked = followPanel;
+    }
+    if (typeof message.hideInlineValues === 'boolean') {
+      hideInlineValues = message.hideInlineValues;
+      hideInlineValuesControl.checked = hideInlineValues;
+    }
+    if (typeof message.cursor !== 'number') return;
+    var target = matching(message.cursor);
+    mark(target);
+    if (message.reveal) revealCentred(target);
+  });
+  var revealLine = null;
+  if (revealLine !== null) revealCentred(matching(revealLine));
+  
+  if (document.body) {
+    var focusScope = document.body.dataset.sourceUri;
+    var focusState = vscode.getState() || {};
+    if (focusState.source !== focusScope) focusState = { source: focusScope };
+    var focusables = Array.prototype.slice.call(document.querySelectorAll(
+      'input, button, summary, a[href], tr.row'));
+    function controlKey(element) {
+      var row = element.closest('tr.row');
+      var result = row && row.querySelector('.whole-result');
+      var token = result ? result.dataset.resultToken : row ? row.dataset.goto : '';
+      var data = element.dataset;
+      var details = element.closest('details');
+      if (element.id) return 'id/' + element.id;
+      if (data.learningToggle !== undefined) return 'learning/help';
+      if (data.learningSession !== undefined) return 'learning/session-details';
+      if (data.learningAction) return 'learning/' + data.learningAction;
+      if (element.tagName === 'SUMMARY' && details && details.dataset.learningTopic) return 'topic/' + details.dataset.learningTopic;
+      if (data.loopAction) return ['loop', data.loopToken, data.loopId,
+        data.loopAction, data.loopControl || ''].join('/');
+      if (data.foldAction) return ['flat', token, data.foldId,
+        data.foldAction, element.classList.contains('fold-label') ? 'label' : 'footer'].join('/');
+      if (element.classList.contains('result-disclosure')) return 'result/' + token;
+      if (details && details.hasAttribute('data-local-disclosure')) {
+        var owner = details.closest('[data-loop-entry], [data-loop-context]');
+        return ['details', token, owner && (owner.dataset.loopEntry || owner.dataset.loopContext),
+          details.className].join('/');
+      }
+      if (data.staleCause) return 'cause/' + token + '/' + data.staleCause;
+      if (element.tagName === 'A') return 'link/' + element.getAttribute('href');
+      return row ? 'row/' + token : undefined;
+    }
+    focusables = focusables.filter(function (element) {
+      var key = controlKey(element);
+      if (typeof key !== 'string') return false;
+      element.dataset.focusKey = key;
+      return true;
+    });
+    var localDetails = Array.prototype.slice.call(document.querySelectorAll('[data-local-disclosure]'));
+    localDetails.forEach(function (details) {
+      var key = controlKey(details.querySelector('summary'));
+      if (focusState.details && focusState.details.includes(key)) details.open = true;
+    });
+    function saveFocusState() {
+      focusState.source = focusScope;
+      focusState.scrollY = window.scrollY;
+      focusState.details = localDetails.filter(function (details) { return details.open; })
+        .map(function (details) { return controlKey(details.querySelector('summary')); });
+      vscode.setState(focusState);
+    }
+    function visibleControl(element) {
+      return element && !element.disabled && !element.closest('[hidden]')
+        && element.getClientRects().length > 0
+        && getComputedStyle(element).visibility !== 'hidden';
+    }
+    function rememberedControl() {
+      var target = focusables.find(function (element) {
+        return element.dataset.focusKey === focusState.key && visibleControl(element);
+      });
+      // The next-page button can become disabled, or a nested control can
+      // disappear when its parent folds. Stay within that recording first.
+      var row = rows.find(function (item) {
+        var result = item.querySelector('.whole-result');
+        return focusState.token && result && result.dataset.resultToken === focusState.token;
+      }) || rows.find(function (item) { return item.dataset.goto === focusState.line; });
+      if (!target && typeof focusState.key === 'string' && focusState.key.startsWith('loop/')) {
+        var prefix = focusState.key.split('/').slice(0, 4).join('/') + '/';
+        target = focusables.find(function (element) {
+          return typeof element.dataset.focusKey === 'string'
+            && element.dataset.focusKey.startsWith(prefix) && visibleControl(element);
+        });
+      }
+      if (!target && row) {
+        var fold = row.querySelector('.result-disclosure');
+        target = visibleControl(fold) ? fold : row;
+      }
+      return target || rows.find(function (item) { return item.tabIndex === 0; })
+        || document.getElementById('follow-cursor');
+    }
+    function revealControl(element) {
+      if (!visibleControl(element) || navigationControl.contains(element)) return;
+      if (element.matches('tr.row')) { revealEdge(element); return; }
+      measureLoopContexts();
+      var top = navigationControl.getBoundingClientRect().bottom + 4;
+      loopContexts.forEach(function (context) {
+        if (context.classList.contains('loop-context-covered')
+          || context.classList.contains('loop-context-unpinned')
+          || context.contains(element)) return;
+        var rect = context.getBoundingClientRect();
+        if (rect.top <= navigationControl.getBoundingClientRect().bottom + 1) {
+          top = Math.max(top, rect.bottom + 4);
+        }
+      });
+      var rect = element.getBoundingClientRect();
+      if (rect.top < top) window.scrollBy({ top: rect.top - top, behavior: 'instant' });
+      else if (rect.bottom > window.innerHeight - 4) {
+        window.scrollBy({ top: rect.bottom - window.innerHeight + 4, behavior: 'instant' });
+      }
+    }
+    function rememberControl(element) {
+      if (!element || typeof element.dataset.focusKey !== 'string') {
+        delete focusState.key;
+        delete focusState.line;
+        delete focusState.token;
+        saveFocusState();
+        return;
+      }
+      var row = element.closest('tr.row');
+      var result = row && row.querySelector('.whole-result');
+      focusState.key = element.dataset.focusKey;
+      focusState.line = row && row.dataset.goto;
+      focusState.token = result && result.dataset.resultToken;
+      focusState.active = true;
+      saveFocusState();
+    }
+    document.addEventListener('focusin', function (event) {
+      rememberControl(event.target);
+      // Native Tab scrolling does not know about the local sticky header.
+      requestAnimationFrame(function () { revealControl(event.target); });
+    });
+    localDetails.forEach(function (details) { details.addEventListener('toggle', saveFocusState); });
+    window.addEventListener('scroll', saveFocusState, { passive: true });
+    window.addEventListener('blur', function () {
+      setTimeout(function () {
+        if (!document.hasFocus()) { focusState.active = false; saveFocusState(); }
+      }, 0);
+    });
+    window.addEventListener('focus', function () {
+      requestAnimationFrame(function () {
+        if (document.activeElement === document.body) {
+          var target = rememberedControl();
+          target.focus({ preventScroll: true });
+          revealControl(target);
+        }
+      });
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'Escape' || event.altKey || event.ctrlKey || event.metaKey) return;
+      var element = event.target;
+      var details = element.closest('details[open]');
+      var help = element.closest('#learning-help');
+      var row = element.closest('tr.row');
+      if (details) {
+        details.open = false;
+        details.querySelector('summary').focus({ preventScroll: true });
+        queueLoopContexts();
+      } else if (help || element.hasAttribute('data-learning-toggle')
+        && !document.getElementById('learning-help').hidden) {
+        document.getElementById('learning-help').hidden = true;
+        var helpButton = document.querySelector('[data-learning-toggle]');
+        helpButton.setAttribute('aria-expanded', 'false');
+        helpButton.focus({ preventScroll: true });
+        vscode.postMessage({ learningTopic: 'help', learningOpen: false, revision: revision });
+      } else if (row && element !== row) {
+        row.focus({ preventScroll: true });
+      } else return;
+      // Scope Escape to this interaction; never let closing help clear results.
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      saveFocusState();
+    }, true);
+    if (focusState.active && focusState.key) {
+      var restored = rememberedControl();
+      var restoreScroll = focusState.scrollY || 0;
+      restored.focus({ preventScroll: true });
+      if (revealLine === null) window.scrollTo({ top: restoreScroll, behavior: 'instant' });
+      requestAnimationFrame(function () { revealControl(restored); });
+    }
+  }
+
+
+}());
+</script>
+
+</body></html>
