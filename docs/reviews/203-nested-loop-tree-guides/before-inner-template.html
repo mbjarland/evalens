@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Evalens · work before the inner loop · draft N–P</title>
+<style>
+:root {
+  color-scheme: dark;
+  --vscode-panel-background:#181818; --vscode-editor-foreground:#cccccc;
+  --vscode-descriptionForeground:#9d9d9d; --vscode-panel-border:#2d2d2d;
+  --vscode-textLink-foreground:#4daafc; --vscode-focusBorder:#007fd4;
+  --vscode-evalens-resultForeground:#d1a35c;
+  --vscode-evalens-outputLabelForeground:#5c7fa6;
+  --vscode-editor-rangeHighlightBackground:#ffffff0a;
+}
+* { box-sizing:border-box; }
+body { margin:0; padding:30px 36px 24px; background:#101214; color:#e5e5e5;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.masthead { display:flex; gap:50px; align-items:center; justify-content:space-between; margin-bottom:26px; }
+.eyebrow { color:#a8adb0; font-size:14px; letter-spacing:1.8px; margin-bottom:10px; }
+h1 { margin:0 0 14px; font-size:36px; line-height:1.15; font-weight:600; letter-spacing:-.5px; }
+.lede { font-size:21px; line-height:1.45; color:#b9bec2; margin:0; max-width:1080px; }
+.source { flex:0 0 495px; border-left:2px solid #494e51; padding:8px 16px; font:19px/1.55 Menlo,Consolas,monospace; }
+.source-line { display:flex; }
+.line-number { display:inline-block; color:#7f898e; width:32px; flex-shrink:0; text-align:right; padding-right:16px; }
+.source code { font:inherit; white-space:pre; color:#cccccc; }
+.options { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+.option { border:1px solid #35393c; background:#181818; min-width:0; display:flex; flex-direction:column; }
+.option-heading { display:flex; align-items:center; gap:14px; padding:14px 20px; border-bottom:1px solid #303437; min-height:60px; }
+.letter { display:grid; place-items:center; min-width:30px; height:30px; padding:0 6px; border:1px solid #687077; font-size:21px; font-weight:600; }
+[data-option="CURRENT"] .letter { font-size:16px; }
+h2 { margin:0; font-size:25px; font-weight:550; letter-spacing:-.2px; }
+.sample { position:relative; margin:16px 18px 0; border-left:4px solid #e6ad45;
+  padding:10px 10px 14px 34px; font:20px/1.42 Menlo,Consolas,monospace; color:#cccccc; background:#181818; }
+.root-fold { position:absolute; left:5px; top:10px; width:24px; line-height:28.4px; text-align:center; color:#4daafc; pointer-events:none; }
+.caption { margin:auto 0 0; min-height:92px; padding:16px 20px 18px; font-size:19px; line-height:1.4; color:#b9bec2; }
+.footer { margin-top:22px; color:#aab1b6; font-size:18px; line-height:1.45; }
+__PRODUCTION_STYLE__
+[hidden] { display:none !important; }
+.loop-context { position:relative; top:auto; }
+[data-option="N"] .sample { padding-left:76px; }
+[data-option="N"] .root-fold { left:24px; }
+[data-option="N"] .loop-invocation[data-loop-depth="1"] > .loop-source { margin-left:34px; }
+[data-option="N"] .loop-columns > span:first-child,
+[data-option="N"] .loop-data > :first-child { padding-left:14px; }
+.tree-guide { pointer-events:none; position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+.tree-guide path { fill:none; stroke:#899399; stroke-width:1.7; stroke-linejoin:miter; stroke-linecap:butt; }
+.tree-guide path.scope { stroke:#737f86; stroke-width:1.5; }
+.concept-overview { display:flex; flex-wrap:wrap; align-items:baseline; gap:5px 16px; }
+.concept-root-source { font-size:20px; }
+.concept-overview .loop-recording-details { margin-left:auto; }
+.concept-columns, .concept-reading, .concept-direct, .closed-summary { display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1.3fr); column-gap:1.2em; }
+.concept-columns { color:#9d9d9d; padding:9px 0 7px; margin-bottom:8px; border-bottom:1px solid #2d2d2d; }
+.concept-group { margin:11px 0 14px; min-width:0; }
+.concept-toggle { font:inherit; line-height:inherit; color:inherit; background:none;
+  border:0; padding:0; text-align:left; cursor:pointer; }
+.concept-toggle:focus-visible { outline:1px solid #4daafc; outline-offset:3px; }
+.fold { display:inline-block; width:22px; color:#4daafc; }
+.gold, .margin-summary { color:#d1a35c; }
+.group-detail { margin-top:6px; }
+.concept-reading { padding:2.4px 0; }
+.concept-direct { padding:3px 0 7px; }
+.reading-output { white-space:pre; }
+.source-cue { color:#969ea2; font-size:.86em; }
+.inner-source { font-size:.88em; margin:3px 0 4px; }
+.concept-explorer .loop-final { margin-top:19px; }
+.concept-explorer .loop-export span { color:#4daafc; }
+.source-outline { margin:5px 0 7px; font:18px/1.42 Menlo,Consolas,monospace; }
+.source-outline-row { display:flex; align-items:baseline; color:#b4b9bc; }
+.outline-line { display:inline-block; min-width:20px; margin-right:7px; color:#757f85; font-size:15px; }
+.outline-branch { color:#818c93; margin-right:7px; }
+.source-outline-row.depth-2 { padding-left:38px; }
+.source-outline code { font:inherit; }
+[data-option="O"] .group-detail { padding-left:23px; }
+[data-option="O"] .concept-columns { padding-left:23px; }
+[data-option="O"] .inner-source { margin-top:3px; }
+[data-option="P"] { --owner-width:174px; }
+[data-option="P"] .concept-explorer { display:grid;
+  grid-template-columns:var(--owner-width) minmax(0,1fr) minmax(0,1.3fr); column-gap:1.2em; }
+[data-option="P"] .concept-overview,
+[data-option="P"] .loop-final, [data-option="P"] .loop-export { grid-column:1 / -1; }
+[data-option="P"] .concept-columns,
+[data-option="P"] .concept-group { grid-column:1 / -1; display:grid; grid-template-columns:subgrid; }
+[data-option="P"] .concept-columns > span:first-child { grid-column:1 / 3; }
+[data-option="P"] .concept-columns > span:last-child { grid-column:3; }
+[data-option="P"] .concept-group { align-items:start; }
+[data-option="P"] .concept-toggle { grid-column:1; grid-row:1; display:flex; align-items:baseline; padding-top:3px; }
+.margin-summary { display:flex; flex-direction:column; gap:3px; }
+.base-snapshot { font-size:.86em; }
+[data-option="P"] .group-detail,
+[data-option="P"] .closed-summary { grid-column:2 / -1; grid-row:1; margin-top:0;
+  display:grid; grid-template-columns:subgrid; position:relative; }
+[data-option="P"] .group-detail::before { content:""; position:absolute; left:-12px; top:0; bottom:0; width:1px; background:#414b51; }
+[data-option="P"] .concept-reading, [data-option="P"] .concept-direct {
+  grid-column:1 / -1; grid-template-columns:subgrid; }
+[data-option="P"] .inner-source { grid-column:1 / -1; }
+.closed-summary { color:#9d9d9d; font-size:.86em; padding-top:5px; }
+.loop-export button, .loop-export span { cursor:default; }
+@media (max-width:1500px) { .options { grid-template-columns:1fr; } .source { flex-basis:485px; } .masthead { gap:24px; } }
+@media (max-width:1050px) { body { padding:22px 18px; } .masthead { display:block; } .source { margin-top:20px; } h1 { font-size:31px; } }
+@media (max-width:740px) { .sample { margin:14px 10px 0; } h2 { font-size:22px; } [data-option="P"] { --owner-width:148px; } }
+</style>
+<header class="masthead">
+  <div>
+    <div class="eyebrow">EVALENS · DRAFT VISUAL COMPARISON · NO IMPLEMENTATION SELECTED</div>
+    <h1>One outer iteration includes all its work</h1>
+    <p class="lede">Two lines now come before the inner loop. Its owner must stay clear even when the iteration folds.<br>
+      Every card starts with x = 0 folded and x = 1 open. Click the blue iteration arrows to compare states.</p>
+  </div>
+  <div class="source" aria-label="Numbered source code">__SOURCE__</div>
+</header>
+<main class="options">__OPTIONS__</main>
+<footer class="footer">
+  All four use the same real recording: the outer iteration prints four lines; the inner loop prints three.
+  The base reading belongs to the outer iteration’s summary.<br>
+  Current is production-renderer markup in this preview. N–P are proposals for visual review; no extension behavior has changed.
+</footer>
+<script>
+const visible = node => node.getClientRects().length > 0;
+const productionGroups = card => [...card.querySelectorAll('.loop-invocation[data-loop-depth="0"] > .loop-entries > .loop-group')];
+function groupsFor(card) {
+  return ['CURRENT','N'].includes(card.dataset.option)
+    ? productionGroups(card) : [...card.querySelectorAll('.concept-group')];
+}
+function setOpen(group, open) {
+  if (group.classList.contains('loop-group')) {
+    const button = group.querySelector('.loop-iteration-header button');
+    button.setAttribute('aria-expanded',String(open));
+    button.querySelector('.loop-disclosure').textContent=open?'▾':'▸';
+    group.querySelector(':scope > .loop-body').hidden=!open;
+  } else {
+    const button=group.querySelector('[data-toggle-group]');
+    button.setAttribute('aria-expanded',String(open));
+    button.querySelector('.fold').textContent=open?'▾':'▸';
+    group.dataset.expanded=String(open);
+    group.querySelector('.group-detail').hidden=!open;
+    const closed=group.querySelector('.closed-summary');
+    if(closed) closed.hidden=open;
+  }
+}
+for(const card of document.querySelectorAll('.option')) {
+  groupsFor(card).forEach((group,index)=>{
+    setOpen(group,index===1);
+    group.querySelector('button[aria-expanded]').addEventListener('click',event=>{
+      event.preventDefault();
+      setOpen(group,event.currentTarget.getAttribute('aria-expanded')!=='true');
+      window.drawGuides();
+    });
+  });
+  card.querySelectorAll('.loop-export button').forEach(button=>{
+    button.setAttribute('aria-disabled','true');
+    button.title='Draft preview: this action is not connected to VS Code';
+  });
+}
+window.drawGuides=function(){
+  const card=document.querySelector('[data-option="N"]');
+  const svg=card.querySelector('.tree-guide'), origin=svg.getBoundingClientRect();
+  const box=node=>{const r=node.getBoundingClientRect();return{left:r.left-origin.left,
+    cy:r.top+r.height/2-origin.top,width:r.width,bottom:r.bottom-origin.top};};
+  const root=box(card.querySelector('.loop-root-source'));
+  const fold=card.querySelector('.root-fold');
+  fold.style.top=(root.cy-14.2)+'px';
+  const rootX=box(fold).left+12, start=root.cy+13;
+  const groups=productionGroups(card);
+  const headers=groups.map(group=>box(group.querySelector('.loop-disclosure')));
+  svg.replaceChildren();
+  function add(d,kind,klass){
+    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d',d);p.dataset.target=kind;
+    if(klass)p.classList.add(klass);
+    svg.append(p);
+  }
+  add('M '+rootX+' '+start+' V '+headers[1].cy+' H '+(headers[1].left-7),'iteration-anchor');
+  add('M '+rootX+' '+headers[0].cy+' H '+(headers[0].left-7),'iteration-anchor');
+  groups.forEach((group,index)=>{
+    const body=group.querySelector('.loop-body');
+    if(!visible(body))return;
+    const header=headers[index], childX=header.left+header.width/2;
+    const inner=box(body.querySelector('[data-loop-depth="1"] > .loop-source'));
+    const last=box([...body.querySelectorAll('.loop-data')].at(-1));
+    add('M '+childX+' '+(header.cy+13)+' V '+(last.bottom+5)+' H '+(childX+12),'whole-iteration','scope');
+    add('M '+childX+' '+inner.cy+' H '+(inner.left-7),'inner-header');
+  });
+};
+function outputFor(card){
+  return [...card.querySelectorAll('.loop-data .loop-output,.concept-direct .reading-output,[data-reading] .reading-output')]
+    .filter(visible).map(node=>node.innerText.trim());
+}
+window.checkConcepts=()=>[...document.querySelectorAll('.option')].map(card=>{
+  const prod=['CURRENT','N'].includes(card.dataset.option), sample=card.querySelector('.sample');
+  return {option:card.dataset.option,
+    columnPairs:card.querySelectorAll('.loop-columns,.concept-columns').length,
+    helpControls:card.querySelectorAll('.loop-recording-details').length,
+    expanded:groupsFor(card).map(group=>group.querySelector('button[aria-expanded]').getAttribute('aria-expanded')==='true'),
+    output:outputFor(card),
+    values:[...card.querySelectorAll(prod?'.loop-data .loop-target':'.reading-values')].filter(visible).map(node=>node.innerText.trim()),
+    final:card.querySelector('.loop-final').innerText,
+    overflow:sample.scrollWidth>sample.clientWidth+1,
+    guideTargets:[...card.querySelectorAll('.tree-guide path')].map(node=>node.dataset.target),
+  };
+});
+window.checkFolding=()=>[...document.querySelectorAll('.option')].map(card=>{
+  const groups=groupsFor(card), click=group=>group.querySelector('button[aria-expanded]').click();
+  click(groups[0]);const allOpen=outputFor(card);
+  click(groups[0]);click(groups[1]);const allClosed=outputFor(card);
+  click(groups[1]);
+  return {option:card.dataset.option,allOpen,allClosed,restored:outputFor(card)};
+});
+document.fonts.ready.then(window.drawGuides);
+window.addEventListener('resize',window.drawGuides);
+document.addEventListener('toggle',window.drawGuides,true);
+</script>
+</html>

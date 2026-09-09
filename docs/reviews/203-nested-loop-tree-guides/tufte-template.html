@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Evalens · six ways to read a nested loop · H–M</title>
+<style>
+:root {
+  color-scheme: dark;
+  --vscode-panel-background: #181818;
+  --vscode-editor-foreground: #cccccc;
+  --vscode-descriptionForeground: #9d9d9d;
+  --vscode-panel-border: #2d2d2d;
+  --vscode-textLink-foreground: #4daafc;
+  --vscode-focusBorder: #007fd4;
+  --vscode-evalens-resultForeground: #d1a35c;
+  --vscode-evalens-outputLabelForeground: #5c7fa6;
+  --vscode-editor-rangeHighlightBackground: #ffffff0a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 30px 36px 24px; background: #101214; color: #e5e5e5;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.masthead { display:flex; align-items:center; justify-content:space-between; gap:50px; margin-bottom:24px; }
+.eyebrow { color:#a8adb0; font-size:14px; letter-spacing:1.8px; margin-bottom:10px; }
+h1 { font-size:35px; line-height:1.15; font-weight:600; letter-spacing:-.6px; margin:0 0 12px; }
+.lede { font-size:20px; line-height:1.4; color:#b9bec2; margin:0; max-width:1130px; }
+.source { margin:0; flex:0 0 408px; font:18px/1.5 Menlo,Consolas,monospace;
+  color:#c7c7c7; border-left:2px solid #494e51; padding:8px 20px; }
+.options, .references { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+.option { border:1px solid #35393c; background:#181818; min-width:0; display:flex; flex-direction:column; }
+.option-heading { display:flex; align-items:center; gap:14px; padding:14px 20px; min-height:60px; border-bottom:1px solid #303437; }
+.letter { display:grid; place-items:center; width:30px; height:30px; border:1px solid #687077; font-size:21px; font-weight:600; }
+h2 { margin:0; font-size:24px; font-weight:550; letter-spacing:-.2px; }
+.sample { position:relative; margin:16px 18px 0; border-left:4px solid #e6ad45;
+  padding:10px 10px 14px 70px; font:20px/1.42 Menlo,Consolas,monospace;
+  background:#181818; color:#cccccc; }
+.custom-sample { padding-left:34px; }
+.outer-fold, .source-root-dot { position:absolute; left:24px; width:24px; text-align:center;
+  color:#4daafc; line-height:28.4px; pointer-events:none; }
+.source-root-dot { left:5px; top:10px; }
+.caption { margin: auto 0 0; padding:16px 20px 18px; font-size:18px; line-height:1.4; color:#b9bec2; min-height:86px; }
+.footer { margin-top:23px; font-size:17px; color:#aab1b6; line-height:1.45; }
+.footer strong { color:#cbd0d3; font-weight:550; }
+__PRODUCTION_STYLE__
+[hidden] { display:none !important; }
+.loop-context { position:relative; top:auto; }
+.production-sample .loop-invocation[data-loop-depth="1"] > .loop-source { margin-left:31px; }
+[data-option="CURRENT"] .loop-invocation[data-loop-depth="1"] > .loop-source { margin-left:.6em; }
+[data-option="CURRENT"] .sample { padding-left:34px; }
+[data-option="CURRENT"] .outer-fold { left:5px; }
+.references { margin-bottom:24px; }
+.reference-label { font-size:15px; color:#a8adb0; margin:22px 0 12px; letter-spacing:1.2px; }
+.reference .letter { width:auto; min-width:30px; padding:0 6px; font-size:17px; }
+@media (max-width:1500px) { .options, .references { grid-template-columns:1fr; } .masthead { gap:20px; } .source { flex-basis:380px; } }
+@media (max-width:1000px) { body { padding:22px 18px; } .masthead { display:block; } .source { margin-top:20px; max-width:100%; } h1 { font-size:30px; } .option-heading { padding:12px 16px; } .sample { margin:14px 12px 0; } h2 { font-size:22px; } }
+
+.tree-guide { pointer-events:none; position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+.tree-guide path { fill:none; stroke:#929b9f; stroke-width:1.7; stroke-linejoin:miter; stroke-linecap:butt; }
+[data-option="M"] .tree-guide path { stroke:#616c72; stroke-width:1.5; }
+[data-option="M"] .tree-guide path.active { stroke:#c0c7ca; stroke-width:2; }
+.concept-overview { display:flex; flex-wrap:wrap; align-items:baseline; gap:5px 18px; }
+.concept-root-source { font-size:20px; }
+.concept-overview .loop-recording-details { margin-left:auto; }
+.concept-columns, .concept-reading, .closed-summary { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.3fr); column-gap:1.2em; }
+.concept-columns { color:#9d9d9d; padding:9px 0 7px; margin-bottom:8px; border-bottom:1px solid #2d2d2d; }
+.concept-group { margin:11px 0 13px; min-width:0; }
+.concept-toggle { cursor:pointer; font:inherit; line-height:inherit; color:inherit;
+  background:none; border:0; padding:0; text-align:left; }
+.concept-toggle:focus-visible { outline:1px solid #4daafc; outline-offset:3px; }
+.fold { display:inline-block; width:22px; color:#4daafc; }
+.gold { color:#d1a35c; }
+.group-detail { margin-top:5px; }
+.concept-reading { padding:2.4px 0; }
+.reading-output { white-space:pre; }
+.concept-explorer .loop-final { margin-top:19px; }
+.concept-explorer .loop-export span { color:#4daafc; }
+.source-map { display:flex; align-items:center; position:relative; margin:4px 0 1px; padding-left:28px; font-size:18px; }
+.source-elbow { position:absolute; left:10px; top:-4px; width:12px; height:18px; border-left:1.6px solid #899399; border-bottom:1.6px solid #899399; }
+[data-option="I"] .concept-toggle .loop-note { font-size:.78em; }
+[data-option="I"] .group-detail { margin-left:23px; }
+[data-option="I"] .concept-columns { padding-left:23px; }
+[data-option="J"] .group-detail { padding-left:23px; }
+[data-option="J"] .concept-columns { padding-left:23px; }
+[data-option="K"] .concept-columns { margin-left:114px; }
+[data-option="K"] .concept-group { display:grid; grid-template-columns:114px minmax(0,1fr); align-items:start; }
+[data-option="K"] .margin-context { grid-column:1; grid-row:1; padding-top:2.4px; }
+[data-option="K"] .group-detail, [data-option="K"] .closed-summary { grid-column:2; grid-row:1; margin-top:0; }
+.closed-summary { font-size:.86em; color:#9d9d9d; padding-top:4px; }
+.ledger-head { display:grid; grid-template-columns:50% 50%; color:#9d9d9d; padding:9px 0 7px; border-bottom:1px solid #2d2d2d; }
+.ledger-subhead { display:grid; grid-template-columns:16% 17% 17% 50%; color:#9d9d9d; font-size:.86em; padding:6px 0 2px; }
+.ledger-subhead span:first-child { padding-left:23px; }
+[data-option="L"] .concept-group { display:grid; grid-template-columns:16% 84%; margin:8px 0 13px; align-items:start; }
+.ledger-context { grid-column:1; grid-row:1; padding-top:2.4px; }
+[data-option="L"] .group-detail, [data-option="L"] .closed-summary { grid-column:2; grid-row:1; margin-top:0; }
+.ledger-reading { display:grid; grid-template-columns:20.238095% 20.238095% 59.52381%; padding:2.4px 0; }
+[data-option="L"] .closed-summary { grid-template-columns:40.47619% 59.52381%; column-gap:0; }
+.loop-export button, .loop-export span { cursor:default; }
+</style>
+<header class="masthead">
+  <div>
+    <div class="eyebrow">EVALENS · UNIMPLEMENTED DESIGN CONCEPTS · H–M</div>
+    <h1>Less framing. More connection.</h1>
+    <p class="lede">Six ways to make nesting readable: lines, nearby labels, a source map, or the arrangement of the values themselves.<br>
+      Same recording throughout. H–M start with x = 0 folded and x = 1 open. Click the blue iteration arrows to compare states.</p>
+  </div>
+  <pre class="source">__SOURCE__</pre>
+</header>
+<div class="reference-label">THE STARTING POINTS</div><section class="references">__REFERENCES__</section>
+<div class="reference-label">SIX NEW ALTERNATIVES · CLICK ITERATION ARROWS TO FOLD</div><main class="options">__OPTIONS__</main>
+<footer class="footer"><strong>Compare what each design asks you to read.</strong>
+ H keeps the familiar structure. I joins related labels. J separates source from results. K and L let position carry more meaning. M saves emphasis for the inspected branch.<br>
+These are explorations informed by Tufte’s ideas about direct labeling and compact, detailed displays. They are proposals, not current extension behavior.</footer>
+<script>
+const visible = node => node.getClientRects().length > 0;
+function productionGroups(card) {
+  return [...card.querySelectorAll('.loop-invocation[data-loop-depth="0"] > .loop-entries > .loop-group')];
+}
+function setOpen(group, open) {
+  if (group.classList.contains('loop-group')) {
+    const toggle = group.querySelector('.loop-iteration-header button');
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.querySelector('.loop-disclosure').textContent = open ? '▾' : '▸';
+    group.querySelector(':scope > .loop-body').hidden = !open;
+  } else {
+    group.dataset.expanded = String(open);
+    const toggle = group.querySelector('[data-toggle-group]');
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.querySelector('.fold').textContent = open ? '▾' : '▸';
+    group.querySelector('.group-detail').hidden = !open;
+    const closed = group.querySelector('.closed-summary');
+    if (closed) closed.hidden = open;
+  }
+}
+for (const card of document.querySelectorAll('.option')) {
+  const groups = productionGroups(card);
+  if (card.dataset.option === 'M') card.dataset.inspected = '1';
+  groups.forEach((group, index) => {
+    group.dataset.outer = index + 1;
+    if (card.dataset.option === 'M') {
+      const inspect = () => { card.dataset.inspected = String(index); window.drawGuides(); };
+      group.addEventListener('focusin', inspect);
+      group.addEventListener('click', inspect);
+    }
+    setOpen(group, card.dataset.option === 'F' || index === 1);
+    group.querySelector('.loop-iteration-header button').addEventListener('click', event => {
+      event.preventDefault();
+      setOpen(group, event.currentTarget.getAttribute('aria-expanded') !== 'true');
+      window.drawGuides();
+    });
+  });
+  card.querySelectorAll('[data-toggle-group]').forEach(button => {
+    button.addEventListener('click', () => {
+      setOpen(button.closest('.concept-group'), button.getAttribute('aria-expanded') !== 'true');
+      window.drawGuides();
+    });
+  });
+  card.querySelectorAll('.loop-export button').forEach(button => {
+    button.setAttribute('aria-disabled', 'true');
+    button.title = 'Design preview: this action is not connected to VS Code';
+  });
+}
+window.drawGuides = function drawGuides() {
+  const NS = 'http://www.w3.org/2000/svg';
+  for (const card of document.querySelectorAll('[data-option="H"], [data-option="M"], [data-option="F"]')) {
+    const svg = card.querySelector('svg.tree-guide');
+    const origin = svg.getBoundingClientRect();
+    const box = node => {
+      const rect = node.getBoundingClientRect();
+      return { left:rect.left-origin.left, cy:rect.top+rect.height/2-origin.top,
+        width:rect.width, bottom:rect.bottom-origin.top };
+    };
+    const root = box(card.querySelector('.loop-root-source'));
+    const fold = card.querySelector('.outer-fold');
+    fold.style.top = (root.cy - 14.2) + 'px';
+    const rootX = box(fold).left + 12;
+    const groups = productionGroups(card);
+    const targets = groups.map(group => {
+      const inner = group.querySelector('[data-loop-depth="1"] > .loop-source');
+      const sourceVisible = inner && visible(inner);
+      return { kind:sourceVisible ? 'inner-source' : 'folded-caption',
+        box:box(sourceVisible ? inner : group.querySelector('.loop-disclosure')) };
+    });
+    svg.replaceChildren();
+    function path(d, target, klass) {
+      const node = document.createElementNS(NS,'path');
+      node.setAttribute('d',d);
+      if (klass) node.classList.add(klass);
+      if (target) {
+        node.dataset.target=target.kind;
+        node.dataset.targetY=target.box.cy;
+        node.dataset.targetX=target.box.left;
+      }
+      svg.append(node);
+    }
+    const startY = root.cy+13;
+    const first = targets[0], last = targets[1];
+    path('M '+rootX+' '+startY+' V '+last.box.cy+' H '+(last.box.left-7),last);
+    path('M '+rootX+' '+first.box.cy+' H '+(first.box.left-7),first);
+    if (card.dataset.option === 'M') {
+      const inspected = targets[Number(card.dataset.inspected) || 0];
+      path('M '+rootX+' '+startY+' V '+inspected.box.cy+' H '+(inspected.box.left-7),inspected,'active');
+    }
+  }
+};
+function groupOutput(card) {
+  return [...card.querySelectorAll('.loop-data .loop-output, [data-reading] .reading-output')]
+    .filter(visible).map(node => node.innerText.trim());
+}
+window.checkConcepts = () => [...document.querySelectorAll('.options > .option')].map(card => {
+  const prod = ['H','M'].includes(card.dataset.option);
+  const groups = prod ? productionGroups(card) : [...card.querySelectorAll('.concept-group')];
+  const values = prod
+    ? [...card.querySelectorAll('.loop-data .loop-target')].filter(visible).map(node=>node.innerText.trim())
+    : [...card.querySelectorAll('[data-reading]')].filter(visible).map(node =>
+      node.querySelector('.reading-values')?.innerText.trim()
+        || 'y = '+node.querySelector('.reading-y').innerText.trim()+', v = '+node.querySelector('.reading-v').innerText.trim());
+  const sample = card.querySelector('.sample');
+  return {
+    option:card.dataset.option,
+    columnPairs:card.querySelectorAll('.loop-columns, .concept-columns, .ledger-head').length,
+    helpControls:card.querySelectorAll('.loop-recording-details').length,
+    expanded:groups.map(group => group.querySelector('button[aria-expanded]').getAttribute('aria-expanded')==='true'),
+    output:groupOutput(card), values, final:card.querySelector('.loop-final').innerText,
+    endpoints:[...card.querySelectorAll('.tree-guide path')].map(node=>node.dataset.target),
+    overflow:sample.scrollWidth > sample.clientWidth+1,
+    sourceMap:card.querySelector('.source-map')?.innerText || null,
+  };
+});
+window.checkFolding = () => [...document.querySelectorAll('.options > .option')].map(card => {
+  const groups = ['H','M'].includes(card.dataset.option)
+    ? productionGroups(card) : [...card.querySelectorAll('.concept-group')];
+  const click = group => group.querySelector('button[aria-expanded]').click();
+  click(groups[0]);
+  const allOpen=groupOutput(card);
+  click(groups[0]); click(groups[1]);
+  const allClosed=groupOutput(card);
+  click(groups[1]);
+  return {option:card.dataset.option,allOpen,allClosed,restored:groupOutput(card)};
+});
+document.fonts.ready.then(window.drawGuides);
+window.addEventListener('resize',window.drawGuides);
+document.addEventListener('toggle',window.drawGuides,true);
+</script>
+</html>

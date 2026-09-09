@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Evalens · loop tree structures E–G</title>
+<style>
+:root {
+  color-scheme: dark;
+  --vscode-panel-background: #181818;
+  --vscode-editor-foreground: #cccccc;
+  --vscode-descriptionForeground: #9d9d9d;
+  --vscode-panel-border: #2d2d2d;
+  --vscode-textLink-foreground: #4daafc;
+  --vscode-focusBorder: #007fd4;
+  --vscode-evalens-resultForeground: #d1a35c;
+  --vscode-evalens-outputLabelForeground: #5c7fa6;
+  --vscode-editor-rangeHighlightBackground: #ffffff0a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #101214; color: #e5e5e5;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 34px 36px 28px; }
+.masthead { display: flex; align-items: center; justify-content: space-between;
+  gap: 60px; margin-bottom: 28px; }
+.eyebrow { color: #a8adb0; font-size: 14px; letter-spacing: 2px; margin-bottom: 11px; }
+h1 { font-size: 36px; line-height: 1.13; font-weight: 600; letter-spacing: -.65px;
+  margin: 0 0 13px; }
+.lede { font-size: 21px; line-height: 1.4; color: #b9bec2; margin: 0; max-width: 1020px; }
+.source { margin: 0; flex: 0 0 405px; font: 18px/1.5 Menlo, Consolas, monospace;
+  color: #c7c7c7; background: #181818; border-left: 3px solid #494e51; padding: 12px 20px; }
+.options { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
+.option { border: 1px solid #35393c; background: #181818; min-width: 0; }
+.option-heading { display: flex; align-items: center; gap: 14px;
+  padding: 16px 20px; min-height: 64px; border-bottom: 1px solid #303437; }
+.letter { display: grid; place-items: center; width: 32px; height: 32px;
+  border: 1px solid #687077; font-size: 22px; font-weight: 600; color: #f0f0f0; }
+h2 { margin: 0; font-size: 25px; font-weight: 550; letter-spacing: -.25px; }
+.sample { position: relative; margin: 18px 20px 0; border-left: 4px solid #e6ad45;
+  padding: 10px 12px 14px 76px; font: 20px/1.42 Menlo, Consolas, monospace;
+  background: #181818; color: #cccccc; }
+.outer-fold { position: absolute; left: 28px; width: 24px; text-align: center;
+  color: #4daafc; line-height: 28.4px; pointer-events: none; }
+.caption { min-height: 88px; margin: 0; padding: 16px 22px 20px;
+  font-size: 19px; line-height: 1.42; color: #b9bec2; }
+.footer { margin-top: 24px; font-size: 17px; color: #aab1b6; line-height: 1.4; }
+.reading-guide { border: 1px solid #35393c; padding: 32px 36px; color: #c6cbce;
+  background: #131618; display: flex; flex-direction: column; justify-content: center; }
+.reading-guide .eyebrow { margin-bottom: 16px; }
+.reading-guide h2 { font-size: 32px; margin-bottom: 20px; color: #e5e5e5; }
+.reading-guide p { font-size: 23px; line-height: 1.5; margin: 0 0 23px; max-width: 730px; }
+.reading-guide code { font: .95em Menlo, Consolas, monospace; }
+.mini-tree { font: 23px/1.7 Menlo, Consolas, monospace; margin: 3px 0 32px;
+  white-space: pre; color: #cccccc; }
+.mini-tree .branch { color: #899399; }
+.mini-tree .when { color: #d1a35c; }
+.reading-guide .small { color: #a7afb5; font-size: 20px; line-height: 1.5; }
+
+.loop-explorer { font-style: normal; font-weight: normal; color: var(--vscode-editor-foreground); white-space: normal; min-width: 0; container-type: inline-size; }
+.loop-explorer button { font-family: inherit; font-size: inherit; font-style: normal; background: none; border: 0; padding: 0; cursor: pointer; color: inherit; text-align: left; max-width: 100%; overflow-wrap: anywhere; }
+.loop-explorer button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.loop-columns, .loop-data { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); column-gap: 1.2em; }
+.loop-columns > *, .loop-data > * { min-width: 0; }
+.loop-stack-label { display: none; }
+.loop-columns { color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); padding: 0 .35em .45em; margin: .15em 0 .6em; }
+.loop-context { position: sticky; top: var(--loop-context-top, 0px); z-index: 2; background: var(--vscode-panel-background, #1e1e1e); padding-top: .15em; }
+.loop-context-unpinned { position: static; }
+.loop-context-covered { visibility: hidden; }
+.loop-overview { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 1em; }
+.loop-title { position: relative; min-width: 0; flex: 1 1 24ch; }
+.loop-scroll-owner { position: absolute; inset: .15em 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.loop-context-has-owner .loop-root-source { visibility: hidden; }
+.loop-recording-details, .loop-missing-why { color: var(--vscode-descriptionForeground); }
+.loop-recording-details { font-size: .86em; }
+.loop-recording-details[open] { flex-basis: 100%; }
+.loop-missing-why { display: inline-block; vertical-align: top; margin-left: .6em; font-size: .86em; }
+.loop-missing-why[open] { display: block; margin: .35em 0; }
+.loop-recording-details > summary, .loop-missing-why > summary { cursor: pointer; color: var(--vscode-textLink-foreground); width: fit-content; list-style-position: inside; }
+.loop-recording-details > summary:focus-visible, .loop-missing-why > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.loop-explanation { max-width: 75ch; white-space: normal; overflow-wrap: anywhere; padding: .4em 0; }
+.loop-explanation p { margin: .4em 0; }
+.loop-capture-limit { margin: .2em 0; }
+.loop-recording-state { font-weight: 600; margin-bottom: .25em; }
+.loop-source { font-size: .88em; margin: .4em 0 .3em; overflow-wrap: anywhere; }
+.loop-root-source { font-size: 1em; margin: .15em 0 .6em; }
+.loop-group { margin: .6em 0 .8em; }
+.loop-iteration-header { color: var(--vscode-evalens-resultForeground); overflow-wrap: anywhere; }
+.loop-disclosure { color: var(--vscode-evalens-outputLabelForeground); }
+.loop-data { padding: .12em .35em; }
+.loop-body { margin-top: .25em; }
+.loop-invocation > .loop-source { margin-left: min(2.4em, calc(var(--loop-depth, 0) * .6em)); }
+.loop-target { overflow-wrap: anywhere; }
+.loop-output { white-space: pre-wrap; overflow-wrap: anywhere; }
+.loop-note, .loop-final, .loop-export, .loop-notice { color: var(--vscode-descriptionForeground); font-size: .86em; }
+.loop-stream-label { color: var(--vscode-evalens-outputLabelForeground); }
+.loop-selected > .loop-iteration-header, .loop-data.loop-selected { background: var(--vscode-editor-rangeHighlightBackground); outline: 1px solid var(--vscode-focusBorder); }
+.loop-notice, .loop-paging { margin: .5em 0; }
+.loop-navigation, .loop-overflow { margin: .8em 0; padding-top: .5em; border-top: 1px solid var(--vscode-panel-border); }
+.loop-page-scope, .loop-overflow-scope { overflow-wrap: anywhere; }
+.loop-overflow-heading { font-size: .9em; }
+.loop-overflow-scope { margin: .3em 0 .5em; }
+.loop-note .loop-action, .loop-export .loop-action { color: var(--vscode-textLink-foreground); }
+.loop-explorer button:disabled { color: var(--vscode-disabledForeground); cursor: default; }
+.loop-final { margin-top: 1em; }
+.loop-export { margin-top: .5em; }
+body.vscode-high-contrast .loop-selected, body.vscode-high-contrast-light .loop-selected { outline: 1px solid var(--vscode-contrastActiveBorder); }
+/* Stack each variable/output pair when its actual result area cannot fit
+   two legible columns. Local stream labels keep output distinct from the
+   variables above it; stderr keeps its own existing label. */
+@container (max-width: 28ch) {
+  .loop-columns { display: none; }
+  .loop-data { grid-template-columns: minmax(0, 1fr); row-gap: .2em; padding: .35em 0 .6em; }
+  .loop-direct > :first-child { display: none; }
+  .loop-stack-label {
+    display: block;
+    font-size: .86em;
+  }
+  .loop-target > .loop-stack-label {
+    color: var(--vscode-descriptionForeground);
+  }
+}
+
+/* Identical presentation across E–G. Only the connector structure changes. */
+.loop-context { position: relative; top: auto; }
+.loop-invocation[data-loop-depth="1"] > .loop-source { margin-left: 34px; }
+.tree-guide { pointer-events: none; position: absolute; inset: 0; width: 100%;
+  height: 100%; overflow: visible; }
+.tree-guide path { fill: none; stroke: #899399; stroke-width: 1.8;
+  stroke-linejoin: miter; stroke-linecap: butt; }
+.tree-guide path.scope { stroke: #758087; }
+</style>
+<header class="masthead">
+  <div>
+    <div class="eyebrow">EVALENS · NEW DESIGN CONCEPTS · NOT IMPLEMENTED</div>
+    <h1>Connect the outer for to the inner for</h1>
+    <p class="lede">Three different structures inspired by a terminal tree.<br>
+      Both outer iterations are open, so you can see where each branch leads.</p>
+  </div>
+  <pre class="source">for x in range(2):
+    for y in range(3):
+        v = x + y
+        print(x, y)</pre>
+</header>
+<main class="options">
+<article class="option" data-option="E"><header class="option-heading"><span class="letter">E</span><h2>Full tree</h2></header><div class="sample"><span class="outer-fold" aria-hidden="true">▾</span><div class="loop-explorer" data-loop-root="0"><div class="loop-context"><div class="loop-overview"><div class="loop-title"><div class="loop-source loop-root-source">for x in range(2) <span class="loop-note">· 2 iterations</span></div><div class="loop-scroll-owner" hidden></div></div><details class="loop-recording-details" data-local-disclosure><summary>About these values</summary><div class="loop-explanation"><p>These values were saved when you evaluated the code. They are not live values. The variable after <code>for</code> shows its value at the start of each iteration. Other variables show their values when the body reaches its end.</p><p>Printed output shows what the program printed at that moment. If it prints <code>u</code> while <code>u = 4</code>, then sets <code>u = 99</code>, the row shows <code>u = 99</code> beside printed <code>4</code>. A value can carry over from an earlier iteration when the code does not assign it again.</p><p><strong>Not recorded</strong> means there is no saved reading; it does not mean the variable was empty or the assignment did not run. Use <strong>Why?</strong> beside a missing value for its explanation. Evalens saves up to three body variable names per loop; the loop heading reports names left out.</p><p>Folding and paging browse saved results without running the code again. A loop reports when later iteration details or output were not saved. Those missing details cannot be expanded. An old result can also depend on changes Evalens could not detect; no warning is not a guarantee that it is current.</p></div></details></div><div class="loop-columns"><span>Variables</span><span title="Python writes ordinary printed output to stdout.">Printed output</span></div></div><section class="loop-invocation" data-loop-invocation="1" data-loop-depth="0"><div class="loop-entries"><section class="loop-iteration loop-group" data-loop-entry="2"><div class="loop-iteration-header"><button type="button" class="loop-action" data-loop-action="toggle" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="2" data-loop-value="0" aria-expanded="true" aria-label="Iteration 1, x = 0"><span class="loop-disclosure" aria-hidden="true">▾</span> Iteration 1</button> <span class="loop-note">·</span> <button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="2" data-loop-value="0" aria-label="Iteration 1, x = 0; x at iteration start; reveal loop header">x = 0</button> <span class="loop-note">· printed 3 lines</span></div><div class="loop-body"><section class="loop-invocation" data-loop-invocation="3" data-loop-depth="1"><div class="loop-source">for y in range(3) <span class="loop-note">· 3 iterations · line 2</span></div><div class="loop-entries"><div class="loop-data loop-iteration" data-loop-entry="4"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="4" data-loop-value="0" aria-label="Iteration 1, y = 0, v = 0; y at iteration start; v at iteration end; reveal loop header">y = 0, v = 0</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">0 0</span></div></div></div><div class="loop-data loop-iteration" data-loop-entry="5"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="5" data-loop-value="0" aria-label="Iteration 2, y = 1, v = 1; y at iteration start; v at iteration end; reveal loop header">y = 1, v = 1</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">0 1</span></div></div></div><div class="loop-data loop-iteration" data-loop-entry="6"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="6" data-loop-value="0" aria-label="Iteration 3, y = 2, v = 2; y at iteration start; v at iteration end; reveal loop header">y = 2, v = 2</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">0 2</span></div></div></div></div></section></div></section><section class="loop-iteration loop-group" data-loop-entry="7"><div class="loop-iteration-header"><button type="button" class="loop-action" data-loop-action="toggle" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="7" data-loop-value="0" aria-expanded="true" aria-label="Iteration 2, x = 1"><span class="loop-disclosure" aria-hidden="true">▾</span> Iteration 2</button> <span class="loop-note">·</span> <button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="7" data-loop-value="0" aria-label="Iteration 2, x = 1; x at iteration start; reveal loop header">x = 1</button> <span class="loop-note">· printed 3 lines</span></div><div class="loop-body"><section class="loop-invocation" data-loop-invocation="8" data-loop-depth="1"><div class="loop-source">for y in range(3) <span class="loop-note">· 3 iterations · line 2</span></div><div class="loop-entries"><div class="loop-data loop-iteration" data-loop-entry="9"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="9" data-loop-value="0" aria-label="Iteration 1, y = 0, v = 1; y at iteration start; v at iteration end; reveal loop header">y = 0, v = 1</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">1 0</span></div></div></div><div class="loop-data loop-iteration" data-loop-entry="10"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="10" data-loop-value="0" aria-label="Iteration 2, y = 1, v = 2; y at iteration start; v at iteration end; reveal loop header">y = 1, v = 2</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">1 1</span></div></div></div><div class="loop-data loop-iteration" data-loop-entry="11"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="11" data-loop-value="0" aria-label="Iteration 3, y = 2, v = 3; y at iteration start; v at iteration end; reveal loop header">y = 2, v = 3</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">1 2</span></div></div></div></div></section></div></section></div></section><div class="loop-final">Final values after this loop: x = 1, y = 2, v = 3</div><div class="loop-export"><button type="button" class="loop-action" data-loop-action="open" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="0" data-loop-value="0" title="Opens the available printed output for this whole statement. Use native Find and copy.">Open statement printed output</button></div></div><svg class="tree-guide" aria-hidden="true"></svg></div><p class="caption">Branches go to each iteration, then to its inner loop. The closest to a complete folder tree.</p></article>
+<article class="option" data-option="F"><header class="option-heading"><span class="letter">F</span><h2>Connect loop headers</h2></header><div class="sample"><span class="outer-fold" aria-hidden="true">▾</span><div class="loop-explorer" data-loop-root="0"><div class="loop-context"><div class="loop-overview"><div class="loop-title"><div class="loop-source loop-root-source">for x in range(2) <span class="loop-note">· 2 iterations</span></div><div class="loop-scroll-owner" hidden></div></div><details class="loop-recording-details" data-local-disclosure><summary>About these values</summary><div class="loop-explanation"><p>These values were saved when you evaluated the code. They are not live values. The variable after <code>for</code> shows its value at the start of each iteration. Other variables show their values when the body reaches its end.</p><p>Printed output shows what the program printed at that moment. If it prints <code>u</code> while <code>u = 4</code>, then sets <code>u = 99</code>, the row shows <code>u = 99</code> beside printed <code>4</code>. A value can carry over from an earlier iteration when the code does not assign it again.</p><p><strong>Not recorded</strong> means there is no saved reading; it does not mean the variable was empty or the assignment did not run. Use <strong>Why?</strong> beside a missing value for its explanation. Evalens saves up to three body variable names per loop; the loop heading reports names left out.</p><p>Folding and paging browse saved results without running the code again. A loop reports when later iteration details or output were not saved. Those missing details cannot be expanded. An old result can also depend on changes Evalens could not detect; no warning is not a guarantee that it is current.</p></div></details></div><div class="loop-columns"><span>Variables</span><span title="Python writes ordinary printed output to stdout.">Printed output</span></div></div><section class="loop-invocation" data-loop-invocation="1" data-loop-depth="0"><div class="loop-entries"><section class="loop-iteration loop-group" data-loop-entry="2"><div class="loop-iteration-header"><button type="button" class="loop-action" data-loop-action="toggle" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="2" data-loop-value="0" aria-expanded="true" aria-label="Iteration 1, x = 0"><span class="loop-disclosure" aria-hidden="true">▾</span> Iteration 1</button> <span class="loop-note">·</span> <button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="2" data-loop-value="0" aria-label="Iteration 1, x = 0; x at iteration start; reveal loop header">x = 0</button> <span class="loop-note">· printed 3 lines</span></div><div class="loop-body"><section class="loop-invocation" data-loop-invocation="3" data-loop-depth="1"><div class="loop-source">for y in range(3) <span class="loop-note">· 3 iterations · line 2</span></div><div class="loop-entries"><div class="loop-data loop-iteration" data-loop-entry="4"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="4" data-loop-value="0" aria-label="Iteration 1, y = 0, v = 0; y at iteration start; v at iteration end; reveal loop header">y = 0, v = 0</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">0 0</span></div></div></div><div class="loop-data loop-iteration" data-loop-entry="5"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="5" data-loop-value="0" aria-label="Iteration 2, y = 1, v = 1; y at iteration start; v at iteration end; reveal loop header">y = 1, v = 1</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">0 1</span></div></div></div><div class="loop-data loop-iteration" data-loop-entry="6"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="6" data-loop-value="0" aria-label="Iteration 3, y = 2, v = 2; y at iteration start; v at iteration end; reveal loop header">y = 2, v = 2</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">0 2</span></div></div></div></div></section></div></section><section class="loop-iteration loop-group" data-loop-entry="7"><div class="loop-iteration-header"><button type="button" class="loop-action" data-loop-action="toggle" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="7" data-loop-value="0" aria-expanded="true" aria-label="Iteration 2, x = 1"><span class="loop-disclosure" aria-hidden="true">▾</span> Iteration 2</button> <span class="loop-note">·</span> <button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="7" data-loop-value="0" aria-label="Iteration 2, x = 1; x at iteration start; reveal loop header">x = 1</button> <span class="loop-note">· printed 3 lines</span></div><div class="loop-body"><section class="loop-invocation" data-loop-invocation="8" data-loop-depth="1"><div class="loop-source">for y in range(3) <span class="loop-note">· 3 iterations · line 2</span></div><div class="loop-entries"><div class="loop-data loop-iteration" data-loop-entry="9"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="9" data-loop-value="0" aria-label="Iteration 1, y = 0, v = 1; y at iteration start; v at iteration end; reveal loop header">y = 0, v = 1</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">1 0</span></div></div></div><div class="loop-data loop-iteration" data-loop-entry="10"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="10" data-loop-value="0" aria-label="Iteration 2, y = 1, v = 2; y at iteration start; v at iteration end; reveal loop header">y = 1, v = 2</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">1 1</span></div></div></div><div class="loop-data loop-iteration" data-loop-entry="11"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="11" data-loop-value="0" aria-label="Iteration 3, y = 2, v = 3; y at iteration start; v at iteration end; reveal loop header">y = 2, v = 3</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">1 2</span></div></div></div></div></section></div></section></div></section><div class="loop-final">Final values after this loop: x = 1, y = 2, v = 3</div><div class="loop-export"><button type="button" class="loop-action" data-loop-action="open" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="0" data-loop-value="0" title="Opens the available printed output for this whole statement. Use native Find and copy.">Open statement printed output</button></div></div><svg class="tree-guide" aria-hidden="true"></svg></div><p class="caption">Branches land directly on both for y headers. The gold captions still tell you which x each loop belongs to.</p></article>
+<article class="option" data-option="G"><header class="option-heading"><span class="letter">G</span><h2>Scope guide</h2></header><div class="sample"><span class="outer-fold" aria-hidden="true">▾</span><div class="loop-explorer" data-loop-root="0"><div class="loop-context"><div class="loop-overview"><div class="loop-title"><div class="loop-source loop-root-source">for x in range(2) <span class="loop-note">· 2 iterations</span></div><div class="loop-scroll-owner" hidden></div></div><details class="loop-recording-details" data-local-disclosure><summary>About these values</summary><div class="loop-explanation"><p>These values were saved when you evaluated the code. They are not live values. The variable after <code>for</code> shows its value at the start of each iteration. Other variables show their values when the body reaches its end.</p><p>Printed output shows what the program printed at that moment. If it prints <code>u</code> while <code>u = 4</code>, then sets <code>u = 99</code>, the row shows <code>u = 99</code> beside printed <code>4</code>. A value can carry over from an earlier iteration when the code does not assign it again.</p><p><strong>Not recorded</strong> means there is no saved reading; it does not mean the variable was empty or the assignment did not run. Use <strong>Why?</strong> beside a missing value for its explanation. Evalens saves up to three body variable names per loop; the loop heading reports names left out.</p><p>Folding and paging browse saved results without running the code again. A loop reports when later iteration details or output were not saved. Those missing details cannot be expanded. An old result can also depend on changes Evalens could not detect; no warning is not a guarantee that it is current.</p></div></details></div><div class="loop-columns"><span>Variables</span><span title="Python writes ordinary printed output to stdout.">Printed output</span></div></div><section class="loop-invocation" data-loop-invocation="1" data-loop-depth="0"><div class="loop-entries"><section class="loop-iteration loop-group" data-loop-entry="2"><div class="loop-iteration-header"><button type="button" class="loop-action" data-loop-action="toggle" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="2" data-loop-value="0" aria-expanded="true" aria-label="Iteration 1, x = 0"><span class="loop-disclosure" aria-hidden="true">▾</span> Iteration 1</button> <span class="loop-note">·</span> <button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="2" data-loop-value="0" aria-label="Iteration 1, x = 0; x at iteration start; reveal loop header">x = 0</button> <span class="loop-note">· printed 3 lines</span></div><div class="loop-body"><section class="loop-invocation" data-loop-invocation="3" data-loop-depth="1"><div class="loop-source">for y in range(3) <span class="loop-note">· 3 iterations · line 2</span></div><div class="loop-entries"><div class="loop-data loop-iteration" data-loop-entry="4"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="4" data-loop-value="0" aria-label="Iteration 1, y = 0, v = 0; y at iteration start; v at iteration end; reveal loop header">y = 0, v = 0</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">0 0</span></div></div></div><div class="loop-data loop-iteration" data-loop-entry="5"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="5" data-loop-value="0" aria-label="Iteration 2, y = 1, v = 1; y at iteration start; v at iteration end; reveal loop header">y = 1, v = 1</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">0 1</span></div></div></div><div class="loop-data loop-iteration" data-loop-entry="6"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="6" data-loop-value="0" aria-label="Iteration 3, y = 2, v = 2; y at iteration start; v at iteration end; reveal loop header">y = 2, v = 2</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">0 2</span></div></div></div></div></section></div></section><section class="loop-iteration loop-group" data-loop-entry="7"><div class="loop-iteration-header"><button type="button" class="loop-action" data-loop-action="toggle" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="7" data-loop-value="0" aria-expanded="true" aria-label="Iteration 2, x = 1"><span class="loop-disclosure" aria-hidden="true">▾</span> Iteration 2</button> <span class="loop-note">·</span> <button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="7" data-loop-value="0" aria-label="Iteration 2, x = 1; x at iteration start; reveal loop header">x = 1</button> <span class="loop-note">· printed 3 lines</span></div><div class="loop-body"><section class="loop-invocation" data-loop-invocation="8" data-loop-depth="1"><div class="loop-source">for y in range(3) <span class="loop-note">· 3 iterations · line 2</span></div><div class="loop-entries"><div class="loop-data loop-iteration" data-loop-entry="9"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="9" data-loop-value="0" aria-label="Iteration 1, y = 0, v = 1; y at iteration start; v at iteration end; reveal loop header">y = 0, v = 1</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">1 0</span></div></div></div><div class="loop-data loop-iteration" data-loop-entry="10"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="10" data-loop-value="0" aria-label="Iteration 2, y = 1, v = 2; y at iteration start; v at iteration end; reveal loop header">y = 1, v = 2</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">1 1</span></div></div></div><div class="loop-data loop-iteration" data-loop-entry="11"><div class="loop-target"><span class="loop-stack-label">Variables</span><button type="button" class="loop-action" data-loop-action="select" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="11" data-loop-value="0" aria-label="Iteration 3, y = 2, v = 3; y at iteration start; v at iteration end; reveal loop header">y = 2, v = 3</button></div><div><div class="loop-stream"><span class="loop-stream-label loop-stack-label">Printed output: </span><span class="loop-output">1 2</span></div></div></div></div></section></div></section></div></section><div class="loop-final">Final values after this loop: x = 1, y = 2, v = 3</div><div class="loop-export"><button type="button" class="loop-action" data-loop-action="open" data-loop-line="0" data-loop-token="0" data-loop-control="next" data-loop-id="0" data-loop-value="0" title="Opens the available printed output for this whole statement. Use native Find and copy.">Open statement printed output</button></div></div><svg class="tree-guide" aria-hidden="true"></svg></div><p class="caption">Connect the loop headers, then bracket each inner loop’s values. Clear group boundaries, with more linework.</p></article>
+<aside class="reading-guide">
+  <div class="eyebrow">READING THE GUIDE</div>
+  <h2>One inner loop, reached twice</h2>
+  <p>The same <code>for y</code> loop runs once while <code>x = 0</code>,
+    then again while <code>x = 1</code>.</p>
+  <pre class="mini-tree">for x in range(2)
+<span class="branch">├── </span>for y in range(3)  <span class="when">x = 0</span>
+<span class="branch">└── </span>for y in range(3)  <span class="when">x = 1</span></pre>
+  <p><strong>My recommendation: F.</strong> Its branches lead directly to
+    the two inner-loop headers. The gold iteration captions keep their
+    results separate.</p>
+  <p class="small">E shows every step in the tree.<br>
+    F makes the loop-to-loop link the clearest.<br>
+    G also marks the extent of each group of values.</p>
+  <p class="small">These are proposals to choose between. No guide has
+    been added to the extension.</p>
+</aside>
+</main>
+<footer class="footer">
+  All three keep one shared Variables / Printed output header, aligned values, the existing colors, and the same six recorded rows. No extra inner-loop expand button.
+</footer>
+<script>
+window.drawGuides = function drawGuides() {
+  const NS = 'http://www.w3.org/2000/svg';
+  for (const card of document.querySelectorAll('.option')) {
+    const sample = card.querySelector('.sample');
+    const svg = card.querySelector('svg.tree-guide');
+    const origin = svg.getBoundingClientRect();
+    const box = node => {
+      const rect = node.getBoundingClientRect();
+      return { left: rect.left - origin.left, top: rect.top - origin.top,
+        width: rect.width, height: rect.height, bottom: rect.bottom - origin.top,
+        cy: rect.top + rect.height / 2 - origin.top };
+    };
+    const root = box(card.querySelector('.loop-root-source'));
+    const headers = [...card.querySelectorAll('.loop-iteration-header')].map(node =>
+      box(node.querySelector('.loop-disclosure')));
+    const innerNodes = [...card.querySelectorAll('[data-loop-depth="1"]')];
+    const inner = innerNodes.map(node => box(node.querySelector('.loop-source')));
+    const lastRows = innerNodes.map(node => box([...node.querySelectorAll('.loop-data')].at(-1)));
+    const firstData = box(card.querySelector('.loop-data'));
+    const outerFold = card.querySelector('.outer-fold');
+    outerFold.style.top = (root.cy - 14.2) + 'px';
+    const fold = box(outerFold);
+    const rootX = fold.left + fold.width / 2;
+    const rootY = root.cy + 13;
+    const childX = headers[0].left + headers[0].width / 2;
+    const scopeX = firstData.left - 16;
+    const scopeEnd = firstData.left - 5;
+    svg.replaceChildren();
+    const add = (commands, target, endX, endY, klass) => {
+      const path = document.createElementNS(NS, 'path');
+      path.setAttribute('d', commands);
+      if (klass) path.classList.add(klass);
+      if (target) {
+        path.dataset.target = 'inner-source';
+        path.dataset.targetY = target.cy;
+        path.dataset.textLeft = target.left;
+        path.dataset.endX = endX;
+        path.dataset.endY = endY;
+      }
+      svg.append(path);
+    };
+    const option = card.dataset.option;
+    if (option === 'E') {
+      add('M ' + rootX + ' ' + rootY + ' V ' + headers[1].cy + ' H ' + (headers[1].left - 7));
+      add('M ' + rootX + ' ' + headers[0].cy + ' H ' + (headers[0].left - 7));
+      inner.forEach((target, index) => {
+        const endX = target.left - 7;
+        add('M ' + childX + ' ' + (headers[index].cy + 12) + ' V ' + target.cy + ' H ' + endX,
+          target, endX, target.cy);
+      });
+    } else if (option === 'F') {
+      const last = inner[1], endX = last.left - 7;
+      add('M ' + rootX + ' ' + rootY + ' V ' + last.cy + ' H ' + endX,
+        last, endX, last.cy);
+      const first = inner[0], firstEnd = first.left - 7;
+      add('M ' + rootX + ' ' + first.cy + ' H ' + firstEnd,
+        first, firstEnd, first.cy);
+    } else {
+      add('M ' + rootX + ' ' + rootY + ' V ' + (lastRows[1].bottom + 16) + ' H ' + scopeEnd,
+        null, null, null, 'scope');
+      inner.forEach((target, index) => {
+        const endX = target.left - 7;
+        add('M ' + rootX + ' ' + target.cy + ' H ' + endX,
+          target, endX, target.cy);
+        add('M ' + scopeX + ' ' + target.cy + ' V ' + (lastRows[index].bottom + 5) + ' H ' + scopeEnd,
+          null, null, null, 'scope');
+      });
+    }
+  }
+};
+document.fonts.ready.then(window.drawGuides);
+window.addEventListener('resize', window.drawGuides);
+document.addEventListener('toggle', window.drawGuides, true);
+</script>
+</html>

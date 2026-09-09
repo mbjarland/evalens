@@ -1,0 +1,415 @@
+{
+  "kind": "draft text-edge alignment comparison; no implementation selected",
+  "recordingSource": "before-inner-checks.json",
+  "kernelRequests": 0,
+  "fixtureSha256": "d2d6f847f7387da18d32112a5d012c832dc16dfffddb6ffb7b4a02f5fde3cd92",
+  "screenshot": {
+    "file": "n-alignment-comparison.png",
+    "sha256": "adda93959f71f775a74a1ffce234a9970ed2053b5923993815d93464a9ca86e8",
+    "width": 3920,
+    "height": 2000,
+    "deviceScaleFactor": 2
+  },
+  "checks": [
+    {
+      "alignment": "previous",
+      "columnPairs": 1,
+      "expanded": [
+        false,
+        true
+      ],
+      "summaries": [
+        "x = 0, base = 0",
+        "x = 1"
+      ],
+      "visibleBaseRows": [
+        "10"
+      ],
+      "timingCues": [],
+      "output": [
+        "base: 10",
+        "1 0",
+        "1 1",
+        "1 2"
+      ],
+      "bracketEnds": [],
+      "innerGuideEnds": [
+        {
+          "endY": 240.25,
+          "targetY": 240.25
+        }
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, base = 10, v = 12",
+      "overflow": false
+    },
+    {
+      "alignment": "aligned",
+      "columnPairs": 1,
+      "expanded": [
+        false,
+        true
+      ],
+      "summaries": [
+        "x = 0, base = 0",
+        "x = 1"
+      ],
+      "visibleBaseRows": [
+        "10"
+      ],
+      "timingCues": [],
+      "output": [
+        "base: 10",
+        "1 0",
+        "1 1",
+        "1 2"
+      ],
+      "bracketEnds": [],
+      "innerGuideEnds": [
+        {
+          "endY": 240.25,
+          "targetY": 240.25
+        }
+      ],
+      "final": "Final values after this loop: x = 1, y = 2, base = 10, v = 12",
+      "overflow": false
+    }
+  ],
+  "interactions": [
+    {
+      "alignment": "previous",
+      "allOpen": {
+        "output": [
+          "base: 0",
+          "0 0",
+          "0 1",
+          "0 2",
+          "base: 10",
+          "1 0",
+          "1 1",
+          "1 2"
+        ],
+        "baseRows": [
+          "0",
+          "10"
+        ]
+      },
+      "allClosed": {
+        "output": [],
+        "baseRows": [],
+        "summaries": [
+          "x = 0, base = 0",
+          "x = 1, base = 10"
+        ]
+      },
+      "restored": {
+        "output": [
+          "base: 10",
+          "1 0",
+          "1 1",
+          "1 2"
+        ],
+        "baseRows": [
+          "10"
+        ]
+      }
+    },
+    {
+      "alignment": "aligned",
+      "allOpen": {
+        "output": [
+          "base: 0",
+          "0 0",
+          "0 1",
+          "0 2",
+          "base: 10",
+          "1 0",
+          "1 1",
+          "1 2"
+        ],
+        "baseRows": [
+          "0",
+          "10"
+        ]
+      },
+      "allClosed": {
+        "output": [],
+        "baseRows": [],
+        "summaries": [
+          "x = 0, base = 0",
+          "x = 1, base = 10"
+        ]
+      },
+      "restored": {
+        "output": [
+          "base: 10",
+          "1 0",
+          "1 1",
+          "1 2"
+        ],
+        "baseRows": [
+          "10"
+        ]
+      }
+    }
+  ],
+  "geometry": [
+    {
+      "width": 1960,
+      "cards": [
+        {
+          "alignment": "previous",
+          "left": 36,
+          "iterationDifferences": [
+            3.078125,
+            3.078125
+          ],
+          "baseDifference": 0,
+          "innerSourceDifference": 13,
+          "innerValueIndents": [
+            32,
+            32,
+            32
+          ],
+          "outputDifferences": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "arrowTextGaps": [
+            12.03125,
+            12.03125
+          ],
+          "guideTextGaps": [
+            28,
+            28,
+            -6
+          ],
+          "guidesStopAtInnerHeading": true,
+          "overflow": false
+        },
+        {
+          "alignment": "aligned",
+          "left": 992,
+          "iterationDifferences": [
+            0,
+            0
+          ],
+          "baseDifference": 0,
+          "innerSourceDifference": 0,
+          "innerValueIndents": [
+            19,
+            19,
+            19
+          ],
+          "outputDifferences": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "arrowTextGaps": [
+            11.984375,
+            11.984375
+          ],
+          "guideTextGaps": [
+            35,
+            35,
+            7
+          ],
+          "guidesStopAtInnerHeading": true,
+          "overflow": false
+        }
+      ],
+      "pageOverflow": false
+    },
+    {
+      "width": 1300,
+      "cards": [
+        {
+          "alignment": "previous",
+          "left": 36,
+          "iterationDifferences": [
+            3.078125,
+            3.078125
+          ],
+          "baseDifference": 0,
+          "innerSourceDifference": 13,
+          "innerValueIndents": [
+            32,
+            32,
+            32
+          ],
+          "outputDifferences": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "arrowTextGaps": [
+            12.03125,
+            12.03125
+          ],
+          "guideTextGaps": [
+            28,
+            28,
+            -6
+          ],
+          "guidesStopAtInnerHeading": true,
+          "overflow": false
+        },
+        {
+          "alignment": "aligned",
+          "left": 36,
+          "iterationDifferences": [
+            0,
+            0
+          ],
+          "baseDifference": 0,
+          "innerSourceDifference": 0,
+          "innerValueIndents": [
+            19,
+            19,
+            19
+          ],
+          "outputDifferences": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "arrowTextGaps": [
+            11.984375,
+            11.984375
+          ],
+          "guideTextGaps": [
+            35,
+            35,
+            7
+          ],
+          "guidesStopAtInnerHeading": true,
+          "overflow": false
+        }
+      ],
+      "pageOverflow": false
+    },
+    {
+      "width": 980,
+      "cards": [
+        {
+          "alignment": "previous",
+          "left": 18,
+          "iterationDifferences": [
+            3.078125,
+            3.078125
+          ],
+          "baseDifference": 0,
+          "innerSourceDifference": 13,
+          "innerValueIndents": [
+            32,
+            32,
+            32
+          ],
+          "outputDifferences": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "arrowTextGaps": [
+            12.03125,
+            12.03125
+          ],
+          "guideTextGaps": [
+            28,
+            28,
+            -6
+          ],
+          "guidesStopAtInnerHeading": true,
+          "overflow": false
+        },
+        {
+          "alignment": "aligned",
+          "left": 18,
+          "iterationDifferences": [
+            0,
+            0
+          ],
+          "baseDifference": 0,
+          "innerSourceDifference": 0,
+          "innerValueIndents": [
+            19,
+            19,
+            19
+          ],
+          "outputDifferences": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "arrowTextGaps": [
+            11.984375,
+            11.984375
+          ],
+          "guideTextGaps": [
+            35,
+            35,
+            7
+          ],
+          "guidesStopAtInnerHeading": true,
+          "overflow": false
+        }
+      ],
+      "pageOverflow": false
+    }
+  ],
+  "stackedPair": {
+    "headerHidden": true,
+    "baseVisible": true,
+    "baseText": "base = 10",
+    "outputText": "base: 10",
+    "outputBelowBase": true
+  },
+  "browserErrors": [],
+  "unchangedEarlierArtifacts": {
+    "README.md": "e1a43998f87f4add8e118a660cf9e6f8c71c1889a35e2a8b258c52542021b5c2",
+    "before-inner-checks.json": "aea259c02d55d9b8f28781cdee84fac71834093b012fd92f005753e22f968758",
+    "before-inner-comparison.html": "7b78a0df5eeb674cb96330d58cce353a47afdc44bbe5032a9c5a58afc6338ddd",
+    "before-inner-comparison.png": "86708a831b2f2b1e570165168be73e5f00f324e9bc1a2b57262c73cde2413bad",
+    "before-inner-fixture.py": "d2d6f847f7387da18d32112a5d012c832dc16dfffddb6ffb7b4a02f5fde3cd92",
+    "before-inner-notes.md": "6f247065a1814cbf02ed60f10da8b9946aa6a1ccff06b251f922bdc3c93d42b5",
+    "before-inner-render.cjs": "9fb7b013555c950a3511c7ded30873234cae3fa4ee47782eea5c964e95debf6d",
+    "before-inner-template.html": "fa5a1fb666bad1c077fc1c7202a292378b4f698a9152597458d486b85c90c3d3",
+    "checks.json": "e794c1197713b6aeed5337f86b7d5dd6b7d510fd6546dd7b2ba3cea1700d3d78",
+    "comparison.html": "8dfacb1c427b49bde9c50039d043139126a307f35e55c7bbb804c5e7d6fdf950",
+    "comparison.png": "9cd3f6d60a86fcf3bc7dca0be3e3f5f1d5e738a0271c862f8491fcc13ea36555",
+    "loop-tree-structures.html": "4cf1b20682d35e5bdfcd35c15a0b648a59d48a106a83075098190136e616891f",
+    "loop-tree-structures.md": "4a4e5f9c1a4a0595b0e389d5ae7ceb7f5673dc39fa1ca76c725ef95a1ad33e63",
+    "loop-tree-structures.png": "eeb46e23b32ec2d6e5d8c0f761b179510764f410a1a7e9ee337df8d9a9295df2",
+    "n-base-position-checks.json": "4e064c099bed743c0efc8599b8e1861ceb7fc65d9a4ecf0254d7038b76af17e1",
+    "n-base-position-comparison.html": "556cc6e32a90ba6f3b0ae842b6eb7929a2f100581c51381c30a3f25db4bda767",
+    "n-base-position-comparison.png": "374147147ddc521a7d75173954c164a900efcaaa1bd1c78cf79bfad67f8c027f",
+    "n-base-position-notes.md": "d6736255b69dffec92dd3f0f4b228bbcfc3d408ffd714b4688ea82f5e1a95280",
+    "n-base-position-render.cjs": "719a59cc6b6a96f601f087f69080768f50892ecc8216c86caa8e4d78210d1c94",
+    "n-base-position-template.html": "39f72f83a900f6eba70c94f736356f9af492af4e98a43672dded31fb680891d5",
+    "n-body-values-checks.json": "3ed55ecb348d5854e0921a2f894963b40cf61c8710b8eb4a23e04701fd4a1800",
+    "n-body-values-comparison.html": "4a0f232920483220c8219e6ed21351ea7b85ea82c0ef3700419115f719cf6fc8",
+    "n-body-values-comparison.png": "6096b232a12e829dea7dccdf7590d6d4802626232d0a23c9c5756be91a74d6d6",
+    "n-body-values-notes.md": "90c92089e600845eac1362891fb7fb90a9d0b448a3ad7b797a23a670db7ae67d",
+    "n-body-values-render.cjs": "98b7eb5752c40473ac021d774d817a0cfd91585d4b56aa75578693d2a0ce7d96",
+    "n-body-values-template.html": "828dc628cb68dd8372ce5703395790f83337eefba59cf2db21dcef2e35feaaa3",
+    "render-structures.cjs": "4b5a71208479b774be378508ed4e45406ec5a44563d1e0841ae1f5ef75a4da7d",
+    "render-tufte.cjs": "3f7f29155b4a5c4060cb61a550b08afcef3962a4e394f724fae1408ccc29c953",
+    "render.cjs": "93f5f917ebbc491f70c9c7fb3d6f08b5597ed4f7268466d837a8ced66fac8ef9",
+    "structure-checks.json": "8ca22253f558e3b8a0f284514acf892a7bea1ba73777441d14a47288e98af4e4",
+    "structure-template.html": "18fac533a685ca728d71e3fe8ed9214390119fa76c311ed4eadaeb7e05a865de",
+    "template.html": "5263f6a687731f3f581daec6edf368d7d7b6e226fe5751d079f023964255920a",
+    "tufte-checks.json": "f8992c288e43277725a0c5e0bdbba188a426fb4ebd87610ed013633034884c3b",
+    "tufte-loop-explorations.html": "068084e36a49206b01808aa3b2a60ee7f4b0182c32dfba53128141bfd5b47b8a",
+    "tufte-loop-explorations.md": "d9672d01eb3182f15c0bcc5978c9bac5e6cad26e995c3ec0bbd316907a6dbacf",
+    "tufte-loop-explorations.png": "71dbde986d8a92877fc566212a3a15bb53b83363f57fd851cf0f2a33c3b4dd58",
+    "tufte-template.html": "9135e04ae3e345005c44b99bedcf4528645139514e698bf62adcf3456af16e80"
+  },
+  "limitations": "Presentation-only HTML using existing recording and markup. Text geometry measured with Range/getClientRects. No runtime changes or native VS Code connection."
+}
