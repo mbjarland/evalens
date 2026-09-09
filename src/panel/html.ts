@@ -1088,7 +1088,8 @@ tr.row:focus-visible {
   row-gap: 2px;
   position: sticky;
   top: 0;
-  z-index: 1;
+  /* Keep scrolling result disclosures (1) and loop contexts (2) beneath it. */
+  z-index: 3;
   padding: 4px 0 8px;
   background: var(--vscode-panel-background, #1e1e1e);
 }
