@@ -1,0 +1,173 @@
+{
+  "method": "Unpublished README rendered locally inside the public Marketplace page, using its actual CSS and real locally captured extension images. No Marketplace content was uploaded or changed.",
+  "example": {
+    "source": "for x in range(2):\n    for y in range(3):\n        v = x + y\n        print(x, y)",
+    "sourceImageBeforeResult": true,
+    "codeInDisclosure": true,
+    "codeBeforeImage": true
+  },
+  "readmeSha256": "f3b70c9be6b36a75d3fe3b564b1ef21e05ab656ce31771cd54bacc22cab24702",
+  "reports": [
+    {
+      "viewport": 1360,
+      "width": 710.546875,
+      "scrollWidth": 711,
+      "heading": "eval·lens",
+      "headingAlign": "center",
+      "images": [
+        {
+          "alt": "Evalens",
+          "width": 112,
+          "height": 112,
+          "naturalWidth": 512,
+          "complete": true
+        },
+        {
+          "alt": "Four evaluated Python lines: a and b initially read [1, 2]; b.append(3) changes the list; reading a then gives [1, 2, 3]",
+          "width": 711,
+          "height": 119,
+          "naturalWidth": 1240,
+          "complete": true
+        },
+        {
+          "alt": "A for loop over [2, 4, 6] with total = n: n and total both show the history 2, 4, 6, and the final total is 6",
+          "width": 711,
+          "height": 86,
+          "naturalWidth": 1712,
+          "complete": true
+        },
+        {
+          "alt": "Evalens Values panel showing source beside recorded variables and printed output",
+          "width": 711,
+          "height": 340,
+          "naturalWidth": 1484,
+          "complete": true
+        },
+        {
+          "alt": "Python source in the editor: an outer loop over x, an inner loop over y, v = x + y, and print(x, y)",
+          "width": 711,
+          "height": 136,
+          "naturalWidth": 1422,
+          "complete": true
+        },
+        {
+          "alt": "Nested loop explorer with an expanded outer iteration and shared columns for variables and printed output",
+          "width": 711,
+          "height": 275,
+          "naturalWidth": 1424,
+          "complete": true
+        },
+        {
+          "alt": "Evalens learning walkthrough in VS Code showing its five exercises and the Open exercise button",
+          "width": 711,
+          "height": 674,
+          "naturalWidth": 1048,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "viewport": 900,
+      "width": 487.671875,
+      "scrollWidth": 488,
+      "heading": "eval·lens",
+      "headingAlign": "center",
+      "images": [
+        {
+          "alt": "Evalens",
+          "width": 112,
+          "height": 112,
+          "naturalWidth": 512,
+          "complete": true
+        },
+        {
+          "alt": "Four evaluated Python lines: a and b initially read [1, 2]; b.append(3) changes the list; reading a then gives [1, 2, 3]",
+          "width": 488,
+          "height": 82,
+          "naturalWidth": 1240,
+          "complete": true
+        },
+        {
+          "alt": "A for loop over [2, 4, 6] with total = n: n and total both show the history 2, 4, 6, and the final total is 6",
+          "width": 488,
+          "height": 59,
+          "naturalWidth": 1712,
+          "complete": true
+        },
+        {
+          "alt": "Evalens Values panel showing source beside recorded variables and printed output",
+          "width": 488,
+          "height": 233,
+          "naturalWidth": 1484,
+          "complete": true
+        },
+        {
+          "alt": "Python source in the editor: an outer loop over x, an inner loop over y, v = x + y, and print(x, y)",
+          "width": 488,
+          "height": 93,
+          "naturalWidth": 1422,
+          "complete": true
+        },
+        {
+          "alt": "Nested loop explorer with an expanded outer iteration and shared columns for variables and printed output",
+          "width": 488,
+          "height": 189,
+          "naturalWidth": 1424,
+          "complete": true
+        },
+        {
+          "alt": "Evalens learning walkthrough in VS Code showing its five exercises and the Open exercise button",
+          "width": 488,
+          "height": 463,
+          "naturalWidth": 1048,
+          "complete": true
+        }
+      ]
+    }
+  ],
+  "liveTypography": {
+    "p": {
+      "fontSize": "14px",
+      "fontFamily": "\"Segoe UI Web (West European)\", \"Segoe UI\", -apple-system, \"system-ui\", Roboto, \"Helvetica Neue\", sans-serif",
+      "lineHeight": "22.4px"
+    },
+    "h1": {
+      "fontSize": "21px",
+      "fontFamily": "\"Segoe UI Web (West European)\", \"Segoe UI\", -apple-system, \"system-ui\", Roboto, \"Helvetica Neue\", sans-serif",
+      "lineHeight": "25.2px"
+    },
+    "h2": {
+      "fontSize": "19.25px",
+      "fontFamily": "\"Segoe UI Web (West European)\", \"Segoe UI\", -apple-system, \"system-ui\", Roboto, \"Helvetica Neue\", sans-serif",
+      "lineHeight": "23.1px"
+    },
+    "pre code": {
+      "fontSize": "11.9px",
+      "fontFamily": "Consolas, \"Liberation Mono\", Menlo, Courier, monospace",
+      "lineHeight": "17.255px"
+    }
+  },
+  "standaloneTypography": {
+    "p": {
+      "fontSize": "14px",
+      "fontFamily": "\"Segoe UI Web (West European)\", \"Segoe UI\", -apple-system, \"system-ui\", Roboto, \"Helvetica Neue\", sans-serif",
+      "lineHeight": "22.4px"
+    },
+    "h1": {
+      "fontSize": "21px",
+      "fontFamily": "\"Segoe UI Web (West European)\", \"Segoe UI\", -apple-system, \"system-ui\", Roboto, \"Helvetica Neue\", sans-serif",
+      "lineHeight": "25.2px"
+    },
+    "h2": {
+      "fontSize": "19.25px",
+      "fontFamily": "\"Segoe UI Web (West European)\", \"Segoe UI\", -apple-system, \"system-ui\", Roboto, \"Helvetica Neue\", sans-serif",
+      "lineHeight": "23.1px"
+    },
+    "pre code": {
+      "fontSize": "11.9px",
+      "fontFamily": "Consolas, \"Liberation Mono\", Menlo, Courier, monospace",
+      "lineHeight": "17.255px"
+    }
+  },
+  "typographyMatches": true
+}
