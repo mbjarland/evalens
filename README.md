@@ -119,7 +119,7 @@ everyone.
 You need VS Code and **Python 3.9 or later on your `PATH`**. Nothing else.
 
 ```bash
-code --install-extension evalens-0.0.1.vsix   # from a release or a friend
+code --install-extension mbjarland.evalens
 ```
 
 Open any `.py` file, put the cursor on a line, press **`Cmd+Enter`**
@@ -626,39 +626,40 @@ the first that runs and reports 3.9 or later. Naming one in the
 
 ## Install
 
-There is no marketplace listing yet. Two ways to get the extension onto a
-machine, most-assumed first.
+Install [Evalens from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=mbjarland.evalens).
+In VS Code, open the Extensions view — `Cmd+Shift+X`
+(`Ctrl+Shift+X` on Windows/Linux) — search for **Evalens**, and select the
+extension published by **mbjarland**. From a terminal instead:
 
-**If someone handed you a `.vsix` file** — the path for a machine that has
-nothing else set up, a first-year student's laptop being the motivating
-case. You need VS Code and Python (see Requirements above) and nothing
-beyond them.
+```bash
+code --install-extension mbjarland.evalens
+```
 
-1. Get `evalens-<version>.vsix` however it reaches you — a
-   shared file, a USB stick, a link to a GitHub Release.
-2. In VS Code, open the Extensions view — `Cmd+Shift+X`
-   (`Ctrl+Shift+X` on Windows/Linux) — open its `···` menu, and choose
-   **Install from VSIX...**, then pick the file. From a terminal instead:
-   ```bash
-   code --install-extension evalens-0.0.1.vsix
-   ```
-3. Reload the window when VS Code asks, open a Python file, and press
-   `Alt+Enter` on a line. If nothing happens, read the keybinding section
-   below before anything else — a dead key is the expected symptom of a
-   conflict, not of a broken install.
+Reload the window if VS Code asks, open a Python file, and press
+`Cmd+Enter` (`Ctrl+Enter` on Windows/Linux) on a line. If nothing happens,
+try **Evalens: Evaluate at Cursor** from the Command Palette and see
+[Keybindings](#keybindings) for conflict fixes. You need VS Code and Python
+(see Requirements above); no Node installation is needed to use Evalens.
+
+**If someone handed you a `.vsix` file**, open the Extensions view's `···`
+menu, choose **Install from VSIX...**, and pick the file. From a terminal:
+
+```bash
+code --install-extension evalens-0.2.0.vsix
+```
 
 **Building the `.vsix` yourself** — for anyone who already has Node and
-wants the current branch rather than a shared file:
+wants the current source checkout:
 
 ```bash
 npm ci
 npm run package
-code --install-extension evalens-0.0.1.vsix
+code --install-extension evalens-0.2.0.vsix
 ```
 
 `npm run package` writes `evalens-<version>.vsix` into the
-repository root; the version comes from `package.json`. The rest is step 3
-above.
+repository root; the version comes from `package.json`. Use that version in
+the install command, then open a Python file as above.
 
 ## Commands
 

@@ -2,7 +2,7 @@
   "name": "evalens",
   "displayName": "Evalens — Inline Python Values",
   "description": "See what a line of Python produced, painted beside the code — on demand, never as you type. No print(), no debugger, no notebook.",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "publisher": "mbjarland",
   "license": "MIT",
   "icon": "media/icon.png",
