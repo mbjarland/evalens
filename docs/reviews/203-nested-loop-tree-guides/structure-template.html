@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Evalens · loop tree structures E–G</title>
+<style>
+:root {
+  color-scheme: dark;
+  --vscode-panel-background: #181818;
+  --vscode-editor-foreground: #cccccc;
+  --vscode-descriptionForeground: #9d9d9d;
+  --vscode-panel-border: #2d2d2d;
+  --vscode-textLink-foreground: #4daafc;
+  --vscode-focusBorder: #007fd4;
+  --vscode-evalens-resultForeground: #d1a35c;
+  --vscode-evalens-outputLabelForeground: #5c7fa6;
+  --vscode-editor-rangeHighlightBackground: #ffffff0a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #101214; color: #e5e5e5;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 34px 36px 28px; }
+.masthead { display: flex; align-items: center; justify-content: space-between;
+  gap: 60px; margin-bottom: 28px; }
+.eyebrow { color: #a8adb0; font-size: 14px; letter-spacing: 2px; margin-bottom: 11px; }
+h1 { font-size: 36px; line-height: 1.13; font-weight: 600; letter-spacing: -.65px;
+  margin: 0 0 13px; }
+.lede { font-size: 21px; line-height: 1.4; color: #b9bec2; margin: 0; max-width: 1020px; }
+.source { margin: 0; flex: 0 0 405px; font: 18px/1.5 Menlo, Consolas, monospace;
+  color: #c7c7c7; background: #181818; border-left: 3px solid #494e51; padding: 12px 20px; }
+.options { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
+.option { border: 1px solid #35393c; background: #181818; min-width: 0; }
+.option-heading { display: flex; align-items: center; gap: 14px;
+  padding: 16px 20px; min-height: 64px; border-bottom: 1px solid #303437; }
+.letter { display: grid; place-items: center; width: 32px; height: 32px;
+  border: 1px solid #687077; font-size: 22px; font-weight: 600; color: #f0f0f0; }
+h2 { margin: 0; font-size: 25px; font-weight: 550; letter-spacing: -.25px; }
+.sample { position: relative; margin: 18px 20px 0; border-left: 4px solid #e6ad45;
+  padding: 10px 12px 14px 76px; font: 20px/1.42 Menlo, Consolas, monospace;
+  background: #181818; color: #cccccc; }
+.outer-fold { position: absolute; left: 28px; width: 24px; text-align: center;
+  color: #4daafc; line-height: 28.4px; pointer-events: none; }
+.caption { min-height: 88px; margin: 0; padding: 16px 22px 20px;
+  font-size: 19px; line-height: 1.42; color: #b9bec2; }
+.footer { margin-top: 24px; font-size: 17px; color: #aab1b6; line-height: 1.4; }
+.reading-guide { border: 1px solid #35393c; padding: 32px 36px; color: #c6cbce;
+  background: #131618; display: flex; flex-direction: column; justify-content: center; }
+.reading-guide .eyebrow { margin-bottom: 16px; }
+.reading-guide h2 { font-size: 32px; margin-bottom: 20px; color: #e5e5e5; }
+.reading-guide p { font-size: 23px; line-height: 1.5; margin: 0 0 23px; max-width: 730px; }
+.reading-guide code { font: .95em Menlo, Consolas, monospace; }
+.mini-tree { font: 23px/1.7 Menlo, Consolas, monospace; margin: 3px 0 32px;
+  white-space: pre; color: #cccccc; }
+.mini-tree .branch { color: #899399; }
+.mini-tree .when { color: #d1a35c; }
+.reading-guide .small { color: #a7afb5; font-size: 20px; line-height: 1.5; }
+__PRODUCTION_STYLE__
+/* Identical presentation across E–G. Only the connector structure changes. */
+.loop-context { position: relative; top: auto; }
+.loop-invocation[data-loop-depth="1"] > .loop-source { margin-left: 34px; }
+.tree-guide { pointer-events: none; position: absolute; inset: 0; width: 100%;
+  height: 100%; overflow: visible; }
+.tree-guide path { fill: none; stroke: #899399; stroke-width: 1.8;
+  stroke-linejoin: miter; stroke-linecap: butt; }
+.tree-guide path.scope { stroke: #758087; }
+</style>
+<header class="masthead">
+  <div>
+    <div class="eyebrow">EVALENS · NEW DESIGN CONCEPTS · NOT IMPLEMENTED</div>
+    <h1>Connect the outer for to the inner for</h1>
+    <p class="lede">Three different structures inspired by a terminal tree.<br>
+      Both outer iterations are open, so you can see where each branch leads.</p>
+  </div>
+  <pre class="source">__SOURCE__</pre>
+</header>
+<main class="options">
+__OPTIONS__
+<aside class="reading-guide">
+  <div class="eyebrow">READING THE GUIDE</div>
+  <h2>One inner loop, reached twice</h2>
+  <p>The same <code>for y</code> loop runs once while <code>x = 0</code>,
+    then again while <code>x = 1</code>.</p>
+  <pre class="mini-tree">for x in range(2)
+<span class="branch">├── </span>for y in range(3)  <span class="when">x = 0</span>
+<span class="branch">└── </span>for y in range(3)  <span class="when">x = 1</span></pre>
+  <p><strong>My recommendation: F.</strong> Its branches lead directly to
+    the two inner-loop headers. The gold iteration captions keep their
+    results separate.</p>
+  <p class="small">E shows every step in the tree.<br>
+    F makes the loop-to-loop link the clearest.<br>
+    G also marks the extent of each group of values.</p>
+  <p class="small">These are proposals to choose between. No guide has
+    been added to the extension.</p>
+</aside>
+</main>
+<footer class="footer">
+  All three keep one shared Variables / Printed output header, aligned values, the existing colors, and the same six recorded rows. No extra inner-loop expand button.
+</footer>
+<script>
+window.drawGuides = function drawGuides() {
+  const NS = 'http://www.w3.org/2000/svg';
+  for (const card of document.querySelectorAll('.option')) {
+    const sample = card.querySelector('.sample');
+    const svg = card.querySelector('svg.tree-guide');
+    const origin = svg.getBoundingClientRect();
+    const box = node => {
+      const rect = node.getBoundingClientRect();
+      return { left: rect.left - origin.left, top: rect.top - origin.top,
+        width: rect.width, height: rect.height, bottom: rect.bottom - origin.top,
+        cy: rect.top + rect.height / 2 - origin.top };
+    };
+    const root = box(card.querySelector('.loop-root-source'));
+    const headers = [...card.querySelectorAll('.loop-iteration-header')].map(node =>
+      box(node.querySelector('.loop-disclosure')));
+    const innerNodes = [...card.querySelectorAll('[data-loop-depth="1"]')];
+    const inner = innerNodes.map(node => box(node.querySelector('.loop-source')));
+    const lastRows = innerNodes.map(node => box([...node.querySelectorAll('.loop-data')].at(-1)));
+    const firstData = box(card.querySelector('.loop-data'));
+    const outerFold = card.querySelector('.outer-fold');
+    outerFold.style.top = (root.cy - 14.2) + 'px';
+    const fold = box(outerFold);
+    const rootX = fold.left + fold.width / 2;
+    const rootY = root.cy + 13;
+    const childX = headers[0].left + headers[0].width / 2;
+    const scopeX = firstData.left - 16;
+    const scopeEnd = firstData.left - 5;
+    svg.replaceChildren();
+    const add = (commands, target, endX, endY, klass) => {
+      const path = document.createElementNS(NS, 'path');
+      path.setAttribute('d', commands);
+      if (klass) path.classList.add(klass);
+      if (target) {
+        path.dataset.target = 'inner-source';
+        path.dataset.targetY = target.cy;
+        path.dataset.textLeft = target.left;
+        path.dataset.endX = endX;
+        path.dataset.endY = endY;
+      }
+      svg.append(path);
+    };
+    const option = card.dataset.option;
+    if (option === 'E') {
+      add('M ' + rootX + ' ' + rootY + ' V ' + headers[1].cy + ' H ' + (headers[1].left - 7));
+      add('M ' + rootX + ' ' + headers[0].cy + ' H ' + (headers[0].left - 7));
+      inner.forEach((target, index) => {
+        const endX = target.left - 7;
+        add('M ' + childX + ' ' + (headers[index].cy + 12) + ' V ' + target.cy + ' H ' + endX,
+          target, endX, target.cy);
+      });
+    } else if (option === 'F') {
+      const last = inner[1], endX = last.left - 7;
+      add('M ' + rootX + ' ' + rootY + ' V ' + last.cy + ' H ' + endX,
+        last, endX, last.cy);
+      const first = inner[0], firstEnd = first.left - 7;
+      add('M ' + rootX + ' ' + first.cy + ' H ' + firstEnd,
+        first, firstEnd, first.cy);
+    } else {
+      add('M ' + rootX + ' ' + rootY + ' V ' + (lastRows[1].bottom + 16) + ' H ' + scopeEnd,
+        null, null, null, 'scope');
+      inner.forEach((target, index) => {
+        const endX = target.left - 7;
+        add('M ' + rootX + ' ' + target.cy + ' H ' + endX,
+          target, endX, target.cy);
+        add('M ' + scopeX + ' ' + target.cy + ' V ' + (lastRows[index].bottom + 5) + ' H ' + scopeEnd,
+          null, null, null, 'scope');
+      });
+    }
+  }
+};
+document.fonts.ready.then(window.drawGuides);
+window.addEventListener('resize', window.drawGuides);
+document.addEventListener('toggle', window.drawGuides, true);
+</script>
+</html>
