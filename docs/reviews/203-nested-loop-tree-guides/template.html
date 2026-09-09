@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Evalens · nested loop guide concepts A–D</title>
+<style>
+:root {
+  color-scheme: dark;
+  --vscode-panel-background: #181818;
+  --vscode-editor-foreground: #cccccc;
+  --vscode-descriptionForeground: #9d9d9d;
+  --vscode-panel-border: #2d2d2d;
+  --vscode-textLink-foreground: #4daafc;
+  --vscode-focusBorder: #007fd4;
+  --vscode-evalens-resultForeground: #d1a35c;
+  --vscode-evalens-outputLabelForeground: #5c7fa6;
+  --vscode-editor-rangeHighlightBackground: #ffffff0a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #101214; color: #e5e5e5;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 34px 36px 28px; }
+.masthead { display: flex; align-items: center; justify-content: space-between;
+  gap: 60px; margin-bottom: 28px; }
+.eyebrow { color: #a8adb0; font-size: 14px; letter-spacing: 2px; margin-bottom: 11px; }
+h1 { font-size: 36px; line-height: 1.13; font-weight: 600; letter-spacing: -.65px;
+  margin: 0 0 13px; }
+.lede { font-size: 21px; line-height: 1.4; color: #b9bec2; margin: 0; max-width: 1020px; }
+.source { margin: 0; flex: 0 0 405px; font: 18px/1.5 Menlo, Consolas, monospace;
+  color: #c7c7c7; background: #181818; border-left: 3px solid #494e51; padding: 12px 20px; }
+.options { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
+.option { border: 1px solid #35393c; background: #181818; min-width: 0; }
+.option-heading { display: flex; align-items: center; gap: 14px;
+  padding: 16px 20px; min-height: 64px; border-bottom: 1px solid #303437; }
+.letter { display: grid; place-items: center; width: 32px; height: 32px;
+  border: 1px solid #687077; font-size: 22px; font-weight: 600; color: #f0f0f0; }
+h2 { margin: 0; font-size: 25px; font-weight: 550; letter-spacing: -.25px; }
+.meaning { margin-left: auto; color: #989fa4; font-size: 15px; }
+.sample { position: relative; margin: 18px 20px 0; border-left: 4px solid #e6ad45;
+  padding: 10px 12px 14px 76px; font: 20px/1.42 Menlo, Consolas, monospace;
+  background: #181818; color: #cccccc; }
+.outer-fold { position: absolute; left: 28px; width: 24px; text-align: center;
+  color: #4daafc; line-height: 28.4px; pointer-events: none; }
+.caption { min-height: 76px; margin: 0; padding: 16px 22px 20px;
+  font-size: 19px; line-height: 1.42; color: #b9bec2; }
+.footer { margin-top: 26px; font-size: 20px; line-height: 1.4; color: #c6cbce; }
+.footer strong { font-weight: 600; color: #eeeeee; }
+.provenance { margin-top: 9px; font-size: 15px; color: #91999f; }
+__PRODUCTION_STYLE__
+/* Uniform presentation adjustments reserve guide space in every concept.
+   Column positions, data and folds are identical across A–D. */
+.loop-context { position: relative; top: auto; }
+.loop-invocation[data-loop-depth="1"] > .loop-source { margin-left: 34px; }
+.loop-export { margin-top: .5em; }
+.tree-guide { pointer-events: none; position: absolute; inset: 0; width: 100%;
+  height: 100%; overflow: visible; }
+.tree-guide path { fill: none; stroke: #737c82; stroke-width: 1.6;
+  stroke-linejoin: miter; stroke-linecap: butt; }
+[data-option="B"] .tree-guide path { stroke: #bd9351; stroke-width: 2; }
+[data-option="C"] .tree-guide path { stroke: #8a959c; stroke-width: 1.9;
+  stroke-dasharray: 1.5 5; stroke-linecap: round; }
+[data-option="D"] .tree-guide path { stroke: #8b969d; stroke-width: 1.6; }
+</style>
+<header class="masthead">
+  <div>
+    <div class="eyebrow">EVALENS · DESIGN CONCEPTS · NOT IMPLEMENTED</div>
+    <h1>Give nested loops a visible connection</h1>
+    <p class="lede">Follow the outer loop through Iteration 1 to its inner loop.<br>
+      Same code, values, folds, and columns. Only the guide changes.</p>
+  </div>
+  <pre class="source">__SOURCE__</pre>
+</header>
+<main class="options">
+__OPTIONS__
+</main>
+<footer class="footer">
+  <strong>Recommendation: A.</strong> Neutral elbows make both levels of ownership clear and leave orange for results.
+  <div class="provenance">All four show recorded execution ownership, not just source indentation. D shows only the expanded path. Choose a direction before implementation.</div>
+</footer>
+<script>
+window.drawGuides = function drawGuides() {
+  const NS = 'http://www.w3.org/2000/svg';
+  for (const card of document.querySelectorAll('.option')) {
+    const sample = card.querySelector('.sample');
+    const origin = sample.getBoundingClientRect();
+    const box = node => {
+      const rect = node.getBoundingClientRect();
+      return { left: rect.left - origin.left, top: rect.top - origin.top,
+        width: rect.width, height: rect.height, cy: rect.top + rect.height / 2 - origin.top };
+    };
+    const root = box(card.querySelector('.loop-root-source'));
+    const headers = [...card.querySelectorAll('.loop-iteration-header')];
+    const first = box(headers[0].querySelector('.loop-disclosure'));
+    const second = box(headers[1].querySelector('.loop-disclosure'));
+    const inner = box(card.querySelector('[data-loop-depth="1"] > .loop-source'));
+    const outerFold = card.querySelector('.outer-fold');
+    outerFold.style.top = (root.cy - 14.2) + 'px';
+    const fold = box(outerFold);
+    const rootX = fold.left + fold.width / 2;
+    const childX = first.left + first.width / 2;
+    const rootY = root.cy + 13;
+    const firstY = first.cy;
+    const secondY = second.cy;
+    const innerY = inner.cy;
+    const firstEnd = first.left - 7;
+    const secondEnd = second.left - 7;
+    const innerEnd = inner.left - 7;
+    const svg = card.querySelector('svg.tree-guide');
+    svg.replaceChildren();
+    const add = commands => {
+      const path = document.createElementNS(NS, 'path');
+      path.setAttribute('d', commands);
+      svg.append(path);
+    };
+    if (card.dataset.option === 'D') {
+      add('M ' + rootX + ' ' + rootY + ' V ' + firstY + ' H ' + firstEnd);
+    } else {
+      add('M ' + rootX + ' ' + rootY + ' V ' + secondY + ' H ' + secondEnd);
+      add('M ' + rootX + ' ' + firstY + ' H ' + firstEnd);
+    }
+    add('M ' + childX + ' ' + (firstY + 12) + ' V ' + innerY + ' H ' + innerEnd);
+  }
+};
+document.fonts.ready.then(window.drawGuides);
+window.addEventListener('resize', window.drawGuides);
+document.addEventListener('toggle', window.drawGuides, true);
+</script>
+</html>

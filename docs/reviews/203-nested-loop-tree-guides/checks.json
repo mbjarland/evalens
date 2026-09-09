@@ -1,0 +1,217 @@
+{
+  "kind": "unimplemented design concepts",
+  "rendererSource": "compiled production loopExplorerHtml and LOOP_EXPLORER_STYLE",
+  "fixture": "docs/reviews/196-marketplace-page-refresh/fixtures/nested-loops.py",
+  "fixtureSha256": "cb02a1dd045e8e202a2e3b84f0f4ad3ac51ce025339fc46a51060ffbbcfdd538",
+  "kernelRequests": 1,
+  "screenshot": {
+    "file": "comparison.png",
+    "sha256": "9cd3f6d60a86fcf3bc7dca0be3e3f5f1d5e738a0271c862f8491fcc13ea36555",
+    "width": 3920,
+    "height": 2956,
+    "deviceScaleFactor": 2
+  },
+  "checks": [
+    {
+      "option": "A",
+      "root": "for x in range(2) · 2 iterations",
+      "inner": "for y in range(3) · 3 iterations · line 2",
+      "sharedHeadings": 1,
+      "helpControls": 1,
+      "firstOpen": "true",
+      "secondOpen": "false",
+      "visibleTargets": [
+        "y = 0, v = 0",
+        "y = 1, v = 1",
+        "y = 2, v = 2"
+      ],
+      "visibleOutput": [
+        "0 0",
+        "0 1",
+        "0 2"
+      ],
+      "finalValues": "Final values after this loop: x = 1, y = 2, v = 3",
+      "guidePaths": 3,
+      "pathGeometry": [
+        "M 44 43.1953125 V 304.953125 H 73",
+        "M 44 123.78125 H 73",
+        "M 86.0234375 135.78125 V 157.6875 H 107"
+      ],
+      "headingLefts": [
+        87,
+        441
+      ],
+      "rows": [
+        [
+          87,
+          441
+        ],
+        [
+          87,
+          441
+        ],
+        [
+          87,
+          441
+        ]
+      ],
+      "sampleWidth": 889,
+      "sampleHeight": 407.96875,
+      "bodyWidth": 797,
+      "extraTimingRows": 0,
+      "visibleRepeatedLabels": 0,
+      "columnsWidth": 797
+    },
+    {
+      "option": "B",
+      "root": "for x in range(2) · 2 iterations",
+      "inner": "for y in range(3) · 3 iterations · line 2",
+      "sharedHeadings": 1,
+      "helpControls": 1,
+      "firstOpen": "true",
+      "secondOpen": "false",
+      "visibleTargets": [
+        "y = 0, v = 0",
+        "y = 1, v = 1",
+        "y = 2, v = 2"
+      ],
+      "visibleOutput": [
+        "0 0",
+        "0 1",
+        "0 2"
+      ],
+      "finalValues": "Final values after this loop: x = 1, y = 2, v = 3",
+      "guidePaths": 3,
+      "pathGeometry": [
+        "M 44 43.1953125 V 304.953125 H 73",
+        "M 44 123.78125 H 73",
+        "M 86.0234375 135.78125 V 157.6875 H 107"
+      ],
+      "headingLefts": [
+        87,
+        441
+      ],
+      "rows": [
+        [
+          87,
+          441
+        ],
+        [
+          87,
+          441
+        ],
+        [
+          87,
+          441
+        ]
+      ],
+      "sampleWidth": 889,
+      "sampleHeight": 407.96875,
+      "bodyWidth": 797,
+      "extraTimingRows": 0,
+      "visibleRepeatedLabels": 0,
+      "columnsWidth": 797
+    },
+    {
+      "option": "C",
+      "root": "for x in range(2) · 2 iterations",
+      "inner": "for y in range(3) · 3 iterations · line 2",
+      "sharedHeadings": 1,
+      "helpControls": 1,
+      "firstOpen": "true",
+      "secondOpen": "false",
+      "visibleTargets": [
+        "y = 0, v = 0",
+        "y = 1, v = 1",
+        "y = 2, v = 2"
+      ],
+      "visibleOutput": [
+        "0 0",
+        "0 1",
+        "0 2"
+      ],
+      "finalValues": "Final values after this loop: x = 1, y = 2, v = 3",
+      "guidePaths": 3,
+      "pathGeometry": [
+        "M 44 43.1953125 V 304.953125 H 73",
+        "M 44 123.78125 H 73",
+        "M 86.0234375 135.78125 V 157.6875 H 107"
+      ],
+      "headingLefts": [
+        87,
+        441
+      ],
+      "rows": [
+        [
+          87,
+          441
+        ],
+        [
+          87,
+          441
+        ],
+        [
+          87,
+          441
+        ]
+      ],
+      "sampleWidth": 889,
+      "sampleHeight": 407.96875,
+      "bodyWidth": 797,
+      "extraTimingRows": 0,
+      "visibleRepeatedLabels": 0,
+      "columnsWidth": 797
+    },
+    {
+      "option": "D",
+      "root": "for x in range(2) · 2 iterations",
+      "inner": "for y in range(3) · 3 iterations · line 2",
+      "sharedHeadings": 1,
+      "helpControls": 1,
+      "firstOpen": "true",
+      "secondOpen": "false",
+      "visibleTargets": [
+        "y = 0, v = 0",
+        "y = 1, v = 1",
+        "y = 2, v = 2"
+      ],
+      "visibleOutput": [
+        "0 0",
+        "0 1",
+        "0 2"
+      ],
+      "finalValues": "Final values after this loop: x = 1, y = 2, v = 3",
+      "guidePaths": 2,
+      "pathGeometry": [
+        "M 44 43.1953125 V 123.78125 H 73",
+        "M 86.0234375 135.78125 V 157.6875 H 107"
+      ],
+      "headingLefts": [
+        87,
+        441
+      ],
+      "rows": [
+        [
+          87,
+          441
+        ],
+        [
+          87,
+          441
+        ],
+        [
+          87,
+          441
+        ]
+      ],
+      "sampleWidth": 889,
+      "sampleHeight": 407.96875,
+      "bodyWidth": 797,
+      "extraTimingRows": 0,
+      "visibleRepeatedLabels": 0,
+      "columnsWidth": 797
+    }
+  ],
+  "browserErrors": [],
+  "limitations": "Concept HTML in headless Chrome; no native VS Code connection, runtime changes, user choice, or implementation acceptance."
+}
