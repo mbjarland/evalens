@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 — 2026-10-14
+
+- Read and write files beside the file you evaluate. A relative path such as
+  `open("data.txt")` now resolves from the evaluated file's own folder — the
+  way IDLE or `cd folder && python3 file.py` would — instead of the folder
+  VS Code was started from, which made a data file next to the script fail
+  with `FileNotFoundError`.
+
 ## 0.2.0 — 2026-09-09
 
 First stable release, following the 0.0.1 pre-release.

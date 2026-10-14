@@ -2,7 +2,7 @@
   "name": "evalens",
   "displayName": "Evalens — Inline Python Values",
   "description": "See what your Python produced, beside the code. Evaluate on demand, explore values and loops, and learn through guided exercises.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "mbjarland",
   "license": "MIT",
   "icon": "media/icon.png",
