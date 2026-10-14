@@ -237,6 +237,12 @@ Jupyter and IPython hit the identical wall for the identical reason. See
 `RunFileAsScript` in ``test_kernel.py`` for what is pinned instead of
 fixed.
 
+Every request naming a file on disk runs with that file's directory as the
+working directory, restored to the kernel's own afterwards, so
+``open("data.txt")`` finds the ``data.txt`` beside the file -- a load, a
+single evaluation and a script run alike, the way ``cd <dir> && python3
+<file>`` or IDLE's Run Module would. See ``_script_cwd`` and issue #209.
+
 ``outline`` answers with the same ranges and anchors for every top-level
 statement in a file, and runs none of them::
 
@@ -3105,6 +3111,61 @@ def _script_argv(filename: str, as_script: bool) -> Iterator[None]:
         sys.argv = previous
 
 
+@contextlib.contextmanager
+def _script_cwd(filename: str) -> Iterator[None]:
+    """Run with the file's own directory as the working directory.
+
+    Without this every relative path in the user's file resolves against
+    the directory the kernel inherited from the extension host -- ``/`` on
+    macOS when VS Code is launched from the Dock -- so ``open("file.txt")``
+    fails with ``file.txt`` sitting beside the file being evaluated (#209).
+    Nobody chose that directory, and user code observes it the first time
+    it opens a file: design rule 9's leak, the same shape as the kernel's
+    own directory on ``sys.path`` (#69).
+
+    The file's own directory, for loads and script runs alike, unlike
+    `_script_path`: where a file's data is does not depend on whether it is
+    being imported or run. ``python3 <file>`` never changes directory, so
+    what a script run imitates is precisely ``cd <dir> && python3 <file>``,
+    which is how a file is run from a terminal and what IDLE's Run Module
+    does (``idlelib/runscript.py`` calls ``os.chdir`` the same way).
+
+    ``None`` from `_script_directory` -- an unsaved buffer, whose name is a
+    title rather than a location -- leaves the directory alone, on the same
+    terms as the path entry.
+
+    Scoped to the request and restored after, on the same terms as
+    `_script_path`: a directory left behind by one request would make the
+    next unsaved buffer's relative paths depend on which file happened to
+    be evaluated before it. A user's own ``os.chdir`` lasts for the rest of
+    its request, as it would for the rest of a program, and is undone with
+    ours; the next request starts from its file's directory either way.
+    """
+    directory = _script_directory(filename)
+    if directory is None:
+        yield
+        return
+    try:
+        previous: Optional[str] = os.getcwd()
+    except OSError:
+        # The inherited directory was deleted under the kernel. There is
+        # nothing to go back to, and the file's directory is still better.
+        previous = None
+    try:
+        os.chdir(directory)
+    except OSError:
+        # Unreadable rather than missing; `_script_directory` saw it exist.
+        # Relative paths fail as they did before, and there is nothing to
+        # restore.
+        previous = None
+    try:
+        yield
+    finally:
+        if previous is not None:
+            with contextlib.suppress(OSError):
+                os.chdir(previous)
+
+
 def _is_main_guard(node: ast.stmt) -> bool:
     """Whether `node` is the canonical ``if __name__ == "__main__":`` guard.
 
@@ -3331,13 +3392,18 @@ class Kernel:
         `__file__` is the fifth thing Python sets and is deliberately not
         here; it is a promise about the namespace with its own consequences
         and its own ticket.
+
+        The working directory is not something Python sets at all, and is
+        here anyway, because the directory a file is run from is the one a
+        student's relative paths are written against: see `_script_cwd`.
         """
         self.namespace["__name__"] = (
             "__main__" if as_script else _module_name(filename))
         self.namespace["__package__"] = (
             None if as_script else _module_package(filename))
         with _script_path(filename, as_script), \
-                _script_argv(filename, as_script):
+                _script_argv(filename, as_script), \
+                _script_cwd(filename):
             yield
 
     # -- operations ---------------------------------------------------------
