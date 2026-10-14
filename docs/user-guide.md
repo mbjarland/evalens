@@ -633,6 +633,15 @@ the same relative import fails there with the same `ImportError` it would at
 a command line. Neither answer is a bug in the other's terms — they are two
 different real commands, faithfully imitated.
 
+**A relative file path is read from the evaluated file's own folder.**
+`open("data.txt")` finds the `data.txt` sitting beside the file — on a load, a
+single line, Evaluate Above, or a script run — the way running it from that
+folder in a terminal (`cd folder && python3 file.py`) or IDLE's Run Module
+would. Each evaluation moves there for its own duration and moves back
+afterwards, so an `os.chdir` in your code lasts until the end of that
+evaluation. An unsaved buffer has no folder yet, so its relative paths still
+resolve wherever VS Code was started from.
+
 Running as a script has one real limit worth knowing before you rely on it:
 `multiprocessing.Pool` and `concurrent.futures.ProcessPoolExecutor` send a
 worker a *reference* to the function to call, by looking it up on

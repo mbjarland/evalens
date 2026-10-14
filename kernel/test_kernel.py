@@ -1712,6 +1712,99 @@ class ImportPath(KernelTest):
         self.assertEqual(answer["value"], "True")
 
 
+class WorkingDirectory(KernelTest):
+    """Where the evaluated file's relative paths resolve (#209).
+
+    ``open("file.txt")`` with ``file.txt`` beside the file has to find it,
+    the way ``cd <dir> && python3 <file>`` or IDLE's Run Module would. The
+    kernel here is started from the test runner's directory, never the
+    temporary one the file lives in, which is the extension host's situation
+    exactly: before the fix every relative path resolved against a directory
+    nobody chose, ``/`` when VS Code is launched from the Dock.
+    """
+
+    def setUp(self):
+        super().setUp()
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        # Resolved, because on macOS the temporary directory is reached
+        # through a symlink and the kernel reports where the file really is.
+        self.dir = os.path.realpath(directory.name)
+        self.main = os.path.join(self.dir, "main.py")
+        with open(os.path.join(self.dir, "file.txt"), "w",
+                  encoding="utf-8") as handle:
+            handle.write("motor 3\n")
+        self.inherited = self.kernel_cwd()
+        self.assertNotEqual(self.inherited, repr(self.dir))
+
+    def kernel_cwd(self):
+        """The directory as seen from a source with no file on disk."""
+        return self.k.evaluate_lines("import os\nos.getcwd()\n", 0, 1)["value"]
+
+    def load(self, source, **extra):
+        extra.setdefault("filename", self.main)
+        return self.k.send(op="eval_file", source=source, **extra)
+
+    def test_a_load_reads_the_file_beside_it(self):
+        # The ticket's case, at its smallest: a student's exercise reading
+        # its data file by bare name failed with FileNotFoundError.
+        result = self.load(
+            "import os\nos.getcwd()\nopen('file.txt').read()\n")
+        self.assertEqual(result["ran"], 3, result["results"])
+        self.assertEqual(result["results"][1]["value"], repr(self.dir))
+        self.assertEqual(result["results"][2]["value"], repr("motor 3\n"))
+
+    def test_a_single_evaluation_reads_the_file_beside_it(self):
+        # Pressing a key on one line makes the same promise as loading the
+        # file it sits in, and the two go through different methods.
+        answer = self.k.evaluate(
+            "open('file.txt').read()\n", 0, filename=self.main)
+        self.assertEqual(answer["value"], repr("motor 3\n"))
+
+    def test_a_script_run_reads_the_file_beside_it(self):
+        # The file's own directory here too, unlike the import path, which
+        # differs between a load and a script run only inside a package.
+        result = self.load("open('file.txt').read()\n", as_script=True)
+        self.assertEqual(result["results"][0]["value"], repr("motor 3\n"))
+
+    def test_evaluate_above_reads_the_file_beside_it(self):
+        # The fourth way in, and the one most likely to read the data file
+        # a line further down is about to use.
+        result = self.k.send(
+            op="eval_above", source="text = open('file.txt').read()\ntext\n",
+            line=1, filename=self.main)
+        self.assertEqual(result["ran"], 1, result["results"])
+        answer = self.k.evaluate("text\n", 0, filename=self.main)
+        self.assertEqual(answer["value"], repr("motor 3\n"))
+
+    def test_a_relative_write_lands_beside_the_file(self):
+        # The worse half: a write from the inherited directory either fails
+        # or creates the file somewhere the student will never look.
+        self.assertTrue(self.load("open('out.txt', 'w').write('x')\n")["ok"])
+        self.assertTrue(os.path.exists(os.path.join(self.dir, "out.txt")))
+
+    def test_the_directory_is_the_kernels_own_between_requests(self):
+        # Otherwise an unsaved buffer's relative paths would depend on which
+        # file happened to be evaluated before it.
+        self.assertTrue(self.load("x = 1\n")["ok"])
+        self.assertEqual(self.kernel_cwd(), self.inherited)
+
+    def test_a_users_own_chdir_ends_with_its_request(self):
+        # It lasts for the rest of the request, as it would for the rest of
+        # a program, and the next request starts from its file's directory.
+        result = self.load("import os\nos.chdir('/')\nos.getcwd()\n")
+        self.assertEqual(result["results"][2]["value"], repr("/"))
+        self.assertEqual(self.kernel_cwd(), self.inherited)
+        result = self.load("import os\nos.getcwd()\n")
+        self.assertEqual(result["results"][1]["value"], repr(self.dir))
+
+    def test_a_source_with_no_file_keeps_the_kernels_directory(self):
+        # An unsaved buffer has a title, not a location, so there is no
+        # directory to move to -- the same terms as its import path.
+        result = self.load("import os\nos.getcwd()\n", filename="Untitled-1")
+        self.assertEqual(result["results"][1]["value"], self.inherited)
+
+
 class PackageContext(KernelTest):
     """``__package__`` and the ``sys.path`` a real package member needs.
 
