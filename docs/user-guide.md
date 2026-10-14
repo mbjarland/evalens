@@ -492,7 +492,7 @@ try **Evalens: Evaluate at Cursor** from the Command Palette and see
 menu, choose **Install from VSIX...**, and pick the file. From a terminal:
 
 ```bash
-code --install-extension evalens-0.2.0.vsix
+code --install-extension evalens-0.2.1.vsix
 ```
 
 **Building the `.vsix` yourself** — for anyone who already has Node and
@@ -501,7 +501,7 @@ wants the current source checkout:
 ```bash
 npm ci
 npm run package
-code --install-extension evalens-0.2.0.vsix
+code --install-extension evalens-0.2.1.vsix
 ```
 
 `npm run package` writes `evalens-<version>.vsix` into the
